@@ -3,8 +3,8 @@
 // found in the LICENSE file.
 
 cr.define('options.browser_options', function() {
-  const List = cr.ui.List;
-  const ListItem = cr.ui.ListItem;
+  const DeletableItemList = options.DeletableItemList;
+  const DeletableItem = options.DeletableItem;
 
   /**
    * Creates a new startup page list item.
@@ -29,11 +29,11 @@ cr.define('options.browser_options', function() {
   };
 
   StartupPageListItem.prototype = {
-    __proto__: ListItem.prototype,
+    __proto__: DeletableItem.prototype,
 
     /** @inheritDoc */
     decorate: function() {
-      ListItem.prototype.decorate.call(this);
+      DeletableItem.prototype.decorate.call(this);
 
       var titleEl = this.ownerDocument.createElement('span');
       titleEl.className = 'title';
@@ -43,18 +43,23 @@ cr.define('options.browser_options', function() {
                                           this.pageInfo_['url']);
       titleEl.title = this.pageInfo_['tooltip'];
 
-      this.appendChild(titleEl);
+      this.contentElement.appendChild(titleEl);
     },
   };
 
   var StartupPageList = cr.ui.define('list');
 
   StartupPageList.prototype = {
-    __proto__: List.prototype,
+    __proto__: DeletableItemList.prototype,
 
     /** @inheritDoc */
     createItem: function(pageInfo) {
       return new StartupPageListItem(pageInfo);
+    },
+
+    /** @inheritDoc */
+    deleteItemAtIndex: function(index) {
+      chrome.send('removeStartupPages', [String(index)]);
     },
   };
 

@@ -13,7 +13,6 @@
 #include "base/basictypes.h"
 #include "base/string16.h"
 #include "base/task.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/sync/glue/model_associator.h"
 #include "chrome/browser/sync/protocol/typed_url_specifics.pb.h"
@@ -74,24 +73,18 @@ class TypedUrlModelAssociator
   // than the permanent tagged nodes.
   virtual bool SyncModelHasUserCreatedNodes(bool* has_nodes);
 
-  virtual void AbortAssociation() {
-    // TODO(zork): Implement this.
-  }
+  virtual void AbortAssociation();
 
   // Not implemented.
-  virtual const std::string* GetChromeNodeFromSyncId(int64 sync_id) {
-    return NULL;
-  }
+  virtual const std::string* GetChromeNodeFromSyncId(int64 sync_id);
 
   // Not implemented.
-  virtual bool InitSyncNodeFromChromeId(std::string node_id,
-                                        sync_api::BaseNode* sync_node) {
-    return false;
-  }
+  virtual bool InitSyncNodeFromChromeId(const std::string& node_id,
+                                        sync_api::BaseNode* sync_node);
 
   // Returns the sync id for the given typed_url name, or sync_api::kInvalidId
   // if the typed_url name is not associated to any sync id.
-  virtual int64 GetSyncIdFromChromeId(std::string node_id);
+  virtual int64 GetSyncIdFromChromeId(const std::string& node_id);
 
   // Associates the given typed_url name with the given sync id.
   virtual void Associate(const std::string* node, int64 sync_id);

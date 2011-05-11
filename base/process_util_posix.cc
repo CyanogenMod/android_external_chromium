@@ -26,6 +26,7 @@
 #include "base/process_util.h"
 #include "base/scoped_ptr.h"
 #include "base/stringprintf.h"
+#include "base/thread_restrictions.h"
 #include "base/time.h"
 #include "base/waitable_event.h"
 
@@ -241,6 +242,8 @@ bool KillProcess(ProcessHandle process_id, int exit_code, bool wait) {
         sleep_ms *= 2;
     }
 
+    // If we're waiting and the child hasn't died by now, force it
+    // with a SIGKILL.
     if (!exited)
       result = kill(process_id, SIGKILL) == 0;
   }
@@ -558,6 +561,9 @@ bool LaunchAppImpl(
   } else {
     // Parent process
     if (wait) {
+      // While this isn't strictly disk IO, waiting for another process to
+      // finish is the sort of thing ThreadRestrictions is trying to prevent.
+      base::ThreadRestrictions::AssertIOAllowed();
       pid_t ret = HANDLE_EINTR(waitpid(pid, 0, 0));
       DPCHECK(ret > 0);
     }
@@ -635,40 +641,45 @@ void RaiseProcessToHighPriority() {
   // setpriority() or sched_getscheduler, but these all require extra rights.
 }
 
-bool DidProcessCrash(bool* child_exited, ProcessHandle handle) {
-  int status;
+TerminationStatus GetTerminationStatus(ProcessHandle handle, int* exit_code) {
+  int status = 0;
   const pid_t result = HANDLE_EINTR(waitpid(handle, &status, WNOHANG));
   if (result == -1) {
     PLOG(ERROR) << "waitpid(" << handle << ")";
-    if (child_exited)
-      *child_exited = false;
-    return false;
+    if (exit_code)
+      *exit_code = 0;
+    return TERMINATION_STATUS_NORMAL_TERMINATION;
   } else if (result == 0) {
     // the child hasn't exited yet.
-    if (child_exited)
-      *child_exited = false;
-    return false;
+    if (exit_code)
+      *exit_code = 0;
+    return TERMINATION_STATUS_STILL_RUNNING;
   }
 
-  if (child_exited)
-    *child_exited = true;
+  if (exit_code)
+    *exit_code = status;
 
   if (WIFSIGNALED(status)) {
     switch (WTERMSIG(status)) {
-      case SIGSEGV:
-      case SIGILL:
       case SIGABRT:
+      case SIGBUS:
       case SIGFPE:
-        return true;
+      case SIGILL:
+      case SIGSEGV:
+        return TERMINATION_STATUS_PROCESS_CRASHED;
+      case SIGINT:
+      case SIGKILL:
+      case SIGTERM:
+        return TERMINATION_STATUS_PROCESS_WAS_KILLED;
       default:
-        return false;
+        break;
     }
   }
 
-  if (WIFEXITED(status))
-    return WEXITSTATUS(status) != 0;
+  if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
+    return TERMINATION_STATUS_ABNORMAL_TERMINATION;
 
-  return false;
+  return TERMINATION_STATUS_NORMAL_TERMINATION;
 }
 
 bool WaitForExitCode(ProcessHandle handle, int* exit_code) {
@@ -753,6 +764,9 @@ int64 TimeValToMicroseconds(const struct timeval& tv) {
 static bool GetAppOutputInternal(const CommandLine& cl, char* const envp[],
                                  std::string* output, size_t max_output,
                                  bool do_search_path) {
+  // Doing a blocking wait for another command to finish counts as IO.
+  base::ThreadRestrictions::AssertIOAllowed();
+
   int pipe_fd[2];
   pid_t pid;
   InjectiveMultimap fd_shuffle1, fd_shuffle2;
@@ -868,7 +882,7 @@ bool GetAppOutputRestricted(const CommandLine& cl,
   return GetAppOutputInternal(cl, &empty_environ, output, max_output, false);
 }
 
-bool WaitForProcessesToExit(const std::wstring& executable_name,
+bool WaitForProcessesToExit(const FilePath::StringType& executable_name,
                             int64 wait_milliseconds,
                             const ProcessFilter* filter) {
   bool result = false;
@@ -890,7 +904,7 @@ bool WaitForProcessesToExit(const std::wstring& executable_name,
   return result;
 }
 
-bool CleanupProcesses(const std::wstring& executable_name,
+bool CleanupProcesses(const FilePath::StringType& executable_name,
                       int64 wait_milliseconds,
                       int exit_code,
                       const ProcessFilter* filter) {

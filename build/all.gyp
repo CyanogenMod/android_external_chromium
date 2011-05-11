@@ -33,7 +33,6 @@
         '../third_party/ffmpeg/ffmpeg.gyp:*',
         '../third_party/iccjpeg/iccjpeg.gyp:*',
         '../third_party/icu/icu.gyp:*',
-        '../third_party/libjpeg/libjpeg.gyp:*',
         '../third_party/libpng/libpng.gyp:*',
         '../third_party/libwebp/libwebp.gyp:*',
         '../third_party/libxml/libxml.gyp:*',
@@ -51,6 +50,7 @@
         '../webkit/webkit.gyp:*',
         'util/build_util.gyp:*',
         'temp_gyp/googleurl.gyp:*',
+        '<(libjpeg_gyp_path):*',
       ],
       'conditions': [
         ['javascript_engine=="v8"', {
@@ -197,7 +197,15 @@
            ],
         }],
       ],
-     }
+    },
+    {
+      'target_name': 'chromium_gpu_builder',
+      'type': 'none',
+      'dependencies': [
+        '../chrome/chrome.gyp:gpu_tests',
+        '../third_party/WebKit/WebKit/chromium/WebKit.gyp:DumpRenderTree',
+      ],
+    }
   ],
   'conditions': [
     ['OS=="mac"', {
@@ -296,6 +304,7 @@
             '../net/net.gyp:net_unittests',
             '../printing/printing.gyp:printing_unittests',
             '../remoting/remoting.gyp:remoting_unittests',
+            '../chrome/chrome.gyp:safe_browsing_tests',
             '../chrome/chrome.gyp:sync_unit_tests',
             '../chrome/chrome.gyp:unit_tests',
             '../chrome/chrome.gyp:ui_tests',
@@ -391,7 +400,6 @@
                 '../chrome/app/locales/locales.gyp:*',
                 '../chrome/chrome.gyp:crash_service',
                 '../chrome/chrome.gyp:page_cycler_tests',
-                '../chrome/chrome.gyp:policy_templates',
                 '../chrome/chrome.gyp:pyautolib',
                 '../chrome/chrome.gyp:reliability_tests',
                 '../chrome/chrome.gyp:startup_tests',

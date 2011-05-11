@@ -6,11 +6,11 @@
 
 #include "base/command_line.h"
 #include "base/file_path.h"
+#include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/path_service.h"
 #include "base/process_util.h"
-#include "base/singleton.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "chrome/app/breakpad_mac.h"
@@ -34,6 +34,8 @@
 namespace {
 
 typedef std::list<BrowserChildProcessHost*> ChildProcessList;
+static base::LazyInstance<ChildProcessList> g_child_process_list(
+    base::LINKER_INITIALIZED);
 
 // The NotificationTask is used to notify about plugin process connection/
 // disconnection. It is needed because the notifications in the
@@ -59,19 +61,43 @@ class ChildNotificationTask : public Task {
 
 
 BrowserChildProcessHost::BrowserChildProcessHost(
-    ProcessType type, ResourceDispatcherHost* resource_dispatcher_host)
-    : Receiver(type, -1),
+    ChildProcessInfo::ProcessType type,
+    ResourceDispatcherHost* resource_dispatcher_host,
+    ResourceMessageFilter::URLRequestContextOverride*
+        url_request_context_override)
+    : ChildProcessInfo(type, -1),
       ALLOW_THIS_IN_INITIALIZER_LIST(client_(this)),
       resource_dispatcher_host_(resource_dispatcher_host) {
-  Singleton<ChildProcessList>::get()->push_back(this);
+  Initialize(url_request_context_override);
 }
 
+BrowserChildProcessHost::BrowserChildProcessHost(
+    ChildProcessInfo::ProcessType type,
+    ResourceDispatcherHost* resource_dispatcher_host)
+    : ChildProcessInfo(type, -1),
+      ALLOW_THIS_IN_INITIALIZER_LIST(client_(this)),
+      resource_dispatcher_host_(resource_dispatcher_host) {
+  Initialize(NULL);
+}
+
+void BrowserChildProcessHost::Initialize(
+    ResourceMessageFilter::URLRequestContextOverride*
+        url_request_context_override) {
+  if (resource_dispatcher_host_) {
+    ResourceMessageFilter* resource_message_filter = new ResourceMessageFilter(
+        id(), type(), resource_dispatcher_host_);
+    if (url_request_context_override) {
+      resource_message_filter->set_url_request_context_override(
+        url_request_context_override);
+    }
+    AddFilter(resource_message_filter);
+  }
+
+  g_child_process_list.Get().push_back(this);
+}
 
 BrowserChildProcessHost::~BrowserChildProcessHost() {
-  Singleton<ChildProcessList>::get()->remove(this);
-
-  if (resource_dispatcher_host_)
-    resource_dispatcher_host_->CancelRequestsForProcess(id());
+  g_child_process_list.Get().remove(this);
 }
 
 // static
@@ -93,7 +119,7 @@ void BrowserChildProcessHost::SetCrashReporterCommandLine(
 // static
 void BrowserChildProcessHost::TerminateAll() {
   // Make a copy since the ChildProcessHost dtor mutates the original list.
-  ChildProcessList copy = *(Singleton<ChildProcessList>::get());
+  ChildProcessList copy = g_child_process_list.Get();
   STLDeleteElements(&copy);
 }
 
@@ -117,12 +143,16 @@ void BrowserChildProcessHost::Launch(
       &client_));
 }
 
-bool BrowserChildProcessHost::Send(IPC::Message* msg) {
-  return SendOnChannel(msg);
+base::ProcessHandle BrowserChildProcessHost::GetChildProcessHandle() const {
+  DCHECK(child_process_.get())
+      << "Requesting a child process handle before launching.";
+  DCHECK(child_process_->GetHandle())
+      << "Requesting a child process handle before launch has completed OK.";
+  return child_process_->GetHandle();
 }
 
 void BrowserChildProcessHost::ForceShutdown() {
-  Singleton<ChildProcessList>::get()->remove(this);
+  g_child_process_list.Get().remove(this);
   ChildProcessHost::ForceShutdown();
 }
 
@@ -131,18 +161,34 @@ void BrowserChildProcessHost::Notify(NotificationType type) {
       BrowserThread::UI, FROM_HERE, new ChildNotificationTask(type, this));
 }
 
-bool BrowserChildProcessHost::DidChildCrash() {
-  return child_process_->DidProcessCrash();
+base::TerminationStatus BrowserChildProcessHost::GetChildTerminationStatus(
+    int* exit_code) {
+  return child_process_->GetChildTerminationStatus(exit_code);
 }
 
 void BrowserChildProcessHost::OnChildDied() {
   if (handle() != base::kNullProcessHandle) {
-    bool did_crash = DidChildCrash();
-    if (did_crash) {
-      OnProcessCrashed();
-      // Report that this child process crashed.
-      Notify(NotificationType::CHILD_PROCESS_CRASHED);
-      UMA_HISTOGRAM_COUNTS("ChildProcess.Crashes", this->type());
+    int exit_code;
+    base::TerminationStatus status = GetChildTerminationStatus(&exit_code);
+    switch (status) {
+      case base::TERMINATION_STATUS_PROCESS_CRASHED: {
+        OnProcessCrashed(exit_code);
+
+        // Report that this child process crashed.
+        Notify(NotificationType::CHILD_PROCESS_CRASHED);
+        UMA_HISTOGRAM_COUNTS("ChildProcess.Crashes", this->type());
+        break;
+      }
+      case base::TERMINATION_STATUS_PROCESS_WAS_KILLED: {
+        OnProcessWasKilled(exit_code);
+
+        // Report that this child process was killed.
+        Notify(NotificationType::CHILD_PROCESS_WAS_KILLED);
+        UMA_HISTOGRAM_COUNTS("ChildProcess.Kills", this->type());
+        break;
+      }
+      default:
+        break;
     }
     // Notify in the main loop of the disconnection.
     Notify(NotificationType::CHILD_PROCESS_HOST_DISCONNECTED);
@@ -150,22 +196,10 @@ void BrowserChildProcessHost::OnChildDied() {
   ChildProcessHost::OnChildDied();
 }
 
-bool BrowserChildProcessHost::InterceptMessageFromChild(
-    const IPC::Message& msg) {
-  bool msg_is_ok = true;
-  bool handled = false;
-  if (resource_dispatcher_host_) {
-    handled = resource_dispatcher_host_->OnMessageReceived(
-        msg, this, &msg_is_ok);
-  }
-  if (!handled && (msg.type() == PluginProcessHostMsg_ShutdownRequest::ID)) {
-    // Must remove the process from the list now, in case it gets used for a
-    // new instance before our watcher tells us that the process terminated.
-    Singleton<ChildProcessList>::get()->remove(this);
-  }
-  if (!msg_is_ok)
-    base::KillProcess(handle(), ResultCodes::KILLED_BAD_MESSAGE, false);
-  return handled;
+void BrowserChildProcessHost::ShutdownStarted() {
+  // Must remove the process from the list now, in case it gets used for a
+  // new instance before our watcher tells us that the process terminated.
+  g_child_process_list.Get().remove(this);
 }
 
 BrowserChildProcessHost::ClientHook::ClientHook(BrowserChildProcessHost* host)
@@ -185,14 +219,14 @@ BrowserChildProcessHost::Iterator::Iterator()
     : all_(true), type_(UNKNOWN_PROCESS) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO)) <<
           "ChildProcessInfo::Iterator must be used on the IO thread.";
-  iterator_ = Singleton<ChildProcessList>::get()->begin();
+  iterator_ = g_child_process_list.Get().begin();
 }
 
-BrowserChildProcessHost::Iterator::Iterator(ProcessType type)
+BrowserChildProcessHost::Iterator::Iterator(ChildProcessInfo::ProcessType type)
     : all_(false), type_(type) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO)) <<
           "ChildProcessInfo::Iterator must be used on the IO thread.";
-  iterator_ = Singleton<ChildProcessList>::get()->begin();
+  iterator_ = g_child_process_list.Get().begin();
   if (!Done() && (*iterator_)->type() != type_)
     ++(*this);
 }
@@ -213,5 +247,5 @@ BrowserChildProcessHost* BrowserChildProcessHost::Iterator::operator++() {
 }
 
 bool BrowserChildProcessHost::Iterator::Done() {
-  return iterator_ == Singleton<ChildProcessList>::get()->end();
+  return iterator_ == g_child_process_list.Get().end();
 }

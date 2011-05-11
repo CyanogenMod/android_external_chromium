@@ -10,8 +10,8 @@
 #include "chrome/browser/debugger/devtools_manager.h"
 #include "chrome/browser/debugger/devtools_window.h"
 #include "chrome/browser/extensions/extension_host.h"
-#include "chrome/browser/extensions/extensions_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
@@ -189,7 +189,7 @@ class DevToolsExtensionDebugTest : public DevToolsSanityTest,
 
  private:
   bool LoadExtensionFromPath(const FilePath& path) {
-    ExtensionsService* service = browser()->profile()->GetExtensionsService();
+    ExtensionService* service = browser()->profile()->GetExtensionService();
     size_t num_before = service->extensions()->size();
     {
       NotificationRegistrar registrar;
@@ -273,9 +273,8 @@ IN_PROC_BROWSER_TEST_F(DevToolsSanityTest, MAYBE_TestEnableResourcesTab) {
 #define MAYBE_TestResourceContentLength TestResourceContentLength
 #endif  // defined(OS_LINUX)
 
-// Disabled because times out on builder: http://crbug.com/54592.
 // Tests profiler panel.
-IN_PROC_BROWSER_TEST_F(DevToolsSanityTest, DISABLED_TestProfilerTab) {
+IN_PROC_BROWSER_TEST_F(DevToolsSanityTest, TestProfilerTab) {
   RunTest("testProfilerTab", kJsPage);
 }
 

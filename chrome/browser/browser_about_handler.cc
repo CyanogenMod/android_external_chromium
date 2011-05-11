@@ -17,6 +17,7 @@
 #include "base/metrics/stats_table.h"
 #include "base/path_service.h"
 #include "base/platform_thread.h"
+#include "base/singleton.h"
 #include "base/stringprintf.h"
 #include "base/string_number_conversions.h"
 #include "base/string_piece.h"
@@ -36,8 +37,8 @@
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
-#include "chrome/browser/profile_manager.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/sync/profile_sync_service.h"
@@ -73,7 +74,7 @@
 #include "chrome/browser/chromeos/version_loader.h"
 #include "chrome/browser/zygote_host_linux.h"
 #elif defined(OS_MACOSX)
-#include "chrome/browser/cocoa/about_ipc_dialog.h"
+#include "chrome/browser/ui/cocoa/about_ipc_dialog.h"
 #elif defined(OS_LINUX)
 #include "chrome/browser/zygote_host_linux.h"
 #endif
@@ -88,9 +89,14 @@ using base::Time;
 using base::TimeDelta;
 
 #if defined(USE_TCMALLOC)
+// static
+AboutTcmallocOutputs* AboutTcmallocOutputs::GetInstance() {
+  return Singleton<AboutTcmallocOutputs>::get();
+}
+
 // Glue between the callback task and the method in the singleton.
 void AboutTcmallocRendererCallback(base::ProcessId pid, std::string output) {
-  Singleton<AboutTcmallocOutputs>::get()->RendererCallback(pid, output);
+  AboutTcmallocOutputs::GetInstance()->RendererCallback(pid, output);
 }
 #endif
 
@@ -155,7 +161,6 @@ const char *kAllAboutPaths[] = {
   kTermsPath,
   kVersionPath,
 #if defined(OS_LINUX)
-  kLinuxProxyConfigPath,
   kSandboxPath,
 #endif
 #if defined(OS_CHROMEOS)
@@ -274,6 +279,7 @@ std::string AboutAbout() {
         kAllAboutPaths[i] == kConflictsPath ||
 #endif
         kAllAboutPaths[i] == kFlagsPath ||
+        kAllAboutPaths[i] == kGpuPath ||
         kAllAboutPaths[i] == kNetInternalsPath ||
         kAllAboutPaths[i] == kPluginsPath) {
       html.append("<li><a href='chrome://");
@@ -364,7 +370,7 @@ class AboutDnsHandler : public base::RefCountedThreadSafe<AboutDnsHandler> {
 std::string AboutTcmalloc(const std::string& query) {
   std::string data;
   AboutTcmallocOutputsType* outputs =
-      Singleton<AboutTcmallocOutputs>::get()->outputs();
+      AboutTcmallocOutputs::GetInstance()->outputs();
 
   // Display any stats for which we sent off requests the last time.
   data.append("<html><head><title>About tcmalloc</title></head><body>\n");
@@ -392,7 +398,7 @@ std::string AboutTcmalloc(const std::string& query) {
   char buffer[1024 * 32];
   MallocExtension::instance()->GetStats(buffer, sizeof(buffer));
   std::string browser("Browser");
-  Singleton<AboutTcmallocOutputs>::get()->SetOutput(browser, buffer);
+  AboutTcmallocOutputs::GetInstance()->SetOutput(browser, buffer);
   RenderProcessHost::iterator it(RenderProcessHost::AllHostsIterator());
   while (!it.IsAtEnd()) {
     it.GetCurrentValue()->Send(new ViewMsg_GetRendererTcmalloc);
@@ -590,7 +596,7 @@ std::string AboutSandbox() {
   data.append(l10n_util::GetStringUTF8(IDS_ABOUT_SANDBOX_TITLE));
   data.append("</h1>");
 
-  const int status = Singleton<ZygoteHost>()->sandbox_status();
+  const int status = ZygoteHost::GetInstance()->sandbox_status();
 
   data.append("<table>");
 
@@ -715,110 +721,6 @@ std::string VersionNumberToString(uint32 value) {
   return base::IntToString(hi) + "." + base::IntToString(low);
 }
 
-namespace {
-
-#if defined(OS_WIN)
-
-// Output DxDiagNode tree as HTML tables and nested HTML unordered list
-// elements.
-void DxDiagNodeToHTML(std::string* output, const DxDiagNode& node) {
-  output->append("<table>\n");
-
-  for (std::map<std::string, std::string>::const_iterator it =
-           node.values.begin();
-       it != node.values.end();
-       ++it) {
-     output->append("<tr><td><strong>");
-     output->append(EscapeForHTML(it->first));
-     output->append("</strong></td><td>");
-     output->append(EscapeForHTML(it->second));
-     output->append("</td></tr>\n");
-  }
-
-  output->append("</table>\n<ul>\n");
-
-  for (std::map<std::string, DxDiagNode>::const_iterator it =
-           node.children.begin();
-       it != node.children.end();
-       ++it) {
-     output->append("<li><strong>");
-     output->append(EscapeForHTML(it->first));
-     output->append("</strong>");
-
-     DxDiagNodeToHTML(output, it->second);
-
-     output->append("</li>\n");
-  }
-
-  output->append("</ul>\n");
-}
-
-#endif  // OS_WIN
-
-}
-
-std::string AboutGpu() {
-  const GPUInfo& gpu_info = GpuProcessHostUIShim::Get()->gpu_info();
-
-  std::string html;
-
-  html.append("<html><head><title>About GPU</title></head>\n");
-
-  if (gpu_info.progress() != GPUInfo::kComplete) {
-    GpuProcessHostUIShim::Get()->CollectGraphicsInfoAsynchronously();
-
-    // If it's not fully initialized yet, set a timeout to reload the page.
-    html.append("<body onload=\"setTimeout('window.location.reload(true)',");
-    html.append("2000)\">\n");
-  } else {
-    html.append("<body>\n");
-  }
-
-  html.append("<h2>GPU Information</h2>\n");
-
-  if (gpu_info.progress() == GPUInfo::kUninitialized) {
-    html.append("<p>Retrieving GPU information . . .</p>\n");
-  } else {
-    html.append("<table><tr>");
-    html.append("<td><strong>Initialization time</strong></td><td>");
-    html.append(base::Int64ToString(
-        gpu_info.initialization_time().InMilliseconds()));
-    html.append("</td></tr><tr><td>");
-    html.append("<strong>Vendor ID</strong></td><td>");
-    html.append(base::StringPrintf("0x%04x", gpu_info.vendor_id()));
-    html.append("</td></tr><tr><td>");
-    html.append("<strong>Device ID</strong></td><td>");
-    html.append(base::StringPrintf("0x%04x", gpu_info.device_id()));
-    html.append("</td></tr><tr><td>");
-    html.append("<strong>Driver Version</strong></td><td>");
-    html.append(WideToASCII(gpu_info.driver_version()).c_str());
-    html.append("</td></tr><tr><td>");
-    html.append("<strong>Pixel Shader Version</strong></td><td>");
-    html.append(VersionNumberToString(gpu_info.pixel_shader_version()).c_str());
-    html.append("</td></tr><tr><td>");
-    html.append("<strong>Vertex Shader Version</strong></td><td>");
-    html.append(VersionNumberToString(
-        gpu_info.vertex_shader_version()).c_str());
-    html.append("</td></tr><tr><td>");
-    html.append("<strong>GL Version</strong></td><td>");
-    html.append(VersionNumberToString(gpu_info.gl_version()).c_str());
-    html.append("</td></tr></table>");
-
-#if defined(OS_WIN)
-    if (gpu_info.progress() != GPUInfo::kComplete) {
-      html.append("<p>Retrieving DirectX Diagnostics . . .</p>\n");
-    } else {
-      html.append("<h2>DirectX Diagnostics</h2>");
-      DxDiagNodeToHTML(&html, gpu_info.dx_diagnostics());
-    }
-#endif
-  }
-
-  html.append("</body></html>");
-
-  return html;
-}
-
 // AboutSource -----------------------------------------------------------------
 
 AboutSource::AboutSource()
@@ -831,7 +733,7 @@ AboutSource::AboutSource()
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
-          Singleton<ChromeURLDataManager>::get(),
+          ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(this)));
 }
@@ -903,8 +805,6 @@ void AboutSource::StartDataRequest(const std::string& path_raw,
 #endif
   } else if (path == kSyncPath) {
     response = AboutSync();
-  } else if (path == kGpuPath) {
-    response = AboutGpu();
   }
 
   FinishDataRequest(response, request_id);
@@ -936,7 +836,7 @@ void AboutMemoryHandler::BindProcessMetrics(DictionaryValue* data,
   data->SetInteger("comm_map", static_cast<int>(info->committed.mapped));
   data->SetInteger("comm_image", static_cast<int>(info->committed.image));
   data->SetInteger("pid", info->pid);
-  data->SetString("version", WideToUTF16Hack(info->version));
+  data->SetString("version", info->version);
   data->SetInteger("processes", info->num_processes);
 }
 
@@ -958,7 +858,7 @@ void AboutMemoryHandler::AppendProcess(ListValue* child_data,
   ListValue* titles = new ListValue();
   child->Set("titles", titles);
   for (size_t i = 0; i < info->titles.size(); ++i)
-    titles->Append(new StringValue(WideToUTF16Hack(info->titles[i])));
+    titles->Append(new StringValue(info->titles[i]));
 }
 
 
@@ -997,15 +897,14 @@ void AboutMemoryHandler::OnDetailsAvailable() {
     }
     DictionaryValue* browser_data = new DictionaryValue();
     browsers->Append(browser_data);
-    browser_data->SetString("name",
-                            WideToUTF16Hack(browser_processes[index].name));
+    browser_data->SetString("name", browser_processes[index].name);
 
     BindProcessMetrics(browser_data, &aggregate);
 
     // We log memory info as we record it.
     if (log_string.length() > 0)
       log_string.append(L", ");
-    log_string.append(browser_processes[index].name);
+    log_string.append(UTF16ToWide(browser_processes[index].name));
     log_string.append(L", ");
     log_string.append(UTF8ToWide(
         base::Int64ToString(aggregate.working_set.priv)));
@@ -1026,7 +925,7 @@ void AboutMemoryHandler::OnDetailsAvailable() {
   root.Set("child_data", child_data);
 
   ProcessData process = browser_processes[0];  // Chrome is the first browser.
-  root.SetString("current_browser_name", WideToUTF16Hack(process.name));
+  root.SetString("current_browser_name", process.name);
 
   for (size_t index = 0; index < process.processes.size(); index++) {
     if (process.processes[index].type == ChildProcessInfo::BROWSER_PROCESS)
@@ -1138,6 +1037,12 @@ bool WillHandleBrowserAboutURL(GURL* url, Profile* profile) {
     return true;
   }
 
+  // Rewrite about:gpu/* URLs to chrome://gpu-internals/*
+  if (StartsWithAboutSpecifier(*url, chrome::kAboutGpuURL)) {
+    *url = RemapAboutURL(chrome::kGpuInternalsURL, *url);
+    return true;
+  }
+
   // Rewrite about:appcache-internals/* URLs to chrome://appcache/*
   if (StartsWithAboutSpecifier(*url, chrome::kAboutAppCacheInternalsURL)) {
     *url = RemapAboutURL(chrome::kAppCacheViewInternalsURL, *url);
@@ -1160,11 +1065,11 @@ bool WillHandleBrowserAboutURL(GURL* url, Profile* profile) {
 
   // Handle URLs to wreck the gpu process.
   if (LowerCaseEqualsASCII(url->spec(), chrome::kAboutGpuCrashURL)) {
-    GpuProcessHostUIShim::Get()->SendAboutGpuCrash();
+    GpuProcessHostUIShim::GetInstance()->SendAboutGpuCrash();
     return true;
   }
   if (LowerCaseEqualsASCII(url->spec(), chrome::kAboutGpuHangURL)) {
-    GpuProcessHostUIShim::Get()->SendAboutGpuHang();
+    GpuProcessHostUIShim::GetInstance()->SendAboutGpuHang();
     return true;
   }
 

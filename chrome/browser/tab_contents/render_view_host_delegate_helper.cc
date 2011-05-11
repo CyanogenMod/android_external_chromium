@@ -4,14 +4,16 @@
 
 #include "chrome/browser/tab_contents/render_view_host_delegate_helper.h"
 
+#include <string>
+
 #include "base/command_line.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/background_contents_service.h"
 #include "chrome/browser/character_encoding.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_widget_fullscreen_host.h"
@@ -23,7 +25,6 @@
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/user_style_sheet_watcher.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 
 RenderViewHostDelegateViewHelper::RenderViewHostDelegateViewHelper() {}
@@ -37,7 +38,7 @@ RenderViewHostDelegateViewHelper::MaybeCreateBackgroundContents(
     SiteInstance* site,
     const GURL& opener_url,
     const string16& frame_name) {
-  ExtensionsService* extensions_service = profile->GetExtensionsService();
+  ExtensionService* extensions_service = profile->GetExtensionService();
 
   if (!opener_url.is_valid() ||
       frame_name.empty() ||
@@ -197,19 +198,19 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
   WebPreferences web_prefs;
 
   web_prefs.fixed_font_family =
-      UTF8ToWide(prefs->GetString(prefs::kWebKitFixedFontFamily));
+      UTF8ToUTF16(prefs->GetString(prefs::kWebKitFixedFontFamily));
   web_prefs.serif_font_family =
-      UTF8ToWide(prefs->GetString(prefs::kWebKitSerifFontFamily));
+      UTF8ToUTF16(prefs->GetString(prefs::kWebKitSerifFontFamily));
   web_prefs.sans_serif_font_family =
-      UTF8ToWide(prefs->GetString(prefs::kWebKitSansSerifFontFamily));
+      UTF8ToUTF16(prefs->GetString(prefs::kWebKitSansSerifFontFamily));
   if (prefs->GetBoolean(prefs::kWebKitStandardFontIsSerif))
     web_prefs.standard_font_family = web_prefs.serif_font_family;
   else
     web_prefs.standard_font_family = web_prefs.sans_serif_font_family;
   web_prefs.cursive_font_family =
-      UTF8ToWide(prefs->GetString(prefs::kWebKitCursiveFontFamily));
+      UTF8ToUTF16(prefs->GetString(prefs::kWebKitCursiveFontFamily));
   web_prefs.fantasy_font_family =
-      UTF8ToWide(prefs->GetString(prefs::kWebKitFantasyFontFamily));
+      UTF8ToUTF16(prefs->GetString(prefs::kWebKitFantasyFontFamily));
 
   web_prefs.default_font_size =
       prefs->GetInteger(prefs::kWebKitDefaultFontSize);

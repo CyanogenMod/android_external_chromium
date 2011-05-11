@@ -1,4 +1,5 @@
-<html>
+<!DOCTYPE HTML>
+<head i18n-values="dir:textdirection;">
 <!--
 Copyright (c) 2010 The Chromium Authors. All rights reserved.
 Use of this source code is governed by a BSD-style license that can be
@@ -6,6 +7,7 @@ found in the LICENSE file.
 -->
   <head>
     <link rel="stylesheet" href="main.css">
+    <link rel="stylesheet" href="tabswitcherview.css">
     <script src="util.js"></script>
     <script src="view.js"></script>
     <script src="tabswitcherview.js"></script>
@@ -219,7 +221,7 @@ found in the LICENSE file.
         <b>Capturing all events...</b>
         <table style="margin: 8px">
           <tr>
-            <td>Pasively captured:</td>
+            <td>Passively captured:</td>
             <td align=right id=passivelyCapturedCount></td>
           </tr>
           <tr>
@@ -276,7 +278,7 @@ function displayHelpForBugDump() {
 <li>If you choose not to have cookies removed from the log, you must toggle
   the checkbox before clicking the button.</li>
 </ul>
-<li>Ideally you would have the tool running <b>before</b> you reproduce the 
+<li>Ideally you would have the tool running <b>before</b> you reproduce the
   bug.
   If that isn't possible (perhaps the bug happens unpredictably), then the
   next best thing is to load chrome://net-internals/ <b>as soon as you can

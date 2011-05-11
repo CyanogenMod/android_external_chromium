@@ -9,7 +9,6 @@
 #include "base/stl_util-inl.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/password_manager/password_store.h"
-#include "chrome/browser/profile.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/protocol/password_specifics.pb.h"
@@ -199,13 +198,24 @@ void PasswordModelAssociator::AbortAssociation() {
   abort_association_pending_ = true;
 }
 
+const std::string* PasswordModelAssociator::GetChromeNodeFromSyncId(
+    int64 sync_id) {
+  return NULL;
+}
+
+bool PasswordModelAssociator::InitSyncNodeFromChromeId(
+    const std::string& node_id,
+    sync_api::BaseNode* sync_node) {
+  return false;
+}
+
 bool PasswordModelAssociator::IsAbortPending() {
   AutoLock lock(abort_association_pending_lock_);
   return abort_association_pending_;
 }
 
 int64 PasswordModelAssociator::GetSyncIdFromChromeId(
-    const std::string password) {
+    const std::string& password) {
   PasswordToSyncIdMap::const_iterator iter = id_map_.find(password);
   return iter == id_map_.end() ? sync_api::kInvalidId : iter->second;
 }

@@ -69,11 +69,9 @@ class HttpStreamRequest : public StreamRequest {
                                          const string16& password);
   virtual LoadState GetLoadState() const;
 
-  virtual bool was_alternate_protocol_available() const {
-      return was_alternate_protocol_available_;
-  }
-  virtual bool was_npn_negotiated() const { return was_npn_negotiated_; }
-  virtual bool using_spdy() const { return using_spdy_; }
+  virtual bool was_alternate_protocol_available() const;
+  virtual bool was_npn_negotiated() const;
+  virtual bool using_spdy() const;
 
  private:
   enum AlternateProtocolMode {
@@ -109,6 +107,8 @@ class HttpStreamRequest : public StreamRequest {
   void OnNeedsProxyAuthCallback(const HttpResponseInfo& response_info,
                                 HttpAuthController* auth_controller);
   void OnNeedsClientAuthCallback(SSLCertRequestInfo* cert_info);
+  void OnHttpsProxyTunnelResponseCallback(const HttpResponseInfo& response_info,
+                                          HttpStream* stream);
   void OnPreconnectsComplete(int result);
 
   void OnIOComplete(int result);
@@ -171,6 +171,11 @@ class HttpStreamRequest : public StreamRequest {
 
   // Called to handle a client certificate request.
   int HandleCertificateRequest(int error);
+
+  // Called to possibly recover from an SSL handshake error.  Sets next_state_
+  // and returns OK if recovering from the error.  Otherwise, the same error
+  // code is returned.
+  int HandleSSLHandshakeError(int error);
 
   // Moves this stream request into SPDY mode.
   void SwitchToSpdyMode();

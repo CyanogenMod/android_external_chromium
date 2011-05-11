@@ -2,6 +2,11 @@
   <h1 i18n-content="accountsPage"></h1>
   <section>
     <div class="option">
+      <div id="ownerOnlyWarning" class="hidden">
+        <span id="warningIcon"></span>
+        <span i18n-content="owner_only"></span>
+        <span i18n-content="owner_user_id"></span>
+      </div>
       <table class="option-control-table">
       <tr>
         <td class="option-name">
@@ -24,9 +29,9 @@
       <tr>
         <td class="option-name">
           <label class="checkbox">
-            <input id="allowGuestCheck" pref="cros.accounts.allowGuest"
-                 type="checkbox">
-            <span i18n-content="allow_guest"></span>
+            <input id="useWhitelistCheck" pref="cros.accounts.allowGuest"
+                 type="checkbox" inverted_pref>
+            <span i18n-content="use_whitelist"></span>
           </label>
         </td>
       </tr>

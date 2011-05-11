@@ -10,23 +10,27 @@
 
 class GURL;
 
+namespace net {
+
 // A URLRequestJob that will redirect the request to the specified
 // URL.  This is useful to restart a request at a different URL based
 // on the result of another job.
 class URLRequestRedirectJob : public URLRequestJob {
  public:
   // Constructs a job that redirects to the specified URL.
-  URLRequestRedirectJob(net::URLRequest* request, GURL redirect_destination);
+  URLRequestRedirectJob(URLRequest* request, GURL redirect_destination);
 
   virtual void Start();
-  bool IsRedirectResponse(GURL* location, int* http_status_code);
+  virtual bool IsRedirectResponse(GURL* location, int* http_status_code);
 
  private:
-  ~URLRequestRedirectJob() {}
+  virtual ~URLRequestRedirectJob();
 
   void StartAsync();
 
   GURL redirect_destination_;
 };
+
+}  // namespace net
 
 #endif  // NET_URL_REQUEST_URL_REQUEST_REDIRECT_JOB_H_

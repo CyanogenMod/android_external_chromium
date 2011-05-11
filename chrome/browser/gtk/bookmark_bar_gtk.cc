@@ -34,7 +34,7 @@
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/ntp_background_util.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
@@ -86,6 +86,7 @@ const double kTopBorderColor[] =
 const int kDestTargetList[] = { gtk_dnd_util::CHROME_BOOKMARK_ITEM,
                                 gtk_dnd_util::CHROME_NAMED_URL,
                                 gtk_dnd_util::TEXT_URI_LIST,
+                                gtk_dnd_util::NETSCAPE_URL,
                                 gtk_dnd_util::TEXT_PLAIN, -1 };
 
 // Acceptable drag actions for the bookmark bar drag destinations.
@@ -1267,6 +1268,12 @@ void BookmarkBarGtk::OnDragReceived(GtkWidget* widget,
 
     case gtk_dnd_util::TEXT_URI_LIST: {
       dnd_success = bookmark_utils::CreateNewBookmarksFromURIList(
+          selection_data, model_, dest_node, index);
+      break;
+    }
+
+    case gtk_dnd_util::NETSCAPE_URL: {
+      dnd_success = bookmark_utils::CreateNewBookmarkFromNetscapeURL(
           selection_data, model_, dest_node, index);
       break;
     }

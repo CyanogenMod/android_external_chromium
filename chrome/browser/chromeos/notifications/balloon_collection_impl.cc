@@ -12,7 +12,7 @@
 #include "chrome/browser/chromeos/notifications/notification_panel.h"
 #include "chrome/browser/notifications/balloon.h"
 #include "chrome/browser/notifications/notification.h"
-#include "chrome/browser/window_sizer.h"
+#include "chrome/browser/ui/window_sizer.h"
 #include "chrome/common/notification_service.h"
 #include "gfx/rect.h"
 #include "gfx/size.h"
@@ -138,12 +138,12 @@ void BalloonCollectionImpl::Observe(NotificationType type,
                                     const NotificationDetails& details) {
   DCHECK(type == NotificationType::BROWSER_CLOSED);
   bool app_closing = *Details<bool>(details).ptr();
-  // When exitting, we need to shutdown all renderers in
+  // When exiting, we need to shutdown all renderers in
   // BalloonViewImpl before IO thread gets deleted in the
   // BrowserProcessImpl's destructor.  See http://crbug.com/40810
   // for details.
   if (app_closing)
-    Shutdown();
+    RemoveAll();
 }
 
 void BalloonCollectionImpl::Shutdown() {

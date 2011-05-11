@@ -9,7 +9,7 @@
 #include "base/logging.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_id.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/syncable/syncable.h"
@@ -99,13 +99,19 @@ bool SessionModelAssociator::GetSyncIdForTaggedNode(const std::string* tag,
   return true;
 }
 
-int64 SessionModelAssociator::GetSyncIdFromChromeId(std::string id) {
+int64 SessionModelAssociator::GetSyncIdFromChromeId(const std::string& id) {
   sync_api::ReadTransaction trans(
       sync_service_->backend()->GetUserShareHandle());
   sync_api::ReadNode node(&trans);
   if (!node.InitByClientTagLookup(syncable::SESSIONS, id))
     return sync_api::kInvalidId;
   return node.GetId();
+}
+
+bool SessionModelAssociator::InitSyncNodeFromChromeId(
+    const std::string& id,
+    sync_api::BaseNode* sync_node) {
+  return false;
 }
 
 bool SessionModelAssociator::SyncModelHasUserCreatedNodes(bool* has_nodes) {

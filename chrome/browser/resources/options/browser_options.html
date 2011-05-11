@@ -1,4 +1,4 @@
-<div class="page hidden" id="browserPage">
+<div id="browserPage" class="page hidden">
   <h1 i18n-content="browserPage"></h1>
   <section id="startupSection">
     <h3 i18n-content="startupGroupName"></h3>
@@ -14,19 +14,16 @@
       <label class="radio"><input type="radio" name="startup" id="startupShowPagesButton"
           pref="session.restore_on_startup" value="4"
           metric="Options_Startup_Custom">
-          <span i18n-content="startupShowPages"></span></label>
+          <span id="startupShowPagesLabel"
+              i18n-content="startupShowPages"></span></label>
       <div class="suboption">
-        <div class="left-side-table">
+        <div id="startupPageManagement" class="settings-list">
+          <list id="startupPagesShortList"></list>
           <div>
-            <list id="startupPages"></list>
-          </div>
-          <div>
-            <div><button id="startupAddButton"
-                i18n-content="startupAddButton"></button></div>
-            <div><button id="startupRemoveButton"
-                i18n-content="startupRemoveButton"></button></div>
-            <div><button id="startupUseCurrentButton"
-                i18n-content="startupUseCurrent"></button></div>
+            <button id="startupPageManagerButton"
+                i18n-content="startupManagePages"></button>
+            <button id="startupUseCurrentButton"
+                i18n-content="startupUseCurrent"></button>
           </div>
         </div>
       </div>
@@ -72,7 +69,7 @@
               onchange="BrowserOptions.getInstance().setDefaultSearchEngine()">
           </select>
           <button id="defaultSearchManageEnginesButton"
-              i18n-content="defaultSearchManageEnginesLink"></button>
+              i18n-content="defaultSearchManageEngines"></button>
         </div>
         <label class="checkbox" id="instantOption">
           <!-- TODO(estade): metric? -->

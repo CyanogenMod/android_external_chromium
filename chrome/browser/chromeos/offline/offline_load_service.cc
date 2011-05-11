@@ -4,13 +4,14 @@
 
 #include "chrome/browser/chromeos/offline/offline_load_service.h"
 
+#include "base/lazy_instance.h"
 #include "base/ref_counted.h"
-#include "base/singleton.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_util.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/notification_details.h"
+#include "chrome/common/notification_source.h"
 
 namespace chromeos {
 
@@ -24,7 +25,7 @@ class OfflineLoadServiceSingleton {
   }
 
  private:
-  friend struct DefaultSingletonTraits<OfflineLoadServiceSingleton>;
+  friend struct base::DefaultLazyInstanceTraits<OfflineLoadServiceSingleton>;
   OfflineLoadServiceSingleton()
       : offline_load_service_(new chromeos::OfflineLoadService()) {}
   virtual ~OfflineLoadServiceSingleton() {}
@@ -34,9 +35,12 @@ class OfflineLoadServiceSingleton {
   DISALLOW_COPY_AND_ASSIGN(OfflineLoadServiceSingleton);
 };
 
+static base::LazyInstance<OfflineLoadServiceSingleton>
+    g_offline_load_service_singleton(base::LINKER_INITIALIZED);
+
 // static
 OfflineLoadService* OfflineLoadService::Get() {
-  return Singleton<OfflineLoadServiceSingleton>::get()->offline_load_service();
+  return g_offline_load_service_singleton.Get().offline_load_service();
 }
 
 void OfflineLoadService::Observe(NotificationType type,

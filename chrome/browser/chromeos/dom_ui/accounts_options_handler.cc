@@ -17,7 +17,7 @@
 namespace chromeos {
 
 AccountsOptionsHandler::AccountsOptionsHandler()
-    : CrosOptionsPageUIHandler(new UserCrosSettingsProvider()) {
+    : CrosOptionsPageUIHandler(new UserCrosSettingsProvider) {
 }
 
 AccountsOptionsHandler::~AccountsOptionsHandler() {
@@ -43,8 +43,8 @@ void AccountsOptionsHandler::GetLocalizedValues(
 
   localized_strings->SetString("allow_BWSI", l10n_util::GetStringUTF16(
       IDS_OPTIONS_ACCOUNTS_ALLOW_BWSI_DESCRIPTION));
-  localized_strings->SetString("allow_guest",l10n_util::GetStringUTF16(
-      IDS_OPTIONS_ACCOUNTS_ALLOW_GUEST_DESCRIPTION));
+  localized_strings->SetString("use_whitelist",l10n_util::GetStringUTF16(
+      IDS_OPTIONS_ACCOUNTS_USE_WHITELIST_DESCRIPTION));
   localized_strings->SetString("show_user_on_signin",l10n_util::GetStringUTF16(
       IDS_OPTIONS_ACCOUNTS_SHOW_USER_NAMES_ON_SINGIN_DESCRIPTION));
   localized_strings->SetString("username_edit_hint",l10n_util::GetStringUTF16(
@@ -53,6 +53,10 @@ void AccountsOptionsHandler::GetLocalizedValues(
       IDS_OPTIONS_ACCOUNTS_USERNAME_FORMAT));
   localized_strings->SetString("add_users",l10n_util::GetStringUTF16(
       IDS_OPTIONS_ACCOUNTS_ADD_USERS));
+  localized_strings->SetString("owner_only", l10n_util::GetStringUTF16(
+      IDS_OPTIONS_ACCOUNTS_OWNER_ONLY));
+  localized_strings->SetString("owner_user_id", UTF8ToUTF16(
+      UserCrosSettingsProvider::cached_owner()));
 
   localized_strings->SetString("current_user_is_owner",
       UserManager::Get()->current_user_is_owner() ?

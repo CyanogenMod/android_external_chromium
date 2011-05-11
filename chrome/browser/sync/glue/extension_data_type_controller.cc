@@ -8,7 +8,7 @@
 #include "base/metrics/histogram.h"
 #include "base/time.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_factory.h"
 #include "chrome/browser/sync/unrecoverable_error_handler.h"
@@ -82,6 +82,27 @@ void ExtensionDataTypeController::Stop() {
   start_callback_.reset();
 
   state_ = NOT_RUNNING;
+}
+
+bool ExtensionDataTypeController::enabled() {
+  return true;
+}
+
+syncable::ModelType ExtensionDataTypeController::type() {
+  return syncable::EXTENSIONS;
+}
+
+browser_sync::ModelSafeGroup ExtensionDataTypeController::model_safe_group() {
+  return browser_sync::GROUP_UI;
+}
+
+const char* ExtensionDataTypeController::name() const {
+  // For logging only.
+  return "extension";
+}
+
+DataTypeController::State ExtensionDataTypeController::state() {
+  return state_;
 }
 
 void ExtensionDataTypeController::OnUnrecoverableError(

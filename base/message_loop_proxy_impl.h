@@ -18,7 +18,7 @@ namespace base {
 class MessageLoopProxyImpl : public MessageLoopProxy,
                              public MessageLoop::DestructionObserver {
  public:
-  ~MessageLoopProxyImpl();
+  virtual ~MessageLoopProxyImpl();
 
   // MessageLoopProxy implementation
   virtual bool PostTask(const tracked_objects::Location& from_here,
@@ -33,8 +33,8 @@ class MessageLoopProxyImpl : public MessageLoopProxy,
       int64 delay_ms);
   virtual bool BelongsToCurrentThread();
 
-// MessageLoop::DestructionObserver implementation
-  void WillDestroyCurrentMessageLoop();
+  // MessageLoop::DestructionObserver implementation
+  virtual void WillDestroyCurrentMessageLoop();
 
  protected:
   // Override OnDestruct so that we can delete the object on the target message

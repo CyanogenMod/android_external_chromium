@@ -7,7 +7,6 @@
 #include "base/command_line.h"
 #include "base/path_service.h"
 #include "ipc/ipc_switches.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/nacl_host/nacl_broker_service_win.h"
 #include "chrome/browser/nacl_host/nacl_process_host.h"
 #include "chrome/common/chrome_constants.h"
@@ -22,12 +21,6 @@ NaClBrokerHost::NaClBrokerHost(
 }
 
 NaClBrokerHost::~NaClBrokerHost() {
-}
-
-URLRequestContext* NaClBrokerHost::GetRequestContext(
-    uint32 request_id,
-    const ViewHostMsg_Resource_Request& request_data) {
-  return NULL;
 }
 
 bool NaClBrokerHost::Init() {
@@ -53,10 +46,13 @@ bool NaClBrokerHost::Init() {
   return true;
 }
 
-void NaClBrokerHost::OnMessageReceived(const IPC::Message& msg) {
+bool NaClBrokerHost::OnMessageReceived(const IPC::Message& msg) {
+  bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(NaClBrokerHost, msg)
     IPC_MESSAGE_HANDLER(NaClProcessMsg_LoaderLaunched, OnLoaderLaunched)
+    IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
+  return handled;
 }
 
 bool NaClBrokerHost::LaunchLoader(

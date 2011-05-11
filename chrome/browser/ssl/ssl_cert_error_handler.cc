@@ -11,7 +11,7 @@
 
 SSLCertErrorHandler::SSLCertErrorHandler(
     ResourceDispatcherHost* rdh,
-    URLRequest* request,
+    net::URLRequest* request,
     ResourceType::Type resource_type,
     const std::string& frame_origin,
     const std::string& main_frame_origin,
@@ -26,6 +26,10 @@ SSLCertErrorHandler::SSLCertErrorHandler(
   // we have to set the fields manually.
   ssl_info_.cert = cert;
   ssl_info_.SetCertError(cert_error);
+}
+
+SSLCertErrorHandler* SSLCertErrorHandler::AsSSLCertErrorHandler() {
+  return this;
 }
 
 void SSLCertErrorHandler::OnDispatchFailed() {

@@ -48,6 +48,7 @@ class DiskCacheEntryTest : public DiskCacheTestWithCache {
   void HugeSparseIO();
   void GetAvailableRange();
   void CouldBeSparse();
+  void UpdateSparseEntry();
   void DoomSparseEntry();
   void PartialSparseEntry();
 };
@@ -514,7 +515,7 @@ TEST_F(DiskCacheEntryTest, RequestThrottling) {
     int ret = entry->WriteData(0, 0, buffer, kSize, &cb, false);
     EXPECT_EQ(net::ERR_IO_PENDING, ret);
   }
-  // We have 9 queued requests, lets dispatch them all at once.
+  // We have 9 queued requests, let's dispatch them all.
   cache_impl_->ThrottleRequestsForTest(false);
   EXPECT_TRUE(helper.WaitUntilCacheIoFinished(expected));
 
@@ -857,7 +858,7 @@ void DiskCacheEntryTest::ZeroLengthIO() {
   EXPECT_EQ(0, ReadData(entry, 0, 50000, NULL, 0));
   EXPECT_EQ(100000, entry->GetDataSize(0));
 
-  // Lets verify the actual content.
+  // Let's verify the actual content.
   const int kSize = 20;
   const char zeros[kSize] = {};
   scoped_refptr<net::IOBuffer> buffer(new net::IOBuffer(kSize));
@@ -1653,6 +1654,50 @@ TEST_F(DiskCacheEntryTest, MemoryOnlyMisalignedGetAvailableRange) {
   EXPECT_EQ(50000, start);
 
   entry->Close();
+}
+
+void DiskCacheEntryTest::UpdateSparseEntry() {
+  std::string key("the first key");
+  disk_cache::Entry* entry1;
+  ASSERT_EQ(net::OK, CreateEntry(key, &entry1));
+
+  const int kSize = 2048;
+  scoped_refptr<net::IOBuffer> buf_1(new net::IOBuffer(kSize));
+  scoped_refptr<net::IOBuffer> buf_2(new net::IOBuffer(kSize));
+  CacheTestFillBuffer(buf_1->data(), kSize, false);
+
+  // Write at offset 0.
+  VerifySparseIO(entry1, 0, buf_1, kSize, buf_2);
+  entry1->Close();
+
+  // Write at offset 2048.
+  ASSERT_EQ(net::OK, OpenEntry(key, &entry1));
+  VerifySparseIO(entry1, 2048, buf_1, kSize, buf_2);
+
+  disk_cache::Entry* entry2;
+  ASSERT_EQ(net::OK, CreateEntry("the second key", &entry2));
+
+  entry1->Close();
+  entry2->Close();
+  FlushQueueForTest();
+  if (memory_only_)
+    EXPECT_EQ(2, cache_->GetEntryCount());
+  else
+    EXPECT_EQ(3, cache_->GetEntryCount());
+}
+
+TEST_F(DiskCacheEntryTest, UpdateSparseEntry) {
+  SetDirectMode();
+  SetCacheType(net::MEDIA_CACHE);
+  InitCache();
+  UpdateSparseEntry();
+}
+
+TEST_F(DiskCacheEntryTest, MemoryOnlyUpdateSparseEntry) {
+  SetMemoryOnlyMode();
+  SetCacheType(net::MEDIA_CACHE);
+  InitCache();
+  UpdateSparseEntry();
 }
 
 void DiskCacheEntryTest::DoomSparseEntry() {

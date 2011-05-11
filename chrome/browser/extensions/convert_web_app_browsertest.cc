@@ -4,9 +4,9 @@
 
 #include <string>
 
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/notification_details.h"
@@ -47,7 +47,7 @@ class ExtensionFromWebAppTest
 
 IN_PROC_BROWSER_TEST_F(ExtensionFromWebAppTest, Basic) {
   ASSERT_TRUE(test_server()->Start());
-  browser()->profile()->GetExtensionsService()->set_show_extensions_prompts(
+  browser()->profile()->GetExtensionService()->set_show_extensions_prompts(
       false);
 
   NotificationRegistrar registrar;
@@ -65,4 +65,22 @@ IN_PROC_BROWSER_TEST_F(ExtensionFromWebAppTest, Basic) {
 
   EXPECT_TRUE(installed_extension_);
   EXPECT_TRUE(installed_extension_->is_hosted_app());
+  EXPECT_EQ("Test application", installed_extension_->name());
+  EXPECT_EQ("the description is", installed_extension_->description());
+  EXPECT_EQ(extension_misc::LAUNCH_PANEL,
+            installed_extension_->launch_container());
+
+  ASSERT_EQ(2u, installed_extension_->api_permissions().size());
+  EXPECT_TRUE(installed_extension_->api_permissions().find("geolocation") !=
+              installed_extension_->api_permissions().end());
+  EXPECT_TRUE(installed_extension_->api_permissions().find("notifications") !=
+              installed_extension_->api_permissions().end());
+
+  ASSERT_EQ(3u, installed_extension_->icons().map().size());
+  EXPECT_EQ("icons/16.png", installed_extension_->icons().Get(
+      16, ExtensionIconSet::MATCH_EXACTLY));
+  EXPECT_EQ("icons/48.png", installed_extension_->icons().Get(
+      48, ExtensionIconSet::MATCH_EXACTLY));
+  EXPECT_EQ("icons/128.png", installed_extension_->icons().Get(
+      128, ExtensionIconSet::MATCH_EXACTLY));
 }

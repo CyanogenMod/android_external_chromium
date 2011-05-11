@@ -1,7 +1,6 @@
 // Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
 #include "chrome/browser/sync/glue/bookmark_change_processor.h"
 
 #include <stack>
@@ -9,11 +8,12 @@
 
 #include "base/string16.h"
 #include "base/string_util.h"
+
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/favicon_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "gfx/codec/png_codec.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -126,6 +126,10 @@ void BookmarkChangeProcessor::RemoveSyncNodeHierarchy(
     }
   }
   DCHECK(index_stack.empty());  // Nothing should be left on the stack.
+}
+
+void BookmarkChangeProcessor::Loaded(BookmarkModel* model) {
+  NOTREACHED();
 }
 
 void BookmarkChangeProcessor::BookmarkModelBeingDeleted(
@@ -447,6 +451,7 @@ const BookmarkNode* BookmarkChangeProcessor::CreateOrUpdateBookmarkNode(
     DLOG(WARNING) << "Could not find parent of node being added/updated."
       << " Node title: " << src->GetTitle()
       << ", parent id = " << src->GetParentId();
+
     return NULL;
   }
   int index = CalculateBookmarkModelInsertionIndex(parent, src);

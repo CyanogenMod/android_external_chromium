@@ -14,6 +14,7 @@
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/time.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier.h"
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
@@ -24,7 +25,7 @@
 #include "chrome/browser/debugger/devtools_window.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/extensions/extension_event_router.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/fonts_languages_window.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/net/browser_url_util.h"
@@ -32,7 +33,7 @@
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
@@ -182,7 +183,7 @@ static ExtensionMenuItem::List GetRelevantExtensionItems(
 
 void RenderViewContextMenu::AppendExtensionItems(
     const std::string& extension_id, int* index) {
-  ExtensionsService* service = profile_->GetExtensionsService();
+  ExtensionService* service = profile_->GetExtensionService();
   ExtensionMenuManager* manager = service->menu_manager();
   const Extension* extension = service->GetExtensionById(extension_id, false);
   bool can_cross_incognito = service->CanCrossIncognito(extension);
@@ -301,7 +302,7 @@ void RenderViewContextMenu::RecursivelyAppendExtensionItems(
 }
 
 void RenderViewContextMenu::SetExtensionIcon(const std::string& extension_id) {
-  ExtensionsService* service = profile_->GetExtensionsService();
+  ExtensionService* service = profile_->GetExtensionService();
   ExtensionMenuManager* menu_manager = service->menu_manager();
 
   int index = menu_model_.GetItemCount() - 1;
@@ -316,7 +317,7 @@ void RenderViewContextMenu::SetExtensionIcon(const std::string& extension_id) {
 
 void RenderViewContextMenu::AppendAllExtensionItems() {
   extension_item_map_.clear();
-  ExtensionsService* service = profile_->GetExtensionsService();
+  ExtensionService* service = profile_->GetExtensionService();
   if (!service)
     return;  // In unit-tests, we may not have an ExtensionService.
   ExtensionMenuManager* menu_manager = service->menu_manager();
@@ -551,15 +552,6 @@ void RenderViewContextMenu::AppendFrameItems() {
   menu_model_.AddSeparator();
   menu_model_.AddItemWithStringId(IDC_CONTENT_CONTEXT_RELOADFRAME,
                                   IDS_CONTENT_CONTEXT_RELOADFRAME);
-  menu_model_.AddItemWithStringId(IDC_CONTENT_CONTEXT_OPENFRAMENEWTAB,
-                                  IDS_CONTENT_CONTEXT_OPENFRAMENEWTAB);
-  menu_model_.AddItemWithStringId(IDC_CONTENT_CONTEXT_OPENFRAMENEWWINDOW,
-                                  IDS_CONTENT_CONTEXT_OPENFRAMENEWWINDOW);
-  if (!external_) {
-    menu_model_.AddItemWithStringId(IDC_CONTENT_CONTEXT_OPENFRAMEOFFTHERECORD,
-                                    IDS_CONTENT_CONTEXT_OPENFRAMEOFFTHERECORD);
-  }
-
   menu_model_.AddSeparator();
   // These two menu items have yet to be implemented.
   // http://code.google.com/p/chromium/issues/detail?id=11827
@@ -584,7 +576,8 @@ void RenderViewContextMenu::AppendSearchProvider() {
     return;
 
   AutocompleteMatch match;
-  profile_->GetAutocompleteClassifier()->Classify(params_.selection_text,
+  profile_->GetAutocompleteClassifier()->Classify(
+      UTF16ToWideHack(params_.selection_text),
       std::wstring(), false, &match, NULL);
   selection_navigation_url_ = match.destination_url;
   if (!selection_navigation_url_.is_valid())
@@ -734,7 +727,7 @@ void RenderViewContextMenu::AppendBidiSubMenu() {
 
 ExtensionMenuItem* RenderViewContextMenu::GetExtensionMenuItem(int id) const {
   ExtensionMenuManager* manager =
-      profile_->GetExtensionsService()->menu_manager();
+      profile_->GetExtensionService()->menu_manager();
   std::map<int, ExtensionMenuItem::Id>::const_iterator i =
       extension_item_map_.find(id);
   if (i != extension_item_map_.end()) {
@@ -847,11 +840,11 @@ bool RenderViewContextMenu::IsCommandIdEnabled(int id) const {
 
     case IDC_CONTENT_CONTEXT_SAVELINKAS:
       return params_.link_url.is_valid() &&
-             URLRequest::IsHandledURL(params_.link_url);
+             net::URLRequest::IsHandledURL(params_.link_url);
 
     case IDC_CONTENT_CONTEXT_SAVEIMAGEAS:
       return params_.src_url.is_valid() &&
-             URLRequest::IsHandledURL(params_.src_url);
+             net::URLRequest::IsHandledURL(params_.src_url);
 
     case IDC_CONTENT_CONTEXT_OPENIMAGENEWTAB:
       // The images shown in the most visited thumbnails do not currently open
@@ -895,7 +888,7 @@ bool RenderViewContextMenu::IsCommandIdEnabled(int id) const {
       return (params_.media_flags &
               WebContextMenuData::MediaCanSave) &&
              params_.src_url.is_valid() &&
-             URLRequest::IsHandledURL(params_.src_url);
+             net::URLRequest::IsHandledURL(params_.src_url);
 
     case IDC_CONTENT_CONTEXT_OPENAVNEWTAB:
       return true;
@@ -912,8 +905,6 @@ bool RenderViewContextMenu::IsCommandIdEnabled(int id) const {
     }
 
     case IDC_CONTENT_CONTEXT_RELOADFRAME:
-    case IDC_CONTENT_CONTEXT_OPENFRAMENEWTAB:
-    case IDC_CONTENT_CONTEXT_OPENFRAMENEWWINDOW:
       return params_.frame_url.is_valid();
 
     case IDC_CONTENT_CONTEXT_UNDO:
@@ -939,9 +930,6 @@ bool RenderViewContextMenu::IsCommandIdEnabled(int id) const {
 
     case IDC_CONTENT_CONTEXT_OPENLINKOFFTHERECORD:
       return !profile_->IsOffTheRecord() && params_.link_url.is_valid();
-
-    case IDC_CONTENT_CONTEXT_OPENFRAMEOFFTHERECORD:
-      return !profile_->IsOffTheRecord() && params_.frame_url.is_valid();
 
     case IDC_SPELLCHECK_ADD_TO_DICTIONARY:
       return !params_.misspelled_word.empty();
@@ -1096,7 +1084,7 @@ void RenderViewContextMenu::ExecuteCommand(int id) {
   if (id >= IDC_EXTENSIONS_CONTEXT_CUSTOM_FIRST &&
       id <= IDC_EXTENSIONS_CONTEXT_CUSTOM_LAST) {
     ExtensionMenuManager* manager =
-        profile_->GetExtensionsService()->menu_manager();
+        profile_->GetExtensionService()->menu_manager();
     std::map<int, ExtensionMenuItem::Id>::const_iterator i =
         extension_item_map_.find(id);
     if (i != extension_item_map_.end()) {
@@ -1228,8 +1216,7 @@ void RenderViewContextMenu::ExecuteCommand(int id) {
       break;
 
     case IDC_VIEW_SOURCE:
-      OpenURL(GURL(chrome::kViewSourceScheme + std::string(":") +
-          params_.page_url.spec()), NEW_FOREGROUND_TAB, PageTransition::LINK);
+      source_tab_contents_->ViewSource();
       break;
 
     case IDC_CONTENT_CONTEXT_INSPECTELEMENT:
@@ -1260,25 +1247,13 @@ void RenderViewContextMenu::ExecuteCommand(int id) {
       TranslatePrefs prefs(profile_->GetPrefs());
       prefs.RemoveLanguageFromBlacklist(original_lang);
       prefs.RemoveSiteFromBlacklist(params_.page_url.HostNoBrackets());
-      Singleton<TranslateManager>::get()->TranslatePage(
+      TranslateManager::GetInstance()->TranslatePage(
           source_tab_contents_, original_lang, target_lang);
       break;
     }
 
     case IDC_CONTENT_CONTEXT_RELOADFRAME:
       source_tab_contents_->render_view_host()->ReloadFrame();
-      break;
-
-    case IDC_CONTENT_CONTEXT_OPENFRAMENEWTAB:
-      OpenURL(params_.frame_url, NEW_BACKGROUND_TAB, PageTransition::LINK);
-      break;
-
-    case IDC_CONTENT_CONTEXT_OPENFRAMENEWWINDOW:
-      OpenURL(params_.frame_url, NEW_WINDOW, PageTransition::LINK);
-      break;
-
-    case IDC_CONTENT_CONTEXT_OPENFRAMEOFFTHERECORD:
-      OpenURL(params_.frame_url, OFF_THE_RECORD, PageTransition::LINK);
       break;
 
     case IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE:
@@ -1456,8 +1431,8 @@ bool RenderViewContextMenu::IsDevCommandEnabled(int id) const {
 }
 
 string16 RenderViewContextMenu::PrintableSelectionText() {
-  return WideToUTF16(l10n_util::TruncateString(params_.selection_text,
-                                               kMaxSelectionTextLength));
+  return l10n_util::TruncateString(params_.selection_text,
+                                   kMaxSelectionTextLength);
 }
 
 // Controller functions --------------------------------------------------------

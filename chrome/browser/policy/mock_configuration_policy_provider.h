@@ -9,8 +9,8 @@
 #include <map>
 #include <utility>
 
-#include "base/stl_util-inl.h"
 #include "chrome/browser/policy/configuration_policy_provider.h"
+#include "testing/gmock/include/gmock/gmock.h"
 
 namespace policy {
 
@@ -22,14 +22,24 @@ class MockConfigurationPolicyProvider : public ConfigurationPolicyProvider {
   virtual ~MockConfigurationPolicyProvider();
 
   void AddPolicy(ConfigurationPolicyType policy, Value* value);
+  void RemovePolicy(ConfigurationPolicyType policy);
+
+  void SetInitializationComplete(bool initialization_complete);
 
   // ConfigurationPolicyProvider method overrides.
   virtual bool Provide(ConfigurationPolicyStoreInterface* store);
+  virtual bool IsInitializationComplete() const;
 
  private:
+  // ConfigurationPolicyProvider overrides:
+  virtual void AddObserver(ConfigurationPolicyProvider::Observer* observer) {}
+  virtual void RemoveObserver(
+      ConfigurationPolicyProvider::Observer* observer) {}
+
   typedef std::map<ConfigurationPolicyType, Value*> PolicyMap;
 
   PolicyMap policy_map_;
+  bool initialization_complete_;
 };
 
 }  // namespace policy

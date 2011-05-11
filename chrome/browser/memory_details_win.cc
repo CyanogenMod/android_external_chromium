@@ -6,6 +6,7 @@
 #include <psapi.h>
 
 #include "app/l10n_util.h"
+#include "base/file_path.h"
 #include "base/file_version_info.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -14,7 +15,6 @@
 #include "chrome/browser/renderer_host/backing_store_manager.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/url_constants.h"
 #include "grit/chromium_strings.h"
@@ -136,7 +136,7 @@ void MemoryDetails::CollectProcessData(
       } else if (GetModuleFileNameEx(handle, NULL, name, MAX_PATH - 1)) {
         std::wstring str_name(name);
         scoped_ptr<FileVersionInfo> version_info(
-            FileVersionInfo::CreateFileVersionInfo(str_name));
+            FileVersionInfo::CreateFileVersionInfo(FilePath(str_name)));
         if (version_info != NULL) {
           info.version = version_info->product_version();
           info.product_name = version_info->product_name();

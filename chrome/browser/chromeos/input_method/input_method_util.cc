@@ -5,6 +5,7 @@
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
 
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <utility>
 
@@ -20,7 +21,6 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/keyboard_library.h"
 #include "chrome/browser/chromeos/language_preferences.h"
@@ -64,6 +64,8 @@ const struct InputMethodIdToKeyboardOverlayId {
   { "xkb:us:intl:eng", "en_US" },
   { "xkb:us:altgr-intl:eng", "en_US" },
   { "xkb:us:dvorak:eng", "en_US_dvorak" },
+  // TODO(mazda): Add keyboard overlay definition for US Colemak.
+  { "xkb:us:colemak:eng", "en_US" },
   { "hangul", "ko" },
   { "pinyin", "zh_CN" },
   { "m17n:ar:kbd", "ar" },
@@ -108,6 +110,11 @@ struct IdMaps {
   scoped_ptr<std::map<std::string, std::string> > id_to_language_code;
   scoped_ptr<std::map<std::string, std::string> > id_to_display_name;
   scoped_ptr<std::map<std::string, std::string> > id_to_keyboard_overlay_id;
+
+  // Returns the singleton instance.
+  static IdMaps* GetInstance() {
+    return Singleton<IdMaps>::get();
+  }
 
   void ReloadMaps() {
     chromeos::InputMethodLibrary* library =
@@ -273,6 +280,7 @@ const struct EnglishToResouceId {
   { "Serbia", IDS_STATUSBAR_LAYOUT_SERBIA },
   { "Czechia", IDS_STATUSBAR_LAYOUT_CZECHIA },
   { "USA - Dvorak", IDS_STATUSBAR_LAYOUT_USA_DVORAK },
+  { "USA - Colemak", IDS_STATUSBAR_LAYOUT_USA_COLEMAK },
   { "Romania", IDS_STATUSBAR_LAYOUT_ROMANIA },
   { "USA", IDS_STATUSBAR_LAYOUT_USA },
   { "USA - International (AltGr dead keys)",
@@ -536,8 +544,8 @@ std::string GetLanguageCodeFromInputMethodId(
   // defined in app/l10_util.cc.
   const char kDefaultLanguageCode[] = "en-US";
   std::map<std::string, std::string>::const_iterator iter
-      = Singleton<IdMaps>::get()->id_to_language_code->find(input_method_id);
-  return (iter == Singleton<IdMaps>::get()->id_to_language_code->end()) ?
+      = IdMaps::GetInstance()->id_to_language_code->find(input_method_id);
+  return (iter == IdMaps::GetInstance()->id_to_language_code->end()) ?
       // Returning |kDefaultLanguageCode| here is not for Chrome OS but for
       // Ubuntu where the ibus-xkb-layouts engine could be missing.
       kDefaultLanguageCode : iter->second;
@@ -555,7 +563,7 @@ std::string GetKeyboardLayoutName(const std::string& input_method_id) {
 
 std::string GetKeyboardOverlayId(const std::string& input_method_id) {
   const std::map<std::string, std::string>& id_map =
-      *(Singleton<IdMaps>::get()->id_to_keyboard_overlay_id);
+      *(IdMaps::GetInstance()->id_to_keyboard_overlay_id);
   std::map<std::string, std::string>::const_iterator iter =
       id_map.find(input_method_id);
   return (iter == id_map.end() ? "" : iter->second);
@@ -565,8 +573,8 @@ std::string GetInputMethodDisplayNameFromId(
     const std::string& input_method_id) {
   static const char kDefaultDisplayName[] = "USA";
   std::map<std::string, std::string>::const_iterator iter
-      = Singleton<IdMaps>::get()->id_to_display_name->find(input_method_id);
-  return (iter == Singleton<IdMaps>::get()->id_to_display_name->end()) ?
+      = IdMaps::GetInstance()->id_to_display_name->find(input_method_id);
+  return (iter == IdMaps::GetInstance()->id_to_display_name->end()) ?
       kDefaultDisplayName : iter->second;
 }
 
@@ -603,7 +611,7 @@ void SortLanguageCodesByNames(std::vector<std::string>* language_codes) {
 
 void SortInputMethodIdsByNames(std::vector<std::string>* input_method_ids) {
   SortInputMethodIdsByNamesInternal(
-      *(Singleton<IdMaps>::get()->id_to_language_code), input_method_ids);
+      *(IdMaps::GetInstance()->id_to_language_code), input_method_ids);
 }
 
 void SortInputMethodIdsByNamesInternal(
@@ -629,7 +637,7 @@ bool GetInputMethodIdsFromLanguageCode(
     InputMethodType type,
     std::vector<std::string>* out_input_method_ids) {
   return GetInputMethodIdsFromLanguageCodeInternal(
-      *Singleton<IdMaps>::get()->language_code_to_ids,
+      *IdMaps::GetInstance()->language_code_to_ids,
       normalized_language_code, type, out_input_method_ids);
 }
 
@@ -687,7 +695,7 @@ void EnableInputMethods(const std::string& language_code, InputMethodType type,
 }
 
 void OnLocaleChanged() {
-  Singleton<IdMaps>::get()->ReloadMaps();
+  IdMaps::GetInstance()->ReloadMaps();
 }
 
 }  // namespace input_method

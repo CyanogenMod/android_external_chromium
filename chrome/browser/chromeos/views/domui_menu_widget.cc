@@ -4,10 +4,11 @@
 
 #include "chrome/browser/chromeos/views/domui_menu_widget.h"
 
+#include <algorithm>
+
 #include "base/stringprintf.h"
 #include "base/singleton.h"
 #include "base/task.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/views/menu_locator.h"
 #include "chrome/browser/chromeos/views/native_menu_domui.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
@@ -15,11 +16,10 @@
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/views/dom_view.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
-#include "cros/chromeos_wm_ipc_enums.h"
 #include "gfx/canvas_skia.h"
 #include "googleurl/src/gurl.h"
+#include "third_party/cros/chromeos_wm_ipc_enums.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
 #include "views/border.h"
 #include "views/layout_manager.h"
@@ -210,7 +210,7 @@ gboolean MapToFocus(GtkWidget* widget, GdkEvent* event, gpointer data) {
 
 void DOMUIMenuWidget::EnableScroll(bool enable) {
   ExecuteJavascript(StringPrintf(
-      L"enableScroll(%ls)", enable ? L"true" : L"false" ));
+      L"enableScroll(%ls)", enable ? L"true" : L"false"));
 }
 
 void DOMUIMenuWidget::EnableInput(bool select_item) {

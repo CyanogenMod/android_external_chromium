@@ -41,11 +41,15 @@ cr.define('options', function() {
 
       userList.disabled =
       userNameEdit.disabled = !AccountsOptions.currentUserIsOwner();
+      // If the current user is not the owner, show some warning.
+      if (!AccountsOptions.currentUserIsOwner()) {
+        $('ownerOnlyWarning').classList.remove('hidden');
+      }
 
       this.addEventListener('visibleChange', this.handleVisibleChange_);
 
-      $('allowGuestCheck').addEventListener('click',
-          this.handleAllowGuestCheckClick_);
+      $('useWhitelistCheck').addEventListener('click',
+          this.handleUseWhitelistCheckClick_);
     },
 
     /**
@@ -65,9 +69,9 @@ cr.define('options', function() {
      * Handler for allow guest check click.
      * @private
      */
-    handleAllowGuestCheckClick_: function(e) {
+    handleUseWhitelistCheckClick_: function(e) {
       // Whitelist existing users when guest login is being disabled.
-      if (!$('allowGuestCheck').checked) {
+      if ($('useWhitelistCheck').checked) {
         chrome.send('whitelistExistingUsers', []);
       }
     },

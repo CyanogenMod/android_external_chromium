@@ -6,9 +6,10 @@
 
 #include <string>
 
-#include "chrome/browser/extensions/extensions_service.h"
+#include "base/singleton.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extensions_quota_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/notification_service.h"
 
@@ -55,7 +56,7 @@ bool ExtensionTestLogFunction::RunImpl() {
 ExtensionTestQuotaResetFunction::~ExtensionTestQuotaResetFunction() {}
 
 bool ExtensionTestQuotaResetFunction::RunImpl() {
-  ExtensionsService* service = profile()->GetExtensionsService();
+  ExtensionService* service = profile()->GetExtensionService();
   ExtensionsQuotaService* quota = service->quota_service();
   quota->Purge();
   quota->violators_.clear();
@@ -93,17 +94,23 @@ void ExtensionTestSendMessageFunction::Reply(const std::string& message) {
 // static
 void ExtensionTestGetConfigFunction::set_test_config_state(
     DictionaryValue* value) {
-  TestConfigState* test_config_state = Singleton<TestConfigState>::get();
+  TestConfigState* test_config_state = TestConfigState::GetInstance();
   test_config_state->set_config_state(value);
 }
 
 ExtensionTestGetConfigFunction::TestConfigState::TestConfigState()
   : config_state_(NULL) {}
 
+// static
+ExtensionTestGetConfigFunction::TestConfigState*
+ExtensionTestGetConfigFunction::TestConfigState::GetInstance() {
+  return Singleton<TestConfigState>::get();
+}
+
 ExtensionTestGetConfigFunction::~ExtensionTestGetConfigFunction() {}
 
 bool ExtensionTestGetConfigFunction::RunImpl() {
-  TestConfigState* test_config_state = Singleton<TestConfigState>::get();
+  TestConfigState* test_config_state = TestConfigState::GetInstance();
 
   if (!test_config_state->config_state()) {
     error_ = kNoTestConfigDataError;

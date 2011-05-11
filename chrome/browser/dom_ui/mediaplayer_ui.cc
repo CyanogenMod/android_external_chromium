@@ -23,7 +23,7 @@
 #include "chrome/browser/download/download_util.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
@@ -212,7 +212,7 @@ DOMMessageHandler* MediaplayerHandler::Attach(DOMUI* dom_ui) {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
-          Singleton<ChromeURLDataManager>::get(),
+          ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(new DOMUIFavIconSource(dom_ui->GetProfile()))));
 
@@ -220,7 +220,7 @@ DOMMessageHandler* MediaplayerHandler::Attach(DOMUI* dom_ui) {
 }
 
 void MediaplayerHandler::Init(bool is_playlist, TabContents* contents) {
-  MediaPlayer* player = MediaPlayer::Get();
+  MediaPlayer* player = MediaPlayer::GetInstance();
   if (!is_playlist) {
     player->SetNewHandler(this, contents);
   } else {
@@ -258,7 +258,7 @@ void MediaplayerHandler::PlaybackMediaFile(const GURL& url) {
   current_playlist_.clear();
   current_playlist_.push_back(MediaplayerHandler::MediaUrl(url));
   FirePlaylistChanged(url.spec(), true, 0);
-  MediaPlayer::Get()->NotifyPlaylistChanged();
+  MediaPlayer::GetInstance()->NotifyPlaylistChanged();
 }
 
 const MediaplayerHandler::UrlVector& MediaplayerHandler::GetCurrentPlaylist() {
@@ -270,13 +270,13 @@ int MediaplayerHandler::GetCurrentPlaylistOffset() {
 }
 
 void MediaplayerHandler::HandleToggleFullscreen(const ListValue* args) {
-  MediaPlayer::Get()->ToggleFullscreen();
+  MediaPlayer::GetInstance()->ToggleFullscreen();
 }
 
 void MediaplayerHandler::HandleSetCurrentPlaylistOffset(const ListValue* args) {
   int id;
   CHECK(ExtractIntegerValue(args, &id));
-  MediaPlayer::Get()->SetPlaylistOffset(id);
+  MediaPlayer::GetInstance()->SetPlaylistOffset(id);
 }
 
 void MediaplayerHandler::FirePlaylistChanged(const std::string& path,
@@ -306,12 +306,12 @@ void MediaplayerHandler::SetCurrentPlaylist(
 void MediaplayerHandler::EnqueueMediaFile(const GURL& url) {
   current_playlist_.push_back(MediaplayerHandler::MediaUrl(url));
   FirePlaylistChanged(url.spec(), false, current_offset_);
-  MediaPlayer::Get()->NotifyPlaylistChanged();
+  MediaPlayer::GetInstance()->NotifyPlaylistChanged();
 }
 
 void MediaplayerHandler::HandleCurrentOffsetChanged(const ListValue* args) {
   CHECK(ExtractIntegerValue(args, &current_offset_));
-  MediaPlayer::Get()->NotifyPlaylistChanged();
+  MediaPlayer::GetInstance()->NotifyPlaylistChanged();
 }
 
 void MediaplayerHandler::HandlePlaybackError(const ListValue* args) {
@@ -335,11 +335,11 @@ void MediaplayerHandler::HandleGetCurrentPlaylist(const ListValue* args) {
 }
 
 void MediaplayerHandler::HandleTogglePlaylist(const ListValue* args) {
-  MediaPlayer::Get()->TogglePlaylistWindowVisible();
+  MediaPlayer::GetInstance()->TogglePlaylistWindowVisible();
 }
 
 void MediaplayerHandler::HandleShowPlaylist(const ListValue* args) {
-  MediaPlayer::Get()->ShowPlaylistWindow();
+  MediaPlayer::GetInstance()->ShowPlaylistWindow();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -353,6 +353,11 @@ void MediaplayerHandler::HandleShowPlaylist(const ListValue* args) {
 DISABLE_RUNNABLE_METHOD_REFCOUNT(MediaPlayer);
 
 MediaPlayer::~MediaPlayer() {
+}
+
+// static
+MediaPlayer* MediaPlayer::GetInstance() {
+  return Singleton<MediaPlayer>::get();
 }
 
 void MediaPlayer::EnqueueMediaURL(const GURL& url, Browser* creator) {
@@ -538,7 +543,7 @@ void MediaPlayer::PopupMediaPlayer(Browser* creator) {
   mediaplayer_browser_->window()->Show();
 }
 
-URLRequestJob* MediaPlayer::MaybeIntercept(URLRequest* request) {
+net::URLRequestJob* MediaPlayer::MaybeIntercept(net::URLRequest* request) {
   // Don't attempt to intercept here as we want to wait until the mime
   // type is fully determined.
   return NULL;
@@ -552,8 +557,8 @@ static const char* const supported_mime_type_list[] = {
   "audio/mp3"
 };
 
-URLRequestJob* MediaPlayer::MaybeInterceptResponse(
-    URLRequest* request) {
+net::URLRequestJob* MediaPlayer::MaybeInterceptResponse(
+    net::URLRequest* request) {
   // Do not intercept this request if it is a download.
   if (request->load_flags() & net::LOAD_IS_DOWNLOAD) {
     return NULL;
@@ -610,7 +615,7 @@ MediaplayerUI::MediaplayerUI(TabContents* contents) : DOMUI(contents) {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
-          Singleton<ChromeURLDataManager>::get(),
+          ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(html_source)));
 }

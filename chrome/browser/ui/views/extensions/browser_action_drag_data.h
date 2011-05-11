@@ -9,7 +9,7 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 
 #if defined(TOOLKIT_VIEWS)
 #include "app/os_exchange_data.h"
@@ -18,7 +18,6 @@
 class BrowserActionButton;
 class FilePath;
 class Pickle;
-class Profile;
 
 class BrowserActionDragData {
  public:

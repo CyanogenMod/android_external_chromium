@@ -23,6 +23,7 @@ static const syncable::ModelType kStartOrder[] = {
   syncable::BOOKMARKS,
   syncable::PREFERENCES,
   syncable::AUTOFILL,
+  syncable::AUTOFILL_PROFILE,
   syncable::THEMES,
   syncable::TYPED_URLS,
   syncable::PASSWORDS,
@@ -337,6 +338,14 @@ void DataTypeManagerImpl::Stop() {
     FinishStopAndNotify(ABORTED);
   else
     FinishStop();
+}
+
+const DataTypeController::TypeMap& DataTypeManagerImpl::controllers() {
+  return controllers_;
+}
+
+DataTypeManager::State DataTypeManagerImpl::state() {
+  return state_;
 }
 
 void DataTypeManagerImpl::FinishStop() {

@@ -359,12 +359,8 @@ int ClientSocketPoolBaseHelper::RequestSocketInternal(
     group->AddJob(connect_job.release());
   } else {
     LogBoundConnectJobToRequest(connect_job->net_log().source(), request);
-    ClientSocket* error_socket = NULL;
-    if (!preconnecting) {
-      DCHECK(handle);
-      connect_job->GetAdditionalErrorState(handle);
-      error_socket = connect_job->ReleaseSocket();
-    }
+    connect_job->GetAdditionalErrorState(handle);
+    ClientSocket* error_socket = connect_job->ReleaseSocket();
     if (error_socket) {
       HandOutSocket(error_socket, false /* not reused */, handle,
                     base::TimeDelta(), group, request->net_log());

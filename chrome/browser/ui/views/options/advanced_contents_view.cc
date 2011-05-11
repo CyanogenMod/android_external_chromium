@@ -28,25 +28,24 @@
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/gears_integration.h"
-#include "chrome/browser/options_util.h"
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/pref_set_observer.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_proxy_service.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_setup_flow.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_url.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/shell_dialogs.h"
-#include "chrome/browser/show_options_url.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/views/browser_dialogs.h"
-#include "chrome/browser/views/clear_browsing_data.h"
-#include "chrome/browser/views/list_background.h"
-#include "chrome/browser/views/options/content_settings_window_view.h"
-#include "chrome/browser/views/options/fonts_languages_window_view.h"
-#include "chrome/browser/views/restart_message_box.h"
+#include "chrome/browser/ui/options/options_util.h"
+#include "chrome/browser/ui/options/show_options_url.h"
+#include "chrome/browser/ui/views/browser_dialogs.h"
+#include "chrome/browser/ui/views/clear_browsing_data.h"
+#include "chrome/browser/ui/views/list_background.h"
+#include "chrome/browser/ui/views/options/content_settings_window_view.h"
+#include "chrome/browser/ui/views/options/fonts_languages_window_view.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -524,8 +523,6 @@ void PrivacySection::ButtonPressed(
                                 "Options_MetricsReportingCheckbox_Disable"),
                             profile()->GetPrefs());
     ResolveMetricsReportingEnabled();
-    if (enabled == reporting_enabled_checkbox_->checked())
-      RestartMessageBox::ShowMessageBox(GetWindow()->GetNativeWindow());
     enable_metrics_recording_.SetValue(enabled);
   } else if (sender == content_settings_button_) {
     UserMetricsRecordAction(UserMetricsAction("Options_ContentSettings"), NULL);
@@ -790,7 +787,6 @@ class SecuritySection : public AdvancedSection,
  private:
   // Controls for this section:
   views::Label* ssl_info_label_;
-  views::Checkbox* enable_ssl2_checkbox_;
   views::Checkbox* enable_ssl3_checkbox_;
   views::Checkbox* enable_tls1_checkbox_;
   views::Checkbox* check_for_cert_revocation_checkbox_;
@@ -802,7 +798,6 @@ class SecuritySection : public AdvancedSection,
 
 SecuritySection::SecuritySection(Profile* profile)
     : ssl_info_label_(NULL),
-      enable_ssl2_checkbox_(NULL),
       enable_ssl3_checkbox_(NULL),
       enable_tls1_checkbox_(NULL),
       check_for_cert_revocation_checkbox_(NULL),
@@ -814,15 +809,7 @@ SecuritySection::SecuritySection(Profile* profile)
 
 void SecuritySection::ButtonPressed(
     views::Button* sender, const views::Event& event) {
-  if (sender == enable_ssl2_checkbox_) {
-    bool enabled = enable_ssl2_checkbox_->checked();
-    if (enabled) {
-      UserMetricsRecordAction(UserMetricsAction("Options_SSL2_Enable"), NULL);
-    } else {
-      UserMetricsRecordAction(UserMetricsAction("Options_SSL2_Disable"), NULL);
-    }
-    net::SSLConfigServiceWin::SetSSL2Enabled(enabled);
-  } else if (sender == enable_ssl3_checkbox_) {
+  if (sender == enable_ssl3_checkbox_) {
     bool enabled = enable_ssl3_checkbox_->checked();
     if (enabled) {
       UserMetricsRecordAction(UserMetricsAction("Options_SSL3_Enable"), NULL);
@@ -862,9 +849,6 @@ void SecuritySection::InitControlLayout() {
 
   ssl_info_label_ = new views::Label(
       l10n_util::GetString(IDS_OPTIONS_SSL_GROUP_DESCRIPTION));
-  enable_ssl2_checkbox_ = new views::Checkbox(
-      l10n_util::GetString(IDS_OPTIONS_SSL_USESSL2));
-  enable_ssl2_checkbox_->set_listener(this);
   enable_ssl3_checkbox_ = new views::Checkbox(
       l10n_util::GetString(IDS_OPTIONS_SSL_USESSL3));
   enable_ssl3_checkbox_->set_listener(this);
@@ -900,8 +884,6 @@ void SecuritySection::InitControlLayout() {
                     indented_column_set_id, false);
   AddWrappingLabelRow(layout, ssl_info_label_, single_column_view_set_id,
                       true);
-  AddWrappingCheckboxRow(layout, enable_ssl2_checkbox_,
-                         indented_column_set_id, true);
   AddWrappingCheckboxRow(layout, enable_ssl3_checkbox_,
                          indented_column_set_id, true);
   AddWrappingCheckboxRow(layout, enable_tls1_checkbox_,
@@ -916,13 +898,11 @@ void SecuritySection::NotifyPrefChanged(const std::string* pref_name) {
   if (!pref_name) {
     net::SSLConfig config;
     if (net::SSLConfigServiceWin::GetSSLConfigNow(&config)) {
-      enable_ssl2_checkbox_->SetChecked(config.ssl2_enabled);
       enable_ssl3_checkbox_->SetChecked(config.ssl3_enabled);
       enable_tls1_checkbox_->SetChecked(config.tls1_enabled);
       check_for_cert_revocation_checkbox_->SetChecked(
           config.rev_checking_enabled);
     } else {
-      enable_ssl2_checkbox_->SetEnabled(false);
       enable_ssl3_checkbox_->SetEnabled(false);
       enable_tls1_checkbox_->SetEnabled(false);
       check_for_cert_revocation_checkbox_->SetEnabled(false);

@@ -19,7 +19,7 @@
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/plugin_updater.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -32,7 +32,7 @@
 #include "grit/browser_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
-#include "webkit/glue/plugins/plugin_list.h"
+#include "webkit/plugins/npapi/plugin_list.h"
 
 namespace {
 
@@ -214,7 +214,7 @@ void PluginsDOMHandler::HandleEnablePluginMessage(const ListValue* args) {
     return;
   bool enable = enable_str == "true";
 
-  PluginUpdater* plugin_updater = PluginUpdater::GetPluginUpdater();
+  PluginUpdater* plugin_updater = PluginUpdater::GetInstance();
   if (is_group_str == "true") {
     string16 group_name;
     if (!args->GetString(0, &group_name))
@@ -223,14 +223,13 @@ void PluginsDOMHandler::HandleEnablePluginMessage(const ListValue* args) {
     plugin_updater->EnablePluginGroup(enable, group_name);
     if (enable) {
       // See http://crbug.com/50105 for background.
-      string16 reader8 = ASCIIToUTF16(PluginGroup::kAdobeReader8GroupName);
-      string16 reader9 = ASCIIToUTF16(PluginGroup::kAdobeReader9GroupName);
+      string16 adobereader = ASCIIToUTF16(
+          webkit::npapi::PluginGroup::kAdobeReaderGroupName);
       string16 internalpdf = ASCIIToUTF16(PepperPluginRegistry::kPDFPluginName);
-      if (group_name == reader8 || group_name == reader9) {
+      if (group_name == adobereader) {
         plugin_updater->EnablePluginGroup(false, internalpdf);
       } else if (group_name == internalpdf) {
-        plugin_updater->EnablePluginGroup(false, reader8);
-        plugin_updater->EnablePluginGroup(false, reader9);
+        plugin_updater->EnablePluginGroup(false, adobereader);
       }
     }
   } else {
@@ -264,7 +263,7 @@ void PluginsDOMHandler::Observe(NotificationType type,
 
 void PluginsDOMHandler::LoadPluginsOnFileThread(ListWrapper* wrapper,
                                                 Task* task) {
-  wrapper->list = PluginUpdater::GetPluginUpdater()->GetPluginGroupsData();
+  wrapper->list = PluginUpdater::GetInstance()->GetPluginGroupsData();
   BrowserThread::PostTask(BrowserThread::UI, FROM_HERE, task);
   BrowserThread::PostTask(
       BrowserThread::UI,
@@ -316,9 +315,9 @@ PluginsUI::PluginsUI(TabContents* contents) : DOMUI(contents) {
   // Set up the chrome://plugins/ source.
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(Singleton<ChromeURLDataManager>::get(),
-          &ChromeURLDataManager::AddDataSource,
-          make_scoped_refptr(html_source)));
+      NewRunnableMethod(ChromeURLDataManager::GetInstance(),
+                        &ChromeURLDataManager::AddDataSource,
+                        make_scoped_refptr(html_source)));
 }
 
 

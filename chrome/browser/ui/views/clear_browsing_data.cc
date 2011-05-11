@@ -9,7 +9,7 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/ui/browser.h"
 #if defined(OS_WIN)
@@ -43,13 +43,9 @@ namespace browser {
 // Defined in browser_dialogs.h for creation of the view.
 void ShowClearBrowsingDataView(gfx::NativeWindow parent,
                                Profile* profile) {
-#if defined(OS_WIN)
-  views::Window::CreateChromeWindow(parent, gfx::Rect(),
-                                    new ClearDataView(profile))->Show();
-#else
+
   views::Window::CreateChromeWindow(parent, gfx::Rect(),
                                     new ClearBrowsingDataView(profile))->Show();
-#endif
 }
 
 }  // namespace browser

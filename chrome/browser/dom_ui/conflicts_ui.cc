@@ -15,6 +15,8 @@
 #include "base/values.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/enumerate_modules_model_win.h"
+#include "chrome/browser/metrics/user_metrics.h"
+#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
@@ -140,11 +142,11 @@ void ConflictsDOMHandler::HandleRequestModuleList(const ListValue* args) {
   // This request is handled asynchronously. See Observe for when we reply back.
   registrar_.Add(this, NotificationType::MODULE_LIST_ENUMERATED,
                  NotificationService::AllSources());
-  EnumerateModulesModel::GetSingleton()->ScanNow();
+  EnumerateModulesModel::GetInstance()->ScanNow();
 }
 
 void ConflictsDOMHandler::SendModuleList() {
-  EnumerateModulesModel* loaded_modules = EnumerateModulesModel::GetSingleton();
+  EnumerateModulesModel* loaded_modules = EnumerateModulesModel::GetInstance();
   ListValue* list = loaded_modules->GetModuleList();
   DictionaryValue results;
   results.Set("moduleList", list);
@@ -192,6 +194,9 @@ void ConflictsDOMHandler::Observe(NotificationType type,
 ///////////////////////////////////////////////////////////////////////////////
 
 ConflictsUI::ConflictsUI(TabContents* contents) : DOMUI(contents) {
+  UserMetrics::RecordAction(
+      UserMetricsAction("ViewAboutConflicts"), contents->profile());
+
   AddMessageHandler((new ConflictsDOMHandler())->Attach(this));
 
   ConflictsUIHTMLSource* html_source = new ConflictsUIHTMLSource();
@@ -199,9 +204,9 @@ ConflictsUI::ConflictsUI(TabContents* contents) : DOMUI(contents) {
   // Set up the about:conflicts source.
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(Singleton<ChromeURLDataManager>::get(),
-          &ChromeURLDataManager::AddDataSource,
-          make_scoped_refptr(html_source)));
+      NewRunnableMethod(ChromeURLDataManager::GetInstance(),
+                        &ChromeURLDataManager::AddDataSource,
+                        make_scoped_refptr(html_source)));
 }
 
 // static

@@ -6,13 +6,17 @@
 
 #include "chrome/browser/chromeos/notifications/notification_panel.h"
 
+#include <algorithm>
+
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "chrome/browser/chromeos/notifications/balloon_collection_impl.h"
 #include "chrome/browser/chromeos/notifications/balloon_view.h"
-#include "cros/chromeos_wm_ipc_enums.h"
+#include "chrome/common/notification_details.h"
+#include "chrome/common/notification_source.h"
 #include "gfx/canvas.h"
 #include "grit/generated_resources.h"
+#include "third_party/cros/chromeos_wm_ipc_enums.h"
 #include "views/background.h"
 #include "views/controls/native/native_view_host.h"
 #include "views/controls/scroll_view.h"

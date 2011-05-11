@@ -49,7 +49,9 @@ class BalloonHost : public RenderViewHostDelegate,
   virtual void Close(RenderViewHost* render_view_host);
   virtual void RenderViewCreated(RenderViewHost* render_view_host);
   virtual void RenderViewReady(RenderViewHost* render_view_host);
-  virtual void RenderViewGone(RenderViewHost* render_view_host);
+  virtual void RenderViewGone(RenderViewHost* render_view_host,
+                              base::TerminationStatus status,
+                              int error_code);
   virtual void UpdateTitle(RenderViewHost* render_view_host,
                            int32 page_id, const std::wstring& title) {}
   virtual int GetBrowserWindowID() const;
@@ -93,9 +95,7 @@ class BalloonHost : public RenderViewHostDelegate,
   virtual void Activate() {}
   virtual void Deactivate() {}
   virtual bool PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
-                                      bool* is_keyboard_shortcut) {
-    return false;
-  }
+                                      bool* is_keyboard_shortcut);
   virtual void HandleKeyboardEvent(const NativeWebKeyboardEvent& event) {}
   virtual void HandleMouseMove() {}
   virtual void HandleMouseDown();

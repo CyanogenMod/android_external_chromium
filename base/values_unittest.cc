@@ -10,27 +10,7 @@
 #include "base/values.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-class ValuesTest: public testing::Test {
- protected:
-  void CompareDictionariesAndCheckResult(
-      const DictionaryValue* dict1,
-      const DictionaryValue* dict2,
-      const char* expected_paths[],
-      size_t expected_paths_count) {
-    std::vector<std::string> differing_paths;
-    std::vector<std::string> expected_paths_vector(expected_paths,
-        expected_paths+expected_paths_count);
-    // All comparisons should be commutative, check dict1 against dict2
-    // and vice-versa.
-    dict1->GetDifferingPaths(dict2, &differing_paths);
-    ASSERT_EQ(expected_paths_count, differing_paths.size());
-    EXPECT_TRUE(equal(differing_paths.begin(), differing_paths.end(),
-                      expected_paths_vector.begin()));
-    dict2->GetDifferingPaths(dict1, &differing_paths);
-    ASSERT_EQ(expected_paths_count, differing_paths.size());
-    EXPECT_TRUE(equal(differing_paths.begin(), differing_paths.end(),
-                      expected_paths_vector.begin()));
-  }
+class ValuesTest : public testing::Test {
 };
 
 TEST_F(ValuesTest, Basic) {
@@ -508,6 +488,29 @@ TEST_F(ValuesTest, Equals) {
   EXPECT_FALSE(dv.Equals(copy.get()));
 }
 
+TEST_F(ValuesTest, StaticEquals) {
+  scoped_ptr<Value> null1(Value::CreateNullValue());
+  scoped_ptr<Value> null2(Value::CreateNullValue());
+  EXPECT_TRUE(Value::Equals(null1.get(), null2.get()));
+  EXPECT_TRUE(Value::Equals(NULL, NULL));
+
+  scoped_ptr<Value> i42(Value::CreateIntegerValue(42));
+  scoped_ptr<Value> j42(Value::CreateIntegerValue(42));
+  scoped_ptr<Value> i17(Value::CreateIntegerValue(17));
+  EXPECT_TRUE(Value::Equals(i42.get(), i42.get()));
+  EXPECT_TRUE(Value::Equals(j42.get(), i42.get()));
+  EXPECT_TRUE(Value::Equals(i42.get(), j42.get()));
+  EXPECT_FALSE(Value::Equals(i42.get(), i17.get()));
+  EXPECT_FALSE(Value::Equals(i42.get(), NULL));
+  EXPECT_FALSE(Value::Equals(NULL, i42.get()));
+
+  // NULL and Value::CreateNullValue() are intentionally different: We need
+  // support for NULL as a return value for "undefined" without caring for
+  // ownership of the pointer.
+  EXPECT_FALSE(Value::Equals(null1.get(), NULL));
+  EXPECT_FALSE(Value::Equals(NULL, null1.get()));
+}
+
 TEST_F(ValuesTest, RemoveEmptyChildren) {
   scoped_ptr<DictionaryValue> root(new DictionaryValue);
   // Remove empty lists and dictionaries.
@@ -626,115 +629,4 @@ TEST_F(ValuesTest, MergeDictionary) {
   std::string sub_merge_key_value;
   EXPECT_TRUE(res_sub_dict->GetString("sub_merge_key", &sub_merge_key_value));
   EXPECT_EQ("sub_merge_key_value_merge", sub_merge_key_value); // Merged in.
-}
-
-TEST_F(ValuesTest, GetDifferingPaths) {
-  scoped_ptr<DictionaryValue> dict1(new DictionaryValue());
-  scoped_ptr<DictionaryValue> dict2(new DictionaryValue());
-  std::vector<std::string> differing_paths;
-
-  // Test comparing empty dictionaries.
-  dict1->GetDifferingPaths(dict2.get(), &differing_paths);
-  EXPECT_EQ(differing_paths.size(), 0UL);
-
-  // Compare an empty dictionary with various non-empty dictionaries.
-  static const char* expected_paths1[] = {
-      "segment1"
-  };
-  dict1->SetString("segment1", "value1");
-  CompareDictionariesAndCheckResult(dict1.get(), dict2.get(), expected_paths1,
-                                    arraysize(expected_paths1));
-
-  static const char* expected_paths2[] = {
-    "segment1",
-    "segment2",
-    "segment2.segment3"
-  };
-  dict1->SetString("segment2.segment3", "value2");
-  CompareDictionariesAndCheckResult(dict1.get(), dict2.get(), expected_paths2,
-                                    arraysize(expected_paths2));
-
-  static const char* expected_paths3[] = {
-    "segment1",
-    "segment2",
-    "segment2.segment3",
-    "segment4",
-    "segment4.segment5"
-  };
-  dict1->SetString("segment4.segment5", "value3");
-  CompareDictionariesAndCheckResult(dict1.get(), dict2.get(), expected_paths3,
-                                    arraysize(expected_paths3));
-
-  // Now various tests with two populated dictionaries.
-  static const char* expected_paths4[] = {
-    "segment1",
-    "segment2",
-    "segment2.segment3",
-    "segment4",
-    "segment4.segment5"
-  };
-  dict2->Set("segment2", new DictionaryValue());
-  CompareDictionariesAndCheckResult(dict1.get(), dict2.get(), expected_paths4,
-                                    arraysize(expected_paths4));
-
-  static const char* expected_paths5[] = {
-    "segment1",
-    "segment4",
-    "segment4.segment5"
-  };
-  dict2->SetString("segment2.segment3", "value2");
-  CompareDictionariesAndCheckResult(dict1.get(), dict2.get(), expected_paths5,
-                                    arraysize(expected_paths5));
-
-  dict2->SetBoolean("segment2.segment3", true);
-  CompareDictionariesAndCheckResult(dict1.get(), dict2.get(), expected_paths4,
-                                    arraysize(expected_paths4));
-
-  // Test two identical dictionaries.
-  dict2.reset(static_cast<DictionaryValue*>(dict1->DeepCopy()));
-  dict2->GetDifferingPaths(dict1.get(), &differing_paths);
-  EXPECT_EQ(differing_paths.size(), 0UL);
-
-  // Test a deep dictionary structure.
-  static const char* expected_paths6[] = {
-    "s1",
-    "s1.s2",
-    "s1.s2.s3",
-    "s1.s2.s3.s4",
-    "s1.s2.s3.s4.s5"
-  };
-  dict1.reset(new DictionaryValue());
-  dict2.reset(new DictionaryValue());
-  dict1->Set("s1.s2.s3.s4.s5", new DictionaryValue());
-  CompareDictionariesAndCheckResult(dict1.get(), dict2.get(), expected_paths6,
-                                    arraysize(expected_paths6));
-
-  // Make sure disjoint dictionaries generate the right differing path list.
-  static const char* expected_paths7[] = {
-    "a",
-    "b",
-    "c",
-    "d"
-  };
-  dict1.reset(new DictionaryValue());
-  dict1->SetBoolean("a", true);
-  dict1->SetBoolean("c", true);
-  dict2.reset(new DictionaryValue());
-  dict1->SetBoolean("b", true);
-  dict1->SetBoolean("d", true);
-  CompareDictionariesAndCheckResult(dict1.get(), dict2.get(), expected_paths7,
-                                    arraysize(expected_paths7));
-
-  // For code coverage completeness. Make sure that all branches
-  // that were not covered are executed.
-  static const char* expected_paths8[] = {
-    "s1",
-    "s1.s2"
-  };
-  dict1.reset(new DictionaryValue());
-  dict1->Set("s1.s2", new DictionaryValue());
-  dict2.reset(new DictionaryValue());
-  dict2->SetInteger("s1", 1);
-  CompareDictionariesAndCheckResult(dict1.get(), dict2.get(), expected_paths8,
-                                    arraysize(expected_paths8));
 }

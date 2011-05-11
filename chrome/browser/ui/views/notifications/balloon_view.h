@@ -15,7 +15,6 @@
 #include "chrome/browser/notifications/balloon.h"
 #include "chrome/browser/views/notifications/balloon_view_host.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
 #include "gfx/path.h"
 #include "gfx/point.h"
 #include "gfx/rect.h"
@@ -60,23 +59,21 @@ class BalloonViewImpl : public BalloonView,
   virtual void RepositionToBalloon();
   virtual void Close(bool by_user);
   virtual gfx::Size GetSize() const;
-  virtual BalloonHost* GetHost() const { return html_contents_.get(); }
+  virtual BalloonHost* GetHost() const;
 
  private:
   // views::View interface.
   virtual void Paint(gfx::Canvas* canvas);
   virtual void DidChangeBounds(const gfx::Rect& previous,
                                const gfx::Rect& current);
-  virtual gfx::Size GetPreferredSize() {
-    return gfx::Size(1000, 1000);
-  }
+  virtual gfx::Size GetPreferredSize();
 
   // views::ViewMenuDelegate interface.
-  void RunMenu(views::View* source, const gfx::Point& pt);
+  virtual void RunMenu(views::View* source, const gfx::Point& pt);
 
   // views::WidgetDelegate interface.
-  void DisplayChanged();
-  void WorkAreaChanged();
+  virtual void DisplayChanged();
+  virtual void WorkAreaChanged();
 
   // views::ButtonListener interface.
   virtual void ButtonPressed(views::Button* sender, const views::Event&);

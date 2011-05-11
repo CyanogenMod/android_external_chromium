@@ -1,7 +1,8 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/crypto/rsa_private_key.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/path_service.h"
@@ -11,6 +12,7 @@
 #include "net/base/cert_verify_result.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_certificate_data.h"
+#include "net/base/test_root_certs.h"
 #include "net/base/x509_certificate.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -160,30 +162,6 @@ const CertificateFormatTestData FormatTestData[] = {
       thawte_parse_fingerprint,
       NULL, } },
 };
-
-// Returns a FilePath object representing the src/net/data/ssl/certificates
-// directory in the source tree.
-FilePath GetTestCertsDirectory() {
-  FilePath certs_dir;
-  PathService::Get(base::DIR_SOURCE_ROOT, &certs_dir);
-  certs_dir = certs_dir.AppendASCII("net");
-  certs_dir = certs_dir.AppendASCII("data");
-  certs_dir = certs_dir.AppendASCII("ssl");
-  certs_dir = certs_dir.AppendASCII("certificates");
-  return certs_dir;
-}
-
-// Imports a certificate file in the src/net/data/ssl/certificates directory.
-// certs_dir represents the test certificates directory.  cert_file is the
-// name of the certificate file.
-X509Certificate* ImportCertFromFile(const FilePath& certs_dir,
-                                    const std::string& cert_file) {
-  FilePath cert_path = certs_dir.AppendASCII(cert_file);
-  std::string cert_data;
-  if (!file_util::ReadFileToString(cert_path, &cert_data))
-    return NULL;
-  return X509Certificate::CreateFromBytes(cert_data.data(), cert_data.size());
-}
 
 CertificateList CreateCertificateListFromFile(
     const FilePath& certs_dir,
@@ -427,13 +405,8 @@ TEST(X509CertificateTest, UnoSoftCertParsing) {
   EXPECT_NE(0, verify_result.cert_status & CERT_STATUS_AUTHORITY_INVALID);
 }
 
-#if defined(USE_NSS) || defined(USE_OPENSSL)
 // A regression test for http://crbug.com/31497.
 // This certificate will expire on 2012-04-08.
-// TODO(wtc): we can't run this test on Mac because MacTrustedCertificates
-// can hold only one additional trusted root certificate for unit tests.
-// TODO(wtc): we can't run this test on Windows because LoadTemporaryRootCert
-// isn't implemented (http//crbug.com/8470).
 TEST(X509CertificateTest, IntermediateCARequireExplicitPolicy) {
   FilePath certs_dir = GetTestCertsDirectory();
 
@@ -448,9 +421,8 @@ TEST(X509CertificateTest, IntermediateCARequireExplicitPolicy) {
   ASSERT_NE(static_cast<X509Certificate*>(NULL), intermediate_cert);
 
   FilePath root_cert_path = certs_dir.AppendASCII("dod_root_ca_2_cert.der");
-  scoped_refptr<X509Certificate> root_cert =
-      LoadTemporaryRootCert(root_cert_path);
-  ASSERT_NE(static_cast<X509Certificate*>(NULL), root_cert);
+  TestRootCerts* root_certs = TestRootCerts::GetInstance();
+  ASSERT_TRUE(root_certs->AddFromFile(root_cert_path));
 
   X509Certificate::OSCertHandles intermediates;
   intermediates.push_back(intermediate_cert->os_cert_handle());
@@ -464,8 +436,8 @@ TEST(X509CertificateTest, IntermediateCARequireExplicitPolicy) {
   int error = cert_chain->Verify("www.us.army.mil", flags, &verify_result);
   EXPECT_EQ(OK, error);
   EXPECT_EQ(0, verify_result.cert_status);
+  root_certs->Clear();
 }
-#endif
 
 // Tests X509Certificate::Cache via X509Certificate::CreateFromHandle.  We
 // call X509Certificate::CreateFromHandle several times and observe whether
@@ -686,6 +658,33 @@ TEST(X509CertificateTest, IsIssuedBy) {
   EXPECT_FALSE(mit_davidben_cert->IsIssuedBy(foaf_issuers));
 }
 #endif  // defined(OS_MACOSX)
+
+#if defined(USE_NSS) || defined(OS_WIN)
+// This test creates a signed cert from a private key and then verify content
+// of the certificate.
+TEST(X509CertificateTest, CreateSelfSigned) {
+  scoped_ptr<base::RSAPrivateKey> private_key(
+      base::RSAPrivateKey::Create(1024));
+  scoped_refptr<net::X509Certificate> cert =
+      net::X509Certificate::CreateSelfSigned(
+          private_key.get(), "CN=subject", 1, base::TimeDelta::FromDays(1));
+
+  EXPECT_EQ("subject", cert->subject().GetDisplayName());
+  EXPECT_FALSE(cert->HasExpired());
+}
+
+TEST(X509CertificateTest, GetDEREncoded) {
+  scoped_ptr<base::RSAPrivateKey> private_key(
+      base::RSAPrivateKey::Create(1024));
+  scoped_refptr<net::X509Certificate> cert =
+      net::X509Certificate::CreateSelfSigned(
+          private_key.get(), "CN=subject", 0, base::TimeDelta::FromDays(1));
+
+  std::string der_cert;
+  EXPECT_TRUE(cert->GetDEREncoded(&der_cert));
+  EXPECT_FALSE(der_cert.empty());
+}
+#endif
 
 class X509CertificateParseTest
     : public testing::TestWithParam<CertificateFormatTestData> {

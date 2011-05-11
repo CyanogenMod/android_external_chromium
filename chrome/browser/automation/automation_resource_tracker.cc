@@ -5,7 +5,6 @@
 #include "chrome/browser/automation/automation_resource_tracker.h"
 
 #include "chrome/common/automation_messages.h"
-#include "chrome/common/notification_service.h"
 
 AutomationResourceTrackerImpl::AutomationResourceTrackerImpl(
     IPC::Message::Sender* sender)
@@ -79,7 +78,7 @@ void AutomationResourceTrackerImpl::HandleCloseNotification(
     return;
 
   sender_->Send(
-    new AutomationMsg_InvalidateHandle(0, resource_to_handle_[resource]));
+    new AutomationMsg_InvalidateHandle(resource_to_handle_[resource]));
 
   RemoveImpl(resource);
 }

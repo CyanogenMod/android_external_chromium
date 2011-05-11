@@ -16,7 +16,7 @@
 #include "chrome/browser/history/download_create_info.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/platform_util.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -27,7 +27,7 @@
 #include "app/win_util.h"
 #include "chrome/common/win_safe_util.h"
 #elif defined(OS_MACOSX)
-#include "chrome/browser/cocoa/file_metadata.h"
+#include "chrome/browser/ui/cocoa/file_metadata.h"
 #endif
 
 namespace {
@@ -175,6 +175,8 @@ void DownloadFileManager::StartDownload(DownloadCreateInfo* info) {
     delete info;
     return;
   }
+
+  manager->CreateDownloadItem(info);
 
   BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(this, &DownloadFileManager::CreateDownloadFile,

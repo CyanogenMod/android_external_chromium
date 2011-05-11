@@ -4,7 +4,7 @@
 
 #include "base/message_loop.h"
 #include "base/thread.h"
-#include "chrome/browser/extensions/extensions_service_unittest.h"
+#include "chrome/browser/extensions/extension_service_unittest.h"
 #include "chrome/browser/extensions/user_script_listener.h"
 #include "chrome/browser/renderer_host/global_request_id.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
@@ -90,35 +90,35 @@ ResourceDispatcherHostRequestInfo* CreateRequestInfo(int request_id) {
   return new ResourceDispatcherHostRequestInfo(
       new DummyResourceHandler(), ChildProcessInfo::RENDER_PROCESS, 0, 0,
       request_id, "null", "null", ResourceType::MAIN_FRAME,
-      0, false, false, -1, -1);
+      0, false, false, false, -1, -1);
 }
 
-// A simple test URLRequestJob. We don't care what it does, only that whether it
-// starts and finishes.
+// A simple test net::URLRequestJob. We don't care what it does, only that
+// whether it starts and finishes.
 class SimpleTestJob : public URLRequestTestJob {
  public:
-  explicit SimpleTestJob(URLRequest* request)
+  explicit SimpleTestJob(net::URLRequest* request)
     : URLRequestTestJob(request, test_headers(), kTestData, true) {}
  private:
   ~SimpleTestJob() {}
 };
 
 class UserScriptListenerTest
-    : public ExtensionsServiceTestBase,
-      public URLRequest::Interceptor {
+    : public ExtensionServiceTestBase,
+      public net::URLRequest::Interceptor {
  public:
   UserScriptListenerTest() {
-    URLRequest::RegisterRequestInterceptor(this);
+    net::URLRequest::RegisterRequestInterceptor(this);
   }
 
   ~UserScriptListenerTest() {
-    URLRequest::UnregisterRequestInterceptor(this);
+    net::URLRequest::UnregisterRequestInterceptor(this);
   }
 
   virtual void SetUp() {
-    ExtensionsServiceTestBase::SetUp();
+    ExtensionServiceTestBase::SetUp();
 
-    InitializeEmptyExtensionsService();
+    InitializeEmptyExtensionService();
     service_->Init();
     MessageLoop::current()->RunAllPending();
 
@@ -135,13 +135,13 @@ class UserScriptListenerTest
     MessageLoop::current()->RunAllPending();
   }
 
-  // URLRequest::Interceptor
-  virtual URLRequestJob* MaybeIntercept(URLRequest* request) {
+  // net::URLRequest::Interceptor
+  virtual net::URLRequestJob* MaybeIntercept(net::URLRequest* request) {
     return new SimpleTestJob(request);
   }
 
  protected:
-  TestURLRequest* StartTestRequest(URLRequest::Delegate* delegate,
+  TestURLRequest* StartTestRequest(net::URLRequest::Delegate* delegate,
                                    const std::string& url) {
     TestURLRequest* request = new TestURLRequest(GURL(url), delegate);
     scoped_ptr<ResourceDispatcherHostRequestInfo> rdh_info(
@@ -164,7 +164,8 @@ class UserScriptListenerTest
 
   void UnloadTestExtension() {
     ASSERT_FALSE(service_->extensions()->empty());
-    service_->UnloadExtension(service_->extensions()->at(0)->id());
+    service_->UnloadExtension(service_->extensions()->at(0)->id(),
+                              UnloadedExtensionInfo::DISABLE);
   }
 
   scoped_refptr<UserScriptListener> listener_;

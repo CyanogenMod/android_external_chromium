@@ -4,6 +4,8 @@
 
 #include "chrome/browser/gtk/download_shelf_gtk.h"
 
+#include <string>
+
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "chrome/browser/download/download_item.h"
@@ -16,7 +18,6 @@
 #include "chrome/browser/gtk/gtk_chrome_shrinkable_hbox.h"
 #include "chrome/browser/gtk/gtk_theme_provider.h"
 #include "chrome/browser/gtk/gtk_util.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/notification_service.h"
 #include "gfx/gtk_util.h"
@@ -174,6 +175,10 @@ void DownloadShelfGtk::Close() {
   gdk_window_raise(shelf_.get()->window);
   slide_widget_->Close();
   browser_->UpdateDownloadShelfVisibility(false);
+}
+
+Browser* DownloadShelfGtk::browser() const {
+  return browser_;
 }
 
 void DownloadShelfGtk::Closed() {

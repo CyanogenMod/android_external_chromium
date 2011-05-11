@@ -169,23 +169,23 @@
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/guid.h"
 #include "chrome/browser/load_notification_details.h"
 #include "chrome/browser/memory_details.h"
 #include "chrome/browser/metrics/histogram_synchronizer.h"
 #include "chrome/browser/metrics/metrics_log.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/common/child_process_info.h"
 #include "chrome/common/child_process_logging.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/guid.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
-#include "webkit/glue/plugins/plugin_list.h"
-#include "webkit/glue/plugins/webplugininfo.h"
+#include "webkit/plugins/npapi/plugin_list.h"
+#include "webkit/plugins/npapi/webplugininfo.h"
 #include "libxml/xmlwriter.h"
 
 // TODO(port): port browser_distribution.h.
@@ -336,8 +336,9 @@ class MetricsMemoryDetails : public MemoryDetails {
 
 class MetricsService::InitTaskComplete : public Task {
  public:
-  explicit InitTaskComplete(const std::string& hardware_class,
-                            const std::vector<WebPluginInfo>& plugins)
+  explicit InitTaskComplete(
+      const std::string& hardware_class,
+      const std::vector<webkit::npapi::WebPluginInfo>& plugins)
       : hardware_class_(hardware_class), plugins_(plugins) {}
 
   virtual void Run() {
@@ -347,7 +348,7 @@ class MetricsService::InitTaskComplete : public Task {
 
  private:
   std::string hardware_class_;
-  std::vector<WebPluginInfo> plugins_;
+  std::vector<webkit::npapi::WebPluginInfo> plugins_;
 };
 
 class MetricsService::InitTask : public Task {
@@ -356,12 +357,12 @@ class MetricsService::InitTask : public Task {
       : callback_loop_(callback_loop) {}
 
   virtual void Run() {
-    std::vector<WebPluginInfo> plugins;
-    NPAPI::PluginList::Singleton()->GetPlugins(false, &plugins);
+    std::vector<webkit::npapi::WebPluginInfo> plugins;
+    webkit::npapi::PluginList::Singleton()->GetPlugins(false, &plugins);
     std::string hardware_class;  // Empty string by default.
 #if defined(OS_CHROMEOS)
     chromeos::SystemLibrary* system_library =
-      chromeos::CrosLibrary::Get()->GetSystemLibrary();
+        chromeos::CrosLibrary::Get()->GetSystemLibrary();
     system_library->GetMachineStatistic("hardware_class", &hardware_class);
 #endif  // OS_CHROMEOS
     callback_loop_->PostTask(FROM_HERE, new InitTaskComplete(
@@ -606,11 +607,13 @@ void MetricsService::Observe(NotificationType type,
       LogLoadStarted();
       break;
 
-    case NotificationType::RENDERER_PROCESS_CLOSED:
-      {
+    case NotificationType::RENDERER_PROCESS_CLOSED: {
         RenderProcessHost::RendererClosedDetails* process_details =
             Details<RenderProcessHost::RendererClosedDetails>(details).ptr();
-        if (process_details->did_crash) {
+        if (process_details->status ==
+            base::TERMINATION_STATUS_PROCESS_CRASHED ||
+            process_details->status ==
+            base::TERMINATION_STATUS_ABNORMAL_TERMINATION) {
           if (process_details->was_extension_renderer) {
             LogExtensionRendererCrash();
           } else {
@@ -799,7 +802,7 @@ void MetricsService::InitializeMetricsState() {
 
 void MetricsService::OnInitTaskComplete(
     const std::string& hardware_class,
-    const std::vector<WebPluginInfo>& plugins) {
+    const std::vector<webkit::npapi::WebPluginInfo>& plugins) {
   DCHECK(state_ == INIT_TASK_SCHEDULED);
   hardware_class_ = hardware_class;
   plugins_ = plugins;

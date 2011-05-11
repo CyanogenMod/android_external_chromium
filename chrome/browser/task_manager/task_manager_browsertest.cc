@@ -11,11 +11,12 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/crashed_extension_infobar.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_test_util.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
@@ -98,13 +99,20 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeTabContentsChanges) {
   browser()->window()->ShowTaskManager();
 
   // Browser and the New Tab Page.
-  EXPECT_EQ(2, model()->ResourceCount());
+  WaitForResourceChange(2);
 
   // Open a new tab and make sure we notice that.
   GURL url(ui_test_utils::GetTestUrl(FilePath(FilePath::kCurrentDirectory),
                                      FilePath(kTitle1File)));
   AddTabAtIndex(0, url, PageTransition::TYPED);
   WaitForResourceChange(3);
+
+  // Check that the third entry is a tab contents resource whose title starts
+  // starts with "Tab:".
+  ASSERT_TRUE(model()->GetResourceTabContents(2) != NULL);
+  string16 prefix = WideToUTF16Hack(l10n_util::GetStringF(
+      IDS_TASK_MANAGER_TAB_PREFIX, L""));
+  ASSERT_TRUE(StartsWith(model()->GetResourceTitle(2), prefix, true));
 
   // Close the tab and verify that we notice.
   TabContents* first_tab = browser()->GetTabContentsAt(0);
@@ -121,7 +129,7 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeBGContentsChanges) {
   browser()->window()->ShowTaskManager();
 
   // Browser and the New Tab Page.
-  EXPECT_EQ(2, model()->ResourceCount());
+  WaitForResourceChange(2);
 
   // Open a new background contents and make sure we notice that.
   GURL url(ui_test_utils::GetTestUrl(FilePath(FilePath::kCurrentDirectory),
@@ -141,15 +149,7 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeBGContentsChanges) {
   WaitForResourceChange(2);
 }
 
-#if defined(OS_WIN)
-// http://crbug.com/31663
-#define MAYBE_NoticeExtensionChanges DISABLED_NoticeExtensionChanges
-#else
-// Flaky test bug filed in http://crbug.com/51701
-#define MAYBE_NoticeExtensionChanges FLAKY_NoticeExtensionChanges
-#endif
-
-IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, MAYBE_NoticeExtensionChanges) {
+IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeExtensionChanges) {
   EXPECT_EQ(0, model()->ResourceCount());
 
   // Show the task manager. This populates the model, and helps with debugging
@@ -157,13 +157,89 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, MAYBE_NoticeExtensionChanges) {
   browser()->window()->ShowTaskManager();
 
   // Browser and the New Tab Page.
-  EXPECT_EQ(2, model()->ResourceCount());
+  WaitForResourceChange(2);
 
   // Loading an extension with a background page should result in a new
   // resource being created for it.
   ASSERT_TRUE(LoadExtension(
       test_data_dir_.AppendASCII("common").AppendASCII("background_page")));
   WaitForResourceChange(3);
+
+  // Unload extension to avoid crash on Windows (see http://crbug.com/31663).
+  UnloadExtension(last_loaded_extension_id_);
+  WaitForResourceChange(2);
+}
+
+IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeExtensionTabs) {
+  // Show the task manager. This populates the model, and helps with debugging
+  // (you see the task manager).
+  browser()->window()->ShowTaskManager();
+
+  ASSERT_TRUE(LoadExtension(
+      test_data_dir_.AppendASCII("good").AppendASCII("Extensions")
+                    .AppendASCII("behllobkkfkfnphdnhnkndlbkcpglgmj")
+                    .AppendASCII("1.0.0.0")));
+
+  // Browser, Extension background page, and the New Tab Page.
+  WaitForResourceChange(3);
+
+  // Open a new tab to an extension URL and make sure we notice that.
+  GURL url("chrome-extension://behllobkkfkfnphdnhnkndlbkcpglgmj/page.html");
+  AddTabAtIndex(0, url, PageTransition::TYPED);
+  WaitForResourceChange(4);
+
+  // Check that the third entry (background) is an extension resource whose
+  // title starts with "Extension:".
+  ASSERT_EQ(TaskManager::Resource::EXTENSION, model()->GetResourceType(2));
+  ASSERT_TRUE(model()->GetResourceTabContents(2) == NULL);
+  ASSERT_TRUE(model()->GetResourceExtension(2) != NULL);
+  string16 prefix = WideToUTF16Hack(l10n_util::GetStringF(
+      IDS_TASK_MANAGER_EXTENSION_PREFIX, L""));
+  ASSERT_TRUE(StartsWith(model()->GetResourceTitle(2), prefix, true));
+
+  // Check that the fourth entry (page.html) is of type extension and has both
+  // a tab contents and an extension. The title should start with "Extension:".
+  ASSERT_EQ(TaskManager::Resource::EXTENSION, model()->GetResourceType(3));
+  ASSERT_TRUE(model()->GetResourceTabContents(3) != NULL);
+  ASSERT_TRUE(model()->GetResourceExtension(3) != NULL);
+  ASSERT_TRUE(StartsWith(model()->GetResourceTitle(3), prefix, true));
+
+  // Unload extension to avoid crash on Windows.
+  UnloadExtension(last_loaded_extension_id_);
+  WaitForResourceChange(2);
+}
+
+IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeAppTabs) {
+  // Show the task manager. This populates the model, and helps with debugging
+  // (you see the task manager).
+  browser()->window()->ShowTaskManager();
+
+  ASSERT_TRUE(LoadExtension(
+      test_data_dir_.AppendASCII("packaged_app")));
+  ExtensionService* service = browser()->profile()->GetExtensionService();
+  const Extension* extension =
+      service->GetExtensionById(last_loaded_extension_id_, false);
+
+  // Browser and the New Tab Page.
+  WaitForResourceChange(2);
+
+  // Open a new tab to the app's launch URL and make sure we notice that.
+  GURL url(extension->GetResourceURL("main.html"));
+  AddTabAtIndex(0, url, PageTransition::TYPED);
+  WaitForResourceChange(3);
+
+  // Check that the third entry (main.html) is of type extension and has both
+  // a tab contents and an extension. The title should start with "App:".
+  ASSERT_EQ(TaskManager::Resource::EXTENSION, model()->GetResourceType(2));
+  ASSERT_TRUE(model()->GetResourceTabContents(2) != NULL);
+  ASSERT_TRUE(model()->GetResourceExtension(2) != NULL);
+  string16 prefix = WideToUTF16Hack(l10n_util::GetStringF(
+      IDS_TASK_MANAGER_APP_PREFIX, L""));
+  ASSERT_TRUE(StartsWith(model()->GetResourceTitle(2), prefix, true));
+
+  // Unload extension to avoid crash on Windows.
+  UnloadExtension(last_loaded_extension_id_);
+  WaitForResourceChange(2);
 }
 
 IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeNotificationChanges) {
@@ -172,7 +248,7 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeNotificationChanges) {
   // Show the task manager.
   browser()->window()->ShowTaskManager();
   // Expect to see the browser and the New Tab Page renderer.
-  EXPECT_EQ(2, model()->ResourceCount());
+  WaitForResourceChange(2);
 
   // Show a notification.
   NotificationUIManager* notifications =
@@ -220,7 +296,9 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, KillExtension) {
   WaitForResourceChange(2);
 }
 
-IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, KillExtensionAndReload) {
+// Disabled, http://crbug.com/66957.
+IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest,
+                       DISABLED_KillExtensionAndReload) {
   // Show the task manager. This populates the model, and helps with debugging
   // (you see the task manager).
   browser()->window()->ShowTaskManager();
@@ -297,7 +375,7 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest,
   browser()->window()->ShowTaskManager();
 
   // Browser and the New Tab Page.
-  EXPECT_EQ(2, model()->ResourceCount());
+  WaitForResourceChange(2);
 
   // Open a new tab and make sure we notice that.
   GURL url(ui_test_utils::GetTestUrl(FilePath(FilePath::kCurrentDirectory),

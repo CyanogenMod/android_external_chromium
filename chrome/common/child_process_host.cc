@@ -13,7 +13,6 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/plugin_messages.h"
 #include "ipc/ipc_logging.h"
-#include "ipc/ipc_message.h"
 
 #if defined(OS_LINUX)
 #include "base/linux_util.h"
@@ -25,6 +24,17 @@ ChildProcessHost::ChildProcessHost()
 }
 
 ChildProcessHost::~ChildProcessHost() {
+  for (size_t i = 0; i < filters_.size(); ++i) {
+    filters_[i]->OnChannelClosing();
+    filters_[i]->OnFilterRemoved();
+  }
+}
+
+void ChildProcessHost::AddFilter(IPC::ChannelProxy::MessageFilter* filter) {
+  filters_.push_back(filter);
+
+  if (channel_.get())
+    filter->OnFilterAdded(channel_.get());
 }
 
 // static
@@ -109,13 +119,16 @@ bool ChildProcessHost::CreateChannel() {
   if (!channel_->Connect())
     return false;
 
+  for (size_t i = 0; i < filters_.size(); ++i)
+    filters_[i]->OnFilterAdded(channel_.get());
+
   // Make sure these messages get sent first.
 #if defined(IPC_MESSAGE_LOG_ENABLED)
-  bool enabled = IPC::Logging::current()->Enabled();
-  SendOnChannel(new PluginProcessMsg_SetIPCLoggingEnabled(enabled));
+  bool enabled = IPC::Logging::GetInstance()->Enabled();
+  Send(new PluginProcessMsg_SetIPCLoggingEnabled(enabled));
 #endif
 
-  SendOnChannel(new PluginProcessMsg_AskBeforeShutdown());
+  Send(new PluginProcessMsg_AskBeforeShutdown());
 
   opening_channel_ = true;
 
@@ -126,54 +139,57 @@ void ChildProcessHost::InstanceCreated() {
   Notify(NotificationType::CHILD_INSTANCE_CREATED);
 }
 
-bool ChildProcessHost::SendOnChannel(IPC::Message* msg) {
+bool ChildProcessHost::Send(IPC::Message* message) {
   if (!channel_.get()) {
-    delete msg;
+    delete message;
     return false;
   }
-  return channel_->Send(msg);
+  return channel_->Send(message);
 }
 
 void ChildProcessHost::OnChildDied() {
   delete this;
 }
 
-bool ChildProcessHost::InterceptMessageFromChild(const IPC::Message& msg) {
-  return false;
-}
-
 ChildProcessHost::ListenerHook::ListenerHook(ChildProcessHost* host)
     : host_(host) {
 }
 
-void ChildProcessHost::ListenerHook::OnMessageReceived(
+bool ChildProcessHost::ListenerHook::OnMessageReceived(
     const IPC::Message& msg) {
 #ifdef IPC_MESSAGE_LOG_ENABLED
-  IPC::Logging* logger = IPC::Logging::current();
+  IPC::Logging* logger = IPC::Logging::GetInstance();
   if (msg.type() == IPC_LOGGING_ID) {
     logger->OnReceivedLoggingMessage(msg);
-    return;
+    return true;
   }
 
   if (logger->Enabled())
     logger->OnPreDispatchMessage(msg);
 #endif
 
-  bool handled = host_->InterceptMessageFromChild(msg);
-
-  if (!handled) {
-    if (msg.type() == PluginProcessHostMsg_ShutdownRequest::ID) {
-      if (host_->CanShutdown())
-        host_->SendOnChannel(new PluginProcessMsg_Shutdown());
-    } else {
-      host_->OnMessageReceived(msg);
+  bool handled = false;
+  for (size_t i = 0; i < host_->filters_.size(); ++i) {
+    if (host_->filters_[i]->OnMessageReceived(msg)) {
+      handled = true;
+      break;
     }
   }
+
+  if (!handled && msg.type() == PluginProcessHostMsg_ShutdownRequest::ID) {
+    if (host_->CanShutdown())
+      host_->Send(new PluginProcessMsg_Shutdown());
+    handled = true;
+  }
+
+  if (!handled)
+    handled = host_->OnMessageReceived(msg);
 
 #ifdef IPC_MESSAGE_LOG_ENABLED
   if (logger->Enabled())
     logger->OnPostDispatchMessage(msg, host_->channel_id_);
 #endif
+  return handled;
 }
 
 void ChildProcessHost::ListenerHook::OnChannelConnected(int32 peer_pid) {
@@ -181,16 +197,22 @@ void ChildProcessHost::ListenerHook::OnChannelConnected(int32 peer_pid) {
   host_->OnChannelConnected(peer_pid);
   // Notify in the main loop of the connection.
   host_->Notify(NotificationType::CHILD_PROCESS_HOST_CONNECTED);
+
+  for (size_t i = 0; i < host_->filters_.size(); ++i)
+    host_->filters_[i]->OnChannelConnected(peer_pid);
 }
 
 void ChildProcessHost::ListenerHook::OnChannelError() {
   host_->opening_channel_ = false;
   host_->OnChannelError();
 
+  for (size_t i = 0; i < host_->filters_.size(); ++i)
+    host_->filters_[i]->OnChannelError();
+
   // This will delete host_, which will also destroy this!
   host_->OnChildDied();
 }
 
 void ChildProcessHost::ForceShutdown() {
-  SendOnChannel(new PluginProcessMsg_Shutdown());
+  Send(new PluginProcessMsg_Shutdown());
 }

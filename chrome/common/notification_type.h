@@ -117,12 +117,12 @@ class NotificationType {
     // The DOM for a frame was fully constructed, but referenced resources
     // might not be fully loaded yet. The source is a
     // Source<NavigationController> corresponding to the tab in which the load
-    // occurred. Details are the long long frame ID.
+    // occurred. Details are the int64 frame ID.
     FRAME_DOM_CONTENT_LOADED,
 
     // The frame finished loading. The source is a Source<NavigationController>
     // corresponding to the tab in which the load occurred. Details are the
-    // long long frame ID.
+    // int64 frame ID.
     FRAME_DID_FINISH_LOAD,
 
     // Content was loaded from an in-memory cache.  The source will be a
@@ -182,16 +182,6 @@ class NotificationType {
     // The source will be the navigation controller associated with the state
     // change.  There are no details.
     SSL_INTERNAL_STATE_CHANGED,
-
-    // Lets resource handlers and other interested observers know when the
-    // message filter is being deleted and can no longer be used.  This will
-    // also get sent if the renderer crashes (and in that case, it'll be sent
-    // twice).
-    RESOURCE_MESSAGE_FILTER_SHUTDOWN,
-
-    // Lets interested observers know when a WorkerProcessHost is being deleted
-    // and can no longer be used.
-    WORKER_PROCESS_HOST_SHUTDOWN,
 
     // Views -------------------------------------------------------------------
 
@@ -502,7 +492,8 @@ class NotificationType {
     WEB_CACHE_STATS_OBSERVED,
 
     // The focused element inside a page has changed.  The source is the render
-    // view host for the page, there are no details.
+    // view host for the page.  The details are a Details<const bool> that
+    // indicates whether or not an editable node was focused.
     FOCUS_CHANGED_IN_PAGE,
 
     // Notification posted from ExecuteJavascriptInWebFrameNotifyResult. The
@@ -510,7 +501,7 @@ class NotificationType {
     // invoked on. The details are a std::pair<int, Value*> with the int giving
     // the id returned from ExecuteJavascriptInWebFrameNotifyResult and the
     // Value the results of the javascript expression. The Value is owned by
-    // RenderViewHost.
+    // RenderViewHost and may be a Null Value.
     EXECUTE_JAVASCRIPT_RESULT,
 
     // BackgroundContents ------------------------------------------------------
@@ -548,11 +539,19 @@ class NotificationType {
     // The details are in a Details<ChildProcessInfo>.
     CHILD_PROCESS_HOST_DISCONNECTED,
 
-    // This message is sent when a child process disappears unexpectedly.
-    // There is no usable source, since it is sent from an ephemeral task;
-    // register for AllSources() to receive this notification.  The details are
-    // in a Details<ChildProcessInfo>.
+    // This message is sent when a child process disappears
+    // unexpectedly as a result of a crash.  There is no usable
+    // source, since it is sent from an ephemeral task; register for
+    // AllSources() to receive this notification.  The details are in
+    // a Details<ChildProcessInfo>.
     CHILD_PROCESS_CRASHED,
+
+    // This message is sent when a child process disappears
+    // unexpectedly as a result of a termination signal.  There is no
+    // usable source, since it is sent from an ephemeral task;
+    // register for AllSources() to receive this notification.  The
+    // details are in a Details<ChildProcessInfo>.
+    CHILD_PROCESS_WAS_KILLED,
 
     // This message indicates that an instance of a particular child was
     // created in a page.  (If one page contains several regions rendered by
@@ -736,6 +735,10 @@ class NotificationType {
     // PrefService and the details a std::string of the changed path.
     PREF_CHANGED,
 
+    // This is broadcast after the preference subsystem has completed
+    // asynchronous initalization of a PrefService.
+    PREF_INITIALIZATION_COMPLETED,
+
     // Sent when a default request context has been created, so calling
     // Profile::GetDefaultRequestContext() will not return NULL.  This is sent
     // on the thread where Profile::GetRequestContext() is first called, which
@@ -851,15 +854,12 @@ class NotificationType {
     EXTENSION_UNINSTALLED,
 
     // Sent when an extension is unloaded. This happens when an extension is
-    // uninstalled or disabled. The details are an Extension, and the source is
-    // a Profile.
+    // uninstalled or disabled. The details are an UnloadedExtensionInfo, and
+    // the source is a Profile.
     //
-    // Note that when this notification is sent, ExtensionsService has already
+    // Note that when this notification is sent, ExtensionService has already
     // removed the extension from its internal state.
     EXTENSION_UNLOADED,
-
-    // Same as above, but for a disabled extension.
-    EXTENSION_UNLOADED_DISABLED,
 
     // Sent when an extension has updated its user scripts. The details are an
     // Extension, and the source is a Profile.
@@ -1103,6 +1103,11 @@ class NotificationType {
     // details are None.
     DESKTOP_NOTIFICATION_SETTINGS_CHANGED,
 
+    // Sent when the geolocation settings change. The source is the
+    // GeolocationContentSettingsMap object, the details are
+    // ContentSettingsNotificationsDetails.
+    GEOLOCATION_SETTINGS_CHANGED,
+
     // Sync --------------------------------------------------------------------
 
     // Sent when the sync backend has been paused.
@@ -1247,6 +1252,9 @@ class NotificationType {
     // os device has failed.
     OWNER_KEY_FETCH_ATTEMPT_FAILED,
 
+    // Sent after device was successfully owned.
+    OWNERSHIP_TAKEN,
+
     // This is sent to a ChromeOS settings observer when a system setting is
     // changed. The source is the CrosSettings and the details a std::string of
     // the changed setting.
@@ -1285,19 +1293,6 @@ class NotificationType {
     // change type (ADD, UPDATE, or REMOVE) as well as the
     // |webkit_glue::PasswordForm|s that were affected.
     LOGINS_CHANGED,
-
-    // Configuration Policy ----------------------------------------------------
-    // This notification is sent whenever the administrator changes policy.
-    // The detail of this notification is not used.
-    POLICY_CHANGED,
-
-    // This notification is sent whenever the device token becomes available
-    // that the policy subsystem uses to fetch policy from the cloud.
-    DEVICE_TOKEN_AVAILABLE,
-
-    // This notification is sent whenever cloud policies are fetched and
-    // updated. The detail of this notification is not used.
-    CLOUD_POLICY_UPDATE,
 
     // Count (must be last) ----------------------------------------------------
     // Used to determine the number of notification types.  Not valid as

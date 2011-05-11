@@ -12,22 +12,23 @@
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/debugger/devtools_manager.h"
 #include "chrome/browser/debugger/devtools_window.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/in_process_webkit/session_storage_namespace.h"
 #include "chrome/browser/load_notification_details.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
-#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/bindings_policy.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/url_constants.h"
@@ -274,9 +275,12 @@ void DevToolsWindow::AddDevToolsExtensionsToClient() {
     CallClientFunction(L"WebInspector.setInspectedTabId", tabId);
   }
   ListValue results;
-  const ExtensionsService* extension_service =
+  const ExtensionService* extension_service =
       tab_contents_->tab_contents()->profile()->
-          GetOriginalProfile()->GetExtensionsService();
+          GetOriginalProfile()->GetExtensionService();
+  if (!extension_service)
+    return;
+
   const ExtensionList* extensions = extension_service->extensions();
 
   for (ExtensionList::const_iterator extension = extensions->begin();
@@ -390,6 +394,10 @@ void DevToolsWindow::UpdateTheme() {
       SkColorToRGBAString(color_tab_text).c_str());
   tab_contents_->render_view_host()->
       ExecuteJavascriptInWebFrame(L"", UTF8ToWide(command));
+}
+
+bool DevToolsWindow::CanReloadContents(TabContents* source) const {
+  return false;
 }
 
 bool DevToolsWindow::PreHandleKeyboardEvent(

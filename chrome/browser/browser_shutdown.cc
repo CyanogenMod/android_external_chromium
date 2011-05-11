@@ -28,6 +28,7 @@
 #include "chrome/browser/metrics/metrics_service.h"
 #include "chrome/browser/plugin_process_host.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host.h"
@@ -45,6 +46,8 @@
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/boot_times_loader.h"
+#include "chrome/browser/chromeos/cros/cros_library.h"
+#include "chrome/browser/chromeos/cros/login_library.h"
 #endif
 
 using base::Time;
@@ -121,7 +124,7 @@ void Shutdown() {
         NewRunnableFunction(&ChromePluginLib::UnloadAllPlugins));
 
   // Shutdown all IPC channels to service processes.
-  ServiceProcessControlManager::instance()->Shutdown();
+  ServiceProcessControlManager::GetInstance()->Shutdown();
 
   // WARNING: During logoff/shutdown (WM_ENDSESSION) we may not have enough
   // time to get here. If you have something that *must* happen on end session,
@@ -132,8 +135,10 @@ void Shutdown() {
   g_browser_process->shutdown_event()->Signal();
 
   PrefService* prefs = g_browser_process->local_state();
+  ProfileManager* profile_manager = g_browser_process->profile_manager();
+  PrefService* user_prefs = profile_manager->GetDefaultProfile()->GetPrefs();
 
-  chrome_browser_net::SavePredictorStateForNextStartupAndTrim(prefs);
+  chrome_browser_net::SavePredictorStateForNextStartupAndTrim(user_prefs);
 
   MetricsService* metrics = g_browser_process->metrics_service();
   if (metrics) {
@@ -244,6 +249,12 @@ void Shutdown() {
   }
 
   UnregisterURLRequestChromeJob();
+
+#if defined(OS_CHROMEOS)
+  if (chromeos::CrosLibrary::Get()->EnsureLoaded()) {
+    chromeos::CrosLibrary::Get()->GetLoginLibrary()->StopSession("");
+  }
+#endif
 }
 
 void ReadLastShutdownFile(

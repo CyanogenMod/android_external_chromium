@@ -99,9 +99,7 @@ class MetricsLogBase {
     version_extension_ = extension;
   }
 
-  virtual MetricsLog* AsMetricsLog() {
-    return NULL;
-  }
+  virtual MetricsLog* AsMetricsLog();
 
  protected:
   class XmlWrapper;
@@ -185,8 +183,8 @@ class MetricsLogBase {
 // onward.
 class HistogramSender {
  protected:
-  HistogramSender() {}
-  virtual ~HistogramSender() {}
+  HistogramSender();
+  virtual ~HistogramSender();
 
   // Snapshot all histograms, and transmit the delta.
   // The arguments allow a derived class to select only a subset for

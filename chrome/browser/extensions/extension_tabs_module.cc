@@ -4,6 +4,9 @@
 
 #include "chrome/browser/extensions/extension_tabs_module.h"
 
+#include <algorithm>
+#include <vector>
+
 #include "base/base64.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
@@ -15,21 +18,22 @@
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_infobar_delegate.h"
 #include "chrome/browser/extensions/extension_tabs_module_constants.h"
-#include "chrome/browser/extensions/extensions_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/backing_store.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_navigator.h"
-#include "chrome/browser/window_sizer.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
+#include "chrome/browser/ui/window_sizer.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_error_utils.h"
+#include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
 #include "gfx/codec/jpeg_codec.h"
 #include "gfx/codec/png_codec.h"
@@ -310,6 +314,7 @@ bool GetAllWindowsFunction::RunImpl() {
 bool CreateWindowFunction::RunImpl() {
   DictionaryValue* args = NULL;
   std::vector<GURL> urls;
+  TabContentsWrapper* contents = NULL;
 
   if (HasOptionalArgument(0))
     EXTENSION_FUNCTION_VALIDATE(args_->GetDictionary(0, &args));
@@ -345,6 +350,29 @@ bool CreateWindowFunction::RunImpl() {
           return false;
         }
         urls.push_back(url);
+      }
+    }
+  }
+
+  // Look for optional tab id.
+  if (args) {
+    int tab_id;
+    if (args->HasKey(keys::kTabIdKey)) {
+      EXTENSION_FUNCTION_VALIDATE(args->GetInteger(keys::kTabIdKey, &tab_id));
+
+      // Find the tab and detach it from the original window.
+      Browser* source_browser = NULL;
+      TabStripModel* source_tab_strip = NULL;
+      int tab_index = -1;
+      if (!GetTabById(tab_id, profile(), include_incognito(),
+                      &source_browser, &source_tab_strip, &contents,
+                      &tab_index, &error_))
+        return false;
+      contents = source_tab_strip->DetachTabContentsAt(tab_index);
+      if (!contents) {
+        error_ = ExtensionErrorUtils::FormatErrorMessage(
+            keys::kTabNotFoundError, base::IntToString(tab_id));
+        return false;
       }
     }
   }
@@ -428,8 +456,13 @@ bool CreateWindowFunction::RunImpl() {
   Browser* new_window = Browser::CreateForType(window_type, window_profile);
   for (std::vector<GURL>::iterator i = urls.begin(); i != urls.end(); ++i)
     new_window->AddSelectedTabWithURL(*i, PageTransition::LINK);
-  if (urls.size() == 0)
+  if (contents) {
+    TabStripModel* target_tab_strip = new_window->tabstrip_model();
+    target_tab_strip->InsertTabContentsAt(urls.size(), contents,
+                                          TabStripModel::ADD_NONE);
+  } else if (urls.size() == 0) {
     new_window->NewTab();
+  }
   new_window->SelectNumberedTab(0);
   if (window_type & Browser::TYPE_POPUP)
     new_window->window()->SetBounds(popup_bounds);
@@ -516,6 +549,13 @@ bool RemoveWindowFunction::RunImpl() {
                                                include_incognito(), &error_);
   if (!browser)
     return false;
+
+  // Don't let the extension remove the window if the user is dragging tabs
+  // in that window.
+  if (!browser->IsTabStripEditable()) {
+    error_ = keys::kTabStripNotEditableError;
+    return false;
+  }
 
   browser->CloseWindow();
 
@@ -815,8 +855,9 @@ bool MoveTabFunction::RunImpl() {
                   &tab_index, &error_))
     return false;
 
-  if (source_browser->type() != Browser::TYPE_NORMAL) {
-    error_ = keys::kCanOnlyMoveTabsWithinNormalWindowsError;
+  // Don't let the extension move the tab if the user is dragging tabs.
+  if (!source_browser->IsTabStripEditable()) {
+    error_ = keys::kTabStripNotEditableError;
     return false;
   }
 
@@ -829,6 +870,11 @@ bool MoveTabFunction::RunImpl() {
                                                include_incognito(), &error_);
     if (!target_browser)
       return false;
+
+    if (!target_browser->IsTabStripEditable()) {
+      error_ = keys::kTabStripNotEditableError;
+      return false;
+    }
 
     if (target_browser->type() != Browser::TYPE_NORMAL) {
       error_ = keys::kCanOnlyMoveTabsWithinNormalWindowsError;
@@ -888,6 +934,12 @@ bool RemoveTabFunction::RunImpl() {
   if (!GetTabById(tab_id, profile(), include_incognito(),
                   &browser, NULL, &contents, NULL, &error_))
     return false;
+
+  // Don't let the extension remove a tab if the user is dragging tabs around.
+  if (!browser->IsTabStripEditable()) {
+    error_ = keys::kTabStripNotEditableError;
+    return false;
+  }
 
   // Close the tab in this convoluted way, since there's a chance that the tab
   // is being dragged, or we're in some other nested event loop. This code path

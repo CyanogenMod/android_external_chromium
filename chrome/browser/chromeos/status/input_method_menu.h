@@ -6,12 +6,13 @@
 #define CHROME_BROWSER_CHROMEOS_STATUS_INPUT_METHOD_MENU_H_
 #pragma once
 
+#include <string>
+
 #include "app/menus/simple_menu_model.h"
 #include "chrome/browser/chromeos/cros/input_method_library.h"
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
 #include "views/controls/menu/menu_2.h"
 #include "views/controls/menu/view_menu_delegate.h"
@@ -44,7 +45,7 @@ class InputMethodMenu : public views::ViewMenuDelegate,
   virtual menus::MenuModel::ItemType GetTypeAt(int index) const;
   virtual int GetCommandIdAt(int index) const;
   virtual string16 GetLabelAt(int index) const;
-  virtual bool IsLabelDynamicAt(int index) const;
+  virtual bool IsItemDynamicAt(int index) const;
   virtual bool GetAcceleratorAt(int index,
                                 menus::Accelerator* accelerator) const;
   virtual bool IsItemCheckedAt(int index) const;
@@ -63,9 +64,19 @@ class InputMethodMenu : public views::ViewMenuDelegate,
                        const gfx::Point& pt);
 
   // InputMethodLibrary::Observer implementation.
-  virtual void InputMethodChanged(InputMethodLibrary* obj);
-  virtual void ImePropertiesChanged(InputMethodLibrary* obj);
-  virtual void ActiveInputMethodsChanged(InputMethodLibrary* obj);
+  virtual void InputMethodChanged(
+      InputMethodLibrary* obj,
+      const InputMethodDescriptor& previous_input_method,
+      const InputMethodDescriptor& current_input_method,
+      size_t num_active_input_methods);
+  virtual void ActiveInputMethodsChanged(
+      InputMethodLibrary* obj,
+      const InputMethodDescriptor& current_input_method,
+      size_t num_active_input_methods);
+  virtual void PreferenceUpdateNeeded(
+    InputMethodLibrary* obj,
+    const InputMethodDescriptor& previous_input_method,
+    const InputMethodDescriptor& current_input_method);
 
   // NotificationObserver implementation.
   virtual void Observe(NotificationType type,
@@ -89,7 +100,8 @@ class InputMethodMenu : public views::ViewMenuDelegate,
 
  protected:
   // Parses |input_method| and then calls UpdateUI().
-  void UpdateUIFromInputMethod(const InputMethodDescriptor& input_method);
+  void UpdateUIFromInputMethod(const InputMethodDescriptor& input_method,
+                               size_t num_active_input_methods);
 
   // Rebuilds model and menu2 objects in preparetion to open the menu.
   void PrepareForMenuOpen();
@@ -102,8 +114,10 @@ class InputMethodMenu : public views::ViewMenuDelegate,
  private:
   // Updates UI of a container of the menu (e.g. the "US" menu button in the
   // status area). Sub classes have to implement the interface for their own UI.
-  virtual void UpdateUI(
-      const std::wstring& name, const std::wstring& tooltip) = 0;
+  virtual void UpdateUI(const std::string& input_method_id,  // e.g. "mozc"
+                        const std::wstring& name,  // e.g. "US", "INTL"
+                        const std::wstring& tooltip,
+                        size_t num_active_input_methods) = 0;
 
   // Sub classes have to implement the interface. This interface should return
   // true if the dropdown menu should show an item like "Customize languages

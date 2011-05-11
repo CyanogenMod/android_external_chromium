@@ -15,6 +15,7 @@
 #include "net/base/host_port_pair.h"
 #include "net/http/http_auth.h"
 #include "net/http/http_response_info.h"
+#include "net/http/proxy_client_socket.h"
 #include "net/socket/client_socket_pool_base.h"
 #include "net/socket/client_socket_pool_histograms.h"
 #include "net/socket/client_socket_pool.h"
@@ -163,7 +164,7 @@ class HttpProxyConnectJob : public ConnectJob {
   State next_state_;
   CompletionCallbackImpl<HttpProxyConnectJob> callback_;
   scoped_ptr<ClientSocketHandle> transport_socket_handle_;
-  scoped_ptr<ClientSocket> transport_socket_;
+  scoped_ptr<ProxyClientSocket> transport_socket_;
   bool using_spdy_;
 
   HttpResponseInfo error_response_info_;
@@ -210,9 +211,7 @@ class HttpProxyClientSocketPool : public ClientSocketPool {
 
   virtual void CloseIdleSockets();
 
-  virtual int IdleSocketCount() const {
-    return base_.idle_socket_count();
-  }
+  virtual int IdleSocketCount() const;
 
   virtual int IdleSocketCountInGroup(const std::string& group_name) const;
 
@@ -223,13 +222,9 @@ class HttpProxyClientSocketPool : public ClientSocketPool {
                                           const std::string& type,
                                           bool include_nested_pools) const;
 
-  virtual base::TimeDelta ConnectionTimeout() const {
-    return base_.ConnectionTimeout();
-  }
+  virtual base::TimeDelta ConnectionTimeout() const;
 
-  virtual ClientSocketPoolHistograms* histograms() const {
-    return base_.histograms();
-  };
+  virtual ClientSocketPoolHistograms* histograms() const;
 
  private:
   typedef ClientSocketPoolBase<HttpProxySocketParams> PoolBase;

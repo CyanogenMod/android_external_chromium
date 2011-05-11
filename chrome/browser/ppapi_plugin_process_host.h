@@ -10,28 +10,20 @@
 #include "base/file_path.h"
 #include "chrome/browser/browser_child_process_host.h"
 
-class ResourceMessageFilter;
-
-namespace IPC {
-struct ChannelHandle;
-class Message;
-}
+class RenderMessageFilter;
 
 class PpapiPluginProcessHost : public BrowserChildProcessHost {
  public:
-  explicit PpapiPluginProcessHost(ResourceMessageFilter* filter);
+  explicit PpapiPluginProcessHost(RenderMessageFilter* filter);
   virtual ~PpapiPluginProcessHost();
 
   void Init(const FilePath& path, IPC::Message* reply_msg);
 
  private:
-  virtual bool CanShutdown() { return true; }
+  virtual bool CanShutdown();
   virtual void OnProcessLaunched();
-  virtual URLRequestContext* GetRequestContext(
-      uint32 request_id,
-      const ViewHostMsg_Resource_Request& request_data);
 
-  virtual void OnMessageReceived(const IPC::Message& msg);
+  virtual bool OnMessageReceived(const IPC::Message& msg);
   virtual void OnChannelConnected(int32 peer_pid);
   virtual void OnChannelError();
 
@@ -39,9 +31,10 @@ class PpapiPluginProcessHost : public BrowserChildProcessHost {
   void OnPluginLoaded(const IPC::ChannelHandle& handle);
 
   // Sends the reply_msg_ to the renderer with the given channel info.
-  void ReplyToRenderer(const IPC::ChannelHandle& handle);
+  void ReplyToRenderer(base::ProcessHandle plugin_handle,
+                       const IPC::ChannelHandle& channel_handle);
 
-  ResourceMessageFilter* filter_;
+  RenderMessageFilter* filter_;
 
   // Path to the plugin library.
   FilePath plugin_path_;

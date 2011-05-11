@@ -11,6 +11,7 @@
 #include "base/logging.h"
 #include "base/scoped_vector.h"
 #include "base/singleton.h"
+#include "base/string_piece.h"
 
 namespace base {
 
@@ -23,7 +24,7 @@ unsigned long CurrentThreadId() {
 // Singleton for initializing and cleaning up the OpenSSL library.
 class OpenSSLInitSingleton {
  public:
-  static OpenSSLInitSingleton* Get() {
+  static OpenSSLInitSingleton* GetInstance() {
     // We allow the SSL environment to leak for multiple reasons:
     //   -  it is used from a non-joinable worker thread that is not stopped on
     //      shutdown, hence may still be using OpenSSL library after the AtExit
@@ -57,7 +58,7 @@ class OpenSSLInitSingleton {
   }
 
   static void LockingCallback(int mode, int n, const char* file, int line) {
-    OpenSSLInitSingleton::Get()->OnLockingCallback(mode, n, file, line);
+    OpenSSLInitSingleton::GetInstance()->OnLockingCallback(mode, n, file, line);
   }
 
   void OnLockingCallback(int mode, int n, const char* file, int line) {
@@ -74,27 +75,36 @@ class OpenSSLInitSingleton {
   DISALLOW_COPY_AND_ASSIGN(OpenSSLInitSingleton);
 };
 
+// Callback routine for OpenSSL to print error messages. |str| is a
+// NULL-terminated string of length |len| containing diagnostic information
+// such as the library, function and reason for the error, the file and line
+// where the error originated, plus potentially any context-specific
+// information about the error. |context| contains a pointer to user-supplied
+// data, which is currently unused.
+// If this callback returns a value <= 0, OpenSSL will stop processing the
+// error queue and return, otherwise it will continue calling this function
+// until all errors have been removed from the queue.
+int OpenSSLErrorCallback(const char* str, size_t len, void* context) {
+  DVLOG(1) << "\t" << StringPiece(str, len);
+  return 1;
+}
+
 }  // namespace
 
 void EnsureOpenSSLInit() {
-  (void)OpenSSLInitSingleton::Get();
+  (void)OpenSSLInitSingleton::GetInstance();
 }
 
 void ClearOpenSSLERRStack(const tracked_objects::Location& location) {
   if (logging::DEBUG_MODE && VLOG_IS_ON(1)) {
-    int error_num = ERR_get_error();
+    int error_num = ERR_peek_error();
     if (error_num == 0)
       return;
 
     std::string message;
     location.Write(true, true, &message);
     DVLOG(1) << "OpenSSL ERR_get_error stack from " << message;
-    char buf[140];
-    do {
-      ERR_error_string_n(error_num, buf, arraysize(buf));
-      DVLOG(1) << "\t" << error_num << ": " << buf;
-      error_num = ERR_get_error();
-    } while (error_num != 0);
+    ERR_print_errors_cb(&OpenSSLErrorCallback, NULL);
   } else {
     ERR_clear_error();
   }

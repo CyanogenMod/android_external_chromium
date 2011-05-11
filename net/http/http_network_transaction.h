@@ -65,6 +65,8 @@ class HttpNetworkTransaction : public HttpTransaction,
       const HttpResponseInfo& response_info,
       HttpAuthController* auth_controller);
   virtual void OnNeedsClientAuth(SSLCertRequestInfo* cert_info);
+  virtual void OnHttpsProxyTunnelResponse(const HttpResponseInfo& response_info,
+                                          HttpStream* stream);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(HttpNetworkTransactionTest, ResetStateForRestart);
@@ -134,11 +136,6 @@ class HttpNetworkTransaction : public HttpTransaction,
 
   // Called to handle a client certificate request.
   int HandleCertificateRequest(int error);
-
-  // Called to possibly recover from an SSL handshake error.  Sets next_state_
-  // and returns OK if recovering from the error.  Otherwise, the same error
-  // code is returned.
-  int HandleSSLHandshakeError(int error);
 
   // Called to possibly recover from the given error.  Sets next_state_ and
   // returns OK if recovering from the error.  Otherwise, the same error code

@@ -1,6 +1,7 @@
-#startupPages {
-  border: solid 1px #999999;
-  height: 100px;
+
+#startupPageManagement.settings-list > :last-child {
+  border-top: 1px solid #d9d9d9;
+  padding: 5px 10px;
 }
 
 #customHomePageGroup {
@@ -32,6 +33,7 @@
 #defaultSearchEngine {
   display: block;
   -webkit-box-flex: 1;
+  max-width: 300px;
 }
 
 #defaultSearchManageEnginesButton {

@@ -2,12 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <algorithm>
-
 #include "net/url_request/url_request_job_tracker.h"
+
+#include <algorithm>
 
 #include "base/logging.h"
 #include "net/url_request/url_request_job.h"
+
+namespace net {
 
 URLRequestJobTracker g_url_request_job_tracker;
 
@@ -16,9 +18,9 @@ URLRequestJobTracker::URLRequestJobTracker() {
 
 URLRequestJobTracker::~URLRequestJobTracker() {
   DLOG_IF(WARNING, active_jobs_.size() != 0) <<
-    "Leaking " << active_jobs_.size() << " URLRequestJob object(s), this could "
-    "be because the URLRequest forgot to free it (bad), or if the program was "
-    "terminated while a request was active (normal).";
+    "Leaking " << active_jobs_.size() << " URLRequestJob object(s), this "
+    "could be because the URLRequest forgot to free it (bad), or if the "
+    "program was terminated while a request was active (normal).";
 }
 
 void URLRequestJobTracker::AddNewJob(URLRequestJob* job) {
@@ -56,3 +58,5 @@ void URLRequestJobTracker::OnBytesRead(URLRequestJob* job,
   FOR_EACH_OBSERVER(JobObserver, observers_,
                     OnBytesRead(job, buf, byte_count));
 }
+
+}  // namespace net

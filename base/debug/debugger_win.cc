@@ -106,9 +106,6 @@ void BreakDebugger() {
   if (DebugUtil::AreDialogsSuppressed())
     _exit(1);
   __debugbreak();
-#if defined(NDEBUG)
-  _exit(1);
-#endif
 }
 
 }  // namespace debug

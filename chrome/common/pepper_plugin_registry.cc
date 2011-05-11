@@ -21,6 +21,14 @@ const char* PepperPluginRegistry::kPDFPluginExtension = "pdf";
 const char* PepperPluginRegistry::kPDFPluginDescription =
     "Portable Document Format";
 
+const char* PepperPluginRegistry::kNaClPluginName = "Chrome NaCl";
+const char* PepperPluginRegistry::kNaClPluginMimeType =
+    "application/x-ppapi-nacl-srpc";
+const char* PepperPluginRegistry::kNaClPluginExtension = "nexe";
+const char* PepperPluginRegistry::kNaClPluginDescription =
+    "Native Client Executable";
+
+
 PepperPluginInfo::PepperPluginInfo()
     : is_internal(false),
       is_out_of_process(false) {
@@ -30,8 +38,12 @@ PepperPluginInfo::~PepperPluginInfo() {}
 
 // static
 PepperPluginRegistry* PepperPluginRegistry::GetInstance() {
-  static PepperPluginRegistry registry;
-  return &registry;
+  static PepperPluginRegistry* registry = NULL;
+  // This object leaks.  It is a temporary hack to work around a crash.
+  // http://code.google.com/p/chromium/issues/detail?id=63234
+  if (!registry)
+    registry = new PepperPluginRegistry;
+  return registry;
 }
 
 // static
@@ -136,6 +148,27 @@ void PepperPluginRegistry::GetExtraPlugins(
       skip_pdf_file_check = true;
     }
   }
+
+  // Verify that we enable nacl on the command line.  The name of the
+  // switch varies between the browser and renderer process.
+  bool enable_nacl =
+      CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnableNaCl) ||
+      CommandLine::ForCurrentProcess()->HasSwitch(switches::kInternalNaCl);
+
+  static bool skip_nacl_file_check = false;
+  if (enable_nacl && PathService::Get(chrome::FILE_NACL_PLUGIN, &path)) {
+    if (skip_nacl_file_check || file_util::PathExists(path)) {
+      PepperPluginInfo nacl;
+      nacl.path = path;
+      nacl.name = kNaClPluginName;
+      nacl.mime_types.push_back(kNaClPluginMimeType);
+      nacl.file_extensions = kNaClPluginExtension;
+      nacl.type_descriptions = kNaClPluginDescription;
+      plugins->push_back(nacl);
+
+      skip_nacl_file_check = true;
+    }
+  }
 }
 
 PepperPluginRegistry::InternalPluginInfo::InternalPluginInfo() {
@@ -187,7 +220,7 @@ bool PepperPluginRegistry::RunOutOfProcessForPlugin(
   return false;
 }
 
-pepper::PluginModule* PepperPluginRegistry::GetModule(
+webkit::ppapi::PluginModule* PepperPluginRegistry::GetModule(
     const FilePath& path) const {
   ModuleMap::const_iterator it = modules_.find(path);
   if (it == modules_.end())
@@ -207,9 +240,8 @@ PepperPluginRegistry::PepperPluginRegistry() {
        it != internal_plugin_info.end();
        ++it) {
     const FilePath& path = it->path;
-    ModuleHandle module =
-        pepper::PluginModule::CreateInternalModule(it->entry_points);
-    if (!module) {
+    ModuleHandle module(new webkit::ppapi::PluginModule);
+    if (!module->InitAsInternalPlugin(it->entry_points)) {
       DLOG(ERROR) << "Failed to load pepper module: " << path.value();
       continue;
     }
@@ -227,8 +259,8 @@ PepperPluginRegistry::PepperPluginRegistry() {
       continue;  // Only preload in-process plugins.
 
     const FilePath& path = plugins[i].path;
-    ModuleHandle module = pepper::PluginModule::CreateModule(path);
-    if (!module) {
+    ModuleHandle module(new webkit::ppapi::PluginModule);
+    if (!module->InitAsLibrary(path)) {
       DLOG(ERROR) << "Failed to load pepper module: " << path.value();
       continue;
     }

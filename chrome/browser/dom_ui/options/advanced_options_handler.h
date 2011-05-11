@@ -51,10 +51,6 @@ class AdvancedOptionsHandler
   // remove all auto-open file-type settings.
   void HandleAutoOpenButton(const ListValue* args);
 
-  // Callback for the "resetToDefaults" message.  This will ask the user if
-  // they want to reset all options to their default values.
-  void HandleResetToDefaults(const ListValue* args);
-
   // Callback for the "metricsReportingCheckboxAction" message.  This is called
   // if the user toggles the metrics reporting checkbox.
   void HandleMetricsReportingCheckbox(const ListValue* args);
@@ -64,14 +60,15 @@ class AdvancedOptionsHandler
   // one item, the zoom level as a numeric value.
   void HandleDefaultZoomLevel(const ListValue* args);
 
+  // Callback for the "defaultFontSizeAction" message.  This is called if the
+  // user changes the default font size.  |args| is an array that contains
+  // one item, the font size as a numeric value.
+  void HandleDefaultFontSize(const ListValue* args);
+
 #if defined(OS_WIN)
   // Callback for the "Check SSL Revocation" checkbox.  This is needed so we
   // can support manual handling on Windows.
   void HandleCheckRevocationCheckbox(const ListValue* args);
-
-  // Callback for the "Use SSL2" checkbox.  This is needed so we can support
-  // manual handling on Windows.
-  void HandleUseSSL2Checkbox(const ListValue* args);
 
   // Callback for the "Use SSL3" checkbox.  This is needed so we can support
   // manual handling on Windows.
@@ -119,12 +116,13 @@ class AdvancedOptionsHandler
 #endif
 
   // Setup the checked state for the metrics reporting checkbox.
-  void SetupMetricsReportingCheckbox(bool user_changed);
+  void SetupMetricsReportingCheckbox();
 
   // Setup the visibility for the metrics reporting setting.
   void SetupMetricsReportingSettingVisibility();
 
   void SetupDefaultZoomLevel();
+  void SetupFontSizeLabel();
 
   // Setup the download path based on user preferences.
   void SetupDownloadLocationPath();
@@ -151,6 +149,8 @@ class AdvancedOptionsHandler
   FilePathPrefMember default_download_location_;
   StringPrefMember auto_open_files_;
   RealPrefMember default_zoom_level_;
+  IntegerPrefMember default_font_size_;
+  IntegerPrefMember default_fixed_font_size_;
   scoped_ptr<PrefSetObserver> proxy_prefs_;
   scoped_ptr<OptionsManagedBannerHandler> banner_handler_;
 

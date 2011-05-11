@@ -407,7 +407,15 @@ void CookieMonster::SetExpiryAndKeyScheme(ExpiryAndKeyScheme key_scheme) {
   expiry_and_key_scheme_ = key_scheme;
 }
 
+<<<<<<< HEAD
 #if defined(ANDROID)
+=======
+void CookieMonster::SetClearPersistentStoreOnExit(bool clear_local_store) {
+  if(store_)
+    store_->SetClearLocalStateOnExit(clear_local_store);
+}
+
+>>>>>>> chromium.org at r10.0.621.0
 void CookieMonster::FlushStore(Task* completion_task) {
   AutoLock autolock(lock_);
   if (initialized_ && store_)
@@ -415,7 +423,10 @@ void CookieMonster::FlushStore(Task* completion_task) {
   else if (completion_task)
     MessageLoop::current()->PostTask(FROM_HERE, completion_task);
 }
+<<<<<<< HEAD
 #endif
+=======
+>>>>>>> chromium.org at r10.0.621.0
 
 // The system resolution is not high enough, so we can have multiple
 // set cookies that result in the same system time.  When this happens, we
@@ -1329,7 +1340,11 @@ void CookieMonster::DeleteCookie(const GURL& url,
   }
 }
 
-CookieMonster::CookieList CookieMonster::GetAllCookies() {
+CookieMonster* CookieMonster::GetCookieMonster() {
+  return this;
+}
+
+CookieList CookieMonster::GetAllCookies() {
   AutoLock autolock(lock_);
   InitIfNecessary();
 
@@ -1362,12 +1377,11 @@ CookieMonster::CookieList CookieMonster::GetAllCookies() {
   return cookie_list;
 }
 
-CookieMonster::CookieList CookieMonster::GetAllCookiesForURL(const GURL& url) {
+CookieList CookieMonster::GetAllCookiesForURLWithOptions(
+    const GURL& url,
+    const CookieOptions& options) {
   AutoLock autolock(lock_);
   InitIfNecessary();
-
-  CookieOptions options;
-  options.set_include_httponly();
 
   std::vector<CanonicalCookie*> cookie_ptrs;
   FindCookiesForHostAndDomain(url, options, false, &cookie_ptrs);
@@ -1379,6 +1393,13 @@ CookieMonster::CookieList CookieMonster::GetAllCookiesForURL(const GURL& url) {
     cookies.push_back(**it);
 
   return cookies;
+}
+
+CookieList CookieMonster::GetAllCookiesForURL(const GURL& url) {
+  CookieOptions options;
+  options.set_include_httponly();
+
+  return GetAllCookiesForURLWithOptions(url, options);
 }
 
 void CookieMonster::FindCookiesForHostAndDomain(

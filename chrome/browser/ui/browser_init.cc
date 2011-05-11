@@ -29,7 +29,7 @@
 #include "chrome/browser/child_process_security_policy.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/extensions/extension_creator.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/pack_extension_job.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/net/predictor_api.h"
@@ -38,7 +38,7 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_proxy_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
@@ -49,10 +49,10 @@
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
-#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tabs/pinned_tab_codec.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -69,7 +69,7 @@
 #include "webkit/glue/webkit_glue.h"
 
 #if defined(OS_MACOSX)
-#include "chrome/browser/cocoa/keystone_infobar.h"
+#include "chrome/browser/ui/cocoa/keystone_infobar.h"
 #endif
 
 #if defined(OS_WIN)
@@ -81,10 +81,12 @@
 #endif
 
 #if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/brightness_observer.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/mount_library.h"
 #include "chrome/browser/chromeos/cros/network_library.h"
 #include "chrome/browser/chromeos/customization_document.h"
+#include "chrome/browser/chromeos/enterprise_extension_observer.h"
 #include "chrome/browser/chromeos/gview_request_interceptor.h"
 #include "chrome/browser/chromeos/low_battery_observer.h"
 #include "chrome/browser/chromeos/network_message_observer.h"
@@ -395,7 +397,8 @@ bool BrowserInit::LaunchBrowser(const CommandLine& command_line,
     // because the page load can happen in parallel to this UI thread
     // and IO thread may access the NetworkStateNotifier.
     chromeos::CrosLibrary::Get()->GetNetworkLibrary()
-        ->AddNetworkManagerObserver(chromeos::NetworkStateNotifier::Get());
+        ->AddNetworkManagerObserver(
+            chromeos::NetworkStateNotifier::GetInstance());
   }
 #endif
 
@@ -417,33 +420,34 @@ bool BrowserInit::LaunchBrowser(const CommandLine& command_line,
 #if defined(OS_CHROMEOS)
   // Create the WmMessageListener so that it can listen for messages regardless
   // of what window has focus.
-  chromeos::WmMessageListener::instance();
+  chromeos::WmMessageListener::GetInstance();
 
   // Create the SystemKeyEventListener so it can listen for system keyboard
   // messages regardless of focus.
-  chromeos::SystemKeyEventListener::instance();
+  chromeos::SystemKeyEventListener::GetInstance();
 
   // Create the WmOverviewController so it can register with the listener.
-  chromeos::WmOverviewController::instance();
+  chromeos::WmOverviewController::GetInstance();
 
   // Install the GView request interceptor that will redirect requests
   // of compatible documents (PDF, etc) to the GView document viewer.
   const CommandLine& parsed_command_line = *CommandLine::ForCurrentProcess();
   if (parsed_command_line.HasSwitch(switches::kEnableGView)) {
-    chromeos::GViewRequestInterceptor::GetGViewRequestInterceptor();
+    chromeos::GViewRequestInterceptor::GetInstance();
   }
   if (process_startup) {
     // TODO(dhg): Try to make this just USBMountObserver::Get()->set_profile
     // and have the constructor take care of everything else.
     chromeos::MountLibrary* lib =
         chromeos::CrosLibrary::Get()->GetMountLibrary();
-    chromeos::USBMountObserver* observe = chromeos::USBMountObserver::Get();
+    chromeos::USBMountObserver* observe =
+        chromeos::USBMountObserver::GetInstance();
     lib->AddObserver(observe);
     observe->ScanForDevices(lib);
     // Connect the chromeos notifications
 
     // This observer is a singleton. It is never deleted but the pointer is kept
-    // in a global so that it isn't reported as a leak.
+    // in a static so that it isn't reported as a leak.
     static chromeos::LowBatteryObserver* low_battery_observer =
         new chromeos::LowBatteryObserver(profile);
     chromeos::CrosLibrary::Get()->GetPowerLibrary()->AddObserver(
@@ -460,6 +464,13 @@ bool BrowserInit::LaunchBrowser(const CommandLine& command_line,
         ->AddNetworkManagerObserver(network_message_observer);
     chromeos::CrosLibrary::Get()->GetNetworkLibrary()
         ->AddCellularDataPlanObserver(network_message_observer);
+
+    static chromeos::BrightnessObserver* brightness_observer =
+        new chromeos::BrightnessObserver();
+    chromeos::CrosLibrary::Get()->GetBrightnessLibrary()
+        ->AddObserver(brightness_observer);
+
+    profile->SetupChromeOSEnterpriseExtensionObserver();
   }
 #endif
   return true;
@@ -621,7 +632,7 @@ bool BrowserInit::LaunchWithProfile::OpenApplicationWindow(Profile* profile) {
   // TODO(skerner): Do something reasonable here. Pop up a warning panel?
   // Open an URL to the gallery page of the extension id?
   if (!app_id.empty()) {
-    ExtensionsService* extensions_service = profile->GetExtensionsService();
+    ExtensionService* extensions_service = profile->GetExtensionService();
     const Extension* extension =
         extensions_service->GetExtensionById(app_id, false);
 
@@ -785,7 +796,7 @@ Browser* BrowserInit::LaunchWithProfile::OpenTabsInBrowser(
     // This avoids us getting into an infinite loop asking ourselves to open
     // a URL, should the handler be (incorrectly) configured to be us. Anyone
     // asking us to open such a URL should really ask the handler directly.
-    if (!process_startup && !URLRequest::IsHandledURL(tabs[i].url))
+    if (!process_startup && !net::URLRequest::IsHandledURL(tabs[i].url))
       continue;
 
     int add_types = first_tab ? TabStripModel::ADD_SELECTED :

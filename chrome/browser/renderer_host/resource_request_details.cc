@@ -4,8 +4,9 @@
 
 #include "chrome/browser/renderer_host/resource_request_details.h"
 
+#include "chrome/browser/worker_host/worker_service.h"
 
-ResourceRequestDetails::ResourceRequestDetails(const URLRequest* request,
+ResourceRequestDetails::ResourceRequestDetails(const net::URLRequest* request,
                                                int cert_id)
     : url_(request->url()),
       original_url_(request->original_url()),
@@ -26,25 +27,20 @@ ResourceRequestDetails::ResourceRequestDetails(const URLRequest* request,
   // If request is from the worker process on behalf of a renderer, use
   // the renderer process id, since it consumes the notification response
   // such as ssl state etc.
-  const WorkerProcessHost::WorkerInstance* worker_instance =
-      WorkerService::GetInstance()->FindWorkerInstance(info->child_id());
-  if (worker_instance) {
-    DCHECK(!worker_instance->worker_document_set()->IsEmpty());
-    const WorkerDocumentSet::DocumentInfoSet& parents =
-        worker_instance->worker_document_set()->documents();
-    // TODO(atwilson): need to notify all associated renderers in the case
-    // of ssl state change (http://crbug.com/25357). For now, just notify
-    // the first one (works for dedicated workers and shared workers with
-    // a single process).
-    origin_child_id_ = parents.begin()->renderer_id();
-  } else {
+  // TODO(atwilson): need to notify all associated renderers in the case
+  // of ssl state change (http://crbug.com/25357). For now, just notify
+  // the first one (works for dedicated workers and shared workers with
+  // a single process).
+  int temp;
+  if (!WorkerService::GetInstance()->GetRendererForWorker(
+          info->child_id(), &origin_child_id_, &temp)) {
     origin_child_id_ = info->child_id();
   }
 }
 
 ResourceRequestDetails::~ResourceRequestDetails() {}
 
-ResourceRedirectDetails::ResourceRedirectDetails(const URLRequest* request,
+ResourceRedirectDetails::ResourceRedirectDetails(const net::URLRequest* request,
                                                  int cert_id,
                                                  const GURL& new_url)
     : ResourceRequestDetails(request, cert_id),

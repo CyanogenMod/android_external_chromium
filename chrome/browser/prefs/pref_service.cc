@@ -23,10 +23,19 @@
 #include "base/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_thread.h"
+<<<<<<< HEAD
 #include "chrome/browser/profile.h"
 #ifndef ANDROID
 // Notifications do not compile on Android and are the cause
 // of most of the ANDROID guards in this file.
+=======
+#include "chrome/browser/policy/configuration_policy_pref_store.h"
+#include "chrome/browser/prefs/command_line_pref_store.h"
+#include "chrome/browser/prefs/default_pref_store.h"
+#include "chrome/browser/prefs/pref_notifier_impl.h"
+#include "chrome/browser/prefs/pref_value_store.h"
+#include "chrome/common/json_pref_store.h"
+>>>>>>> chromium.org at r10.0.621.0
 #include "chrome/common/notification_service.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -90,8 +99,15 @@ void NotifyReadError(PrefService* pref, int message_id) {
 
 // static
 PrefService* PrefService::CreatePrefService(const FilePath& pref_filename,
+                                            PrefStore* extension_prefs,
                                             Profile* profile) {
+<<<<<<< HEAD
 #if defined(OS_LINUX) && !defined(ANDROID)
+=======
+  using policy::ConfigurationPolicyPrefStore;
+
+#if defined(OS_LINUX)
+>>>>>>> chromium.org at r10.0.621.0
   // We'd like to see what fraction of our users have the preferences
   // stored on a network file system, as we've had no end of troubles
   // with NFS/AFS.
@@ -104,6 +120,7 @@ PrefService* PrefService::CreatePrefService(const FilePath& pref_filename,
   }
 #endif
 
+<<<<<<< HEAD
   return new PrefService(
       PrefValueStore::CreatePrefValueStore(pref_filename, profile, false));
 }
@@ -119,6 +136,43 @@ PrefService::PrefService(PrefValueStore* pref_value_store)
 #ifndef ANDROID
   pref_notifier_.reset(new PrefNotifier(this, pref_value_store));
 #endif
+=======
+  ConfigurationPolicyPrefStore* managed =
+      ConfigurationPolicyPrefStore::CreateManagedPlatformPolicyPrefStore();
+  ConfigurationPolicyPrefStore* device_management =
+      ConfigurationPolicyPrefStore::CreateDeviceManagementPolicyPrefStore(
+          profile);
+  CommandLinePrefStore* command_line =
+      new CommandLinePrefStore(CommandLine::ForCurrentProcess());
+  JsonPrefStore* user = new JsonPrefStore(
+      pref_filename,
+      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE));
+  ConfigurationPolicyPrefStore* recommended =
+      ConfigurationPolicyPrefStore::CreateRecommendedPolicyPrefStore();
+
+  return new PrefService(managed, device_management, extension_prefs,
+                         command_line, user, recommended);
+}
+
+PrefService::PrefService(PrefStore* managed_platform_prefs,
+                         PrefStore* device_management_prefs,
+                         PrefStore* extension_prefs,
+                         PrefStore* command_line_prefs,
+                         PersistentPrefStore* user_prefs,
+                         PrefStore* recommended_prefs)
+    : user_pref_store_(user_prefs) {
+  pref_notifier_.reset(new PrefNotifierImpl(this));
+  default_store_ = new DefaultPrefStore();
+  pref_value_store_ =
+      new PrefValueStore(managed_platform_prefs,
+                         device_management_prefs,
+                         extension_prefs,
+                         command_line_prefs,
+                         user_pref_store_,
+                         recommended_prefs,
+                         default_store_,
+                         pref_notifier_.get());
+>>>>>>> chromium.org at r10.0.621.0
   InitFromStorage();
 }
 
@@ -129,18 +183,24 @@ PrefService::~PrefService() {
 }
 
 void PrefService::InitFromStorage() {
+<<<<<<< HEAD
 #ifndef ANDROID
   PrefStore::PrefReadError error = LoadPersistentPrefs();
   if (error == PrefStore::PREF_READ_ERROR_NONE)
+=======
+  const PersistentPrefStore::PrefReadError error =
+      user_pref_store_->ReadPrefs();
+  if (error == PersistentPrefStore::PREF_READ_ERROR_NONE)
+>>>>>>> chromium.org at r10.0.621.0
     return;
 
   // Failing to load prefs on startup is a bad thing(TM). See bug 38352 for
   // an example problem that this can cause.
   // Do some diagnosis and try to avoid losing data.
   int message_id = 0;
-  if (error <= PrefStore::PREF_READ_ERROR_JSON_TYPE) {
+  if (error <= PersistentPrefStore::PREF_READ_ERROR_JSON_TYPE) {
     message_id = IDS_PREFERENCES_CORRUPT_ERROR;
-  } else if (error != PrefStore::PREF_READ_ERROR_NO_FILE) {
+  } else if (error != PersistentPrefStore::PREF_READ_ERROR_NO_FILE) {
     message_id = IDS_PREFERENCES_UNREADABLE_ERROR;
   }
 
@@ -153,32 +213,20 @@ void PrefService::InitFromStorage() {
 }
 
 bool PrefService::ReloadPersistentPrefs() {
-  return (LoadPersistentPrefs() == PrefStore::PREF_READ_ERROR_NONE);
-}
-
-PrefStore::PrefReadError PrefService::LoadPersistentPrefs() {
-  DCHECK(CalledOnValidThread());
-
-  PrefStore::PrefReadError pref_error = pref_value_store_->ReadPrefs();
-
-  for (PreferenceSet::iterator it = prefs_.begin();
-       it != prefs_.end(); ++it) {
-      (*it)->pref_service_ = this;
-  }
-
-  return pref_error;
+  return user_pref_store_->ReadPrefs() ==
+             PersistentPrefStore::PREF_READ_ERROR_NONE;
 }
 
 bool PrefService::SavePersistentPrefs() {
   DCHECK(CalledOnValidThread());
 
-  return pref_value_store_->WritePrefs();
+  return user_pref_store_->WritePrefs();
 }
 
 void PrefService::ScheduleSavePersistentPrefs() {
   DCHECK(CalledOnValidThread());
 
-  pref_value_store_->ScheduleWritePrefs();
+  user_pref_store_->ScheduleWritePrefs();
 }
 
 void PrefService::RegisterBooleanPref(const char* path,
@@ -331,6 +379,14 @@ const PrefService::Preference* PrefService::FindPreference(
   return it == prefs_.end() ? NULL : *it;
 }
 
+bool PrefService::ReadOnly() const {
+  return user_pref_store_->ReadOnly();
+}
+
+PrefNotifier* PrefService::pref_notifier() const {
+  return pref_notifier_.get();
+}
+
 bool PrefService::IsManagedPreference(const char* pref_name) const {
   const Preference* pref = FindPreference(pref_name);
   if (pref && pref->IsManaged()) {
@@ -398,11 +454,10 @@ void PrefService::RegisterPreference(const char* path, Value* default_value) {
   // easier for callers to check for empty dict/list prefs. The PrefValueStore
   // accepts ownership of the value (null or default_value).
   if (Value::TYPE_LIST == orig_type || Value::TYPE_DICTIONARY == orig_type) {
-    pref_value_store_->SetDefaultPrefValue(path, Value::CreateNullValue());
+    default_store_->SetDefaultValue(path, Value::CreateNullValue());
   } else {
     // Hand off ownership.
-    DCHECK(!PrefStore::IsUseDefaultSentinelValue(default_value));
-    pref_value_store_->SetDefaultPrefValue(path, scoped_value.release());
+    default_store_->SetDefaultValue(path, scoped_value.release());
   }
 
   pref_value_store_->RegisterPreferenceType(path, orig_type);
@@ -417,10 +472,14 @@ void PrefService::ClearPref(const char* path) {
     NOTREACHED() << "Trying to clear an unregistered pref: " << path;
     return;
   }
+<<<<<<< HEAD
 #ifndef ANDROID
   if (pref_value_store_->RemoveUserPrefValue(path))
     pref_notifier_->OnUserPreferenceSet(path);
 #endif
+=======
+  user_pref_store_->RemoveValue(path);
+>>>>>>> chromium.org at r10.0.621.0
 }
 
 void PrefService::Set(const char* path, const Value& value) {
@@ -434,22 +493,24 @@ void PrefService::Set(const char* path, const Value& value) {
 
   // Allow dictionary and list types to be set to null, which removes their
   // user values.
-  bool value_changed = false;
   if (value.GetType() == Value::TYPE_NULL &&
       (pref->GetType() == Value::TYPE_DICTIONARY ||
        pref->GetType() == Value::TYPE_LIST)) {
-    value_changed = pref_value_store_->RemoveUserPrefValue(path);
+    user_pref_store_->RemoveValue(path);
   } else if (pref->GetType() != value.GetType()) {
     NOTREACHED() << "Trying to set pref " << path
                  << " of type " << pref->GetType()
                  << " to value of type " << value.GetType();
   } else {
-    value_changed = pref_value_store_->SetUserPrefValue(path, value.DeepCopy());
+    user_pref_store_->SetValue(path, value.DeepCopy());
   }
+<<<<<<< HEAD
 #ifndef ANDROID
   if (value_changed)
     pref_notifier_->OnUserPreferenceSet(path);
 #endif
+=======
+>>>>>>> chromium.org at r10.0.621.0
 }
 
 void PrefService::SetBoolean(const char* path, bool value) {
@@ -524,10 +585,11 @@ DictionaryValue* PrefService::GetMutableDictionary(const char* path) {
   Value* tmp_value = NULL;
   // Look for an existing preference in the user store. If it doesn't
   // exist or isn't the correct type, create a new user preference.
-  if (!pref_value_store_->GetUserValue(path, &tmp_value) ||
+  if (user_pref_store_->GetValue(path, &tmp_value)
+          != PersistentPrefStore::READ_OK ||
       !tmp_value->IsType(Value::TYPE_DICTIONARY)) {
     dict = new DictionaryValue;
-    pref_value_store_->SetUserPrefValue(path, dict);
+    user_pref_store_->SetValueSilently(path, dict);
   } else {
     dict = static_cast<DictionaryValue*>(tmp_value);
   }
@@ -551,22 +613,15 @@ ListValue* PrefService::GetMutableList(const char* path) {
   Value* tmp_value = NULL;
   // Look for an existing preference in the user store. If it doesn't
   // exist or isn't the correct type, create a new user preference.
-  if (!pref_value_store_->GetUserValue(path, &tmp_value) ||
+  if (user_pref_store_->GetValue(path, &tmp_value)
+          != PersistentPrefStore::READ_OK ||
       !tmp_value->IsType(Value::TYPE_LIST)) {
     list = new ListValue;
-    pref_value_store_->SetUserPrefValue(path, list);
+    user_pref_store_->SetValueSilently(path, list);
   } else {
     list = static_cast<ListValue*>(tmp_value);
   }
   return list;
-}
-
-Value* PrefService::GetPrefCopy(const char* path) {
-  DCHECK(CalledOnValidThread());
-
-  const Preference* pref = FindPreference(path);
-  DCHECK(pref);
-  return pref->GetValue()->DeepCopy();
 }
 
 void PrefService::SetUserPrefValue(const char* path, Value* new_value) {
@@ -577,10 +632,6 @@ void PrefService::SetUserPrefValue(const char* path, Value* new_value) {
     NOTREACHED() << "Trying to write an unregistered pref: " << path;
     return;
   }
-  if (pref->IsManaged()) {
-    NOTREACHED() << "Preference is managed: " << path;
-    return;
-  }
   if (pref->GetType() != new_value->GetType()) {
     NOTREACHED() << "Trying to set pref " << path
                  << " of type " << pref->GetType()
@@ -588,10 +639,14 @@ void PrefService::SetUserPrefValue(const char* path, Value* new_value) {
     return;
   }
 
+<<<<<<< HEAD
 #ifndef ANDROID
   if (pref_value_store_->SetUserPrefValue(path, new_value))
     pref_notifier_->OnUserPreferenceSet(path);
 #endif
+=======
+  user_pref_store_->SetValue(path, new_value);
+>>>>>>> chromium.org at r10.0.621.0
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -623,8 +678,7 @@ const Value* PrefService::Preference::GetValue() const {
 }
 
 bool PrefService::Preference::IsManaged() const {
-  PrefValueStore* pref_value_store =
-      pref_service_->pref_value_store_;
+  PrefValueStore* pref_value_store = pref_service_->pref_value_store_;
   return pref_value_store->PrefValueInManagedPlatformStore(name_.c_str()) ||
       pref_value_store->PrefValueInDeviceManagementStore(name_.c_str());
 }

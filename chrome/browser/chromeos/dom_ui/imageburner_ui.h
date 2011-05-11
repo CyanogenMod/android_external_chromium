@@ -22,9 +22,10 @@
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/download/download_util.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/file_stream.h"
+
+template <typename T> struct DefaultSingletonTraits;
 
 static const std::string kPropertyPath = "path";
 static const std::string kPropertyTitle = "title";
@@ -36,6 +37,7 @@ static const std::string kImageFileName = "chromeos_image.bin.gz";
 static const std::string kTempImageFolderName = "chromeos_image";
 
 class ImageBurnResourceManager;
+class TabContents;
 
 class ImageBurnUIHTMLSource : public ChromeURLDataManager::DataSource {
  public:
@@ -158,8 +160,8 @@ class ImageBurnTaskProxy
 class ImageBurnResourceManager : public DownloadManager::Observer,
                                  public DownloadItem::Observer {
  public:
-  ImageBurnResourceManager();
-  ~ImageBurnResourceManager();
+  // Returns the singleton instance.
+  static ImageBurnResourceManager* GetInstance();
 
   // DownloadItem::Observer interface
   virtual void OnDownloadUpdated(DownloadItem* download);
@@ -190,6 +192,11 @@ class ImageBurnResourceManager : public DownloadManager::Observer,
   net::FileStream* CreateFileStream(FilePath* file_path);
 
  private:
+  friend struct DefaultSingletonTraits<ImageBurnResourceManager>;
+
+  ImageBurnResourceManager();
+  ~ImageBurnResourceManager();
+
   FilePath local_image_dir_file_path_;
   FilePath image_fecher_local_path_;
   bool image_download_started_;
@@ -216,4 +223,3 @@ class ImageBurnUI : public DOMUI {
   DISALLOW_COPY_AND_ASSIGN(ImageBurnUI);
 };
 #endif  // CHROME_BROWSER_CHROMEOS_DOM_UI_IMAGEBURNER_UI_H_
-

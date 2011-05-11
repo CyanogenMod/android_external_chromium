@@ -4,14 +4,9 @@
 
 #include "net/base/keygen_handler.h"
 
-#include "build/build_config.h" // Needs to be imported early for USE_NSS
-
-#if defined(USE_NSS)
-#include <private/pprthred.h>  // PR_DetachThread
-#endif
-
 #include <string>
 
+#include "build/build_config.h"
 #include "base/base64.h"
 #include "base/logging.h"
 #include "base/nss_util.h"
@@ -20,6 +15,10 @@
 #include "base/waitable_event.h"
 #include "base/worker_pool.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if defined(USE_NSS)
+#include <private/pprthred.h>  // PR_DetachThread
+#endif
 
 namespace net {
 
@@ -96,7 +95,7 @@ class ConcurrencyTestTask : public Task {
     base::ThreadRestrictions::ScopedAllowSingleton scoped_allow_singleton;
     KeygenHandler handler(768, "some challenge",
                           GURL("http://www.example.com"));
-    handler.set_stores_key(false); // Don't leave the key-pair behind.
+    handler.set_stores_key(false);  // Don't leave the key-pair behind.
     *result_ = handler.GenKeyAndSignChallenge();
     event_->Signal();
 #if defined(USE_NSS)

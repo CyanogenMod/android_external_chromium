@@ -8,11 +8,12 @@
 #include "base/compiler_specific.h"
 #include "base/logging.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notifications_prefs_cache.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/content_settings_types.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/url_constants.h"
@@ -20,7 +21,6 @@
 
 #if defined(OS_WIN)
 #include "chrome/browser/ui/views/browser_dialogs.h"
-#include "chrome/installer/util/install_util.h"
 #endif  // OS_WIN
 
 // Menu commands
@@ -54,7 +54,7 @@ NotificationOptionsMenuModel::NotificationOptionsMenuModel(Balloon* balloon)
 NotificationOptionsMenuModel::~NotificationOptionsMenuModel() {
 }
 
-bool NotificationOptionsMenuModel::IsLabelForCommandIdDynamic(int command_id)
+bool NotificationOptionsMenuModel::IsItemForCommandIdDynamic(int command_id)
     const {
   return command_id == kTogglePermissionCommand ||
          command_id == kToggleExtensionCommand;
@@ -72,8 +72,8 @@ string16 NotificationOptionsMenuModel::GetLabelForCommandId(int command_id)
     DesktopNotificationService* service =
         balloon_->profile()->GetDesktopNotificationService();
     if (origin.SchemeIs(chrome::kExtensionScheme)) {
-      ExtensionsService* ext_service =
-          balloon_->profile()->GetExtensionsService();
+      ExtensionService* ext_service =
+          balloon_->profile()->GetExtensionService();
       const Extension* extension = ext_service->GetExtensionByURL(origin);
       if (extension) {
         ExtensionPrefs* extension_prefs = ext_service->extension_prefs();
@@ -121,8 +121,8 @@ bool NotificationOptionsMenuModel::GetAcceleratorForCommandId(
 void NotificationOptionsMenuModel::ExecuteCommand(int command_id) {
   DesktopNotificationService* service =
       balloon_->profile()->GetDesktopNotificationService();
-  ExtensionsService* ext_service =
-      balloon_->profile()->GetExtensionsService();
+  ExtensionService* ext_service =
+      balloon_->profile()->GetExtensionService();
   const GURL& origin = balloon_->notification().origin_url();
   switch (command_id) {
     case kTogglePermissionCommand:
@@ -150,7 +150,8 @@ void NotificationOptionsMenuModel::ExecuteCommand(int command_id) {
             CONTENT_SETTINGS_TYPE_NOTIFICATIONS);
       } else {
 #if defined(OS_WIN)
-        if (InstallUtil::IsChromeFrameProcess()) {
+        if (CommandLine::ForCurrentProcess()->HasSwitch(
+                switches::kChromeFrame)) {
           // We may not have a browser if this is a chrome frame process.
           browser::ShowContentSettingsWindow(NULL,
                                              CONTENT_SETTINGS_TYPE_DEFAULT,

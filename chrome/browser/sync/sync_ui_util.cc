@@ -6,10 +6,12 @@
 
 #include "app/l10n_util.h"
 #include "base/i18n/number_formatting.h"
+#include "base/i18n/time_formatting.h"
+#include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service.h"
-#include "chrome/browser/options_window.h"
+#include "chrome/browser/ui/options/options_window.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -215,6 +217,15 @@ void AddIntSyncDetail(ListValue* details, const std::string& stat_name,
   details->Append(val);
 }
 
+string16 ConstructTime(int64 time_in_int) {
+  base::Time time = base::Time::FromInternalValue(time_in_int);
+
+  // If time is null the format function returns a time in 1969.
+  if (time.is_null())
+    return string16();
+  return base::TimeFormatFriendlyDateAndTime(time);
+}
+
 std::string MakeSyncAuthErrorText(
     const GoogleServiceAuthError::State& state) {
   switch (state) {
@@ -323,6 +334,28 @@ void ConstructAboutInformation(ProfileSyncService* service,
         val->SetString("group", ModelSafeGroupToString(it->second));
         routing_info->Append(val);
       }
+
+      sync_ui_util::AddBoolSyncDetail(details,
+          "Autofill Migrated",
+          service->backend()->GetAutofillMigrationState() ==
+          syncable::MIGRATED);
+      syncable::AutofillMigrationDebugInfo info =
+          service->backend()->GetAutofillMigrationDebugInfo();
+
+      sync_ui_util::AddIntSyncDetail(details,
+                                     "Bookmarks created during migration",
+                                     info.bookmarks_added_during_migration);
+      sync_ui_util::AddIntSyncDetail(details,
+          "Autofill entries created during migration",
+          info.autofill_entries_added_during_migration);
+      sync_ui_util::AddIntSyncDetail(details,
+          "Autofill Profiles created during migration",
+          info.autofill_profile_added_during_migration);
+
+      DictionaryValue* val = new DictionaryValue;
+      val->SetString("stat_name", "Autofill Migration Time");
+      val->SetString("stat_value", ConstructTime(info.autofill_migration_time));
+      details->Append(val);
     }
   }
 }

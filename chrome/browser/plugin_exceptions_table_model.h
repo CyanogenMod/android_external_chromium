@@ -7,15 +7,14 @@
 #pragma once
 
 #include <deque>
+#include <string>
+#include <vector>
 
-#include "chrome/browser/host_content_settings_map.h"
+#include "chrome/browser/content_settings/host_content_settings_map.h"
 #include "chrome/browser/remove_rows_table_model.h"
 #include "chrome/common/notification_observer.h"
-#include "webkit/glue/plugins/plugin_list.h"
+#include "webkit/plugins/npapi/plugin_list.h"
 
-namespace plugin_test_internal {
-class PluginExceptionsTableModelTest;
-}
 struct WebPluginInfo;
 
 class PluginExceptionsTableModel : public RemoveRowsTableModel,
@@ -38,7 +37,7 @@ class PluginExceptionsTableModel : public RemoveRowsTableModel,
   virtual int RowCount();
   virtual std::wstring GetText(int row, int column_id);
   virtual void SetObserver(TableModelObserver* observer);
-  virtual bool HasGroups() { return true; }
+  virtual bool HasGroups();
   virtual Groups GetGroups();
   virtual int GetGroupID(int row);
 
@@ -49,16 +48,17 @@ class PluginExceptionsTableModel : public RemoveRowsTableModel,
 
  protected:
   // Subclasses can override this method for testing.
-  virtual void GetPlugins(NPAPI::PluginList::PluginMap* plugins);
+  virtual void GetPlugins(
+      std::vector<webkit::npapi::PluginGroup>* plugin_groups);
 
  private:
-  friend class plugin_test_internal::PluginExceptionsTableModelTest;
+  friend class PluginExceptionsTableModelTest;
 
   struct SettingsEntry {
-   HostContentSettingsMap::Pattern pattern;
-   int plugin_id;
-   ContentSetting setting;
-   bool is_otr;
+    ContentSettingsPattern pattern;
+    int plugin_id;
+    ContentSetting setting;
+    bool is_otr;
   };
 
   void ClearSettings();

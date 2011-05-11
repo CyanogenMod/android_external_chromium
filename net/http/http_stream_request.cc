@@ -63,6 +63,7 @@ HttpStreamRequest::HttpStreamRequest(
       force_spdy_always_(HttpStreamFactory::force_spdy_always()),
       force_spdy_over_ssl_(HttpStreamFactory::force_spdy_over_ssl()),
       spdy_certificate_error_(OK),
+      alternate_protocol_(HttpAlternateProtocols::UNINITIALIZED),
       establishing_tunnel_(false),
       was_alternate_protocol_available_(false),
       was_npn_negotiated_(false),
@@ -147,6 +148,18 @@ LoadState HttpStreamRequest::GetLoadState() const {
   }
 }
 
+bool HttpStreamRequest::was_alternate_protocol_available() const {
+  return was_alternate_protocol_available_;
+}
+
+bool HttpStreamRequest::was_npn_negotiated() const {
+  return was_npn_negotiated_;
+}
+
+bool HttpStreamRequest::using_spdy() const {
+  return using_spdy_;
+}
+
 void HttpStreamRequest::GetSSLInfo() {
   DCHECK(using_ssl_);
   DCHECK(!establishing_tunnel_);
@@ -191,6 +204,12 @@ void HttpStreamRequest::OnNeedsProxyAuthCallback(
 void HttpStreamRequest::OnNeedsClientAuthCallback(
     SSLCertRequestInfo* cert_info) {
   delegate_->OnNeedsClientAuth(cert_info);
+}
+
+void HttpStreamRequest::OnHttpsProxyTunnelResponseCallback(
+    const HttpResponseInfo& response_info,
+    HttpStream* stream) {
+  delegate_->OnHttpsProxyTunnelResponse(response_info, stream);
 }
 
 void HttpStreamRequest::OnPreconnectsComplete(int result) {
@@ -240,7 +259,7 @@ int HttpStreamRequest::RunLoop(int result) {
         HttpProxyClientSocket* http_proxy_socket =
             static_cast<HttpProxyClientSocket*>(connection_->socket());
         const HttpResponseInfo* tunnel_auth_response =
-            http_proxy_socket->GetResponseInfo();
+            http_proxy_socket->GetConnectResponseInfo();
 
         next_state_ = STATE_WAITING_USER_ACTION;
         MessageLoop::current()->PostTask(
@@ -259,6 +278,23 @@ int HttpStreamRequest::RunLoop(int result) {
               &HttpStreamRequest::OnNeedsClientAuthCallback,
               connection_->ssl_error_response_info().cert_request_info));
       return ERR_IO_PENDING;
+
+    case ERR_HTTPS_PROXY_TUNNEL_RESPONSE:
+      {
+        DCHECK(connection_.get());
+        DCHECK(connection_->socket());
+        DCHECK(establishing_tunnel_);
+
+        ProxyClientSocket* proxy_socket =
+            static_cast<ProxyClientSocket*>(connection_->socket());
+        MessageLoop::current()->PostTask(
+            FROM_HERE,
+            method_factory_.NewRunnableMethod(
+                &HttpStreamRequest::OnHttpsProxyTunnelResponseCallback,
+                *proxy_socket->GetConnectResponseInfo(),
+                proxy_socket->CreateConnectResponseStream()));
+        return ERR_IO_PENDING;
+      }
 
     case OK:
       next_state_ = STATE_DONE;
@@ -657,13 +693,15 @@ int HttpStreamRequest::DoInitConnectionComplete(int result) {
   if (!force_spdy_over_ssl_ && force_spdy_always_)
     SwitchToSpdyMode();
 
-  if (result == ERR_PROXY_AUTH_REQUESTED) {
+  if (result == ERR_PROXY_AUTH_REQUESTED ||
+      result == ERR_HTTPS_PROXY_TUNNEL_RESPONSE) {
     DCHECK(!ssl_started);
     // Other state (i.e. |using_ssl_|) suggests that |connection_| will have an
     // SSL socket, but there was an error before that could happen.  This
     // puts the in progress HttpProxy socket into |connection_| in order to
-    // complete the auth.  The tunnel restart code is careful to remove it
-    // before returning control to the rest of this class.
+    // complete the auth (or read the response body).  The tunnel restart code
+    // is careful to remove it before returning control to the rest of this
+    // class.
     connection_.reset(connection_->release_pending_http_proxy_connection());
     return result;
   }
@@ -709,7 +747,7 @@ int HttpStreamRequest::DoInitConnectionComplete(int result) {
       }
     }
     if (result < 0)
-      return result;
+      return HandleSSLHandshakeError(result);
   }
 
   next_state_ = STATE_CREATE_STREAM;
@@ -739,7 +777,8 @@ int HttpStreamRequest::DoCreateStream() {
   if (!using_spdy_) {
     bool using_proxy = (proxy_info()->is_http() || proxy_info()->is_https()) &&
         request_info().url.SchemeIs("http");
-    stream_.reset(new HttpBasicStream(connection_.release(), using_proxy));
+    stream_.reset(new HttpBasicStream(connection_.release(), NULL,
+                                      using_proxy));
     return OK;
   }
 
@@ -787,8 +826,8 @@ int HttpStreamRequest::DoCreateStream() {
   if (spdy_session->IsClosed())
     return ERR_CONNECTION_CLOSED;
 
-  bool useRelativeUrl = direct || request_info().url.SchemeIs("https");
-  stream_.reset(new SpdyHttpStream(spdy_session, useRelativeUrl));
+  bool use_relative_url = direct || request_info().url.SchemeIs("https");
+  stream_.reset(new SpdyHttpStream(spdy_session, use_relative_url));
   return OK;
 }
 
@@ -854,18 +893,6 @@ scoped_refptr<SSLSocketParams> HttpStreamRequest::GenerateSSLParams(
         << GetHostAndPort(request_info().url);
     ssl_config()->ssl3_fallback = true;
     ssl_config()->tls1_enabled = false;
-  }
-
-  if (proxy_info()->is_https() && ssl_config()->send_client_cert) {
-    // When connecting through an HTTPS proxy, disable TLS False Start so
-    // that client authentication errors can be distinguished between those
-    // originating from the proxy server (ERR_PROXY_CONNECTION_FAILED) and
-    // those originating from the endpoint (ERR_SSL_PROTOCOL_ERROR /
-    // ERR_BAD_SSL_CLIENT_AUTH_CERT).
-    // TODO(rch): This assumes that the HTTPS proxy will only request a
-    // client certificate during the initial handshake.
-    // http://crbug.com/FIXME
-    ssl_config()->false_start_enabled = false;
   }
 
   UMA_HISTOGRAM_ENUMERATION("Net.ConnectionUsedSSLv3Fallback",
@@ -956,11 +983,6 @@ int HttpStreamRequest::ReconsiderProxyAfterError(int error) {
     return error;
   }
 
-  if (proxy_info()->is_https() && ssl_config_->send_client_cert) {
-    session_->ssl_client_auth_cache()->Remove(
-        proxy_info()->proxy_server().host_port_pair().ToString());
-  }
-
   int rv = session_->proxy_service()->ReconsiderProxyAfterError(
       request_info().url, proxy_info(), &io_callback_, &pac_request_,
       net_log_);
@@ -1004,6 +1026,35 @@ int HttpStreamRequest::HandleCertificateError(int error) {
     load_flags |= LOAD_IGNORE_ALL_CERT_ERRORS;
   if (ssl_socket->IgnoreCertError(error, load_flags))
     return OK;
+  return error;
+}
+
+int HttpStreamRequest::HandleSSLHandshakeError(int error) {
+  if (ssl_config()->send_client_cert &&
+      (error == ERR_SSL_PROTOCOL_ERROR ||
+       error == ERR_BAD_SSL_CLIENT_AUTH_CERT)) {
+    session_->ssl_client_auth_cache()->Remove(
+        GetHostAndPort(request_info().url));
+  }
+
+  switch (error) {
+    case ERR_SSL_PROTOCOL_ERROR:
+    case ERR_SSL_VERSION_OR_CIPHER_MISMATCH:
+    case ERR_SSL_DECOMPRESSION_FAILURE_ALERT:
+    case ERR_SSL_BAD_RECORD_MAC_ALERT:
+      if (ssl_config()->tls1_enabled &&
+          !SSLConfigService::IsKnownStrictTLSServer(
+          request_info().url.host())) {
+        // This could be a TLS-intolerant server, an SSL 3.0 server that
+        // chose a TLS-only cipher suite or a server with buggy DEFLATE
+        // support. Turn off TLS 1.0, DEFLATE support and retry.
+        factory_->AddTLSIntolerantServer(request_info().url);
+        next_state_ = STATE_INIT_CONNECTION;
+        DCHECK(!connection_.get() || !connection_->socket());
+        error = OK;
+      }
+      break;
+  }
   return error;
 }
 

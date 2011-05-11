@@ -8,7 +8,11 @@
 #include "app/resource_bundle.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/rounded_rect_painter.h"
+#include "chrome/browser/chromeos/login/rounded_view.h"
+#include "gfx/canvas.h"
 #include "gfx/canvas_skia.h"
+#include "gfx/gtk_util.h"
+#include "gfx/rect.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "views/background.h"
@@ -16,7 +20,6 @@
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
 #include "views/controls/link.h"
-#include "views/controls/throbber.h"
 #include "views/painter.h"
 
 namespace {
@@ -229,6 +232,12 @@ class PodImageView : public views::ImageView {
     views::ImageView::SetImage(image_);
   }
 
+  gfx::NativeCursor GetCursorForPoint(
+      views::Event::EventType event_type,
+      const gfx::Point& p) {
+    return gfx::GetCursor(GDK_HAND2);
+  }
+
  private:
   SkBitmap image_;
   SkBitmap image_hot_;
@@ -239,12 +248,16 @@ class PodImageView : public views::ImageView {
 UserView::UserView(Delegate* delegate, bool is_login, bool need_background)
     : delegate_(delegate),
       signout_view_(NULL),
-      image_view_(new PodImageView()),
-      throbber_(CreateDefaultSmoothedThrobber()),
+      image_view_(NULL),
       remove_button_(NULL) {
   DCHECK(delegate);
   if (!is_login)
     signout_view_ = new SignoutView(this);
+
+  if (need_background)
+    image_view_ = new RoundedView<PodImageView>;
+  else
+    image_view_ = new PodImageView;
 
   Init(need_background);
 }
@@ -254,20 +267,11 @@ void UserView::Init(bool need_background) {
     image_view_->set_background(
         views::Background::CreateSolidBackground(kBackgroundColor));
   }
-  if (throbber_) {
-    int w = throbber_->GetPreferredSize().width();
-    int h = throbber_->GetPreferredSize().height();
-    throbber_->SetBounds(kUserImageSize / 2 - w / 2,
-        kUserImageSize / 2 - h / 2 , w, h);
-    // Throbber should be actually hidden while stopped so tooltip manager
-    // doesn't find it.
-    throbber_->SetVisible(false);
-    image_view_->AddChildView(throbber_);
-  }
 
   // UserView's layout never changes, so let's layout once here.
   image_view_->SetBounds(0, 0, kUserImageSize, kUserImageSize);
   AddChildView(image_view_);
+
   if (signout_view_) {
     signout_view_->SetBounds(0, kUserImageSize, kUserImageSize,
                              signout_view_->GetPreferredSize().height());
@@ -296,16 +300,6 @@ void UserView::SetImage(const SkBitmap& image, const SkBitmap& image_hot) {
 void UserView::SetTooltipText(const std::wstring& text) {
   DCHECK(image_view_);
   image_view_->SetTooltipText(text);
-}
-
-void UserView::StartThrobber() {
-  throbber_->SetVisible(true);
-  throbber_->Start();
-}
-
-void UserView::StopThrobber() {
-  throbber_->Stop();
-  throbber_->SetVisible(false);
 }
 
 gfx::Size UserView::GetPreferredSize() {

@@ -6,9 +6,11 @@
 
 #include <list>
 
+#include "app/sql/meta_table.h"
 #include "app/sql/statement.h"
 #include "app/sql/transaction.h"
 #include "base/basictypes.h"
+#include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
@@ -51,6 +53,7 @@ using base::Time;
 class SQLitePersistentCookieStore::Backend
     : public base::RefCountedThreadSafe<SQLitePersistentCookieStore::Backend> {
  public:
+<<<<<<< HEAD
   // The passed database pointer must be already-initialized. This object will
   // take ownership.
   explicit Backend(sql::Connection* db)
@@ -61,7 +64,17 @@ class SQLitePersistentCookieStore::Backend
 #endif
   {
     DCHECK(db_) << "Database must exist.";
+=======
+  explicit Backend(const FilePath& path)
+      : path_(path),
+        db_(NULL),
+        num_pending_(0),
+        clear_local_state_on_exit_(false) {
+>>>>>>> chromium.org at r10.0.621.0
   }
+
+  // Creates or load the SQLite database.
+  bool Load(std::vector<net::CookieMonster::CanonicalCookie*>* cookies);
 
   // Batch a cookie addition.
   void AddCookie(const net::CookieMonster::CanonicalCookie& cc);
@@ -72,28 +85,40 @@ class SQLitePersistentCookieStore::Backend
   // Batch a cookie deletion.
   void DeleteCookie(const net::CookieMonster::CanonicalCookie& cc);
 
+<<<<<<< HEAD
 #if defined(ANDROID)
   // Commit pending operations as soon as possible.
   void Flush(Task* completion_task);
 #endif
+=======
+  // Commit pending operations as soon as possible.
+  void Flush(Task* completion_task);
+>>>>>>> chromium.org at r10.0.621.0
 
   // Commit any pending operations and close the database.  This must be called
   // before the object is destructed.
   void Close();
 
+<<<<<<< HEAD
 #if defined(ANDROID)
   int get_cookie_count() const { return cookie_count_; }
   void set_cookie_count(int count) { cookie_count_ = count; }
 #endif
+=======
+  void SetClearLocalStateOnExit(bool clear_local_state);
+>>>>>>> chromium.org at r10.0.621.0
 
  private:
   friend class base::RefCountedThreadSafe<SQLitePersistentCookieStore::Backend>;
 
   // You should call Close() before destructing this object.
   ~Backend() {
-    DCHECK(!db_) << "Close should have already been called.";
+    DCHECK(!db_.get()) << "Close should have already been called.";
     DCHECK(num_pending_ == 0 && pending_.empty());
   }
+
+  // Database upgrade statements.
+  bool EnsureDatabaseVersion();
 
   class PendingOperation {
    public:
@@ -128,12 +153,17 @@ class SQLitePersistentCookieStore::Backend
   // Close() executed on the background thread.
   void InternalBackgroundClose();
 
-  sql::Connection* db_;
+  FilePath path_;
+  scoped_ptr<sql::Connection> db_;
+  sql::MetaTable meta_table_;
 
   typedef std::list<PendingOperation*> PendingOperationsList;
   PendingOperationsList pending_;
   PendingOperationsList::size_type num_pending_;
-  Lock pending_lock_;  // Guard pending_ and num_pending_
+  // True if the persistent store should be deleted upon destruction.
+  bool clear_local_state_on_exit_;
+  // Guard |pending_|, |num_pending_| and |clear_local_state_on_exit_|.
+  Lock lock_;
 
 #if defined(ANDROID)
   // Number of cookies that have actually been saved. Updated during Commit().
@@ -142,6 +172,171 @@ class SQLitePersistentCookieStore::Backend
 
   DISALLOW_COPY_AND_ASSIGN(Backend);
 };
+
+// Version number of the database. In version 4, we migrated the time epoch.
+// If you open the DB with an older version on Mac or Linux, the times will
+// look wonky, but the file will likely be usable. On Windows version 3 and 4
+// are the same.
+//
+// Version 3 updated the database to include the last access time, so we can
+// expire them in decreasing order of use when we've reached the maximum
+// number of cookies.
+static const int kCurrentVersionNumber = 4;
+static const int kCompatibleVersionNumber = 3;
+
+namespace {
+
+// Initializes the cookies table, returning true on success.
+bool InitTable(sql::Connection* db) {
+  if (!db->DoesTableExist("cookies")) {
+    if (!db->Execute("CREATE TABLE cookies ("
+                     "creation_utc INTEGER NOT NULL UNIQUE PRIMARY KEY,"
+                     "host_key TEXT NOT NULL,"
+                     "name TEXT NOT NULL,"
+                     "value TEXT NOT NULL,"
+                     "path TEXT NOT NULL,"
+                     // We only store persistent, so we know it expires
+                     "expires_utc INTEGER NOT NULL,"
+                     "secure INTEGER NOT NULL,"
+                     "httponly INTEGER NOT NULL,"
+                     "last_access_utc INTEGER NOT NULL)"))
+      return false;
+  }
+
+  // Try to create the index every time. Older versions did not have this index,
+  // so we want those people to get it. Ignore errors, since it may exist.
+  db->Execute("CREATE INDEX cookie_times ON cookies (creation_utc)");
+  return true;
+}
+
+}  // namespace
+
+bool SQLitePersistentCookieStore::Backend::Load(
+    std::vector<net::CookieMonster::CanonicalCookie*>* cookies) {
+  // This function should be called only once per instance.
+  DCHECK(!db_.get());
+
+  db_.reset(new sql::Connection);
+  if (!db_->Open(path_)) {
+    NOTREACHED() << "Unable to open cookie DB.";
+    db_.reset();
+    return false;
+  }
+
+  db_->set_error_delegate(GetErrorHandlerForCookieDb());
+
+  if (!EnsureDatabaseVersion() || !InitTable(db_.get())) {
+    NOTREACHED() << "Unable to open cookie DB.";
+    db_.reset();
+    return false;
+  }
+
+  db_->Preload();
+
+  // Slurp all the cookies into the out-vector.
+  sql::Statement smt(db_->GetUniqueStatement(
+      "SELECT creation_utc, host_key, name, value, path, expires_utc, secure, "
+      "httponly, last_access_utc FROM cookies"));
+  if (!smt) {
+    NOTREACHED() << "select statement prep failed";
+    db_.reset();
+    return false;
+  }
+
+  while (smt.Step()) {
+    scoped_ptr<net::CookieMonster::CanonicalCookie> cc(
+        new net::CookieMonster::CanonicalCookie(
+            smt.ColumnString(2),                            // name
+            smt.ColumnString(3),                            // value
+            smt.ColumnString(1),                            // domain
+            smt.ColumnString(4),                            // path
+            smt.ColumnInt(6) != 0,                          // secure
+            smt.ColumnInt(7) != 0,                          // httponly
+            Time::FromInternalValue(smt.ColumnInt64(0)),    // creation_utc
+            Time::FromInternalValue(smt.ColumnInt64(8)),    // last_access_utc
+            true,                                           // has_expires
+            Time::FromInternalValue(smt.ColumnInt64(5))));  // expires_utc
+    DLOG_IF(WARNING,
+            cc->CreationDate() > Time::Now()) << L"CreationDate too recent";
+    cookies->push_back(cc.release());
+  }
+
+  return true;
+}
+
+bool SQLitePersistentCookieStore::Backend::EnsureDatabaseVersion() {
+  // Version check.
+  if (!meta_table_.Init(
+      db_.get(), kCurrentVersionNumber, kCompatibleVersionNumber)) {
+    return false;
+  }
+
+  if (meta_table_.GetCompatibleVersionNumber() > kCurrentVersionNumber) {
+    LOG(WARNING) << "Cookie database is too new.";
+    return false;
+  }
+
+  int cur_version = meta_table_.GetVersionNumber();
+  if (cur_version == 2) {
+    sql::Transaction transaction(db_.get());
+    if (!transaction.Begin())
+      return false;
+    if (!db_->Execute("ALTER TABLE cookies ADD COLUMN last_access_utc "
+                     "INTEGER DEFAULT 0") ||
+        !db_->Execute("UPDATE cookies SET last_access_utc = creation_utc")) {
+      LOG(WARNING) << "Unable to update cookie database to version 3.";
+      return false;
+    }
+    ++cur_version;
+    meta_table_.SetVersionNumber(cur_version);
+    meta_table_.SetCompatibleVersionNumber(
+        std::min(cur_version, kCompatibleVersionNumber));
+    transaction.Commit();
+  }
+
+  if (cur_version == 3) {
+    // The time epoch changed for Mac & Linux in this version to match Windows.
+    // This patch came after the main epoch change happened, so some
+    // developers have "good" times for cookies added by the more recent
+    // versions. So we have to be careful to only update times that are under
+    // the old system (which will appear to be from before 1970 in the new
+    // system). The magic number used below is 1970 in our time units.
+    sql::Transaction transaction(db_.get());
+    transaction.Begin();
+#if !defined(OS_WIN)
+    db_->Execute(
+        "UPDATE cookies "
+        "SET creation_utc = creation_utc + 11644473600000000 "
+        "WHERE rowid IN "
+        "(SELECT rowid FROM cookies WHERE "
+          "creation_utc > 0 AND creation_utc < 11644473600000000)");
+    db_->Execute(
+        "UPDATE cookies "
+        "SET expires_utc = expires_utc + 11644473600000000 "
+        "WHERE rowid IN "
+        "(SELECT rowid FROM cookies WHERE "
+          "expires_utc > 0 AND expires_utc < 11644473600000000)");
+    db_->Execute(
+        "UPDATE cookies "
+        "SET last_access_utc = last_access_utc + 11644473600000000 "
+        "WHERE rowid IN "
+        "(SELECT rowid FROM cookies WHERE "
+          "last_access_utc > 0 AND last_access_utc < 11644473600000000)");
+#endif
+    ++cur_version;
+    meta_table_.SetVersionNumber(cur_version);
+    transaction.Commit();
+  }
+
+  // Put future migration cases here.
+
+  // When the version is too old, we just try to continue anyway, there should
+  // not be a released product that makes a database too old for us to handle.
+  LOG_IF(WARNING, cur_version < kCurrentVersionNumber) <<
+      "Cookie database version " << cur_version << " is too old to handle.";
+
+  return true;
+}
 
 void SQLitePersistentCookieStore::Backend::AddCookie(
     const net::CookieMonster::CanonicalCookie& cc) {
@@ -174,7 +369,7 @@ void SQLitePersistentCookieStore::Backend::BatchOperation(
 
   PendingOperationsList::size_type num_pending;
   {
-    AutoLock locked(pending_lock_);
+    AutoLock locked(lock_);
     pending_.push_back(po.release());
     num_pending = ++num_pending_;
   }
@@ -213,6 +408,7 @@ void SQLitePersistentCookieStore::Backend::Commit(Task* completion_task) {
 #else
 void SQLitePersistentCookieStore::Backend::Commit() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
+<<<<<<< HEAD
 #endif
 
 #if defined(ANDROID)
@@ -221,16 +417,18 @@ void SQLitePersistentCookieStore::Backend::Commit() {
     MessageLoop::current()->PostTask(FROM_HERE, completion_task);
   }
 #endif
+=======
+>>>>>>> chromium.org at r10.0.621.0
 
   PendingOperationsList ops;
   {
-    AutoLock locked(pending_lock_);
+    AutoLock locked(lock_);
     pending_.swap(ops);
     num_pending_ = 0;
   }
 
   // Maybe an old timer fired or we are already Close()'ed.
-  if (!db_ || ops.empty())
+  if (!db_.get() || ops.empty())
     return;
 
   sql::Statement add_smt(db_->GetCachedStatement(SQL_FROM_HERE,
@@ -256,7 +454,7 @@ void SQLitePersistentCookieStore::Backend::Commit() {
     return;
   }
 
-  sql::Transaction transaction(db_);
+  sql::Transaction transaction(db_.get());
   if (!transaction.Begin()) {
     NOTREACHED();
     return;
@@ -321,6 +519,7 @@ void SQLitePersistentCookieStore::Backend::Commit() {
                             succeeded ? 0 : 1, 2);
 }
 
+<<<<<<< HEAD
 #if defined(ANDROID)
 void SQLitePersistentCookieStore::Backend::Flush(Task* completion_task) {
 // Keep this #ifdef when upstreaming to Chromium.
@@ -342,6 +541,19 @@ void SQLitePersistentCookieStore::Backend::Flush(Task* completion_task) {
 #endif
 }
 #endif
+=======
+void SQLitePersistentCookieStore::Backend::Flush(Task* completion_task) {
+  DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::DB));
+  BrowserThread::PostTask(
+      BrowserThread::DB, FROM_HERE, NewRunnableMethod(this, &Backend::Commit));
+  if (completion_task) {
+    // We want the completion task to run immediately after Commit() returns.
+    // Posting it from here means there is less chance of another task getting
+    // onto the message queue first, than if we posted it from Commit() itself.
+    BrowserThread::PostTask(BrowserThread::DB, FROM_HERE, completion_task);
+  }
+}
+>>>>>>> chromium.org at r10.0.621.0
 
 // Fire off a close message to the background thread.  We could still have a
 // pending commit timer that will be holding a reference on us, but if/when
@@ -375,13 +587,26 @@ void SQLitePersistentCookieStore::Backend::InternalBackgroundClose() {
   Commit(NULL);
 #else
   Commit();
+<<<<<<< HEAD
 #endif
   delete db_;
   db_ = NULL;
+=======
+
+  db_.reset();
+
+  if (clear_local_state_on_exit_)
+    file_util::Delete(path_, false);
+>>>>>>> chromium.org at r10.0.621.0
 }
 
+void SQLitePersistentCookieStore::Backend::SetClearLocalStateOnExit(
+    bool clear_local_state) {
+  AutoLock locked(lock_);
+  clear_local_state_on_exit_ = clear_local_state;
+}
 SQLitePersistentCookieStore::SQLitePersistentCookieStore(const FilePath& path)
-    : path_(path) {
+    : backend_(new Backend(path)) {
 }
 
 SQLitePersistentCookieStore::~SQLitePersistentCookieStore() {
@@ -393,6 +618,7 @@ SQLitePersistentCookieStore::~SQLitePersistentCookieStore() {
   }
 }
 
+<<<<<<< HEAD
 // Version number of the database. In version 4, we migrated the time epoch.
 // If you open the DB with an older version on Mac or Linux, the times will
 // look wonky, but the file will likely be usable. On Windows version 3 and 4
@@ -576,6 +802,11 @@ bool SQLitePersistentCookieStore::EnsureDatabaseVersion(sql::Connection* db) {
       "Cookie database version " << cur_version << " is too old to handle.";
 
   return true;
+=======
+bool SQLitePersistentCookieStore::Load(
+    std::vector<net::CookieMonster::CanonicalCookie*>* cookies) {
+  return backend_->Load(cookies);
+>>>>>>> chromium.org at r10.0.621.0
 }
 
 void SQLitePersistentCookieStore::AddCookie(
@@ -596,6 +827,7 @@ void SQLitePersistentCookieStore::DeleteCookie(
     backend_->DeleteCookie(cc);
 }
 
+<<<<<<< HEAD
 #if defined(ANDROID)
 void SQLitePersistentCookieStore::Flush(Task* completion_callback) {
   if (backend_.get())
@@ -618,4 +850,17 @@ int SQLitePersistentCookieStore::GetCookieCount() {
 void SQLitePersistentCookieStore::ClearLocalState(
     const FilePath& path) {
   file_util::Delete(path, false);
+=======
+void SQLitePersistentCookieStore::SetClearLocalStateOnExit(
+    bool clear_local_state) {
+  if (backend_.get())
+    backend_->SetClearLocalStateOnExit(clear_local_state);
+}
+
+void SQLitePersistentCookieStore::Flush(Task* completion_task) {
+  if (backend_.get())
+    backend_->Flush(completion_task);
+  else if (completion_task)
+    MessageLoop::current()->PostTask(FROM_HERE, completion_task);
+>>>>>>> chromium.org at r10.0.621.0
 }

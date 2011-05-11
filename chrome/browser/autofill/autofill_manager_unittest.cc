@@ -19,7 +19,7 @@
 #include "chrome/browser/autofill/credit_card.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
 #include "chrome/browser/tab_contents/test_tab_contents.h"
 #include "chrome/common/ipc_test_sink.h"
@@ -183,7 +183,7 @@ void CreateTestAddressFormData(FormData* form) {
   form->fields.push_back(field);
 }
 
-// Populates |form| with data corresponding to a simple credit card form, with.
+// Populates |form| with data corresponding to a simple credit card form.
 // Note that this actually appends fields to the form data, which can be useful
 // for building up more complex test forms.
 void CreateTestCreditCardFormData(FormData* form, bool is_https) {
@@ -364,19 +364,13 @@ void ExpectFilledCreditCardFormElvis(int page_id,
                    has_address_fields, true);
 }
 
-}  // namespace
-
 class TestAutoFillManager : public AutoFillManager {
  public:
   TestAutoFillManager(TabContents* tab_contents,
                       TestPersonalDataManager* personal_manager)
-      : AutoFillManager(tab_contents, NULL),
+      : AutoFillManager(tab_contents, personal_manager),
         autofill_enabled_(true) {
     test_personal_data_ = personal_manager;
-    set_personal_data_manager(personal_manager);
-    // Download manager requests are disabled for purposes of this unit test.
-    // These requests are tested in autofill_download_unittest.cc.
-    set_disable_download_manager_requests(true);
   }
 
   virtual bool IsAutoFillEnabled() const { return autofill_enabled_; }
@@ -424,6 +418,8 @@ class TestAutoFillManager : public AutoFillManager {
 
   DISALLOW_COPY_AND_ASSIGN(TestAutoFillManager);
 };
+
+}  // namespace
 
 class AutoFillManagerTest : public RenderViewHostTestHarness {
  public:

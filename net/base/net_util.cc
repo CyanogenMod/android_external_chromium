@@ -518,6 +518,11 @@ bool IsCompatibleWithASCIILetters(const std::string& lang) {
 typedef std::map<std::string, icu::UnicodeSet*> LangToExemplarSetMap;
 
 class LangToExemplarSet {
+ public:
+  static LangToExemplarSet* GetInstance() {
+    return Singleton<LangToExemplarSet>::get();
+  }
+
  private:
   LangToExemplarSetMap map;
   LangToExemplarSet() { }
@@ -535,7 +540,7 @@ class LangToExemplarSet {
 
 bool GetExemplarSetForLang(const std::string& lang,
                            icu::UnicodeSet** lang_set) {
-  const LangToExemplarSetMap& map = Singleton<LangToExemplarSet>()->map;
+  const LangToExemplarSetMap& map = LangToExemplarSet::GetInstance()->map;
   LangToExemplarSetMap::const_iterator pos = map.find(lang);
   if (pos != map.end()) {
     *lang_set = pos->second;
@@ -546,7 +551,7 @@ bool GetExemplarSetForLang(const std::string& lang,
 
 void SetExemplarSetForLang(const std::string& lang,
                            icu::UnicodeSet* lang_set) {
-  LangToExemplarSetMap& map = Singleton<LangToExemplarSet>()->map;
+  LangToExemplarSetMap& map = LangToExemplarSet::GetInstance()->map;
   map.insert(std::make_pair(lang, lang_set));
 }
 
@@ -1052,7 +1057,7 @@ const FormatUrlType kFormatUrlOmitAll = kFormatUrlOmitUsernamePassword |
     kFormatUrlOmitHTTP | kFormatUrlOmitTrailingSlashOnBareHostname;
 
 // TODO(viettrungluu): We don't want non-POD globals; change this.
-std::set<int> explicitly_allowed_ports;
+std::multiset<int> explicitly_allowed_ports;
 
 GURL FilePathToFileURL(const FilePath& path) {
   // Produce a URL like "file:///C:/foo" for a regular file, or
@@ -1145,7 +1150,9 @@ std::string GetFileNameFromCD(const std::string& header,
         // RFC 5987 value should be ASCII-only.
         if (!IsStringASCII(value))
           return std::string();
-        std::string tmp = UnescapeURLComponent(value, UnescapeRule::SPACES);
+        std::string tmp = UnescapeURLComponent(
+            value,
+            UnescapeRule::SPACES | UnescapeRule::URL_SPECIAL_CHARS);
         if (base::ConvertToUtf8AndNormalize(tmp, charset, &decoded))
           return decoded;
       }
@@ -1360,7 +1367,7 @@ std::string GetDirectoryListingEntry(const string16& name,
   string16 modified_str;
   // |modified| can be NULL in FTP listings.
   if (!modified.is_null()) {
-    modified_str = WideToUTF16Hack(base::TimeFormatShortDateAndTime(modified));
+    modified_str = base::TimeFormatShortDateAndTime(modified);
   }
   base::JsonDoubleQuote(modified_str, true, &result);
 
@@ -1494,12 +1501,7 @@ bool IsPortAllowedByOverride(int port) {
   if (explicitly_allowed_ports.empty())
     return false;
 
-  std::set<int>::const_iterator it =
-      std::find(explicitly_allowed_ports.begin(),
-                explicitly_allowed_ports.end(),
-                port);
-
-  return it != explicitly_allowed_ports.end();
+  return explicitly_allowed_ports.count(port) > 0;
 }
 
 int SetNonBlocking(int fd) {
@@ -1724,7 +1726,7 @@ void SetExplicitlyAllowedPorts(const std::string& allowed_ports) {
   if (allowed_ports.empty())
     return;
 
-  std::set<int> ports;
+  std::multiset<int> ports;
   size_t last = 0;
   size_t size = allowed_ports.size();
   // The comma delimiter.
@@ -1748,6 +1750,18 @@ void SetExplicitlyAllowedPorts(const std::string& allowed_ports) {
     }
   }
   explicitly_allowed_ports = ports;
+}
+
+ScopedPortException::ScopedPortException(int port) : port_(port) {
+  explicitly_allowed_ports.insert(port);
+}
+
+ScopedPortException::~ScopedPortException() {
+  std::multiset<int>::iterator it = explicitly_allowed_ports.find(port_);
+  if (it != explicitly_allowed_ports.end())
+    explicitly_allowed_ports.erase(it);
+  else
+    NOTREACHED();
 }
 
 enum IPv6SupportStatus {

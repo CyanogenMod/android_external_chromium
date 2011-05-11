@@ -13,7 +13,6 @@
 #include "base/basictypes.h"
 #include "base/lock.h"
 #include "base/task.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/sync/glue/model_associator.h"
 #include "chrome/browser/sync/protocol/password_specifics.pb.h"
@@ -73,19 +72,15 @@ class PasswordModelAssociator
   virtual void AbortAssociation();
 
   // Not implemented.
-  virtual const std::string* GetChromeNodeFromSyncId(int64 sync_id) {
-    return NULL;
-  }
+  virtual const std::string* GetChromeNodeFromSyncId(int64 sync_id);
 
   // Not implemented.
-  virtual bool InitSyncNodeFromChromeId(std::string node_id,
-                                        sync_api::BaseNode* sync_node) {
-    return false;
-  }
+  virtual bool InitSyncNodeFromChromeId(const std::string& node_id,
+                                        sync_api::BaseNode* sync_node);
 
   // Returns the sync id for the given password name, or sync_api::kInvalidId
   // if the password name is not associated to any sync id.
-  virtual int64 GetSyncIdFromChromeId(std::string node_id);
+  virtual int64 GetSyncIdFromChromeId(const std::string& node_id);
 
   // Associates the given password name with the given sync id.
   virtual void Associate(const std::string* node, int64 sync_id);

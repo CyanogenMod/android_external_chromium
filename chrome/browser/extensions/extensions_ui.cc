@@ -4,6 +4,8 @@
 
 #include "chrome/browser/extensions/extensions_ui.h"
 
+#include <algorithm>
+
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/base64.h"
@@ -16,7 +18,6 @@
 #include "base/thread.h"
 #include "base/version.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/debugger/devtools_manager.h"
 #include "chrome/browser/debugger/devtools_toggle_action.h"
 #include "chrome/browser/extensions/crx_installer.h"
@@ -25,11 +26,11 @@
 #include "chrome/browser/extensions/extension_function_dispatcher.h"
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_message_service.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_updater.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_widget_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
@@ -190,6 +191,9 @@ void ExtensionsUIHTMLSource::StartDataRequest(const std::string& path,
   SendResponse(request_id, html_bytes);
 }
 
+std::string ExtensionsUIHTMLSource::GetMimeType(const std::string&) const {
+  return "text/html";
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -289,7 +293,7 @@ void ExtensionsDOMHandler::IconLoader::ReportResultOnUIThread(
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-ExtensionsDOMHandler::ExtensionsDOMHandler(ExtensionsService* extension_service)
+ExtensionsDOMHandler::ExtensionsDOMHandler(ExtensionService* extension_service)
     : extensions_service_(extension_service),
       ignore_notifications_(false),
       deleting_rvh_(NULL) {
@@ -386,8 +390,6 @@ void ExtensionsDOMHandler::OnIconsLoaded(DictionaryValue* json) {
   registrar_.Add(this, NotificationType::EXTENSION_PROCESS_CREATED,
       NotificationService::AllSources());
   registrar_.Add(this, NotificationType::EXTENSION_UNLOADED,
-      NotificationService::AllSources());
-  registrar_.Add(this, NotificationType::EXTENSION_UNLOADED_DISABLED,
       NotificationService::AllSources());
   registrar_.Add(this, NotificationType::EXTENSION_UPDATE_DISABLED,
       NotificationService::AllSources());
@@ -675,6 +677,11 @@ void ExtensionsDOMHandler::FileSelected(const FilePath& path, int index,
   dom_ui_->CallJavascriptFunction(L"window.handleFilePathSelected", results);
 }
 
+void ExtensionsDOMHandler::MultiFilesSelected(
+    const std::vector<FilePath>& files, void* params) {
+  NOTREACHED();
+}
+
 void ExtensionsDOMHandler::Observe(NotificationType type,
                                    const NotificationSource& source,
                                    const NotificationDetails& details) {
@@ -702,7 +709,6 @@ void ExtensionsDOMHandler::Observe(NotificationType type,
     case NotificationType::EXTENSION_LOADED:
     case NotificationType::EXTENSION_PROCESS_CREATED:
     case NotificationType::EXTENSION_UNLOADED:
-    case NotificationType::EXTENSION_UNLOADED_DISABLED:
     case NotificationType::EXTENSION_UPDATE_DISABLED:
     case NotificationType::EXTENSION_FUNCTION_DISPATCHER_CREATED:
     case NotificationType::EXTENSION_FUNCTION_DISPATCHER_DESTROYED:
@@ -784,7 +790,7 @@ static bool ExtensionWantsFileAccess(const Extension* extension) {
 
 // Static
 DictionaryValue* ExtensionsDOMHandler::CreateExtensionDetailValue(
-    ExtensionsService* service, const Extension* extension,
+    ExtensionService* service, const Extension* extension,
     const std::vector<ExtensionPage>& pages, bool enabled) {
   DictionaryValue* extension_data = new DictionaryValue();
 
@@ -929,8 +935,8 @@ ExtensionsDOMHandler::~ExtensionsDOMHandler() {
 // ExtensionsDOMHandler, public: -----------------------------------------------
 
 ExtensionsUI::ExtensionsUI(TabContents* contents) : DOMUI(contents) {
-  ExtensionsService *exstension_service =
-      GetProfile()->GetOriginalProfile()->GetExtensionsService();
+  ExtensionService *exstension_service =
+      GetProfile()->GetOriginalProfile()->GetExtensionService();
 
   ExtensionsDOMHandler* handler = new ExtensionsDOMHandler(exstension_service);
   AddMessageHandler(handler);
@@ -942,7 +948,7 @@ ExtensionsUI::ExtensionsUI(TabContents* contents) : DOMUI(contents) {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
-          Singleton<ChromeURLDataManager>::get(),
+          ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(html_source)));
 }

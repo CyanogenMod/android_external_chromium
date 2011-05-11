@@ -34,7 +34,7 @@ GpuProcessHostUIShim::~GpuProcessHostUIShim() {
 }
 
 // static
-GpuProcessHostUIShim* GpuProcessHostUIShim::Get() {
+GpuProcessHostUIShim* GpuProcessHostUIShim::GetInstance() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   return Singleton<GpuProcessHostUIShim>::get();
 }
@@ -63,13 +63,13 @@ void GpuProcessHostUIShim::RemoveRoute(int32 routing_id) {
   router_.RemoveRoute(routing_id);
 }
 
-void GpuProcessHostUIShim::OnMessageReceived(const IPC::Message& message) {
+bool GpuProcessHostUIShim::OnMessageReceived(const IPC::Message& message) {
   DCHECK(CalledOnValidThread());
 
   if (message.routing_id() == MSG_ROUTING_CONTROL)
-    OnControlMessageReceived(message);
-  else
-    router_.RouteMessage(message);
+    return OnControlMessageReceived(message);
+
+  return router_.RouteMessage(message);
 }
 
 void GpuProcessHostUIShim::CollectGraphicsInfoAsynchronously() {
@@ -104,6 +104,10 @@ const GPUInfo& GpuProcessHostUIShim::gpu_info() const {
 void GpuProcessHostUIShim::OnGraphicsInfoCollected(const GPUInfo& gpu_info) {
   gpu_info_ = gpu_info;
   child_process_logging::SetGpuInfo(gpu_info);
+
+  // Used only in testing.
+  if (gpu_info_collected_callback_.get())
+    gpu_info_collected_callback_->Run();
 }
 
 void GpuProcessHostUIShim::OnScheduleComposite(int renderer_id,
@@ -115,7 +119,8 @@ void GpuProcessHostUIShim::OnScheduleComposite(int renderer_id,
   }
   host->ScheduleComposite();
 }
-void GpuProcessHostUIShim::OnControlMessageReceived(
+
+bool GpuProcessHostUIShim::OnControlMessageReceived(
     const IPC::Message& message) {
   DCHECK(CalledOnValidThread());
 
@@ -123,9 +128,10 @@ void GpuProcessHostUIShim::OnControlMessageReceived(
     IPC_MESSAGE_HANDLER(GpuHostMsg_GraphicsInfoCollected,
                         OnGraphicsInfoCollected)
 #if defined(OS_WIN)
-    IPC_MESSAGE_HANDLER(GpuHostMsg_ScheduleComposite,
-                        OnScheduleComposite);
+    IPC_MESSAGE_HANDLER(GpuHostMsg_ScheduleComposite, OnScheduleComposite);
 #endif
     IPC_MESSAGE_UNHANDLED_ERROR()
   IPC_END_MESSAGE_MAP()
+
+  return true;
 }

@@ -32,15 +32,15 @@
 
 namespace {
 
-class URLRequestResourceBundleJob : public URLRequestSimpleJob {
+class URLRequestResourceBundleJob : public net::URLRequestSimpleJob {
  public:
-  explicit URLRequestResourceBundleJob(URLRequest* request,
+  explicit URLRequestResourceBundleJob(net::URLRequest* request,
       const FilePath& filename, int resource_id)
-          : URLRequestSimpleJob(request),
+          : net::URLRequestSimpleJob(request),
             filename_(filename),
             resource_id_(resource_id) { }
 
-  // URLRequestSimpleJob method.
+  // Overridden from URLRequestSimpleJob:
   virtual bool GetData(std::string* mime_type,
                        std::string* charset,
                        std::string* data) const {
@@ -67,7 +67,7 @@ class URLRequestResourceBundleJob : public URLRequestSimpleJob {
 };
 
 // Returns true if an chrome-extension:// resource should be allowed to load.
-bool AllowExtensionResourceLoad(URLRequest* request,
+bool AllowExtensionResourceLoad(net::URLRequest* request,
                                 ChromeURLRequestContext* context,
                                 const std::string& scheme) {
   const ResourceDispatcherHostRequestInfo* info =
@@ -142,16 +142,17 @@ bool AllowExtensionResourceLoad(URLRequest* request,
 
 }  // namespace
 
-// Factory registered with URLRequest to create URLRequestJobs for extension://
-// URLs.
-static URLRequestJob* CreateExtensionURLRequestJob(URLRequest* request,
-                                                   const std::string& scheme) {
+// Factory registered with net::URLRequest to create URLRequestJobs for
+// extension:// URLs.
+static net::URLRequestJob* CreateExtensionURLRequestJob(
+    net::URLRequest* request,
+    const std::string& scheme) {
   ChromeURLRequestContext* context =
       static_cast<ChromeURLRequestContext*>(request->context());
 
   // TODO(mpcomplete): better error code.
   if (!AllowExtensionResourceLoad(request, context, scheme))
-    return new URLRequestErrorJob(request, net::ERR_ADDRESS_UNREACHABLE);
+    return new net::URLRequestErrorJob(request, net::ERR_ADDRESS_UNREACHABLE);
 
   // chrome-extension://extension-id/resource/path.js
   const std::string& extension_id = request->url().host();
@@ -198,13 +199,14 @@ static URLRequestJob* CreateExtensionURLRequestJob(URLRequest* request,
     base::ThreadRestrictions::ScopedAllowIO allow_io;
     resource_file_path = resource.GetFilePath();
   }
-  return new URLRequestFileJob(request, resource_file_path);
+  return new net::URLRequestFileJob(request, resource_file_path);
 }
 
-// Factory registered with URLRequest to create URLRequestJobs for
+// Factory registered with net::URLRequest to create URLRequestJobs for
 // chrome-user-script:/ URLs.
-static URLRequestJob* CreateUserScriptURLRequestJob(URLRequest* request,
-                                                    const std::string& scheme) {
+static net::URLRequestJob* CreateUserScriptURLRequestJob(
+    net::URLRequest* request,
+    const std::string& scheme) {
   ChromeURLRequestContext* context =
       static_cast<ChromeURLRequestContext*>(request->context());
 
@@ -214,12 +216,12 @@ static URLRequestJob* CreateUserScriptURLRequestJob(URLRequest* request,
   ExtensionResource resource(request->url().host(), directory_path,
       extension_file_util::ExtensionURLToRelativeFilePath(request->url()));
 
-  return new URLRequestFileJob(request, resource.GetFilePath());
+  return new net::URLRequestFileJob(request, resource.GetFilePath());
 }
 
 void RegisterExtensionProtocols() {
-  URLRequest::RegisterProtocolFactory(chrome::kExtensionScheme,
-                                      &CreateExtensionURLRequestJob);
-  URLRequest::RegisterProtocolFactory(chrome::kUserScriptScheme,
-                                      &CreateUserScriptURLRequestJob);
+  net::URLRequest::RegisterProtocolFactory(chrome::kExtensionScheme,
+                                           &CreateExtensionURLRequestJob);
+  net::URLRequest::RegisterProtocolFactory(chrome::kUserScriptScheme,
+                                           &CreateUserScriptURLRequestJob);
 }

@@ -480,9 +480,6 @@ class TabStripModel : public NotificationObserver {
                             const NavigationController* opener,
                             bool use_group);
 
-  // Sets the group/opener of any tabs that reference |tab| to NULL.
-  void ForgetOpenersAndGroupsReferencing(const NavigationController* tab);
-
   // Our delegate.
   TabStripModelDelegate* delegate_;
 

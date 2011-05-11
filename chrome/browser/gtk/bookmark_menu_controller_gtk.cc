@@ -17,7 +17,7 @@
 #include "chrome/browser/gtk/gtk_theme_provider.h"
 #include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/gtk/menu_gtk.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/page_navigator.h"
 #include "gfx/gtk_util.h"
 #include "grit/app_resources.h"
@@ -155,11 +155,10 @@ void BookmarkMenuController::BuildMenu(const BookmarkNode* parent,
 
     // This breaks on word boundaries. Ideally we would break on character
     // boundaries.
-    std::string elided_name = WideToUTF8(
-        l10n_util::TruncateString(UTF16ToWideHack(node->GetTitle()),
-                                  kMaxChars));
+    string16 elided_name = l10n_util::TruncateString(node->GetTitle(),
+                                                     kMaxChars);
     GtkWidget* menu_item =
-        gtk_image_menu_item_new_with_label(elided_name.c_str());
+        gtk_image_menu_item_new_with_label(UTF16ToUTF8(elided_name).c_str());
     g_object_set_data(G_OBJECT(menu_item), "bookmark-node", AsVoid(node));
     SetImageMenuItem(menu_item, node, profile_->GetBookmarkModel());
     gtk_util::SetAlwaysShowImage(menu_item);

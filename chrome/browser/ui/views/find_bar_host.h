@@ -6,8 +6,8 @@
 #define CHROME_BROWSER_UI_VIEWS_FIND_BAR_HOST_H_
 #pragma once
 
-#include "chrome/browser/find_bar.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
+#include "chrome/browser/ui/find_bar/find_bar.h"
 #include "chrome/browser/views/dropdown_bar_host.h"
 #include "gfx/native_widget_types.h"
 #include "gfx/rect.h"
@@ -72,6 +72,8 @@ class FindBarHost : public DropdownBarHost,
   virtual bool GetFindBarWindowInfo(gfx::Point* position,
                                     bool* fully_visible);
   virtual string16 GetFindText();
+  virtual string16 GetFindSelectedText();
+  virtual string16 GetMatchCountText();
 
   // Overridden from DropdownBarHost:
   // Returns the rectangle representing where to position the find bar. It uses

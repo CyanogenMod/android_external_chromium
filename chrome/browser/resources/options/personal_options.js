@@ -10,10 +10,10 @@ cr.define('options', function() {
   var syncEnabled = false;
   var syncSetupCompleted = false;
 
-  //
-  // PersonalOptions class
-  // Encapsulated handling of personal options page.
-  //
+  /**
+   * Encapsulated handling of personal options page.
+   * @constructor
+   */
   function PersonalOptions() {
     OptionsPage.call(this, 'personal', templateData.personalPage,
                      'personal-page');
@@ -27,13 +27,10 @@ cr.define('options', function() {
 
     // Initialize PersonalOptions page.
     initializePage: function() {
-      // Call base class implementation to starts preference initialization.
+      // Call base class implementation to start preference initialization.
       OptionsPage.prototype.initializePage.call(this);
 
       var self = this;
-      $('customize-sync').onclick = function(event) {
-        OptionsPage.showPageByName('sync');
-      };
       $('sync-action-link').onclick = function(event) {
         chrome.send('showSyncLoginDialog');
       };
@@ -47,13 +44,12 @@ cr.define('options', function() {
         chrome.send('openPrivacyDashboardTabAndActivate');
       };
       $('manage-passwords').onclick = function(event) {
-        PasswordsExceptions.load();
-        OptionsPage.showPageByName('passwordsExceptions');
+        OptionsPage.showPageByName('passwordManager');
         OptionsPage.showTab($('passwords-nav-tab'));
         chrome.send('coreOptionsUserMetricsAction',
-            ['Options_ShowPasswordsExceptions']);
+            ['Options_ShowPasswordManager']);
       };
-      $('autofill-options').onclick = function(event) {
+      $('autofill-settings').onclick = function(event) {
         OptionsPage.showPageByName('autoFillOptions');
         chrome.send('coreOptionsUserMetricsAction',
             ['Options_ShowAutoFillSettings']);
@@ -61,6 +57,21 @@ cr.define('options', function() {
       $('themes-reset').onclick = function(event) {
         chrome.send('themesReset');
       };
+
+      // Initialize sync select control.
+      $('sync-select').initializeValues(templateData.syncSelectList);
+      $('sync-select').onchange = function(event) {
+        self.updateSyncSelection_();
+      }
+
+      var syncCheckboxes = $('sync-table').getElementsByTagName('input');
+      for (var i = 0; i < syncCheckboxes.length; i++) {
+        if (syncCheckboxes[i].type == "checkbox") {
+          syncCheckboxes[i].onclick = function(event) {
+            chrome.send('updatePreferredDataTypes');
+          };
+        }
+      }
 
       if (!cr.isChromeOS) {
         $('import-data').onclick = function(event) {
@@ -76,22 +87,41 @@ cr.define('options', function() {
       } else {
         chrome.send('loadAccountPicture');
       }
+
       // Disable the screen lock checkbox for the guest mode.
-      if (cr.commandLine.options['--bwsi']) {
-        var enableScreenLock = $('enable-screen-lock');
-        enableScreenLock.disabled = true;
-        // Mark that this is manually disabled. See also pref_ui.js.
-        enableScreenLock.manually_disabled = true;
+      if (cr.commandLine.options['--bwsi'])
+        $('enable-screen-lock').disabled = true;
+    },
+
+    /**
+     * Updates the sync datatype checkboxes based on the selected sync option.
+     * @private
+     */
+    updateSyncSelection_: function() {
+      var idx = $('sync-select').selectedIndex;
+      var syncCheckboxes = $('sync-table').getElementsByTagName('input');
+      if (idx == 0) {
+        for (var i = 0; i < syncCheckboxes.length; i++) {
+          syncCheckboxes[i].disabled = false;
+        }
+      } else if (idx == 1) {
+        for (var i = 0; i < syncCheckboxes.length; i++) {
+          // Merely setting checked = true is not enough to trigger the pref
+          // being set; thus, we simulate the click.
+          if (!syncCheckboxes[i].checked)
+            syncCheckboxes[i].click();
+
+          syncCheckboxes[i].disabled = true;
+        }
       }
     },
 
     showStopSyncingOverlay_: function(event) {
-      AlertOverlay.show(
-          localStrings.getString('stop_syncing_title'),
-          localStrings.getString('stop_syncing_explanation'),
-          localStrings.getString('stop_syncing_confirm_button_label'),
-          undefined,
-          function() { chrome.send('stopSyncing'); });
+      AlertOverlay.show(localStrings.getString('stop_syncing_title'),
+                        localStrings.getString('stop_syncing_explanation'),
+                        localStrings.getString('stop_syncing_confirm'),
+                        localStrings.getString('cancel'),
+                        function() { chrome.send('stopSyncing'); });
     },
 
     setElementVisible_: function(element, visible) {
@@ -154,18 +184,6 @@ cr.define('options', function() {
       $('start-stop-sync').textContent = label;
     },
 
-    setCustomizeButtonVisible_: function(visible) {
-      this.setElementVisible_($('customize-sync'), visible);
-    },
-
-    setCustomizeButtonEnabled_: function(enabled) {
-      $('customize-sync').disabled = !enabled;
-    },
-
-    setCustomizeButtonLabel_: function(label) {
-      $('customize-sync').textContent = label;
-    },
-
     setGtkThemeButtonEnabled_: function(enabled) {
       if (!cr.isChromeOS && navigator.platform.match(/linux|BSD/i)) {
         $('themes-GTK-button').disabled = !enabled;
@@ -178,6 +196,24 @@ cr.define('options', function() {
 
     hideSyncSection_: function() {
       this.setElementVisible_($('sync-section'), false);
+    },
+
+    /**
+     * Toggles the visibility of the data type checkboxes based on whether they
+     * are enabled on not.
+     * @param {Object} dict A mapping from data type to a boolean indicating
+     *     whether it is enabled.
+     * @private
+     */
+    setRegisteredDataTypes_: function(dict) {
+      for (var type in dict) {
+        if (type.match(/Registered$/) && !dict[type]) {
+          node = $(type.replace(/([a-z]+)Registered$/i, '$1').toLowerCase()
+                   + '-check');
+          if (node)
+            node.parentNode.style.display = 'none';
+        }
+      }
     },
   };
 
@@ -194,12 +230,10 @@ cr.define('options', function() {
     'setStartStopButtonVisible',
     'setStartStopButtonEnabled',
     'setStartStopButtonLabel',
-    'setCustomizeButtonVisible',
-    'setCustomizeButtonEnabled',
-    'setCustomizeButtonLabel',
     'setGtkThemeButtonEnabled',
     'setThemesResetButtonEnabled',
     'hideSyncSection',
+    'setRegisteredDataTypes',
   ].forEach(function(name) {
     PersonalOptions[name] = function(value) {
       PersonalOptions.getInstance()[name + '_'](value);

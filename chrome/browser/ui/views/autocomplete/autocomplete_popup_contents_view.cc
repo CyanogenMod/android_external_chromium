@@ -17,7 +17,7 @@
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
 #include "chrome/browser/instant/instant_confirm_dialog.h"
 #include "chrome/browser/instant/promo_counter.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/views/bubble_border.h"
 #include "chrome/browser/views/location_bar/location_bar_view.h"
 #include "gfx/canvas_skia.h"
@@ -43,6 +43,7 @@
 #include <dwmapi.h>
 
 #include "app/win_util.h"
+#include "base/win/scoped_gdi_object.h"
 #endif
 
 #if defined(OS_LINUX)
@@ -1123,7 +1124,7 @@ void AutocompletePopupContentsView::UpdateBlurRegion() {
 
   gfx::Path contents_path;
   MakeContentsPath(&contents_path, contents_rect);
-  ScopedGDIObject<HRGN> popup_region;
+  base::win::ScopedGDIObject<HRGN> popup_region;
   popup_region.Set(contents_path.CreateNativeRegion());
   bb.hRgnBlur = popup_region.Get();
   DwmEnableBlurBehindWindow(GetWidget()->GetNativeView(), &bb);

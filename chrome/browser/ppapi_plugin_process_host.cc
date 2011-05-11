@@ -7,14 +7,13 @@
 #include "base/command_line.h"
 #include "base/file_path.h"
 #include "base/process_util.h"
-#include "chrome/browser/renderer_host/resource_message_filter.h"
+#include "chrome/browser/renderer_host/render_message_filter.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/render_messages.h"
-#include "ipc/ipc_channel_handle.h"
 #include "ipc/ipc_switches.h"
 #include "ppapi/proxy/ppapi_messages.h"
 
-PpapiPluginProcessHost::PpapiPluginProcessHost(ResourceMessageFilter* filter)
+PpapiPluginProcessHost::PpapiPluginProcessHost(RenderMessageFilter* filter)
     : BrowserChildProcessHost(ChildProcessInfo::PPAPI_PLUGIN_PROCESS,
                               filter->resource_dispatcher_host()),
       filter_(filter) {
@@ -29,7 +28,7 @@ void PpapiPluginProcessHost::Init(const FilePath& path,
   reply_msg_.reset(reply_msg);
 
   if (!CreateChannel()) {
-    ReplyToRenderer(IPC::ChannelHandle());
+    ReplyToRenderer(NULL, IPC::ChannelHandle());
     return;
   }
 
@@ -39,7 +38,7 @@ void PpapiPluginProcessHost::Init(const FilePath& path,
 
   FilePath exe_path = ChildProcessHost::GetChildPath(plugin_launcher.empty());
   if (exe_path.empty()) {
-    ReplyToRenderer(IPC::ChannelHandle());
+    ReplyToRenderer(NULL, IPC::ChannelHandle());
     return;
   }
 
@@ -63,42 +62,66 @@ void PpapiPluginProcessHost::Init(const FilePath& path,
       cmd_line);
 }
 
+bool PpapiPluginProcessHost::CanShutdown() {
+  return true;
+}
+
 void PpapiPluginProcessHost::OnProcessLaunched() {
 }
 
-URLRequestContext* PpapiPluginProcessHost::GetRequestContext(
-    uint32 request_id,
-    const ViewHostMsg_Resource_Request& request_data) {
-  return NULL;
-}
-
-void PpapiPluginProcessHost::OnMessageReceived(const IPC::Message& msg) {
+bool PpapiPluginProcessHost::OnMessageReceived(const IPC::Message& msg) {
+  bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(PpapiPluginProcessHost, msg)
     IPC_MESSAGE_HANDLER(PpapiHostMsg_PluginLoaded, OnPluginLoaded)
-    IPC_MESSAGE_UNHANDLED_ERROR();
+    IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
+  DCHECK(handled);
+  return handled;
 }
 
 void PpapiPluginProcessHost::OnChannelConnected(int32 peer_pid) {
-  PpapiMsg_LoadPlugin* msg = new PpapiMsg_LoadPlugin(plugin_path_,
-                                                     filter_->id());
+#if defined(OS_WIN)
+  base::ProcessHandle plugins_renderer_handle = NULL;
+  ::DuplicateHandle(::GetCurrentProcess(), filter_->peer_handle(),
+                    GetChildProcessHandle(), &plugins_renderer_handle,
+                    0, FALSE, DUPLICATE_SAME_ACCESS);
+#elif defined(OS_POSIX)
+  base::ProcessHandle plugins_renderer_handle = filter_->peer_handle();
+#endif
+
+  PpapiMsg_LoadPlugin* msg = new PpapiMsg_LoadPlugin(
+      plugins_renderer_handle, plugin_path_, filter_->render_process_id());
   if (!Send(msg))  // Just send an empty handle on failure.
-    ReplyToRenderer(IPC::ChannelHandle());
+    ReplyToRenderer(NULL, IPC::ChannelHandle());
   // This function will result in OnChannelCreated getting called to finish.
 }
 
 void PpapiPluginProcessHost::OnChannelError() {
   if (reply_msg_.get())
-    ReplyToRenderer(IPC::ChannelHandle());
+    ReplyToRenderer(NULL, IPC::ChannelHandle());
 }
 
-void PpapiPluginProcessHost::OnPluginLoaded(const IPC::ChannelHandle& handle) {
-  ReplyToRenderer(handle);
+void PpapiPluginProcessHost::OnPluginLoaded(
+    const IPC::ChannelHandle& channel_handle) {
+  base::ProcessHandle plugin_process = GetChildProcessHandle();
+#if defined(OS_WIN)
+  base::ProcessHandle renderers_plugin_handle = NULL;
+  ::DuplicateHandle(::GetCurrentProcess(), plugin_process,
+                    filter_->peer_handle(), &renderers_plugin_handle,
+                    0, FALSE, DUPLICATE_SAME_ACCESS);
+#elif defined(OS_POSIX)
+  // Don't need to duplicate anything on POSIX since it's just a PID.
+  base::ProcessHandle renderers_plugin_handle = plugin_process;
+#endif
+  ReplyToRenderer(renderers_plugin_handle, channel_handle);
 }
 
-void PpapiPluginProcessHost::ReplyToRenderer(const IPC::ChannelHandle& handle) {
+void PpapiPluginProcessHost::ReplyToRenderer(
+    base::ProcessHandle plugin_handle,
+    const IPC::ChannelHandle& channel_handle) {
   DCHECK(reply_msg_.get());
   ViewHostMsg_OpenChannelToPepperPlugin::WriteReplyParams(reply_msg_.get(),
-      handle);
+                                                          plugin_handle,
+                                                          channel_handle);
   filter_->Send(reply_msg_.release());
 }

@@ -37,14 +37,12 @@ bool PathProviderPosix(int key, FilePath* result) {
     case base::FILE_EXE:
     case base::FILE_MODULE: {  // TODO(evanm): is this correct?
 #if defined(OS_LINUX)
-      char bin_dir[PATH_MAX + 1];
-      int bin_dir_size = readlink(kSelfExe, bin_dir, PATH_MAX);
-      if (bin_dir_size < 0 || bin_dir_size > PATH_MAX) {
+      FilePath bin_dir;
+      if (!file_util::ReadSymbolicLink(FilePath(kSelfExe), &bin_dir)) {
         NOTREACHED() << "Unable to resolve " << kSelfExe << ".";
         return false;
       }
-      bin_dir[bin_dir_size] = 0;
-      *result = FilePath(bin_dir);
+      *result = bin_dir;
       return true;
 #elif defined(OS_FREEBSD)
       int name[] = { CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1 };
@@ -76,7 +74,7 @@ bool PathProviderPosix(int key, FilePath* result) {
         }
       }
       // On POSIX, unit tests execute two levels deep from the source root.
-      // For example:  sconsbuild/{Debug|Release}/net_unittest
+      // For example:  out/{Debug|Release}/net_unittest
       if (PathService::Get(base::DIR_EXE, &path)) {
         path = path.DirName().DirName();
         if (file_util::PathExists(path.Append(kThisSourceFile))) {

@@ -10,7 +10,6 @@
 #include "base/stl_util-inl.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/notification_service.h"
 
 template <typename T>
@@ -25,7 +24,7 @@ struct MatchSecond {
 };
 
 //  static
-CertStore* CertStore::GetSharedInstance() {
+CertStore* CertStore::GetInstance() {
   return Singleton<CertStore>::get();
 }
 

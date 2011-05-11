@@ -29,7 +29,7 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/safe_browsing/protocol_manager.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
@@ -228,7 +228,7 @@ class SafeBrowsingServiceTest : public InProcessBrowserTest {
   void CheckUrl(SafeBrowsingService::Client* helper, const GURL& url) {
     ASSERT_TRUE(safe_browsing_service_);
     AutoLock lock(update_status_mutex_);
-    if (safe_browsing_service_->CheckUrl(url, helper)) {
+    if (safe_browsing_service_->CheckBrowseUrl(url, helper)) {
       is_checked_url_in_db_ = false;
       is_checked_url_safe_ = true;
     } else {
@@ -345,8 +345,8 @@ class SafeBrowsingServiceTestHelper
   }
 
   // Callbacks for SafeBrowsingService::Client.
-  virtual void OnUrlCheckResult(const GURL& url,
-                                SafeBrowsingService::UrlCheckResult result) {
+  virtual void OnBrowseUrlCheckResult(
+      const GURL& url, SafeBrowsingService::UrlCheckResult result) {
     EXPECT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::IO));
     EXPECT_TRUE(safe_browsing_test_->is_checked_url_in_db());
     safe_browsing_test_->set_is_checked_url_safe(
@@ -355,6 +355,11 @@ class SafeBrowsingServiceTestHelper
                             NewRunnableMethod(this,
                             &SafeBrowsingServiceTestHelper::OnCheckUrlDone));
   }
+  virtual void OnDownloadUrlCheckResult(
+      const GURL& url, SafeBrowsingService::UrlCheckResult result) {
+    // TODO(lzheng): Add test for DownloadUrl.
+  }
+
   virtual void OnBlockingPageComplete(bool proceed) {
     NOTREACHED() << "Not implemented.";
   }

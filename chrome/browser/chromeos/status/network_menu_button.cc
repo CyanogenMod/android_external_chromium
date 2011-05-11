@@ -79,6 +79,8 @@ void NetworkMenuButton::OnNetworkManagerChanged(NetworkLibrary* cros) {
 // NetworkMenuButton, NetworkLibrary::NetworkObserver implementation:
 void NetworkMenuButton::OnNetworkChanged(NetworkLibrary* cros,
                                          const Network* network) {
+  // This gets called on initialization, so any changes should be reflected
+  // in CrosMock::SetNetworkLibraryStatusAreaExpectations().
   SetNetworkIcon(cros, network);
   RefreshNetworkObserver(cros);
   SchedulePaint();
@@ -167,7 +169,7 @@ void NetworkMenuButton::SetNetworkIcon(NetworkLibrary* cros,
                 l10n_util::GetString(IDS_STATUSBAR_NETWORK_DEVICE_ETHERNET)));
       } else if (network->type() == TYPE_WIFI) {
         const WifiNetwork* wifi = static_cast<const WifiNetwork*>(network);
-        SetIcon(IconForNetworkStrength(wifi->strength(), false));
+        SetIcon(IconForNetworkStrength(wifi, false));
         SetBadge(SkBitmap());
         SetTooltipText(l10n_util::GetStringF(
             IDS_STATUSBAR_NETWORK_CONNECTED_TOOLTIP,
@@ -175,12 +177,7 @@ void NetworkMenuButton::SetNetworkIcon(NetworkLibrary* cros,
       } else if (network->type() == TYPE_CELLULAR) {
         const CellularNetwork* cellular =
             static_cast<const CellularNetwork*>(network);
-        if (cellular->GetDataLeft() == CellularNetwork::DATA_NONE) {
-          // If no data, then we show 0 bars.
-          SetIcon(*rb.GetBitmapNamed(IDR_STATUSBAR_NETWORK_BARS0));
-        } else {
-          SetIcon(IconForNetworkStrength(cellular));
-        }
+        SetIcon(IconForNetworkStrength(cellular, false));
         SetBadge(BadgeForNetworkTechnology(cellular));
         SetTooltipText(l10n_util::GetStringF(
             IDS_STATUSBAR_NETWORK_CONNECTED_TOOLTIP,

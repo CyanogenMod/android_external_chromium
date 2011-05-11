@@ -9,7 +9,6 @@
 #include <set>
 #include <vector>
 
-#include "base/singleton.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/dom_ui/dom_ui.h"
 #include "chrome/common/notification_observer.h"
@@ -19,12 +18,13 @@
 #include "net/base/directory_lister.h"
 #include "net/url_request/url_request.h"
 
+template <typename T> struct DefaultSingletonTraits;
 class GURL;
 class MediaplayerHandler;
 class Browser;
 
 class MediaPlayer : public NotificationObserver,
-                    public URLRequest::Interceptor {
+                    public net::URLRequest::Interceptor {
  public:
   ~MediaPlayer();
 
@@ -74,13 +74,13 @@ class MediaPlayer : public NotificationObserver,
 
   // Always returns NULL because we don't want to attempt a redirect
   // before seeing the detected mime type of the request.
-  // Implementation of URLRequest::Interceptor.
+  // Implementation of net::URLRequest::Interceptor.
   virtual net::URLRequestJob* MaybeIntercept(net::URLRequest* request);
 
   // Determines if the requested document can be viewed by the
-  // MediaPlayer.  If it can, returns a URLRequestJob that
+  // MediaPlayer.  If it can, returns a net::URLRequestJob that
   // redirects the browser to the view URL.
-  // Implementation of URLRequest::Interceptor.
+  // Implementation of net::URLRequest::Interceptor.
   virtual net::URLRequestJob* MaybeInterceptResponse(net::URLRequest* request);
 
   // Used to detect when the mediaplayer is closed.
@@ -89,11 +89,11 @@ class MediaPlayer : public NotificationObserver,
                const NotificationDetails& details);
 
   // Getter for the singleton.
-  static MediaPlayer* Get() {
-    return Singleton<MediaPlayer>::get();
-  }
+  static MediaPlayer* GetInstance();
 
  private:
+  friend struct DefaultSingletonTraits<MediaPlayer>;
+
   MediaPlayer();
 
   // Popup the mediaplayer, this shows the browser, and sets up its
@@ -147,7 +147,6 @@ class MediaPlayer : public NotificationObserver,
   // List of mimetypes that the mediaplayer should listen to.  Used for
   // interceptions of url GETs.
   std::set<std::string> supported_mime_types_;
-  friend struct DefaultSingletonTraits<MediaPlayer>;
   DISALLOW_COPY_AND_ASSIGN(MediaPlayer);
 };
 

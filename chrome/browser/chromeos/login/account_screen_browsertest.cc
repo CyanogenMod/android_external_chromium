@@ -62,8 +62,8 @@ static void QuitUIMessageLoop() {
 static bool inspector_called = false;  // had to use global flag as
                                        // InspectorHook() doesn't have context.
 
-static URLRequestJob* InspectorHook(URLRequest* request,
-                                    const std::string& scheme) {
+static net::URLRequestJob* InspectorHook(net::URLRequest* request,
+                                         const std::string& scheme) {
   VLOG(1) << "Intercepted: " << request->url() << ", scheme: " << scheme;
 
   // Expect that the parameters are the same as new_account.html gave us.
@@ -74,7 +74,7 @@ static URLRequestJob* InspectorHook(URLRequest* request,
                           NewRunnableFunction(QuitUIMessageLoop));
 
   // Do not navigate to the given URL. Navigate to about:blank instead.
-  return new URLRequestAboutJob(request);
+  return new net::URLRequestAboutJob(request);
 }
 
 // Sometimes times out: http://crbug.com/60050.

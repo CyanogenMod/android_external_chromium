@@ -7,6 +7,7 @@
 #include <string>
 
 #include "base/command_line.h"
+#include "base/singleton.h"
 #include "base/scoped_ptr.h"
 #include "base/time.h"
 #include "base/task.h"
@@ -26,10 +27,10 @@
 #if defined(OS_WIN)
 #include "chrome/installer/util/install_util.h"
 #elif defined(OS_MACOSX)
-#include "chrome/browser/cocoa/keystone_glue.h"
+#include "chrome/browser/ui/cocoa/keystone_glue.h"
 #elif defined(OS_POSIX)
 #include "base/process_util.h"
-#include "chrome/installer/util/version.h"
+#include "base/version.h"
 #endif
 
 namespace {
@@ -79,22 +80,24 @@ class DetectUpgradeTask : public Task {
   virtual void Run() {
     DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
-    using installer::Version;
     scoped_ptr<Version> installed_version;
 
 #if defined(OS_WIN)
     // Get the version of the currently *installed* instance of Chrome,
     // which might be newer than the *running* instance if we have been
     // upgraded in the background.
-    installed_version.reset(InstallUtil::GetChromeVersion(false));
+    // TODO(tommi): Check if using the default distribution is always the right
+    // thing to do.
+    BrowserDistribution* dist = BrowserDistribution::GetDistribution();
+    installed_version.reset(InstallUtil::GetChromeVersion(dist, false));
     if (!installed_version.get()) {
       // User level Chrome is not installed, check system level.
-      installed_version.reset(InstallUtil::GetChromeVersion(true));
+      installed_version.reset(InstallUtil::GetChromeVersion(dist, true));
     }
 #elif defined(OS_MACOSX)
     installed_version.reset(
-        Version::GetVersionFromString(
-            keystone_glue::CurrentlyInstalledVersion()));
+        Version::GetVersionFromString(UTF16ToASCII(
+            keystone_glue::CurrentlyInstalledVersion())));
 #elif defined(OS_POSIX)
     // POSIX but not Mac OS X: Linux, etc.
     CommandLine command_line(*CommandLine::ForCurrentProcess());
@@ -105,7 +108,7 @@ class DetectUpgradeTask : public Task {
       return;
     }
 
-    installed_version.reset(Version::GetVersionFromString(ASCIIToUTF16(reply)));
+    installed_version.reset(Version::GetVersionFromString(reply));
 #endif
 
     // Get the version of the currently *running* instance of Chrome.
@@ -115,7 +118,7 @@ class DetectUpgradeTask : public Task {
       return;
     }
     scoped_ptr<Version> running_version(
-        Version::GetVersionFromString(ASCIIToUTF16(version_info.Version())));
+        Version::GetVersionFromString(version_info.Version()));
     if (running_version.get() == NULL) {
       NOTREACHED() << "Failed to parse version info";
       return;
@@ -125,7 +128,7 @@ class DetectUpgradeTask : public Task {
     // switching from dev to beta channel, for example). The user needs a
     // restart in this case as well. See http://crbug.com/46547
     if (!installed_version.get() ||
-        installed_version->IsHigherThan(running_version.get())) {
+        (installed_version->CompareTo(*running_version) > 0)) {
       BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
                               upgrade_detected_task_);
       upgrade_detected_task_ = NULL;
@@ -162,6 +165,11 @@ UpgradeDetector::UpgradeDetector()
 }
 
 UpgradeDetector::~UpgradeDetector() {
+}
+
+// static
+UpgradeDetector* UpgradeDetector::GetInstance() {
+  return Singleton<UpgradeDetector>::get();
 }
 
 void UpgradeDetector::CheckForUpgrade() {

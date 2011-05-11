@@ -4,6 +4,8 @@
 
 #include "chrome/browser/tab_contents/interstitial_page.h"
 
+#include <vector>
+
 #include "base/compiler_specific.h"
 #include "base/message_loop.h"
 #include "base/string_util.h"
@@ -13,7 +15,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_operation_notification_details.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
@@ -26,14 +28,14 @@
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/common/bindings_policy.h"
 #include "chrome/common/dom_storage_common.h"
+#include "chrome/common/net/url_request_context_getter.h"
+#include "chrome/common/notification_source.h"
+#include "grit/browser_resources.h"
+#include "net/base/escape.h"
+
 #if defined(TOOLKIT_GTK)
 #include "chrome/browser/gtk/gtk_theme_provider.h"
 #endif
-#include "chrome/common/net/url_request_context_getter.h"
-#include "chrome/common/notification_service.h"
-#include "grit/browser_resources.h"
-#include "net/base/escape.h"
-#include "views/window/window_delegate.h"
 
 using WebKit::WebDragOperation;
 using WebKit::WebDragOperationsMask;
@@ -333,7 +335,9 @@ const GURL& InterstitialPage::GetURL() const {
   return url_;
 }
 
-void InterstitialPage::RenderViewGone(RenderViewHost* render_view_host) {
+void InterstitialPage::RenderViewGone(RenderViewHost* render_view_host,
+                                      base::TerminationStatus status,
+                                      int error_code) {
   // Our renderer died. This should not happen in normal cases.
   // Just dismiss the interstitial.
   DontProceed();
@@ -461,6 +465,10 @@ void InterstitialPage::Proceed() {
   }
 }
 
+std::string InterstitialPage::GetHTMLContents() {
+  return std::string();
+}
+
 void InterstitialPage::DontProceed() {
   DCHECK(action_taken_ != DONT_PROCEED_ACTION);
 
@@ -525,6 +533,10 @@ void InterstitialPage::Focus() {
 
 void InterstitialPage::FocusThroughTabTraversal(bool reverse) {
   render_view_host_->SetInitialFocus(reverse);
+}
+
+ViewType::Type InterstitialPage::GetRenderViewType() const {
+  return ViewType::INTERSTITIAL_PAGE;
 }
 
 void InterstitialPage::Disable() {

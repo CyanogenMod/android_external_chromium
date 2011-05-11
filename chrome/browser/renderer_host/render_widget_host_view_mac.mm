@@ -8,7 +8,6 @@
 
 #include "app/app_switches.h"
 #include "app/surface/io_surface_support_mac.h"
-#import "base/chrome_application_mac.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/mac/scoped_cftyperef.h"
@@ -22,8 +21,6 @@
 #include "chrome/browser/accessibility/browser_accessibility_state.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_trial.h"
-#import "chrome/browser/cocoa/rwhvm_editcommand_helper.h"
-#import "chrome/browser/cocoa/view_id_util.h"
 #include "chrome/browser/gpu_process_host.h"
 #include "chrome/browser/plugin_process_host.h"
 #include "chrome/browser/renderer_host/backing_store_mac.h"
@@ -31,6 +28,8 @@
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host.h"
 #include "chrome/browser/spellchecker_platform_engine.h"
+#import "chrome/browser/ui/cocoa/rwhvm_editcommand_helper.h"
+#import "chrome/browser/ui/cocoa/view_id_util.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/native_web_keyboard_event.h"
 #include "chrome/common/edit_command.h"
@@ -41,8 +40,8 @@
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/WebKit/WebKit/chromium/public/mac/WebInputEventFactory.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebInputEvent.h"
-#include "webkit/glue/plugins/webplugin.h"
 #include "webkit/glue/webaccessibility.h"
+#include "webkit/plugins/npapi/webplugin.h"
 #import "third_party/mozilla/ComplexTextInputPanel.h"
 
 using WebKit::WebInputEvent;
@@ -524,7 +523,7 @@ RenderWidgetHostViewMac::RenderWidgetHostViewMac(RenderWidgetHost* widget)
 
   // Turn on accessibility only if VoiceOver is running.
   if (IsVoiceOverRunning()) {
-    Singleton<BrowserAccessibilityState>()->OnScreenReaderDetected();
+    BrowserAccessibilityState::GetInstance()->OnScreenReaderDetected();
     render_widget_host_->EnableRendererAccessibility();
   }
 }
@@ -624,15 +623,15 @@ gfx::NativeView RenderWidgetHostViewMac::GetNativeView() {
 }
 
 void RenderWidgetHostViewMac::MovePluginWindows(
-    const std::vector<webkit_glue::WebPluginGeometry>& moves) {
+    const std::vector<webkit::npapi::WebPluginGeometry>& moves) {
   CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   // Handle movement of accelerated plugins, which are the only "windowed"
   // plugins that exist on the Mac.
-  for (std::vector<webkit_glue::WebPluginGeometry>::const_iterator iter =
+  for (std::vector<webkit::npapi::WebPluginGeometry>::const_iterator iter =
            moves.begin();
        iter != moves.end();
        ++iter) {
-    webkit_glue::WebPluginGeometry geom = *iter;
+    webkit::npapi::WebPluginGeometry geom = *iter;
 
     AcceleratedPluginView* view = ViewForPluginWindowHandle(geom.window);
     DCHECK(view);
@@ -794,7 +793,8 @@ void RenderWidgetHostViewMac::DidUpdateBackingStore(
     HandleDelayedGpuViewHiding();
 }
 
-void RenderWidgetHostViewMac::RenderViewGone() {
+void RenderWidgetHostViewMac::RenderViewGone(base::TerminationStatus status,
+                                             int error_code) {
   // TODO(darin): keep this around, and draw sad-tab into it.
   UpdateCursorIfOverSelf();
   Destroy();
@@ -1019,14 +1019,14 @@ void RenderWidgetHostViewMac::AcceleratedSurfaceSetIOSurface(
     // Fake up a WebPluginGeometry for the root window to set the
     // container's size; we will never get a notification from the
     // browser about the root window, only plugins.
-    webkit_glue::WebPluginGeometry geom;
+    webkit::npapi::WebPluginGeometry geom;
     gfx::Rect rect(0, 0, width, height);
     geom.window = window;
     geom.window_rect = rect;
     geom.clip_rect = rect;
     geom.visible = true;
     geom.rects_valid = true;
-    MovePluginWindows(std::vector<webkit_glue::WebPluginGeometry>(1, geom));
+    MovePluginWindows(std::vector<webkit::npapi::WebPluginGeometry>(1, geom));
   }
 }
 
@@ -1124,6 +1124,17 @@ void RenderWidgetHostViewMac::AcknowledgeSwapBuffers(
     int renderer_id,
     int32 route_id,
     uint64 swap_buffers_count) {
+  // Called on the display link thread. Hand actual work off to the IO thread,
+  // because |GpuProcessHost::Get()| can only be called there.
+  // Currently, this is never called for plugins.
+  if (render_widget_host_) {
+    DCHECK_EQ(render_widget_host_->process()->id(), renderer_id);
+    // |render_widget_host_->routing_id()| and |route_id| are usually not
+    // equal: The former identifies the channel from the RWH in the browser
+    // process to the corresponding render widget in the renderer process, while
+    // the latter identifies the channel from the GpuCommandBufferStub in the
+    // GPU process to the corresponding command buffer client in the renderer.
+  }
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       new BuffersSwappedAcknowledger(
@@ -1754,8 +1765,6 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
     return;
   }
 
-  DCHECK(
-      renderWidgetHostView_->render_widget_host_->process()->HasConnection());
   DCHECK(!renderWidgetHostView_->about_to_validate_and_paint_);
 
   renderWidgetHostView_->about_to_validate_and_paint_ = true;

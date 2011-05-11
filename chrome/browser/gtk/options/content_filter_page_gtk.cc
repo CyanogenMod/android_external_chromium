@@ -6,10 +6,12 @@
 
 #include "app/l10n_util.h"
 #include "base/command_line.h"
+#include "chrome/browser/content_settings/content_settings_details.h"
+#include "chrome/browser/content_settings/content_settings_pattern.h"
 #include "chrome/browser/geolocation/geolocation_content_settings_map.h"
 #include "chrome/browser/geolocation/geolocation_exceptions_table_model.h"
 #include "chrome/browser/plugin_exceptions_table_model.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/gtk/browser_window_gtk.h"
 #include "chrome/browser/gtk/gtk_chrome_link_button.h"
@@ -18,8 +20,8 @@
 #include "chrome/browser/gtk/options/simple_content_exceptions_window.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/notifications/notification_exceptions_table_model.h"
-#include "chrome/browser/show_options_url.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/options/show_options_url.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_service.h"
@@ -156,6 +158,10 @@ GtkWidget* ContentFilterPageGtk::InitGroup() {
   // aften content settings change.
   registrar_.Add(this, NotificationType::CONTENT_SETTINGS_CHANGED,
                  NotificationService::AllSources());
+  registrar_.Add(this, NotificationType::DESKTOP_NOTIFICATION_DEFAULT_CHANGED,
+                 NotificationService::AllSources());
+  registrar_.Add(this, NotificationType::GEOLOCATION_SETTINGS_CHANGED,
+                 NotificationService::AllSources());
 
   return vbox;
 }
@@ -163,15 +169,24 @@ GtkWidget* ContentFilterPageGtk::InitGroup() {
 void ContentFilterPageGtk::UpdateButtonsState() {
   // Get default_setting.
   ContentSetting default_setting;
+  // If the content setting is managed, sensitive is set to false and the radio
+  // buttons will be disabled.
+  bool sensitive = true;
   if (content_type_ == CONTENT_SETTINGS_TYPE_GEOLOCATION) {
     default_setting = profile()->GetGeolocationContentSettingsMap()->
         GetDefaultContentSetting();
+    sensitive = !profile()->GetGeolocationContentSettingsMap()->
+        IsDefaultContentSettingManaged();
   } else if (content_type_ == CONTENT_SETTINGS_TYPE_NOTIFICATIONS) {
     default_setting = profile()->GetDesktopNotificationService()->
         GetDefaultContentSetting();
+    sensitive = !profile()->GetDesktopNotificationService()->
+        IsDefaultContentSettingManaged();
   } else {
     default_setting = profile()->GetHostContentSettingsMap()->
         GetDefaultContentSetting(content_type_);
+    sensitive = !profile()->GetHostContentSettingsMap()->
+        IsDefaultContentSettingManaged(content_type_);
   }
   // Set UI state.
   if (default_setting == CONTENT_SETTING_ALLOW) {
@@ -185,8 +200,6 @@ void ContentFilterPageGtk::UpdateButtonsState() {
   }
 
   // Disable the UI if the default content setting is managed.
-  bool sensitive = !profile()->GetHostContentSettingsMap()->
-      IsDefaultContentSettingManaged(content_type_);
   gtk_widget_set_sensitive(allow_radio_, sensitive);
   gtk_widget_set_sensitive(block_radio_, sensitive);
   if (ask_radio_)
@@ -275,17 +288,25 @@ void ContentFilterPageGtk::OnPluginsPageLinkClicked(GtkWidget* button) {
 void ContentFilterPageGtk::Observe(NotificationType type,
                        const NotificationSource& source,
                        const NotificationDetails& details) {
-
   if (type == NotificationType::CONTENT_SETTINGS_CHANGED) {
     NotifyContentSettingsChanged(
-        Details<HostContentSettingsMap::ContentSettingsDetails>(details).ptr());
+        Details<const ContentSettingsDetails>(details).ptr());
+  } else if (type == NotificationType::GEOLOCATION_SETTINGS_CHANGED) {
+    NotifyContentSettingsChanged(
+        Details<const ContentSettingsDetails>(details).ptr());
+  } else if (type == NotificationType::DESKTOP_NOTIFICATION_DEFAULT_CHANGED) {
+    ContentSettingsDetails content_settings_details(
+        ContentSettingsPattern(),
+        CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
+        "");
+    NotifyContentSettingsChanged(&content_settings_details);
   } else {
     OptionsPageBase::Observe(type, source, details);
   }
 }
 
 void ContentFilterPageGtk::NotifyContentSettingsChanged(
-    const HostContentSettingsMap::ContentSettingsDetails *details) {
+    const ContentSettingsDetails *details) {
   if (details->type() == CONTENT_SETTINGS_TYPE_DEFAULT ||
       details->type() == content_type_) {
     ignore_toggle_ = true;

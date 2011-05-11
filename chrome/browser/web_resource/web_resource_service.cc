@@ -13,8 +13,8 @@
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/extensions/extensions_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension.h"
@@ -154,7 +154,7 @@ class WebResourceService::UnpackerClient
   ~UnpackerClient() {}
 
   // UtilityProcessHost::Client
-  virtual void OnProcessCrashed() {
+  virtual void OnProcessCrashed(int exit_code) {
     if (got_response_)
       return;
 
@@ -499,7 +499,7 @@ bool CanShowPromo(Profile* profile) {
     promo_closed = prefs->GetBoolean(prefs::kNTPPromoClosed);
 
   bool has_extensions = false;
-  ExtensionsService* extensions_service = profile->GetExtensionsService();
+  ExtensionService* extensions_service = profile->GetExtensionService();
   if (extensions_service) {
     const ExtensionList* extensions = extensions_service->extensions();
     for (ExtensionList::const_iterator iter = extensions->begin();

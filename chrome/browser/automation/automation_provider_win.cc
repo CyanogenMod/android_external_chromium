@@ -18,7 +18,7 @@
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/extension_event_router.h"
 #include "chrome/browser/external_tab_container_win.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/views/bookmark_bar_view.h"
@@ -229,17 +229,8 @@ void AutomationProvider::WindowSimulateDrag(int handle,
   }
 }
 
-void AutomationProvider::GetTabHWND(int handle, HWND* tab_hwnd) {
-  *tab_hwnd = NULL;
-
-  if (tab_tracker_->ContainsHandle(handle)) {
-    NavigationController* tab = tab_tracker_->GetResource(handle);
-    *tab_hwnd = tab->tab_contents()->GetNativeView();
-  }
-}
-
 void AutomationProvider::CreateExternalTab(
-    const IPC::ExternalTabSettings& settings,
+    const ExternalTabSettings& settings,
     gfx::NativeWindow* tab_container_window, gfx::NativeWindow* tab_window,
     int* tab_handle, int* session_id) {
   TRACE_EVENT_BEGIN("AutomationProvider::CreateExternalTab", 0, "");
@@ -327,7 +318,7 @@ ExternalTabContainer* AutomationProvider::GetExternalTabForHandle(int handle) {
 }
 
 void AutomationProvider::OnTabReposition(
-    int tab_handle, const IPC::Reposition_Params& params) {
+    int tab_handle, const Reposition_Params& params) {
   if (!tab_tracker_->ContainsHandle(tab_handle))
     return;
 

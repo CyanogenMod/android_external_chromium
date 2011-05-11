@@ -75,12 +75,15 @@ class Sandbox {
     // Native Client sandbox for the user's untrusted code.
     SANDBOX_TYPE_NACL_LOADER,
 
+    // GPU process.
+    SANDBOX_TYPE_GPU,
+
     SANDBOX_AFTER_TYPE_LAST_TYPE,  // Placeholder to ease iteration.
   };
 
   // Warm up System APIs that empirically need to be accessed before the Sandbox
-  // is turned on.
-  static void SandboxWarmup();
+  // is turned on. |sandbox_type| is the type of sandbox to warm up.
+  static void SandboxWarmup(SandboxProcessType sandbox_type);
 
   // Turns on the OS X sandbox for this process.
   // |sandbox_type| - type of Sandbox to use.

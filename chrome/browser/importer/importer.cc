@@ -20,7 +20,7 @@
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/webdata/web_data_service.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/notification_source.h"
 #include "gfx/codec/png_codec.h"
 #include "gfx/favicon_size.h"
 #include "grit/generated_resources.h"
@@ -33,7 +33,7 @@
 #include "chrome/browser/views/importer_lock_view.h"
 #include "views/window/window.h"
 #elif defined(OS_MACOSX)
-#include "chrome/browser/cocoa/importer_lock_dialog.h"
+#include "chrome/browser/ui/cocoa/importer_lock_dialog.h"
 #elif defined(TOOLKIT_USES_GTK)
 #include "chrome/browser/gtk/import_lock_dialog_gtk.h"
 #endif
@@ -41,6 +41,8 @@
 using webkit_glue::PasswordForm;
 
 // Importer.
+
+void Importer::Cancel() { cancelled_ = true; }
 
 Importer::Importer()
     : cancelled_(false),
@@ -85,8 +87,23 @@ ImporterHost::ImporterHost()
       installed_bookmark_observer_(false),
       is_source_readable_(true),
       headless_(false),
-      parent_window_(NULL) {
-  importer_list_.DetectSourceProfiles();
+      parent_window_(NULL),
+      importer_list_(new ImporterList) {
+  importer_list_->DetectSourceProfilesHack();
+}
+
+ImporterHost::ImporterHost(ImporterList::Observer* observer)
+    : profile_(NULL),
+      observer_(NULL),
+      task_(NULL),
+      importer_(NULL),
+      waiting_for_bookmarkbar_model_(false),
+      installed_bookmark_observer_(false),
+      is_source_readable_(true),
+      headless_(false),
+      parent_window_(NULL),
+      importer_list_(new ImporterList) {
+  importer_list_->DetectSourceProfiles(observer);
 }
 
 ImporterHost::~ImporterHost() {
@@ -171,7 +188,7 @@ void ImporterHost::StartImportSettings(
   // so that it doesn't block the UI. When the import is complete, observer
   // will be notified.
   writer_ = writer;
-  importer_ = importer_list_.CreateImporterByType(profile_info.browser_type);
+  importer_ = ImporterList::CreateImporterByType(profile_info.browser_type);
   // If we fail to create Importer, exit as we cannot do anything.
   if (!importer_) {
     ImportEnded();
@@ -307,6 +324,15 @@ ExternalProcessImporterHost::ExternalProcessImporterHost()
       import_process_launched_(false) {
 }
 
+ExternalProcessImporterHost::ExternalProcessImporterHost(
+    ImporterList::Observer* observer)
+    : ImporterHost(observer),
+      items_(0),
+      import_to_bookmark_bar_(false),
+      cancelled_(false),
+      import_process_launched_(false) {
+}
+
 void ExternalProcessImporterHost::Loaded(BookmarkModel* model) {
   DCHECK(model->IsLoaded());
   model->RemoveObserver(this);
@@ -434,7 +460,7 @@ void ExternalProcessImporterClient::NotifyItemFinishedOnIOThread(
   profile_import_process_host_->ReportImportItemFinished(import_item);
 }
 
-void ExternalProcessImporterClient::OnProcessCrashed() {
+void ExternalProcessImporterClient::OnProcessCrashed(int exit_code) {
   if (cancelled_)
     return;
 

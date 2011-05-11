@@ -16,6 +16,8 @@
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_error_job.h"
 
+namespace net {
+
 URLRequestFtpJob::URLRequestFtpJob(URLRequest* request)
     : URLRequestJob(request),
       ALLOW_THIS_IN_INITIALIZER_LIST(
@@ -23,7 +25,8 @@ URLRequestFtpJob::URLRequestFtpJob(URLRequest* request)
       ALLOW_THIS_IN_INITIALIZER_LIST(
           read_callback_(this, &URLRequestFtpJob::OnReadCompleted)),
       read_in_progress_(false),
-      context_(request->context()) {
+      context_(request->context()),
+      ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
 }
 
 URLRequestFtpJob::~URLRequestFtpJob() {
@@ -36,8 +39,8 @@ URLRequestJob* URLRequestFtpJob::Factory(URLRequest* request,
 
   int port = request->url().IntPort();
   if (request->url().has_port() &&
-    !net::IsPortAllowedByFtp(port) && !net::IsPortAllowedByOverride(port))
-    return new URLRequestErrorJob(request, net::ERR_UNSAFE_PORT);
+    !IsPortAllowedByFtp(port) && !IsPortAllowedByOverride(port))
+    return new URLRequestErrorJob(request, ERR_UNSAFE_PORT);
 
   DCHECK(request->context());
   DCHECK(request->context()->ftp_transaction_factory());
@@ -61,13 +64,14 @@ void URLRequestFtpJob::Start() {
 void URLRequestFtpJob::Kill() {
   if (!transaction_.get())
     return;
-  DestroyTransaction();
+  transaction_.reset();
   URLRequestJob::Kill();
+  method_factory_.RevokeAll();
 }
 
-net::LoadState URLRequestFtpJob::GetLoadState() const {
+LoadState URLRequestFtpJob::GetLoadState() const {
   return transaction_.get() ?
-      transaction_->GetLoadState() : net::LOAD_STATE_IDLE;
+      transaction_->GetLoadState() : LOAD_STATE_IDLE;
 }
 
 bool URLRequestFtpJob::NeedsAuth() {
@@ -75,17 +79,17 @@ bool URLRequestFtpJob::NeedsAuth() {
   // requires auth (and not a proxy), because connecting to FTP via proxy
   // effectively means the browser communicates via HTTP, and uses HTTP's
   // Proxy-Authenticate protocol when proxy servers require auth.
-  return server_auth_ && server_auth_->state == net::AUTH_STATE_NEED_AUTH;
+  return server_auth_ && server_auth_->state == AUTH_STATE_NEED_AUTH;
 }
 
 void URLRequestFtpJob::GetAuthChallengeInfo(
-    scoped_refptr<net::AuthChallengeInfo>* result) {
+    scoped_refptr<AuthChallengeInfo>* result) {
   DCHECK((server_auth_ != NULL) &&
-         (server_auth_->state == net::AUTH_STATE_NEED_AUTH));
-  scoped_refptr<net::AuthChallengeInfo> auth_info(new net::AuthChallengeInfo);
+         (server_auth_->state == AUTH_STATE_NEED_AUTH));
+  scoped_refptr<AuthChallengeInfo> auth_info(new AuthChallengeInfo);
   auth_info->is_proxy = false;
   auth_info->host_and_port = ASCIIToWide(
-      net::GetHostAndPort(request_->url()));
+      GetHostAndPort(request_->url()));
   auth_info->scheme = L"";
   auth_info->realm = L"";
   result->swap(auth_info);
@@ -94,7 +98,7 @@ void URLRequestFtpJob::GetAuthChallengeInfo(
 void URLRequestFtpJob::SetAuth(const string16& username,
                                const string16& password) {
   DCHECK(NeedsAuth());
-  server_auth_->state = net::AUTH_STATE_HAVE_AUTH;
+  server_auth_->state = AUTH_STATE_HAVE_AUTH;
   server_auth_->username = username;
   server_auth_->password = password;
 
@@ -106,16 +110,22 @@ void URLRequestFtpJob::SetAuth(const string16& username,
 
 void URLRequestFtpJob::CancelAuth() {
   DCHECK(NeedsAuth());
-  server_auth_->state = net::AUTH_STATE_CANCELED;
+  server_auth_->state = AUTH_STATE_CANCELED;
 
   // Once the auth is cancelled, we proceed with the request as though
   // there were no auth.  Schedule this for later so that we don't cause
   // any recursing into the caller as a result of this call.
-  MessageLoop::current()->PostTask(FROM_HERE, NewRunnableMethod(
-      this, &URLRequestFtpJob::OnStartCompleted, net::OK));
+  MessageLoop::current()->PostTask(
+      FROM_HERE,
+      method_factory_.NewRunnableMethod(
+          &URLRequestFtpJob::OnStartCompleted, OK));
 }
 
-bool URLRequestFtpJob::ReadRawData(net::IOBuffer* buf,
+uint64 URLRequestFtpJob::GetUploadProgress() const {
+  return 0;
+}
+
+bool URLRequestFtpJob::ReadRawData(IOBuffer* buf,
                                    int buf_size,
                                    int *bytes_read) {
   DCHECK_NE(buf_size, 0);
@@ -128,7 +138,7 @@ bool URLRequestFtpJob::ReadRawData(net::IOBuffer* buf,
     return true;
   }
 
-  if (rv == net::ERR_IO_PENDING) {
+  if (rv == ERR_IO_PENDING) {
     read_in_progress_ = true;
     SetStatus(URLRequestStatus(URLRequestStatus::IO_PENDING, 0));
   } else {
@@ -138,13 +148,6 @@ bool URLRequestFtpJob::ReadRawData(net::IOBuffer* buf,
 }
 
 void URLRequestFtpJob::OnStartCompleted(int result) {
-  // If the request was destroyed, then there is no more work to do.
-  if (!request_ || !request_->delegate())
-    return;
-  // If the transaction was destroyed, then the job was cancelled, and
-  // we can just ignore this notification.
-  if (!transaction_.get())
-    return;
   // Clear the IO_PENDING status
   SetStatus(URLRequestStatus());
 
@@ -153,20 +156,20 @@ void URLRequestFtpJob::OnStartCompleted(int result) {
   set_expected_content_size(
       transaction_->GetResponseInfo()->expected_content_size);
 
-  if (result == net::OK) {
+  if (result == OK) {
     NotifyHeadersComplete();
   } else if (transaction_->GetResponseInfo()->needs_auth) {
     GURL origin = request_->url().GetOrigin();
-    if (server_auth_ && server_auth_->state == net::AUTH_STATE_HAVE_AUTH) {
+    if (server_auth_ && server_auth_->state == AUTH_STATE_HAVE_AUTH) {
       request_->context()->ftp_auth_cache()->Remove(origin,
                                                     server_auth_->username,
                                                     server_auth_->password);
     } else if (!server_auth_) {
-      server_auth_ = new net::AuthData();
+      server_auth_ = new AuthData();
     }
-    server_auth_->state = net::AUTH_STATE_NEED_AUTH;
+    server_auth_->state = AUTH_STATE_NEED_AUTH;
 
-    net::FtpAuthCache::Entry* cached_auth =
+    FtpAuthCache::Entry* cached_auth =
         request_->context()->ftp_auth_cache()->Lookup(origin);
 
     if (cached_auth) {
@@ -195,7 +198,7 @@ void URLRequestFtpJob::OnReadCompleted(int result) {
 }
 
 void URLRequestFtpJob::RestartTransactionWithAuth() {
-  DCHECK(server_auth_ && server_auth_->state == net::AUTH_STATE_HAVE_AUTH);
+  DCHECK(server_auth_ && server_auth_->state == AUTH_STATE_HAVE_AUTH);
 
   // No matter what, we want to report our status as IO pending since we will
   // be notifying our consumer asynchronously via OnStartCompleted.
@@ -204,7 +207,7 @@ void URLRequestFtpJob::RestartTransactionWithAuth() {
   int rv = transaction_->RestartWithAuth(server_auth_->username,
                                          server_auth_->password,
                                          &start_callback_);
-  if (rv == net::ERR_IO_PENDING)
+  if (rv == ERR_IO_PENDING)
     return;
 
   MessageLoop::current()->PostTask(FROM_HERE, NewRunnableMethod(
@@ -218,7 +221,7 @@ void URLRequestFtpJob::StartTransaction() {
   DCHECK(request_->context()->ftp_transaction_factory());
 
   transaction_.reset(
-  request_->context()->ftp_transaction_factory()->CreateTransaction());
+      request_->context()->ftp_transaction_factory()->CreateTransaction());
 
   // No matter what, we want to report our status as IO pending since we will
   // be notifying our consumer asynchronously via OnStartCompleted.
@@ -227,19 +230,17 @@ void URLRequestFtpJob::StartTransaction() {
   if (transaction_.get()) {
     rv = transaction_->Start(
         &request_info_, &start_callback_, request_->net_log());
-    if (rv == net::ERR_IO_PENDING)
+    if (rv == ERR_IO_PENDING)
       return;
   } else {
-    rv = net::ERR_FAILED;
+    rv = ERR_FAILED;
   }
   // The transaction started synchronously, but we need to notify the
   // URLRequest delegate via the message loop.
-  MessageLoop::current()->PostTask(FROM_HERE, NewRunnableMethod(
-      this, &URLRequestFtpJob::OnStartCompleted, rv));
+  MessageLoop::current()->PostTask(
+      FROM_HERE,
+      method_factory_.NewRunnableMethod(
+          &URLRequestFtpJob::OnStartCompleted, rv));
 }
 
-void URLRequestFtpJob::DestroyTransaction() {
-  DCHECK(transaction_.get());
-
-  transaction_.reset();
-}
+}  // namespace net

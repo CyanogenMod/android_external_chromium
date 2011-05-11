@@ -12,13 +12,13 @@
 #include "base/perftimer.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/extensions/extension_function_dispatcher.h"
-#include "chrome/browser/js_modal_dialog.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/tab_contents/render_view_host_delegate_helper.h"
+#include "chrome/browser/ui/app_modal_dialogs/js_modal_dialog.h"
 #if defined(TOOLKIT_VIEWS)
 #include "chrome/browser/views/extensions/extension_view.h"
 #elif defined(OS_MACOSX)
-#include "chrome/browser/cocoa/extension_view_mac.h"
+#include "chrome/browser/ui/cocoa/extension_view_mac.h"
 #elif defined(TOOLKIT_GTK)
 #include "chrome/browser/gtk/extension_view_gtk.h"
 #endif
@@ -83,9 +83,7 @@ class ExtensionHost : public RenderViewHostDelegate,
   ViewType::Type extension_host_type() const { return extension_host_type_; }
 
   // ExtensionFunctionDispatcher::Delegate
-  virtual TabContents* associated_tab_contents() const {
-    return associated_tab_contents_;
-  }
+  virtual TabContents* associated_tab_contents() const;
   void set_associated_tab_contents(TabContents* associated_tab_contents) {
     associated_tab_contents_ = associated_tab_contents;
   }
@@ -109,12 +107,14 @@ class ExtensionHost : public RenderViewHostDelegate,
   void DisableScrollbarsForSmallWindows(const gfx::Size& size_limit);
 
   // RenderViewHostDelegate::View implementation.
-  virtual const GURL& GetURL() const { return url_; }
+  virtual const GURL& GetURL() const;
   virtual void RenderViewCreated(RenderViewHost* render_view_host);
   virtual ViewType::Type GetRenderViewType() const;
   virtual FileSelect* GetFileSelectDelegate();
   virtual int GetBrowserWindowID() const;
-  virtual void RenderViewGone(RenderViewHost* render_view_host);
+  virtual void RenderViewGone(RenderViewHost* render_view_host,
+                              base::TerminationStatus status,
+                              int error_code);
   virtual void DidNavigate(RenderViewHost* render_view_host,
                            const ViewHostMsg_FrameNavigate_Params& params);
   virtual void DidStopLoading();
@@ -192,8 +192,8 @@ class ExtensionHost : public RenderViewHostDelegate,
                                   const std::wstring& prompt);
   virtual void SetSuppressMessageBoxes(bool suppress_message_boxes) {}
   virtual gfx::NativeWindow GetMessageBoxRootWindow();
-  virtual TabContents* AsTabContents() { return NULL; }
-  virtual ExtensionHost* AsExtensionHost() { return this; }
+  virtual TabContents* AsTabContents();
+  virtual ExtensionHost* AsExtensionHost();
 
  protected:
   // Internal functions used to support the CreateNewWidget() method. If a

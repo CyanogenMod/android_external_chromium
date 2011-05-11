@@ -13,15 +13,14 @@
 #include "chrome/test/testing_profile.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "webkit/glue/plugins/plugin_group.h"
-#include "webkit/glue/plugins/webplugininfo.h"
+#include "webkit/plugins/npapi/plugin_group.h"
+#include "webkit/plugins/npapi/webplugininfo.h"
 
 // Can't be an internal namespace because PluginExceptionsTableModel declares
 // as a friend.
 namespace plugin_test_internal {
 
 using ::testing::_;
-using ::testing::InSequence;
 using ::testing::Invoke;
 
 class MockTableModelObserver : public TableModelObserver {
@@ -50,6 +49,10 @@ class MockTableModelObserver : public TableModelObserver {
   TableModel* model_;
 };
 
+}  // namespace plugin_test_internal
+
+using ::testing::InSequence;
+
 class PluginExceptionsTableModelTest : public testing::Test {
  public:
   PluginExceptionsTableModelTest()
@@ -65,8 +68,8 @@ class PluginExceptionsTableModelTest : public testing::Test {
 
     HostContentSettingsMap* map = profile_->GetHostContentSettingsMap();
 
-    HostContentSettingsMap::Pattern example_com("[*.]example.com");
-    HostContentSettingsMap::Pattern moose_org("[*.]moose.org");
+    ContentSettingsPattern example_com("[*.]example.com");
+    ContentSettingsPattern moose_org("[*.]moose.org");
     map->SetContentSetting(example_com,
                            CONTENT_SETTINGS_TYPE_PLUGINS,
                            "a-foo",
@@ -82,20 +85,22 @@ class PluginExceptionsTableModelTest : public testing::Test {
 
     table_model_.reset(new MockPluginExceptionsTableModel(map, NULL));
 
-    NPAPI::PluginList::PluginMap plugins;
-    WebPluginInfo foo_plugin;
+    std::vector<webkit::npapi::PluginGroup> plugins;
+    webkit::npapi::WebPluginInfo foo_plugin;
     foo_plugin.path = FilePath(FILE_PATH_LITERAL("a-foo"));
     foo_plugin.name = ASCIIToUTF16("FooPlugin");
     foo_plugin.enabled = true;
-    PluginGroup* foo_group = PluginGroup::FromWebPluginInfo(foo_plugin);
-    plugins[foo_group->identifier()] = linked_ptr<PluginGroup>(foo_group);
+    scoped_ptr<webkit::npapi::PluginGroup> foo_group(
+        webkit::npapi::PluginGroup::FromWebPluginInfo(foo_plugin));
+    plugins.push_back(*foo_group);
 
-    WebPluginInfo bar_plugin;
+    webkit::npapi::WebPluginInfo bar_plugin;
     bar_plugin.path = FilePath(FILE_PATH_LITERAL("b-bar"));
     bar_plugin.name = ASCIIToUTF16("BarPlugin");
     bar_plugin.enabled = true;
-    PluginGroup* bar_group = PluginGroup::FromWebPluginInfo(bar_plugin);
-    plugins[bar_group->identifier()] = linked_ptr<PluginGroup>(bar_group);
+    scoped_ptr<webkit::npapi::PluginGroup> bar_group(
+        webkit::npapi::PluginGroup::FromWebPluginInfo(bar_plugin));
+    plugins.push_back(*bar_group);
 
     table_model_->set_plugins(plugins);
     table_model_->ReloadSettings();
@@ -152,7 +157,7 @@ TEST_F(PluginExceptionsTableModelTest, Basic) {
 }
 
 TEST_F(PluginExceptionsTableModelTest, RemoveOneRow) {
-  MockTableModelObserver observer(table_model_.get());
+  plugin_test_internal::MockTableModelObserver observer(table_model_.get());
   table_model_->SetObserver(&observer);
 
   EXPECT_CALL(observer, OnItemsRemoved(1, 1));
@@ -166,7 +171,7 @@ TEST_F(PluginExceptionsTableModelTest, RemoveOneRow) {
 }
 
 TEST_F(PluginExceptionsTableModelTest, RemoveLastRowInGroup) {
-  MockTableModelObserver observer(table_model_.get());
+  plugin_test_internal::MockTableModelObserver observer(table_model_.get());
   table_model_->SetObserver(&observer);
 
   EXPECT_CALL(observer, OnModelChanged());
@@ -179,7 +184,7 @@ TEST_F(PluginExceptionsTableModelTest, RemoveLastRowInGroup) {
 
   HostContentSettingsMap* map = profile_->GetHostContentSettingsMap();
   EXPECT_CALL(observer, OnModelChanged());
-  map->SetContentSetting(HostContentSettingsMap::Pattern("[*.]blurp.net"),
+  map->SetContentSetting(ContentSettingsPattern("[*.]blurp.net"),
                          CONTENT_SETTINGS_TYPE_PLUGINS,
                          "b-bar",
                          CONTENT_SETTING_BLOCK);
@@ -200,7 +205,7 @@ TEST_F(PluginExceptionsTableModelTest, RemoveLastRowInGroup) {
 }
 
 TEST_F(PluginExceptionsTableModelTest, RemoveAllRows) {
-  MockTableModelObserver observer(table_model_.get());
+  plugin_test_internal::MockTableModelObserver observer(table_model_.get());
   table_model_->SetObserver(&observer);
 
   EXPECT_CALL(observer, OnModelChanged());
@@ -210,5 +215,3 @@ TEST_F(PluginExceptionsTableModelTest, RemoveAllRows) {
   CheckInvariants();
   table_model_->SetObserver(NULL);
 }
-
-}  // namespace plugin_test_internal

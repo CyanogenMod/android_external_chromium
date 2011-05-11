@@ -11,7 +11,7 @@
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/i18n/rtl.h"
-#include "base/singleton.h"
+#include "base/lazy_instance.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
@@ -20,12 +20,16 @@
 #include "chrome/browser/dom_ui/new_tab_ui.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/metrics/user_metrics.h"
+#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/safe_browsing/malware_details.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/jstemplate_builder.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "grit/browser_resources.h"
 #include "grit/generated_resources.h"
@@ -72,6 +76,9 @@ static const char* const kTakeMeBackCommand = "takeMeBack";
 // static
 SafeBrowsingBlockingPageFactory* SafeBrowsingBlockingPage::factory_ = NULL;
 
+static base::LazyInstance<SafeBrowsingBlockingPage::UnsafeResourceMap>
+    g_unsafe_resource_map(base::LINKER_INITIALIZED);
+
 // The default SafeBrowsingBlockingPageFactory.  Global, made a singleton so we
 // don't leak it.
 class SafeBrowsingBlockingPageFactoryImpl
@@ -86,12 +93,16 @@ class SafeBrowsingBlockingPageFactoryImpl
   }
 
  private:
-  friend struct DefaultSingletonTraits<SafeBrowsingBlockingPageFactoryImpl>;
+  friend struct base::DefaultLazyInstanceTraits<
+      SafeBrowsingBlockingPageFactoryImpl>;
 
   SafeBrowsingBlockingPageFactoryImpl() { }
 
   DISALLOW_COPY_AND_ASSIGN(SafeBrowsingBlockingPageFactoryImpl);
 };
+
+static base::LazyInstance<SafeBrowsingBlockingPageFactoryImpl>
+    g_safe_browsing_blocking_page_factory_impl(base::LINKER_INITIALIZED);
 
 SafeBrowsingBlockingPage::SafeBrowsingBlockingPage(
     SafeBrowsingService* sb_service,
@@ -102,7 +113,8 @@ SafeBrowsingBlockingPage::SafeBrowsingBlockingPage(
                        unsafe_resources[0].url),
       sb_service_(sb_service),
       is_main_frame_(IsMainPage(unsafe_resources)),
-      unsafe_resources_(unsafe_resources) {
+      unsafe_resources_(unsafe_resources),
+      malware_details_(NULL) {
   RecordUserAction(SHOW);
   if (!is_main_frame_) {
     navigation_entry_index_to_remove_ =
@@ -110,6 +122,23 @@ SafeBrowsingBlockingPage::SafeBrowsingBlockingPage(
   } else {
     navigation_entry_index_to_remove_ = -1;
   }
+
+  // Start computing malware details. They will be sent only
+  // if the user opts-in on the blocking page later.
+  // If there's more than one malicious resources, it means the user
+  // clicked through the first warning, so we don't prepare additional
+  // reports.
+  if (unsafe_resources.size() == 1 &&
+      unsafe_resources[0].threat_type == SafeBrowsingService::URL_MALWARE &&
+      malware_details_ == NULL &&
+      CanShowMalwareDetailsOption()) {
+    malware_details_ = new MalwareDetails(tab(), unsafe_resources[0]);
+  }
+}
+
+bool SafeBrowsingBlockingPage::CanShowMalwareDetailsOption() {
+  return (!tab()->profile()->IsOffTheRecord() &&
+          tab()->GetURL().SchemeIs(chrome::kHttpScheme));
 }
 
 SafeBrowsingBlockingPage::~SafeBrowsingBlockingPage() {
@@ -277,10 +306,6 @@ void SafeBrowsingBlockingPage::PopulateMalwareStringDictionary(
 
   strings->SetString("back_button",
       l10n_util::GetStringUTF16(IDS_SAFE_BROWSING_MALWARE_BACK_BUTTON));
-  strings->SetString("more_info_button",
-      l10n_util::GetStringUTF16(IDS_SAFE_BROWSING_MALWARE_MORE_INFO_BUTTON));
-  strings->SetString("less_info_button",
-      l10n_util::GetStringUTF16(IDS_SAFE_BROWSING_MALWARE_LESS_INFO_BUTTON));
   strings->SetString("proceed_link",
       l10n_util::GetStringUTF16(IDS_SAFE_BROWSING_MALWARE_PROCEED_LINK));
   strings->SetString("textdirection", base::i18n::IsRTL() ? "rtl" : "ltr");
@@ -288,6 +313,13 @@ void SafeBrowsingBlockingPage::PopulateMalwareStringDictionary(
 
 void SafeBrowsingBlockingPage::PopulatePhishingStringDictionary(
     DictionaryValue* strings) {
+  std::wstring proceed_link = StringPrintf(
+      kPLinkHtml,
+      l10n_util::GetString(IDS_SAFE_BROWSING_PHISHING_PROCEED_LINK).c_str());
+  std::wstring description3 = l10n_util::GetStringF(
+      IDS_SAFE_BROWSING_PHISHING_DESCRIPTION3,
+      proceed_link);
+
   PopulateStringDictionary(
       strings,
       l10n_util::GetString(IDS_SAFE_BROWSING_PHISHING_TITLE),
@@ -295,10 +327,8 @@ void SafeBrowsingBlockingPage::PopulatePhishingStringDictionary(
       l10n_util::GetStringF(IDS_SAFE_BROWSING_PHISHING_DESCRIPTION1,
                             UTF8ToWide(url().host())),
       l10n_util::GetString(IDS_SAFE_BROWSING_PHISHING_DESCRIPTION2),
-      L"");
+      description3);
 
-  strings->SetString("continue_button",
-      l10n_util::GetStringUTF16(IDS_SAFE_BROWSING_PHISHING_PROCEED_BUTTON));
   strings->SetString("back_button",
       l10n_util::GetStringUTF16(IDS_SAFE_BROWSING_PHISHING_BACK_BUTTON));
   strings->SetString("report_error",
@@ -390,6 +420,7 @@ void SafeBrowsingBlockingPage::CommandReceived(const std::string& cmd) {
 
 void SafeBrowsingBlockingPage::Proceed() {
   RecordUserAction(PROCEED);
+  FinishMalwareDetails();  // Send the malware details, if we opted to.
 
   NotifySafeBrowsingService(sb_service_, unsafe_resources_, true);
 
@@ -427,6 +458,7 @@ void SafeBrowsingBlockingPage::DontProceed() {
   }
 
   RecordUserAction(DONT_PROCEED);
+  FinishMalwareDetails();  // Send the malware details, if we opted to.
 
   NotifySafeBrowsingService(sb_service_, unsafe_resources_, false);
 
@@ -492,6 +524,25 @@ void SafeBrowsingBlockingPage::RecordUserAction(BlockingPageEvent event) {
   UserMetrics::RecordComputedAction(action);
 }
 
+void SafeBrowsingBlockingPage::FinishMalwareDetails() {
+  if (malware_details_ == NULL)
+    return;  // Not all interstitials have malware details (eg phishing).
+
+  const PrefService::Preference* pref =
+      tab()->profile()->GetPrefs()->FindPreference(
+          prefs::kSafeBrowsingReportingEnabled);
+
+  bool value;
+  if (pref && pref->GetValue()->GetAsBoolean(&value) && value) {
+    // Give the details object to the service class, so it can send it.
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
+        NewRunnableMethod(
+            sb_service_, &SafeBrowsingService::ReportMalwareDetails,
+            malware_details_));
+  }
+}
+
 // static
 void SafeBrowsingBlockingPage::NotifySafeBrowsingService(
     SafeBrowsingService* sb_service,
@@ -507,7 +558,7 @@ void SafeBrowsingBlockingPage::NotifySafeBrowsingService(
 // static
 SafeBrowsingBlockingPage::UnsafeResourceMap*
     SafeBrowsingBlockingPage::GetUnsafeResourcesMap() {
-  return Singleton<UnsafeResourceMap>::get();
+  return g_unsafe_resource_map.Pointer();
 }
 
 // static
@@ -536,7 +587,7 @@ void SafeBrowsingBlockingPage::ShowBlockingPage(
     // Set up the factory if this has not been done already (tests do that
     // before this method is called).
     if (!factory_)
-      factory_ = Singleton<SafeBrowsingBlockingPageFactoryImpl>::get();
+      factory_ = g_safe_browsing_blocking_page_factory_impl.Pointer();
     SafeBrowsingBlockingPage* blocking_page =
         factory_->CreateSafeBrowsingPage(sb_service, tab_contents, resources);
     blocking_page->Show();

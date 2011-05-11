@@ -5,11 +5,10 @@
 #include "chrome/browser/extensions/extension_context_menu_model.h"
 
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_process.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/extensions/extension_action.h"
 #include "chrome/common/extensions/extension_constants.h"
@@ -118,12 +117,12 @@ void ExtensionContextMenuModel::ExecuteCommand(int command_id) {
                                                               browser_);
       break;
     case HIDE: {
-      ExtensionsService* extension_service = profile_->GetExtensionsService();
+      ExtensionService* extension_service = profile_->GetExtensionService();
       extension_service->SetBrowserActionVisibility(extension, false);
       break;
     }
     case DISABLE: {
-      ExtensionsService* extension_service = profile_->GetExtensionsService();
+      ExtensionService* extension_service = profile_->GetExtensionService();
       extension_service->DisableExtension(extension_id_);
       break;
     }
@@ -150,7 +149,7 @@ void ExtensionContextMenuModel::ExecuteCommand(int command_id) {
 
 void ExtensionContextMenuModel::InstallUIProceed() {
   if (GetExtension())
-    profile_->GetExtensionsService()->UninstallExtension(extension_id_, false);
+    profile_->GetExtensionService()->UninstallExtension(extension_id_, false);
 
   Release();
 }
@@ -160,6 +159,6 @@ void ExtensionContextMenuModel::InstallUIAbort() {
 }
 
 const Extension* ExtensionContextMenuModel::GetExtension() const {
-  ExtensionsService* extension_service = profile_->GetExtensionsService();
+  ExtensionService* extension_service = profile_->GetExtensionService();
   return extension_service->GetExtensionById(extension_id_, false);
 }

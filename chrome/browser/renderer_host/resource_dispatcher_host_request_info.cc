@@ -4,9 +4,9 @@
 
 #include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
 
-#include "chrome/browser/login_prompt.h"
 #include "chrome/browser/renderer_host/resource_handler.h"
 #include "chrome/browser/ssl/ssl_client_auth_handler.h"
+#include "chrome/browser/ui/login/login_prompt.h"
 #include "webkit/blob/blob_data.h"
 
 ResourceDispatcherHostRequestInfo::ResourceDispatcherHostRequestInfo(
@@ -21,6 +21,7 @@ ResourceDispatcherHostRequestInfo::ResourceDispatcherHostRequestInfo(
     uint64 upload_size,
     bool is_download,
     bool allow_download,
+    bool has_user_gesture,
     int host_renderer_id,
     int host_render_view_id)
     : resource_handler_(handler),
@@ -32,6 +33,7 @@ ResourceDispatcherHostRequestInfo::ResourceDispatcherHostRequestInfo(
       pending_data_count_(0),
       is_download_(is_download),
       allow_download_(allow_download),
+      has_user_gesture_(has_user_gesture),
       pause_count_(0),
       frame_origin_(frame_origin),
       main_frame_origin_(main_frame_origin),

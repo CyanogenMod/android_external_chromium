@@ -111,13 +111,12 @@ FilePath GetProcessExecutablePath(ProcessHandle process) {
   FilePath stat_file("/proc");
   stat_file = stat_file.Append(base::IntToString(process));
   stat_file = stat_file.Append("exe");
-  char exename[2048];
-  ssize_t len = readlink(stat_file.value().c_str(), exename, sizeof(exename));
-  if (len < 1) {
+  FilePath exe_name;
+  if (!file_util::ReadSymbolicLink(stat_file, &exe_name)) {
     // No such process.  Happens frequently in e.g. TerminateAllChromeProcesses
     return FilePath();
   }
-  return FilePath(std::string(exename, len));
+  return exe_name;
 }
 
 ProcessIterator::ProcessIterator(const ProcessFilter* filter)
@@ -221,8 +220,7 @@ bool ProcessIterator::CheckForNextProcess() {
 }
 
 bool NamedProcessIterator::IncludeEntry() {
-  // TODO(port): make this also work for non-ASCII filenames
-  if (WideToASCII(executable_name_) != entry().exe_file())
+  if (executable_name_ != entry().exe_file())
     return false;
   return ProcessIterator::IncludeEntry();
 }
@@ -320,13 +318,20 @@ bool ProcessMetrics::GetWorkingSetKBytes(WorkingSetKBytes* ws_usage) const {
   // Synchronously reading files in /proc is safe.
   base::ThreadRestrictions::ScopedAllowIO allow_io;
 
-  FilePath stat_file =
-      FilePath("/proc").Append(base::IntToString(process_)).Append("smaps");
+  FilePath proc_dir = FilePath("/proc").Append(base::IntToString(process_));
   std::string smaps;
   int private_kb = 0;
   int pss_kb = 0;
   bool have_pss = false;
-  if (file_util::ReadFileToString(stat_file, &smaps) && smaps.length() > 0) {
+  bool ret;
+
+  {
+    FilePath smaps_file = proc_dir.Append("smaps");
+    // Synchronously reading files in /proc is safe.
+    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    ret = file_util::ReadFileToString(smaps_file, &smaps);
+  }
+  if (ret && smaps.length() > 0) {
     const std::string private_prefix = "Private_";
     const std::string pss_prefix = "Pss";
     StringTokenizer tokenizer(smaps, ":\n");
@@ -364,10 +369,14 @@ bool ProcessMetrics::GetWorkingSetKBytes(WorkingSetKBytes* ws_usage) const {
     if (page_size_kb <= 0)
       return false;
 
-    stat_file =
-        FilePath("/proc").Append(base::IntToString(process_)).Append("statm");
     std::string statm;
-    if (!file_util::ReadFileToString(stat_file, &statm) || statm.length() == 0)
+    {
+      FilePath statm_file = proc_dir.Append("statm");
+      // Synchronously reading files in /proc is safe.
+      base::ThreadRestrictions::ScopedAllowIO allow_io;
+      ret = file_util::ReadFileToString(statm_file, &statm);
+    }
+    if (!ret || statm.length() == 0)
       return false;
 
     std::vector<std::string> statm_vec;

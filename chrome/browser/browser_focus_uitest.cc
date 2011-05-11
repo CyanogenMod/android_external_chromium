@@ -8,6 +8,7 @@
 #include "base/format_macros.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_window.h"
@@ -18,7 +19,7 @@
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/view_ids.h"
+#include "chrome/browser/ui/view_ids.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/in_process_browser_test.h"
@@ -39,6 +40,11 @@
 
 #if defined(TOOLKIT_USES_GTK)
 #include "chrome/browser/gtk/view_id_util.h"
+#endif
+
+#if defined(OS_WIN)
+#include <windows.h>
+#include <Psapi.h>
 #endif
 
 #if defined(OS_LINUX)
@@ -71,6 +77,49 @@ const char kSimplePage[] = "files/focus/page_with_focus.html";
 const char kStealFocusPage[] = "files/focus/page_steals_focus.html";
 const char kTypicalPage[] = "files/focus/typical_page.html";
 const char kTypicalPageName[] = "typical_page.html";
+
+// Test to make sure Chrome is in the foreground as we start testing. This is
+// required for tests that synthesize input to the Chrome window.
+bool ChromeInForeground() {
+#if defined(OS_WIN)
+  HWND window = ::GetForegroundWindow();
+  std::wstring caption;
+  std::wstring filename;
+  int len = ::GetWindowTextLength(window) + 1;
+  ::GetWindowText(window, WriteInto(&caption, len), len);
+  bool chrome_window_in_foreground =
+      EndsWith(caption, L" - Google Chrome", true) ||
+      EndsWith(caption, L" - Chromium", true);
+  if (!chrome_window_in_foreground) {
+    DWORD process_id;
+    int thread_id = ::GetWindowThreadProcessId(window, &process_id);
+
+    base::ProcessHandle process;
+    if (base::OpenProcessHandleWithAccess(process_id,
+                                          PROCESS_QUERY_LIMITED_INFORMATION,
+                                          &process)) {
+      len = MAX_PATH;
+      if (!GetProcessImageFileName(process, WriteInto(&filename, len), len)) {
+        int error = GetLastError();
+        filename = std::wstring(L"Unable to read filename for process id '" +
+                                base::IntToString16(process_id) +
+                                L"' (error ") +
+                                base::IntToString16(error) + L")";
+      }
+      base::CloseProcessHandle(process);
+    }
+  }
+  EXPECT_TRUE(chrome_window_in_foreground)
+      << "Chrome must be in the foreground when running interactive tests\n"
+      << "Process in foreground: " << filename.c_str() << "\n"
+      << "Window: " << window << "\n"
+      << "Caption: " << caption.c_str();
+  return chrome_window_in_foreground;
+#else
+  // Windows only at the moment.
+  return true;
+#endif
+}
 
 class BrowserFocusTest : public InProcessBrowserTest {
  public:
@@ -116,11 +165,11 @@ class TestInterstitialPage : public InterstitialPage {
   }
 
  protected:
-  virtual void FocusedNodeChanged() {
+  virtual void FocusedNodeChanged(bool is_editable_node) {
     NotificationService::current()->Notify(
         NotificationType::FOCUS_CHANGED_IN_PAGE,
         Source<RenderViewHost>(render_view_host()),
-        NotificationService::NoDetails());
+        Details<const bool>(&is_editable_node));
   }
 
  private:
@@ -129,14 +178,14 @@ class TestInterstitialPage : public InterstitialPage {
 
 IN_PROC_BROWSER_TEST_F(BrowserFocusTest, ClickingMovesFocus) {
   ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
-#if defined(USE_X11) || defined(OS_MACOSX)
+#if defined(OS_POSIX)
   // It seems we have to wait a little bit for the widgets to spin up before
   // we can start clicking on them.
   MessageLoop::current()->PostDelayedTask(FROM_HERE,
                                           new MessageLoop::QuitTask(),
                                           kActionDelayMs);
   ui_test_utils::RunMessageLoop();
-#endif
+#endif  // defined(OS_POSIX)
 
   ASSERT_TRUE(IsViewFocused(VIEW_ID_LOCATION_BAR));
 
@@ -401,10 +450,11 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, MAYBE_FocusTraversal) {
 
   browser()->FocusLocationBar();
 
+  const char* kTextElementID = "textEdit";
   const char* kExpElementIDs[] = {
     "",  // Initially no element in the page should be focused
          // (the location bar is focused).
-    "textEdit", "searchButton", "luckyButton", "googleLink", "gmailLink",
+    kTextElementID, "searchButton", "luckyButton", "googleLink", "gmailLink",
     "gmapLink"
   };
 
@@ -426,22 +476,26 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, MAYBE_FocusTraversal) {
           &actual));
       ASSERT_STREQ(kExpElementIDs[j], actual.c_str());
 
-      NotificationType::Type notification_type;
-      NotificationSource notification_source =
-          NotificationService::AllSources();
       if (j < arraysize(kExpElementIDs) - 1) {
-        notification_type = NotificationType::FOCUS_CHANGED_IN_PAGE;
-        notification_source = Source<RenderViewHost>(
-            browser()->GetSelectedTabContents()->render_view_host());
+        // If the next element is the kTextElementID, we expect to be
+        // notified we have switched to an editable node.
+        bool is_editable_node =
+            (strcmp(kTextElementID, kExpElementIDs[j + 1]) == 0);
+        Details<bool> details(&is_editable_node);
+
+        ASSERT_TRUE(ui_test_utils::SendKeyPressAndWaitWithDetails(
+            browser(), app::VKEY_TAB, false, false, false, false,
+            NotificationType::FOCUS_CHANGED_IN_PAGE,
+            NotificationSource(Source<RenderViewHost>(
+                browser()->GetSelectedTabContents()->render_view_host())),
+            details));
       } else {
         // On the last tab key press, the focus returns to the browser.
-        notification_type = NotificationType::FOCUS_RETURNED_TO_BROWSER;
-        notification_source = Source<Browser>(browser());
+        ASSERT_TRUE(ui_test_utils::SendKeyPressAndWait(
+            browser(), app::VKEY_TAB, false, false, false, false,
+            NotificationType::FOCUS_RETURNED_TO_BROWSER,
+            NotificationSource(Source<Browser>(browser()))));
       }
-
-      ASSERT_TRUE(ui_test_utils::SendKeyPressAndWait(
-          browser(), app::VKEY_TAB, false, false, false, false,
-          notification_type, notification_source));
     }
 
     // At this point the renderer has sent us a message asking to advance the
@@ -459,23 +513,28 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, MAYBE_FocusTraversal) {
     // Now let's press shift-tab to move the focus in reverse.
     for (size_t j = 0; j < arraysize(kExpElementIDs); ++j) {
       SCOPED_TRACE(StringPrintf("inner loop: %" PRIuS, j));
+      const char* next_element =
+          kExpElementIDs[arraysize(kExpElementIDs) - 1 - j];
 
-      NotificationType::Type notification_type;
-      NotificationSource notification_source =
-          NotificationService::AllSources();
       if (j < arraysize(kExpElementIDs) - 1) {
-        notification_type = NotificationType::FOCUS_CHANGED_IN_PAGE;
-        notification_source = Source<RenderViewHost>(
-            browser()->GetSelectedTabContents()->render_view_host());
+        // If the next element is the kTextElementID, we expect to be
+        // notified we have switched to an editable node.
+        bool is_editable_node = (strcmp(kTextElementID, next_element) == 0);
+        Details<bool> details(&is_editable_node);
+
+        ASSERT_TRUE(ui_test_utils::SendKeyPressAndWaitWithDetails(
+            browser(), app::VKEY_TAB, false, true, false, false,
+            NotificationType::FOCUS_CHANGED_IN_PAGE,
+            NotificationSource(Source<RenderViewHost>(
+                browser()->GetSelectedTabContents()->render_view_host())),
+            details));
       } else {
         // On the last tab key press, the focus returns to the browser.
-        notification_type = NotificationType::FOCUS_RETURNED_TO_BROWSER;
-        notification_source = Source<Browser>(browser());
+        ASSERT_TRUE(ui_test_utils::SendKeyPressAndWait(
+            browser(), app::VKEY_TAB, false, true, false, false,
+            NotificationType::FOCUS_RETURNED_TO_BROWSER,
+            NotificationSource(Source<Browser>(browser()))));
       }
-
-      ASSERT_TRUE(ui_test_utils::SendKeyPressAndWait(
-          browser(), app::VKEY_TAB, false, true, false, false,
-          notification_type, notification_source));
 
       // Let's make sure the focus is on the expected element in the page.
       std::string actual;
@@ -484,7 +543,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, MAYBE_FocusTraversal) {
           L"",
           L"window.domAutomationController.send(getFocusedElement());",
           &actual));
-      ASSERT_STREQ(kExpElementIDs[6 - j], actual.c_str());
+      ASSERT_STREQ(next_element, actual.c_str());
     }
 
     // At this point the renderer has sent us a message asking to advance the
@@ -642,14 +701,15 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, InterstitialFocus) {
 }
 
 // Make sure Find box can request focus, even when it is already open.
-// Disabled, http://crbug.com/62936.
-IN_PROC_BROWSER_TEST_F(BrowserFocusTest, DISABLED_FindFocusTest) {
+IN_PROC_BROWSER_TEST_F(BrowserFocusTest, FindFocusTest) {
   ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
   ASSERT_TRUE(test_server()->Start());
 
   // Open some page (any page that doesn't steal focus).
   GURL url = test_server()->GetURL(kTypicalPage);
   ui_test_utils::NavigateToURL(browser(), url);
+
+  EXPECT_TRUE(ChromeInForeground());
 
 #if defined(OS_MACOSX)
   // Press Cmd+F, which will make the Find box open and request focus.

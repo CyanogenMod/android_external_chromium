@@ -31,7 +31,6 @@
 #include "chrome/common/extensions/extension_l10n_util.h"
 #include "chrome/common/extensions/extension_resource.h"
 #include "chrome/common/extensions/user_script.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
 #include "googleurl/src/url_util.h"
 #include "grit/chromium_strings.h"
@@ -133,7 +132,7 @@ const size_t kNumNonPermissionFunctionNames =
 // A singleton object containing global data needed by the extension objects.
 class ExtensionConfig {
  public:
-  static ExtensionConfig* GetSingleton() {
+  static ExtensionConfig* GetInstance() {
     return Singleton<ExtensionConfig>::get();
   }
 
@@ -288,7 +287,7 @@ GURL Extension::GalleryUpdateUrl(bool secure) {
 
 // static
 int Extension::GetPermissionMessageId(const std::string& permission) {
-  return ExtensionConfig::GetSingleton()->GetPermissionMessageId(permission);
+  return ExtensionConfig::GetInstance()->GetPermissionMessageId(permission);
 }
 
 std::vector<string16> Extension::GetPermissionMessages() const {
@@ -470,7 +469,7 @@ std::string Extension::GenerateIdForPath(const FilePath& path) {
   return id;
 }
 
-Extension::HistogramType Extension::GetHistogramType() const {
+Extension::Type Extension::GetType() const {
   if (is_theme())
     return TYPE_THEME;
   if (converted_from_user_script())
@@ -1267,8 +1266,7 @@ bool Extension::InitFromValue(const DictionaryValue& source, bool require_key,
     *error = errors::kInvalidVersion;
     return false;
   }
-  version_.reset(
-      Version::GetVersionFromString(version_str));
+  version_.reset(Version::GetVersionFromString(version_str));
   if (!version_.get() ||
       version_->components().size() > 4) {
     *error = errors::kInvalidVersion;
@@ -1742,6 +1740,15 @@ bool Extension::InitFromValue(const DictionaryValue& source, bool require_key,
       if (web_extent().is_empty() || location() == Extension::COMPONENT) {
         // Check if it's a module permission.  If so, enable that permission.
         if (IsAPIPermission(permission_str)) {
+          // Only allow the experimental API permission if the command line
+          // flag is present, or if the extension is a component of Chrome.
+          if (permission_str == Extension::kExperimentalPermission &&
+              !CommandLine::ForCurrentProcess()->HasSwitch(
+                switches::kEnableExperimentalExtensionApis) &&
+              location() != Extension::COMPONENT) {
+            *error = errors::kExperimentalFlagRequired;
+            return false;
+          }
           api_permissions_.insert(permission_str);
           continue;
         }
@@ -1781,9 +1788,8 @@ bool Extension::InitFromValue(const DictionaryValue& source, bool require_key,
   }
 
   if (source.HasKey(keys::kDefaultLocale)) {
-    if (!source.GetString(keys::kDefaultLocale,
-                          &default_locale_) ||
-        default_locale_.empty()) {
+    if (!source.GetString(keys::kDefaultLocale, &default_locale_) ||
+        !l10n_util::IsValidLocaleSyntax(default_locale_)) {
       *error = errors::kInvalidDefaultLocale;
       return false;
     }
@@ -1844,6 +1850,59 @@ bool Extension::InitFromValue(const DictionaryValue& source, bool require_key,
       return false;
     }
     devtools_url_ = GetResourceURL(devtools_str);
+  }
+
+  // Initialize text-to-speech voices (optional).
+  if (source.HasKey(keys::kTts)) {
+    DictionaryValue* tts_dict;
+    if (!source.GetDictionary(keys::kTts, &tts_dict)) {
+      *error = errors::kInvalidTts;
+      return false;
+    }
+
+    if (tts_dict->HasKey(keys::kTtsVoices)) {
+      ListValue* tts_voices;
+      if (!tts_dict->GetList(keys::kTtsVoices, &tts_voices)) {
+        *error = errors::kInvalidTtsVoices;
+        return false;
+      }
+
+      for (size_t i = 0; i < tts_voices->GetSize(); i++) {
+        DictionaryValue* one_tts_voice;
+        if (!tts_voices->GetDictionary(i, &one_tts_voice)) {
+          *error = errors::kInvalidTtsVoices;
+          return false;
+        }
+
+        TtsVoice voice_data;
+        if (one_tts_voice->HasKey(keys::kTtsVoicesVoiceName)) {
+          if (!one_tts_voice->GetString(
+                  keys::kTtsVoicesVoiceName, &voice_data.voice_name)) {
+            *error = errors::kInvalidTtsVoicesVoiceName;
+            return false;
+          }
+        }
+        if (one_tts_voice->HasKey(keys::kTtsVoicesLocale)) {
+          if (!one_tts_voice->GetString(
+                  keys::kTtsVoicesLocale, &voice_data.locale) ||
+              !l10n_util::IsValidLocaleSyntax(voice_data.locale)) {
+            *error = errors::kInvalidTtsVoicesLocale;
+            return false;
+          }
+        }
+        if (one_tts_voice->HasKey(keys::kTtsVoicesGender)) {
+          if (!one_tts_voice->GetString(
+                  keys::kTtsVoicesGender, &voice_data.gender) ||
+              (voice_data.gender != keys::kTtsGenderMale &&
+               voice_data.gender != keys::kTtsGenderFemale)) {
+            *error = errors::kInvalidTtsVoicesGender;
+            return false;
+          }
+        }
+
+        tts_voices_.push_back(voice_data);
+      }
+    }
   }
 
   // Initialize incognito behavior. Apps default to split mode, extensions
@@ -1966,7 +2025,7 @@ static std::string SizeToString(const gfx::Size& max_size) {
 void Extension::SetScriptingWhitelist(
     const std::vector<std::string>& whitelist) {
   ScriptingWhitelist* current_whitelist =
-      ExtensionConfig::GetSingleton()->whitelist();
+      ExtensionConfig::GetInstance()->whitelist();
   current_whitelist->clear();
   for (ScriptingWhitelist::const_iterator it = whitelist.begin();
        it != whitelist.end(); ++it) {
@@ -2201,20 +2260,7 @@ bool Extension::HasFullPermissions() const {
 bool Extension::IsAPIPermission(const std::string& str) const {
   for (size_t i = 0; i < Extension::kNumPermissions; ++i) {
     if (str == Extension::kPermissions[i].name) {
-      // Only allow the experimental API permission if the command line
-      // flag is present, or if the extension is a component of Chrome.
-      if (str == Extension::kExperimentalPermission) {
-        if (CommandLine::ForCurrentProcess()->HasSwitch(
-                switches::kEnableExperimentalExtensionApis)) {
-          return true;
-        } else if (location() == Extension::COMPONENT) {
-          return true;
-        } else {
-          return false;
-        }
-      } else {
-        return true;
-      }
+      return true;
     }
   }
   return false;
@@ -2225,7 +2271,7 @@ bool Extension::CanExecuteScriptEverywhere() const {
     return true;
 
   ScriptingWhitelist* whitelist =
-      ExtensionConfig::GetSingleton()->whitelist();
+      ExtensionConfig::GetInstance()->whitelist();
 
   for (ScriptingWhitelist::const_iterator it = whitelist->begin();
        it != whitelist->end(); ++it) {
@@ -2260,9 +2306,15 @@ UninstalledExtensionInfo::UninstalledExtensionInfo(
     const Extension& extension)
     : extension_id(extension.id()),
       extension_api_permissions(extension.api_permissions()),
-      is_theme(extension.is_theme()),
-      is_app(extension.is_app()),
-      converted_from_user_script(extension.converted_from_user_script()),
+      extension_type(extension.GetType()),
       update_url(extension.update_url()) {}
 
 UninstalledExtensionInfo::~UninstalledExtensionInfo() {}
+
+
+UnloadedExtensionInfo::UnloadedExtensionInfo(
+    const Extension* extension,
+    Reason reason)
+  : reason(reason),
+    already_disabled(false),
+    extension(extension) {}

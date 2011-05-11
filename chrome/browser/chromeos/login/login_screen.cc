@@ -21,9 +21,8 @@
 #include "chrome/browser/chromeos/login/login_utils.h"
 #include "chrome/browser/chromeos/login/message_bubble.h"
 #include "chrome/browser/chromeos/login/screen_observer.h"
-#include "chrome/browser/profile.h"
-#include "chrome/browser/profile_manager.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 
@@ -91,7 +90,8 @@ void LoginScreen::OnLoginFailure(const LoginFailure& failure) {
     ShowError(IDS_LOGIN_ERROR_AUTHENTICATING_NEW, error);
   }
 
-  view()->ClearAndEnablePassword();
+  view()->ClearAndFocusPassword();
+  view()->EnableInputControls(true);
 }
 
 void LoginScreen::OnLoginSuccess(
@@ -102,7 +102,10 @@ void LoginScreen::OnLoginSuccess(
 
   delegate()->GetObserver(this)->OnExit(ScreenObserver::LOGIN_SIGN_IN_SELECTED);
   AppendStartUrlToCmdline();
-  LoginUtils::Get()->CompleteLogin(username, password, credentials);
+  LoginUtils::Get()->CompleteLogin(username,
+                                   password,
+                                   credentials,
+                                   pending_requests);
 }
 
 void LoginScreen::OnOffTheRecordLoginSuccess() {

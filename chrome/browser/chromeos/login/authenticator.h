@@ -23,9 +23,6 @@ namespace chromeos {
 // consumer_->OnPasswordChangeDetected() on the UI thread.
 class Authenticator : public base::RefCountedThreadSafe<Authenticator> {
  public:
-  // A domain which requires special-case parsing in canonicalization.
-  static const char kSpecialCaseDomain[];
-
   explicit Authenticator(LoginStatusConsumer* consumer);
   virtual ~Authenticator();
 

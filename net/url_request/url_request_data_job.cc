@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,8 @@
 #include "net/url_request/url_request_data_job.h"
 
 #include "net/base/data_url.h"
-#include "net/url_request/url_request.h"
+
+namespace net {
 
 // static
 URLRequestJob* URLRequestDataJob::Factory(URLRequest* request,
@@ -27,8 +28,10 @@ bool URLRequestDataJob::GetData(std::string* mime_type,
   const GURL& url = request_->url();
   if (!url.is_valid())
     return false;
-  return net::DataURL::Parse(url, mime_type, charset, data);
+  return DataURL::Parse(url, mime_type, charset, data);
 }
 
 URLRequestDataJob::~URLRequestDataJob() {
 }
+
+}  // namespace net

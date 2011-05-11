@@ -19,12 +19,12 @@
 #include "base/string_util.h"
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/net/gaia/token_service.h"
+#include "chrome/browser/sync/glue/autofill_profile_data_type_controller.h"
 #include "chrome/browser/sync/glue/change_processor.h"
 #include "chrome/browser/sync/glue/data_type_controller.h"
 #include "chrome/browser/sync/glue/data_type_manager.h"
@@ -35,7 +35,6 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/net/gaia/gaia_constants.h"
 #include "chrome/common/notification_details.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
@@ -199,7 +198,6 @@ void ProfileSyncService::Initialize() {
       token_migrator_->TryMigration();
     }
   }
-
 }
 
 void ProfileSyncService::RegisterAuthNotifications() {
@@ -369,6 +367,9 @@ void ProfileSyncService::RegisterPreferences() {
       enable_by_default);
   pref_service->RegisterBooleanPref(prefs::kSyncManaged, false);
   pref_service->RegisterStringPref(prefs::kEncryptionBootstrapToken, "");
+
+  pref_service->RegisterBooleanPref(prefs::kSyncAutofillProfile,
+      enable_by_default);
 }
 
 void ProfileSyncService::ClearPreferences() {
@@ -551,6 +552,9 @@ const char* ProfileSyncService::GetPrefNameForDataType(
       return prefs::kSyncPreferences;
     case syncable::AUTOFILL:
       return prefs::kSyncAutofill;
+    case syncable::AUTOFILL_PROFILE:
+      return prefs::kSyncAutofillProfile;
+      break;
     case syncable::THEMES:
       return prefs::kSyncThemes;
     case syncable::TYPED_URLS:
@@ -772,6 +776,10 @@ std::string ProfileSyncService::BuildSyncStatusSummaryText(
   }
 }
 
+bool ProfileSyncService::unrecoverable_error_detected() const {
+  return unrecoverable_error_detected_;
+}
+
 string16 ProfileSyncService::GetLastSyncedTimeString() const {
   if (last_synced_time_.is_null())
     return l10n_util::GetStringUTF16(IDS_SYNC_TIME_NEVER);
@@ -880,6 +888,10 @@ void ProfileSyncService::ChangePreferredDataTypes(
       continue;
     profile_->GetPrefs()->SetBoolean(pref_name,
         preferred_types.count(model_type) != 0);
+    if (syncable::AUTOFILL == model_type) {
+      profile_->GetPrefs()->SetBoolean(prefs::kSyncAutofillProfile,
+          preferred_types.count(model_type) != 0);
+    }
   }
 
   // If we haven't initialized yet, don't configure the DTM as it could cause
@@ -891,23 +903,33 @@ void ProfileSyncService::ChangePreferredDataTypes(
 void ProfileSyncService::GetPreferredDataTypes(
     syncable::ModelTypeSet* preferred_types) const {
   preferred_types->clear();
-
-  // Filter out any datatypes which aren't registered, or for which
-  // the preference can't be read.
-  syncable::ModelTypeSet registered_types;
-  GetRegisteredDataTypes(&registered_types);
   if (profile_->GetPrefs()->GetBoolean(prefs::kKeepEverythingSynced)) {
-    *preferred_types = registered_types;
+    GetRegisteredDataTypes(preferred_types);
   } else {
+    // Filter out any datatypes which aren't registered, or for which
+    // the preference can't be read.
+    syncable::ModelTypeSet registered_types;
+    GetRegisteredDataTypes(&registered_types);
     for (int i = 0; i < syncable::MODEL_TYPE_COUNT; ++i) {
       syncable::ModelType model_type = syncable::ModelTypeFromInt(i);
       if (!registered_types.count(model_type))
         continue;
+      if (model_type == syncable::AUTOFILL_PROFILE)
+        continue;
       const char* pref_name = GetPrefNameForDataType(model_type);
       if (!pref_name)
         continue;
-      if (profile_->GetPrefs()->GetBoolean(pref_name))
+
+      // We are trying to group autofill_profile tag with the same
+      // enabled/disabled state as autofill. Because the UI only shows autofill.
+      if (profile_->GetPrefs()->GetBoolean(pref_name)) {
         preferred_types->insert(model_type);
+        if (model_type == syncable::AUTOFILL) {
+          if (!registered_types.count(syncable::AUTOFILL_PROFILE))
+            continue;
+          preferred_types->insert(syncable::AUTOFILL_PROFILE);
+        }
+      }
     }
   }
 }

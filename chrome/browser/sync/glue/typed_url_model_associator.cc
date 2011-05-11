@@ -8,7 +8,6 @@
 
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/history/history_backend.h"
-#include "chrome/browser/profile.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/protocol/typed_url_specifics.pb.h"
@@ -233,8 +232,23 @@ bool TypedUrlModelAssociator::SyncModelHasUserCreatedNodes(bool* has_nodes) {
   return true;
 }
 
+void TypedUrlModelAssociator::AbortAssociation() {
+  // TODO(zork): Implement this.
+}
+
+const std::string* TypedUrlModelAssociator::GetChromeNodeFromSyncId(
+    int64 sync_id) {
+  return NULL;
+}
+
+bool TypedUrlModelAssociator::InitSyncNodeFromChromeId(
+    const std::string& node_id,
+    sync_api::BaseNode* sync_node) {
+  return false;
+}
+
 int64 TypedUrlModelAssociator::GetSyncIdFromChromeId(
-    const std::string typed_url) {
+    const std::string& typed_url) {
   TypedUrlToSyncIdMap::const_iterator iter = id_map_.find(typed_url);
   return iter == id_map_.end() ? sync_api::kInvalidId : iter->second;
 }

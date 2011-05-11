@@ -13,9 +13,7 @@
 
 #include "base/lazy_instance.h"
 #include "base/mac/scoped_cftyperef.h"
-#include "base/singleton.h"
 #include "base/string_util.h"
-#include "base/sys_info.h"
 #include "net/base/address_list.h"
 #include "net/base/cert_verifier.h"
 #include "net/base/io_buffer.h"
@@ -141,27 +139,6 @@ enum {
   TLS_ECDH_anon_WITH_AES_256_CBC_SHA     = 0xC019,
 };
 #endif
-
-// On OS X 10.5.x, SSLHandshake() is broken with respect to renegotiation
-// handshakes, and the only way to advance the handshake state machine is
-// to use SSLRead(), which transparently re-handshakes and then reads
-// application data. Using SSLRead() to pump the handshake, rather than
-// SSLHandshake(), is not presently implemented, so on 10.5.x, SSL
-// renegotiation is disabled entirely. On 10.6.x, SSLHandshake() behaves as
-// expected/documented, so renegotiation is supported.
-struct RenegotiationBroken {
-  RenegotiationBroken() : broken(false) {
-    int32 major, minor, bugfix;
-    base::SysInfo::OperatingSystemVersionNumbers(&major, &minor, &bugfix);
-    if (major < 10 || (major == 10 && minor < 6))
-      broken = true;
-  }
-
-  bool broken;
-};
-
-base::LazyInstance<RenegotiationBroken> g_renegotiation_broken(
-    base::LINKER_INITIALIZED);
 
 // For an explanation of the Mac OS X error codes, please refer to:
 // http://developer.apple.com/mac/library/documentation/Security/Reference/secureTransportRef/Reference/reference.html
@@ -498,7 +475,7 @@ class EnabledCipherSuites {
   const std::vector<SSLCipherSuite>& ciphers() const { return ciphers_; }
 
  private:
-  friend struct DefaultSingletonTraits<EnabledCipherSuites>;
+  friend struct base::DefaultLazyInstanceTraits<EnabledCipherSuites>;
   EnabledCipherSuites();
   ~EnabledCipherSuites() {}
 
@@ -506,6 +483,9 @@ class EnabledCipherSuites {
 
   DISALLOW_COPY_AND_ASSIGN(EnabledCipherSuites);
 };
+
+static base::LazyInstance<EnabledCipherSuites> g_enabled_cipher_suites(
+    base::LINKER_INITIALIZED);
 
 EnabledCipherSuites::EnabledCipherSuites() {
   SSLContextRef ssl_context;
@@ -540,7 +520,8 @@ EnabledCipherSuites::EnabledCipherSuites() {
 
 SSLClientSocketMac::SSLClientSocketMac(ClientSocketHandle* transport_socket,
                                        const HostPortPair& host_and_port,
-                                       const SSLConfig& ssl_config)
+                                       const SSLConfig& ssl_config,
+                                       CertVerifier* cert_verifier)
     : handshake_io_callback_(this, &SSLClientSocketMac::OnHandshakeIOComplete),
       transport_read_callback_(this,
                                &SSLClientSocketMac::OnTransportReadComplete),
@@ -555,6 +536,7 @@ SSLClientSocketMac::SSLClientSocketMac(ClientSocketHandle* transport_socket,
       user_read_buf_len_(0),
       user_write_buf_len_(0),
       next_handshake_state_(STATE_NONE),
+      cert_verifier_(cert_verifier),
       renegotiating_(false),
       client_cert_requested_(false),
       ssl_context_(NULL),
@@ -800,7 +782,7 @@ int SSLClientSocketMac::InitializeSSLContext() {
 
   status = SSLSetProtocolVersionEnabled(ssl_context_,
                                         kSSLProtocol2,
-                                        ssl_config_.ssl2_enabled);
+                                        false);
   if (status)
     return NetErrorFromOSStatus(status);
 
@@ -817,7 +799,7 @@ int SSLClientSocketMac::InitializeSSLContext() {
     return NetErrorFromOSStatus(status);
 
   std::vector<SSLCipherSuite> enabled_ciphers =
-      Singleton<EnabledCipherSuites>::get()->ciphers();
+      g_enabled_cipher_suites.Get().ciphers();
 
   CipherSuiteIsDisabledFunctor is_disabled_cipher(
       ssl_config_.disabled_cipher_suites);
@@ -1094,7 +1076,7 @@ int SSLClientSocketMac::DoVerifyCert() {
     flags |= X509Certificate::VERIFY_REV_CHECKING_ENABLED;
   if (ssl_config_.verify_ev_cert)
     flags |= X509Certificate::VERIFY_EV_CERT;
-  verifier_.reset(new CertVerifier);
+  verifier_.reset(new SingleRequestCertVerifier(cert_verifier_));
   return verifier_->Verify(server_cert_, host_and_port_.host(), flags,
                            &server_cert_verify_result_,
                            &handshake_io_callback_);
@@ -1145,9 +1127,6 @@ int SSLClientSocketMac::DoPayloadRead() {
   OSStatus status = SSLRead(ssl_context_, user_read_buf_->data(),
                             user_read_buf_len_, &processed);
   if (status == errSSLWouldBlock && renegotiating_) {
-    if (g_renegotiation_broken.Get().broken)
-      return ERR_SSL_RENEGOTIATION_REQUESTED;
-
     CHECK_EQ(static_cast<size_t>(0), processed);
     next_handshake_state_ = STATE_HANDSHAKE;
     return DoHandshakeLoop(OK);

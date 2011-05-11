@@ -10,29 +10,29 @@
 #include "base/sys_info.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/app_modal_dialog.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
-#include "chrome/browser/extensions/extensions_service.h"
-#include "chrome/browser/js_modal_dialog.h"
-#include "chrome/browser/native_app_modal_dialog.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tabs/pinned_tab_codec.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/app_modal_dialogs/app_modal_dialog.h"
+#include "chrome/browser/ui/app_modal_dialogs/js_modal_dialog.h"
+#include "chrome/browser/ui/app_modal_dialogs/native_app_modal_dialog.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_init.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/common/url_constants.h"
+#include "chrome/common/notification_source.h"
 #include "chrome/common/page_transition_types.h"
+#include "chrome/common/url_constants.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
 #include "grit/chromium_strings.h"
@@ -42,6 +42,7 @@
 
 #if defined(OS_WIN)
 #include "base/i18n/rtl.h"
+#include "chrome/browser/browser_process.h"
 #endif
 
 namespace {
@@ -160,7 +161,7 @@ class BrowserTest : public ExtensionBrowserTest {
   // Returns the app extension aptly named "App Test".
   const Extension* GetExtension() {
     const ExtensionList* extensions =
-        browser()->profile()->GetExtensionsService()->extensions();
+        browser()->profile()->GetExtensionService()->extensions();
     for (size_t i = 0; i < extensions->size(); ++i) {
       if ((*extensions)[i]->name() == "App Test")
         return (*extensions)[i];
@@ -480,7 +481,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, TabClosingWhenRemovingExtension) {
   model->AddObserver(&observer);
 
   // Uninstall the extension and make sure TabClosing is sent.
-  ExtensionsService* service = browser()->profile()->GetExtensionsService();
+  ExtensionService* service = browser()->profile()->GetExtensionService();
   service->UninstallExtension(GetExtension()->id(), false);
   EXPECT_EQ(1, observer.closing_count());
 
@@ -501,32 +502,33 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, MAYBE_PageLanguageDetection) {
   ASSERT_TRUE(test_server()->Start());
 
   TabContents* current_tab = browser()->GetSelectedTabContents();
+  Source<TabContents> source(current_tab);
 
   // Navigate to a page in English.
-  ui_test_utils::WindowedNotificationObserverWithDetails<TabContents,
-                                                         std::string>
+  ui_test_utils::WindowedNotificationObserverWithDetails<std::string>
       en_language_detected_signal(NotificationType::TAB_LANGUAGE_DETERMINED,
-                                  current_tab);
+                                  source);
   ui_test_utils::NavigateToURL(
       browser(), GURL(test_server()->GetURL("files/english_page.html")));
   EXPECT_TRUE(current_tab->language_state().original_language().empty());
   en_language_detected_signal.Wait();
   std::string lang;
-  EXPECT_TRUE(en_language_detected_signal.GetDetailsFor(current_tab, &lang));
+  EXPECT_TRUE(en_language_detected_signal.GetDetailsFor(
+        source.map_key(), &lang));
   EXPECT_EQ("en", lang);
   EXPECT_EQ("en", current_tab->language_state().original_language());
 
   // Now navigate to a page in French.
-  ui_test_utils::WindowedNotificationObserverWithDetails<TabContents,
-                                                         std::string>
+  ui_test_utils::WindowedNotificationObserverWithDetails<std::string>
       fr_language_detected_signal(NotificationType::TAB_LANGUAGE_DETERMINED,
-                                  current_tab);
+                                  source);
   ui_test_utils::NavigateToURL(
       browser(), GURL(test_server()->GetURL("files/french_page.html")));
   EXPECT_TRUE(current_tab->language_state().original_language().empty());
   fr_language_detected_signal.Wait();
   lang.clear();
-  EXPECT_TRUE(fr_language_detected_signal.GetDetailsFor(current_tab, &lang));
+  EXPECT_TRUE(fr_language_detected_signal.GetDetailsFor(
+        source.map_key(), &lang));
   EXPECT_EQ("fr", lang);
   EXPECT_EQ("fr", current_tab->language_state().original_language());
 }

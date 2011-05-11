@@ -6,32 +6,35 @@
 
 #include "base/callback.h"
 #include "chrome/browser/appcache/chrome_appcache_service.h"
-#include "chrome/browser/renderer_host/browser_render_process_host.h"
+#include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
+#include "chrome/browser/renderer_host/browser_render_process_host.h"
 #include "chrome/common/render_messages.h"
 
 AppCacheDispatcherHost::AppCacheDispatcherHost(
-    URLRequestContext* request_context)
-    : request_context_(request_context),
-      receiver_(NULL) {
+    URLRequestContext* request_context,
+    int process_id)
+    : ALLOW_THIS_IN_INITIALIZER_LIST(frontend_proxy_(this)),
+      request_context_(request_context),
+      process_id_(process_id) {
   DCHECK(request_context_.get());
 }
 
 AppCacheDispatcherHost::AppCacheDispatcherHost(
-    URLRequestContextGetter* request_context_getter)
-    : request_context_getter_(request_context_getter),
-      receiver_(NULL) {
+    URLRequestContextGetter* request_context_getter,
+    int process_id)
+    : ALLOW_THIS_IN_INITIALIZER_LIST(frontend_proxy_(this)),
+      request_context_getter_(request_context_getter),
+      process_id_(process_id) {
   DCHECK(request_context_getter_.get());
 }
 
 AppCacheDispatcherHost::~AppCacheDispatcherHost() {}
 
-void AppCacheDispatcherHost::Initialize(
-    ResourceDispatcherHost::Receiver* receiver) {
-  DCHECK(receiver && !receiver_);
-  DCHECK(request_context_.get() || request_context_getter_.get());
+void AppCacheDispatcherHost::OnChannelConnected(int32 peer_pid) {
+  BrowserMessageFilter::OnChannelConnected(peer_pid);
 
-  receiver_ = receiver;
+  DCHECK(request_context_.get() || request_context_getter_.get());
 
   // Get the AppCacheService (it can only be accessed from IO thread).
   URLRequestContext* context = request_context_.get();
@@ -42,10 +45,9 @@ void AppCacheDispatcherHost::Initialize(
   request_context_ = NULL;
   request_context_getter_ = NULL;
 
-  frontend_proxy_.set_sender(receiver);
   if (appcache_service_.get()) {
     backend_impl_.Initialize(
-        appcache_service_.get(), &frontend_proxy_, receiver->id());
+        appcache_service_.get(), &frontend_proxy_, process_id_);
     get_status_callback_.reset(
         NewCallback(this, &AppCacheDispatcherHost::GetStatusCallback));
     start_update_callback_.reset(
@@ -55,33 +57,37 @@ void AppCacheDispatcherHost::Initialize(
   }
 }
 
-bool AppCacheDispatcherHost::OnMessageReceived(const IPC::Message& msg,
-                                               bool *msg_ok) {
-  DCHECK(receiver_);
-  *msg_ok = true;
+bool AppCacheDispatcherHost::OnMessageReceived(const IPC::Message& message,
+                                               bool* message_was_ok) {
   bool handled = true;
-  IPC_BEGIN_MESSAGE_MAP_EX(AppCacheDispatcherHost, msg, *msg_ok)
-    IPC_MESSAGE_HANDLER(AppCacheMsg_RegisterHost, OnRegisterHost);
-    IPC_MESSAGE_HANDLER(AppCacheMsg_UnregisterHost, OnUnregisterHost);
-    IPC_MESSAGE_HANDLER(AppCacheMsg_GetResourceList, OnGetResourceList);
-    IPC_MESSAGE_HANDLER(AppCacheMsg_SelectCache, OnSelectCache);
+  IPC_BEGIN_MESSAGE_MAP_EX(AppCacheDispatcherHost, message, *message_was_ok)
+    IPC_MESSAGE_HANDLER(AppCacheMsg_RegisterHost, OnRegisterHost)
+    IPC_MESSAGE_HANDLER(AppCacheMsg_UnregisterHost, OnUnregisterHost)
+    IPC_MESSAGE_HANDLER(AppCacheMsg_GetResourceList, OnGetResourceList)
+    IPC_MESSAGE_HANDLER(AppCacheMsg_SelectCache, OnSelectCache)
     IPC_MESSAGE_HANDLER(AppCacheMsg_SelectCacheForWorker,
-                        OnSelectCacheForWorker);
+                        OnSelectCacheForWorker)
     IPC_MESSAGE_HANDLER(AppCacheMsg_SelectCacheForSharedWorker,
-                        OnSelectCacheForSharedWorker);
-    IPC_MESSAGE_HANDLER(AppCacheMsg_MarkAsForeignEntry, OnMarkAsForeignEntry);
-    IPC_MESSAGE_HANDLER_DELAY_REPLY(AppCacheMsg_GetStatus, OnGetStatus);
-    IPC_MESSAGE_HANDLER_DELAY_REPLY(AppCacheMsg_StartUpdate, OnStartUpdate);
-    IPC_MESSAGE_HANDLER_DELAY_REPLY(AppCacheMsg_SwapCache, OnSwapCache);
+                        OnSelectCacheForSharedWorker)
+    IPC_MESSAGE_HANDLER(AppCacheMsg_MarkAsForeignEntry, OnMarkAsForeignEntry)
+    IPC_MESSAGE_HANDLER_DELAY_REPLY(AppCacheMsg_GetStatus, OnGetStatus)
+    IPC_MESSAGE_HANDLER_DELAY_REPLY(AppCacheMsg_StartUpdate, OnStartUpdate)
+    IPC_MESSAGE_HANDLER_DELAY_REPLY(AppCacheMsg_SwapCache, OnSwapCache)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP_EX()
+
   return handled;
+}
+
+void AppCacheDispatcherHost::BadMessageReceived() {
+  UserMetrics::RecordAction(UserMetricsAction("BadMessageTerminate_ACDH"));
+  BrowserMessageFilter::BadMessageReceived();
 }
 
 void AppCacheDispatcherHost::OnRegisterHost(int host_id) {
   if (appcache_service_.get()) {
     if (!backend_impl_.RegisterHost(host_id)) {
-      ReceivedBadMessage(AppCacheMsg_RegisterHost::ID);
+      BadMessageReceived();
     }
   }
 }
@@ -89,7 +95,7 @@ void AppCacheDispatcherHost::OnRegisterHost(int host_id) {
 void AppCacheDispatcherHost::OnUnregisterHost(int host_id) {
   if (appcache_service_.get()) {
     if (!backend_impl_.UnregisterHost(host_id)) {
-      ReceivedBadMessage(AppCacheMsg_UnregisterHost::ID);
+      BadMessageReceived();
     }
   }
 }
@@ -102,7 +108,7 @@ void AppCacheDispatcherHost::OnSelectCache(
     if (!backend_impl_.SelectCache(host_id, document_url,
                                    cache_document_was_loaded_from,
                                    opt_manifest_url)) {
-      ReceivedBadMessage(AppCacheMsg_SelectCache::ID);
+      BadMessageReceived();
     }
   } else {
     frontend_proxy_.OnCacheSelected(host_id, appcache::AppCacheInfo());
@@ -114,7 +120,7 @@ void AppCacheDispatcherHost::OnSelectCacheForWorker(
   if (appcache_service_.get()) {
     if (!backend_impl_.SelectCacheForWorker(
             host_id, parent_process_id, parent_host_id)) {
-      ReceivedBadMessage(AppCacheMsg_SelectCacheForWorker::ID);
+      BadMessageReceived();
     }
   } else {
     frontend_proxy_.OnCacheSelected(host_id, appcache::AppCacheInfo());
@@ -125,7 +131,7 @@ void AppCacheDispatcherHost::OnSelectCacheForSharedWorker(
     int host_id, int64 appcache_id) {
   if (appcache_service_.get()) {
     if (!backend_impl_.SelectCacheForSharedWorker(host_id, appcache_id))
-      ReceivedBadMessage(AppCacheMsg_SelectCacheForSharedWorker::ID);
+      BadMessageReceived();
   } else {
     frontend_proxy_.OnCacheSelected(host_id, appcache::AppCacheInfo());
   }
@@ -137,7 +143,7 @@ void AppCacheDispatcherHost::OnMarkAsForeignEntry(
   if (appcache_service_.get()) {
     if (!backend_impl_.MarkAsForeignEntry(host_id, document_url,
                                           cache_document_was_loaded_from)) {
-      ReceivedBadMessage(AppCacheMsg_MarkAsForeignEntry::ID);
+      BadMessageReceived();
     }
   }
 }
@@ -151,7 +157,7 @@ void AppCacheDispatcherHost::OnGetResourceList(
 void AppCacheDispatcherHost::OnGetStatus(int host_id,
                                          IPC::Message* reply_msg) {
   if (pending_reply_msg_.get()) {
-    ReceivedBadMessage(AppCacheMsg_GetStatus::ID);
+    BadMessageReceived();
     delete reply_msg;
     return;
   }
@@ -160,7 +166,7 @@ void AppCacheDispatcherHost::OnGetStatus(int host_id,
   if (appcache_service_.get()) {
     if (!backend_impl_.GetStatusWithCallback(
             host_id, get_status_callback_.get(), reply_msg)) {
-      ReceivedBadMessage(AppCacheMsg_GetStatus::ID);
+      BadMessageReceived();
     }
     return;
   }
@@ -171,7 +177,7 @@ void AppCacheDispatcherHost::OnGetStatus(int host_id,
 void AppCacheDispatcherHost::OnStartUpdate(int host_id,
                                            IPC::Message* reply_msg) {
   if (pending_reply_msg_.get()) {
-    ReceivedBadMessage(AppCacheMsg_StartUpdate::ID);
+    BadMessageReceived();
     delete reply_msg;
     return;
   }
@@ -180,7 +186,7 @@ void AppCacheDispatcherHost::OnStartUpdate(int host_id,
   if (appcache_service_.get()) {
     if (!backend_impl_.StartUpdateWithCallback(
             host_id, start_update_callback_.get(), reply_msg)) {
-      ReceivedBadMessage(AppCacheMsg_StartUpdate::ID);
+      BadMessageReceived();
     }
     return;
   }
@@ -191,7 +197,7 @@ void AppCacheDispatcherHost::OnStartUpdate(int host_id,
 void AppCacheDispatcherHost::OnSwapCache(int host_id,
                                          IPC::Message* reply_msg) {
   if (pending_reply_msg_.get()) {
-    ReceivedBadMessage(AppCacheMsg_SwapCache::ID);
+    BadMessageReceived();
     delete reply_msg;
     return;
   }
@@ -200,7 +206,7 @@ void AppCacheDispatcherHost::OnSwapCache(int host_id,
   if (appcache_service_.get()) {
     if (!backend_impl_.SwapCacheWithCallback(
             host_id, swap_cache_callback_.get(), reply_msg)) {
-      ReceivedBadMessage(AppCacheMsg_SwapCache::ID);
+      BadMessageReceived();
     }
     return;
   }
@@ -213,26 +219,19 @@ void AppCacheDispatcherHost::GetStatusCallback(
   IPC::Message* reply_msg = reinterpret_cast<IPC::Message*>(param);
   DCHECK(reply_msg == pending_reply_msg_.get());
   AppCacheMsg_GetStatus::WriteReplyParams(reply_msg, status);
-  frontend_proxy_.sender()->Send(pending_reply_msg_.release());
+  Send(pending_reply_msg_.release());
 }
 
 void AppCacheDispatcherHost::StartUpdateCallback(bool result, void* param) {
   IPC::Message* reply_msg = reinterpret_cast<IPC::Message*>(param);
   DCHECK(reply_msg == pending_reply_msg_.get());
   AppCacheMsg_StartUpdate::WriteReplyParams(reply_msg, result);
-  frontend_proxy_.sender()->Send(pending_reply_msg_.release());
+  Send(pending_reply_msg_.release());
 }
 
 void AppCacheDispatcherHost::SwapCacheCallback(bool result, void* param) {
   IPC::Message* reply_msg = reinterpret_cast<IPC::Message*>(param);
   DCHECK(reply_msg == pending_reply_msg_.get());
   AppCacheMsg_SwapCache::WriteReplyParams(reply_msg, result);
-  frontend_proxy_.sender()->Send(pending_reply_msg_.release());
-}
-
-void AppCacheDispatcherHost::ReceivedBadMessage(uint32 msg_type) {
-  // TODO(michaeln): Consider gathering UMA stats
-  // http://code.google.com/p/chromium/issues/detail?id=24634
-  BrowserRenderProcessHost::BadMessageTerminateProcess(
-      msg_type, receiver_->handle());
+  Send(pending_reply_msg_.release());
 }

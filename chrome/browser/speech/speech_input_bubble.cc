@@ -32,10 +32,9 @@ SpeechInputBubble* SpeechInputBubble::Create(TabContents* tab_contents,
   return CreateNativeBubble(tab_contents, delegate, element_rect);
 }
 
-SpeechInputBubbleBase::SpeechInputBubbleBase(TabContents* tab_contents)
+SpeechInputBubbleBase::SpeechInputBubbleBase()
     : ALLOW_THIS_IN_INITIALIZER_LIST(task_factory_(this)),
-      display_mode_(DISPLAY_MODE_RECORDING),
-      tab_contents_(tab_contents) {
+      display_mode_(DISPLAY_MODE_RECORDING) {
   if (!mic_empty_) {  // Static variables.
     mic_empty_ = ResourceBundle::GetSharedInstance().GetBitmapNamed(
         IDR_SPEECH_INPUT_MIC_EMPTY);

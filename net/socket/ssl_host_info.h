@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef NET_SOCKET_SSL_HOST_INFO_H
-#define NET_SOCKET_SSL_HOST_INFO_H
+#ifndef NET_SOCKET_SSL_HOST_INFO_H_
+#define NET_SOCKET_SSL_HOST_INFO_H_
 
 #include <string>
 #include <vector>
@@ -11,13 +11,13 @@
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/time.h"
+#include "net/base/cert_verifier.h"
 #include "net/base/cert_verify_result.h"
 #include "net/base/completion_callback.h"
 #include "net/socket/ssl_client_socket.h"
 
 namespace net {
 
-class CertVerifier;
 class X509Certificate;
 struct SSLConfig;
 
@@ -27,7 +27,9 @@ struct SSLConfig;
 // certificates.
 class SSLHostInfo {
  public:
-  SSLHostInfo(const std::string& hostname, const SSLConfig& ssl_config);
+  SSLHostInfo(const std::string& hostname,
+              const SSLConfig& ssl_config,
+              CertVerifier *certVerifier);
   virtual ~SSLHostInfo();
 
   // Start will commence the lookup. This must be called before any other
@@ -58,6 +60,8 @@ class SSLHostInfo {
     State();
     ~State();
 
+    void Clear();
+
     // certs is a vector of DER encoded X.509 certificates, as the server
     // returned them and in the same order.
     std::vector<std::string> certs;
@@ -85,13 +89,17 @@ class SSLHostInfo {
 
   // WaitForCertVerification returns ERR_IO_PENDING if the certificate chain in
   // |state().certs| is still being validated and arranges for the given
-  // callback to be called when the verification completes. If the verification has
-  // already finished then WaitForCertVerification returns the result of that
-  // verification.
+  // callback to be called when the verification completes. If the verification
+  // has already finished then WaitForCertVerification returns the result of
+  // that verification.
   int WaitForCertVerification(CompletionCallback* callback);
 
   base::TimeTicks verification_start_time() const {
     return verification_start_time_;
+  }
+
+  base::TimeTicks verification_end_time() const {
+    return verification_end_time_;
   }
 
  protected:
@@ -108,6 +116,9 @@ class SSLHostInfo {
   // This is the callback function which the CertVerifier calls via |callback_|.
   void VerifyCallback(int rv);
 
+  // ParseInner is a helper function for Parse.
+  bool ParseInner(const std::string& data);
+
   // This is the hostname that we'll validate the certificates against.
   const std::string hostname_;
   bool cert_parsing_failed_;
@@ -116,8 +127,9 @@ class SSLHostInfo {
   bool rev_checking_enabled_;
   bool verify_ev_cert_;
   base::TimeTicks verification_start_time_;
+  base::TimeTicks verification_end_time_;
   CertVerifyResult cert_verify_result_;
-  scoped_ptr<CertVerifier> verifier_;
+  SingleRequestCertVerifier verifier_;
   scoped_refptr<X509Certificate> cert_;
   scoped_refptr<CancelableCompletionCallback<SSLHostInfo> > callback_;
 };
@@ -134,4 +146,4 @@ class SSLHostInfoFactory {
 
 }  // namespace net
 
-#endif  // NET_SOCKET_SSL_HOST_INFO_H
+#endif  // NET_SOCKET_SSL_HOST_INFO_H_

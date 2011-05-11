@@ -12,19 +12,22 @@
 #include "app/slide_animation.h"
 #include "base/i18n/rtl.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/autocomplete.h"
+#include "chrome/browser/autocomplete/autocomplete_classifier.h"
+#include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/gtk/browser_window_gtk.h"
 #include "chrome/browser/gtk/custom_button.h"
 #include "chrome/browser/gtk/gtk_theme_provider.h"
 #include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/gtk/tabs/dragged_tab_controller_gtk.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tabs/tab_strip_model_delegate.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
 #include "gfx/gtk_util.h"
@@ -737,6 +740,7 @@ void TabStripGtk::Init() {
                         GDK_ACTION_COPY | GDK_ACTION_MOVE | GDK_ACTION_LINK));
   static const int targets[] = { gtk_dnd_util::TEXT_URI_LIST,
                                  gtk_dnd_util::NETSCAPE_URL,
+                                 gtk_dnd_util::TEXT_PLAIN,
                                  -1 };
   gtk_dnd_util::SetDestTargetList(tabstrip_.get(), targets);
 
@@ -775,6 +779,15 @@ void TabStripGtk::Show() {
 
 void TabStripGtk::Hide() {
   gtk_widget_hide(tabstrip_.get());
+}
+
+bool TabStripGtk::IsActiveDropTarget() const {
+  for (int i = 0; i < GetTabCount(); ++i) {
+    TabGtk* tab = GetTabAt(i);
+    if (tab->dragging())
+      return true;
+  }
+  return false;
 }
 
 void TabStripGtk::Layout() {
@@ -1603,7 +1616,7 @@ void TabStripGtk::SetDropIndex(int index, bool drop_before) {
                     drop_bounds.width(), drop_bounds.height());
 }
 
-bool TabStripGtk::CompleteDrop(guchar* data) {
+bool TabStripGtk::CompleteDrop(guchar* data, bool is_plain_text) {
   if (!drop_info_.get())
     return false;
 
@@ -1613,8 +1626,17 @@ bool TabStripGtk::CompleteDrop(guchar* data) {
   // Destroy the drop indicator.
   drop_info_.reset();
 
-  std::string url_string(reinterpret_cast<char*>(data));
-  GURL url(url_string.substr(0, url_string.find_first_of('\n')));
+  GURL url;
+  if (is_plain_text) {
+    AutocompleteMatch match;
+    model_->profile()->GetAutocompleteClassifier()->Classify(
+        UTF8ToWide(reinterpret_cast<char*>(data)), std::wstring(), false,
+        &match, NULL);
+    url = match.destination_url;
+  } else {
+    std::string url_string(reinterpret_cast<char*>(data));
+    url = GURL(url_string.substr(0, url_string.find_first_of('\n')));
+  }
   if (!url.is_valid())
     return false;
 
@@ -1954,8 +1976,9 @@ gboolean TabStripGtk::OnDragDataReceived(GtkWidget* widget,
   bool success = false;
 
   if (info == gtk_dnd_util::TEXT_URI_LIST ||
-      info == gtk_dnd_util::NETSCAPE_URL) {
-    success = CompleteDrop(data->data);
+      info == gtk_dnd_util::NETSCAPE_URL ||
+      info == gtk_dnd_util::TEXT_PLAIN) {
+    success = CompleteDrop(data->data, info == gtk_dnd_util::TEXT_PLAIN);
   }
 
   gtk_drag_finish(context, success, success, time);

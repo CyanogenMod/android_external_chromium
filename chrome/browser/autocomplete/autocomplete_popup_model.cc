@@ -4,6 +4,8 @@
 
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
 
+#include <algorithm>
+
 #include "unicode/ubidi.h"
 
 #include "base/string_util.h"
@@ -11,11 +13,12 @@
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_view.h"
 #include "chrome/browser/autocomplete/search_provider.h"
-#include "chrome/browser/profile.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/notification_details.h"
+#include "chrome/common/notification_source.h"
 #include "gfx/rect.h"
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -224,11 +227,11 @@ bool AutocompletePopupModel::GetKeywordForMatch(const AutocompleteMatch& match,
 
   // Don't provide a hint for inactive/disabled extension keywords.
   if (template_url->IsExtensionKeyword()) {
-    const Extension* extension = profile_->GetExtensionsService()->
+    const Extension* extension = profile_->GetExtensionService()->
         GetExtensionById(template_url->GetExtensionId(), false);
     if (!extension ||
         (profile_->IsOffTheRecord() &&
-         !profile_->GetExtensionsService()->IsIncognitoEnabled(extension)))
+         !profile_->GetExtensionService()->IsIncognitoEnabled(extension)))
       return false;
   }
 
@@ -322,6 +325,6 @@ const SkBitmap* AutocompletePopupModel::GetSpecialIconForMatch(
   if (!match.template_url || !match.template_url->IsExtensionKeyword())
     return NULL;
 
-  return &profile_->GetExtensionsService()->GetOmniboxPopupIcon(
+  return &profile_->GetExtensionService()->GetOmniboxPopupIcon(
       match.template_url->GetExtensionId());
 }

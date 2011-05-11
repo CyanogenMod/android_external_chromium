@@ -8,8 +8,8 @@
 #include <map>
 
 #include "base/compiler_specific.h"
+#include "base/lazy_instance.h"
 #include "base/lock.h"
-#include "base/singleton.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -110,12 +110,11 @@ static int MapSecurityError(SECURITY_STATUS err) {
 //-----------------------------------------------------------------------------
 
 // A bitmask consisting of these bit flags encodes which versions of the SSL
-// protocol (SSL 2.0, SSL 3.0, and TLS 1.0) are enabled.
+// protocol (SSL 3.0 and TLS 1.0) are enabled.
 enum {
-  SSL2 = 1 << 0,
-  SSL3 = 1 << 1,
-  TLS1 = 1 << 2,
-  SSL_VERSION_MASKS = 1 << 3  // The number of SSL version bitmasks.
+  SSL3 = 1 << 0,
+  TLS1 = 1 << 1,
+  SSL_VERSION_MASKS = 1 << 2  // The number of SSL version bitmasks.
 };
 
 // CredHandleClass simply gives a default constructor and a destructor to
@@ -195,6 +194,9 @@ class CredHandleTable {
   CredHandleMap client_cert_creds_;
 };
 
+static base::LazyInstance<CredHandleTable> g_cred_handle_table(
+    base::LINKER_INITIALIZED);
+
 // static
 int CredHandleTable::InitializeHandle(CredHandle* handle,
                                       PCCERT_CONTEXT client_cert,
@@ -210,8 +212,6 @@ int CredHandleTable::InitializeHandle(CredHandle* handle,
   // The global system registry settings take precedence over the value of
   // schannel_cred.grbitEnabledProtocols.
   schannel_cred.grbitEnabledProtocols = 0;
-  if (ssl_version_mask & SSL2)
-    schannel_cred.grbitEnabledProtocols |= SP_PROT_SSL2;
   if (ssl_version_mask & SSL3)
     schannel_cred.grbitEnabledProtocols |= SP_PROT_SSL3;
   if (ssl_version_mask & TLS1)
@@ -288,9 +288,9 @@ static int GetCredHandle(PCCERT_CONTEXT client_cert,
     NOTREACHED();
     return ERR_UNEXPECTED;
   }
-  return Singleton<CredHandleTable>::get()->GetHandle(client_cert,
-                                                      ssl_version_mask,
-                                                      handle_ptr);
+  return g_cred_handle_table.Get().GetHandle(client_cert,
+                                             ssl_version_mask,
+                                             handle_ptr);
 }
 
 //-----------------------------------------------------------------------------
@@ -359,6 +359,9 @@ class ClientCertStore {
   HCERTSTORE store_;
 };
 
+static base::LazyInstance<ClientCertStore> g_client_cert_store(
+    base::LINKER_INITIALIZED);
+
 //-----------------------------------------------------------------------------
 
 // Size of recv_buffer_
@@ -373,7 +376,8 @@ static const int kRecvBufferSize = (5 + 16*1024 + 64);
 
 SSLClientSocketWin::SSLClientSocketWin(ClientSocketHandle* transport_socket,
                                        const HostPortPair& host_and_port,
-                                       const SSLConfig& ssl_config)
+                                       const SSLConfig& ssl_config,
+                                       CertVerifier* cert_verifier)
     : ALLOW_THIS_IN_INITIALIZER_LIST(
         handshake_io_callback_(this,
                                &SSLClientSocketWin::OnHandshakeIOComplete)),
@@ -390,6 +394,7 @@ SSLClientSocketWin::SSLClientSocketWin(ClientSocketHandle* transport_socket,
       user_write_callback_(NULL),
       user_write_buf_len_(0),
       next_state_(STATE_NONE),
+      cert_verifier_(cert_verifier),
       creds_(NULL),
       isc_status_(SEC_E_OK),
       payload_send_buffer_len_(0),
@@ -510,7 +515,7 @@ void SSLClientSocketWin::GetSSLCertRequestInfo(
     // Copy it to our own certificate store, so that we can close the "MY"
     // certificate store before returning from this function.
     PCCERT_CONTEXT cert_context2 =
-        Singleton<ClientCertStore>::get()->CopyCertContext(cert_context);
+        g_client_cert_store.Get().CopyCertContext(cert_context);
     if (!cert_context2) {
       NOTREACHED();
       continue;
@@ -568,8 +573,6 @@ int SSLClientSocketWin::Connect(CompletionCallback* callback
 
 int SSLClientSocketWin::InitializeSSLContext() {
   int ssl_version_mask = 0;
-  if (ssl_config_.ssl2_enabled)
-    ssl_version_mask |= SSL2;
   if (ssl_config_.ssl3_enabled)
     ssl_version_mask |= SSL3;
   if (ssl_config_.tls1_enabled)
@@ -1131,7 +1134,7 @@ int SSLClientSocketWin::DoVerifyCert() {
     flags |= X509Certificate::VERIFY_REV_CHECKING_ENABLED;
   if (ssl_config_.verify_ev_cert)
     flags |= X509Certificate::VERIFY_EV_CERT;
-  verifier_.reset(new CertVerifier);
+  verifier_.reset(new SingleRequestCertVerifier(cert_verifier_));
   return verifier_->Verify(server_cert_, host_and_port_.host(), flags,
                            &server_cert_verify_result_,
                            &handshake_io_callback_);

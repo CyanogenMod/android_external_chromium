@@ -49,6 +49,7 @@ void InitNavigateParams(ViewHostMsg_FrameNavigate_Params* params,
 class TestRenderWidgetHostView : public RenderWidgetHostView {
  public:
   explicit TestRenderWidgetHostView(RenderWidgetHost* rwh);
+  virtual ~TestRenderWidgetHostView();
 
   virtual void InitAsPopup(RenderWidgetHostView* parent_host_view,
                            const gfx::Rect& pos) {}
@@ -59,7 +60,7 @@ class TestRenderWidgetHostView : public RenderWidgetHostView {
   virtual void SetSize(const gfx::Size& size) {}
   virtual gfx::NativeView GetNativeView() { return NULL; }
   virtual void MovePluginWindows(
-      const std::vector<webkit_glue::WebPluginGeometry>& moves) {}
+      const std::vector<webkit::npapi::WebPluginGeometry>& moves) {}
 #if defined(OS_WIN)
   virtual void ForwardMouseEventToRenderer(UINT message,
                                            WPARAM wparam,
@@ -82,7 +83,8 @@ class TestRenderWidgetHostView : public RenderWidgetHostView {
   virtual void DidUpdateBackingStore(
       const gfx::Rect& scroll_rect, int scroll_dx, int scroll_dy,
       const std::vector<gfx::Rect>& rects) {}
-  virtual void RenderViewGone() { delete this; }
+  virtual void RenderViewGone(base::TerminationStatus status,
+                              int error_code) { delete this; }
   virtual void WillDestroyRenderWidget(RenderWidgetHost* rwh) { }
   virtual void Destroy() {}
   virtual void PrepareToDestroy() {}
@@ -164,7 +166,7 @@ class TestRenderViewHost : public RenderViewHost {
 
   // Calls the RenderViewHosts' private OnMessageReceived function with the
   // given message.
-  void TestOnMessageReceived(const IPC::Message& msg);
+  bool TestOnMessageReceived(const IPC::Message& msg);
 
   // Calls OnMsgNavigate on the RenderViewHost with the given information,
   // setting the rest of the parameters in the message to the "typical" values.

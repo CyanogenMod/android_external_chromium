@@ -16,13 +16,14 @@
 #include <set>
 #include <string>
 
+#include "base/base64.h"
 #include "base/basictypes.h"
 #include "base/crypto/encryptor.h"
 #include "base/crypto/symmetric_key.h"
+#include "base/lazy_instance.h"
 #include "base/non_thread_safe.h"
 #include "base/pickle.h"
 #include "base/scoped_ptr.h"
-#include "base/singleton.h"
 #include "net/base/completion_callback.h"
 #include "net/base/dns_util.h"
 #include "net/base/dnsrr_resolver.h"
@@ -72,12 +73,15 @@ class DnsCertLimits {
   }
 
  private:
-  friend struct DefaultSingletonTraits<DnsCertLimits>;
+  friend struct base::DefaultLazyInstanceTraits<DnsCertLimits>;
 
   std::set<std::string> uploaded_hostnames_;
 
   DISALLOW_COPY_AND_ASSIGN(DnsCertLimits);
 };
+
+static base::LazyInstance<DnsCertLimits> g_dns_cert_limits(
+    base::LINKER_INITIALIZED);
 
 // DnsCertProvenanceCheck performs the DNS lookup of the certificate. This
 // class is self-deleting.
@@ -105,7 +109,7 @@ class DnsCertProvenanceCheck : public NonThreadSafe {
     if (der_certs_.empty())
       return;
 
-    DnsCertLimits* const limits = Singleton<DnsCertLimits>::get();
+    DnsCertLimits* const limits = g_dns_cert_limits.Pointer();
     if (limits->HaveReachedMaxUploads() ||
         limits->HaveUploadedForHostname(hostname_)) {
       return;
@@ -124,7 +128,7 @@ class DnsCertProvenanceCheck : public NonThreadSafe {
     }
     fingerprint_hex[SHA1_LENGTH * 2] = 0;
 
-    static const char kBaseCertName[] = ".certs.links.org";
+    static const char kBaseCertName[] = ".certs.googlednstest.com";
     domain_.assign(fingerprint_hex);
     domain_.append(kBaseCertName);
 
@@ -146,7 +150,8 @@ class DnsCertProvenanceCheck : public NonThreadSafe {
       LOG(ERROR) << "FAILED"
                  << " hostname:" << hostname_
                  << " domain:" << domain_;
-      Singleton<DnsCertLimits>::get()->DidUpload(hostname_);
+      g_dns_cert_limits.Get().DidUpload(hostname_);
+      LogCertificates(der_certs_);
       delegate_->OnDnsCertLookupFailed(hostname_, der_certs_);
     } else if (status == OK) {
       LOG(ERROR) << "GOOD"
@@ -157,6 +162,35 @@ class DnsCertProvenanceCheck : public NonThreadSafe {
     }
 
     delete this;
+  }
+
+  // LogCertificates writes a certificate chain, in PEM format, to LOG(ERROR).
+  static void LogCertificates(
+      const std::vector<std::string>& der_certs) {
+    std::string dump;
+    bool first = true;
+
+    for (std::vector<std::string>::const_iterator
+         i = der_certs.begin(); i != der_certs.end(); i++) {
+      if (!first)
+        dump += "\n";
+      first = false;
+
+      dump += "-----BEGIN CERTIFICATE-----\n";
+      std::string b64_encoded;
+      base::Base64Encode(*i, &b64_encoded);
+      for (size_t i = 0; i < b64_encoded.size();) {
+        size_t todo = b64_encoded.size() - i;
+        if (todo > 64)
+          todo = 64;
+        dump += b64_encoded.substr(i, todo);
+        dump += "\n";
+        i += todo;
+      }
+      dump += "-----END CERTIFICATE-----";
+    }
+
+    LOG(ERROR) << "Offending certificates:\n" << dump;
   }
 
   const std::string hostname_;

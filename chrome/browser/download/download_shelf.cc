@@ -27,6 +27,10 @@ DownloadShelfContextMenu::DownloadShelfContextMenu(
 DownloadShelfContextMenu::~DownloadShelfContextMenu() {
 }
 
+DownloadItem* DownloadShelfContextMenu::download() const {
+  return download_;
+}
+
 bool DownloadShelfContextMenu::IsCommandIdChecked(int command_id) const {
   switch (command_id) {
     case OPEN_WHEN_COMPLETE:
@@ -110,7 +114,7 @@ bool DownloadShelfContextMenu::GetAcceleratorForCommandId(
   return false;
 }
 
-bool DownloadShelfContextMenu::IsLabelForCommandIdDynamic(
+bool DownloadShelfContextMenu::IsItemForCommandIdDynamic(
     int command_id) const {
   return command_id == TOGGLE_PAUSE;
 }

@@ -8,6 +8,7 @@
 #include "base/linked_ptr.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
+#include "base/metrics/field_trial.h"
 #include "base/metrics/stats_counters.h"
 #include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
@@ -61,17 +62,6 @@ Value* NetLogSpdySynParameter::ToValue() const {
 namespace {
 
 const int kReadBufferSize = 8 * 1024;
-
-void AdjustSocketBufferSizes(ClientSocket* socket) {
-  // Adjust socket buffer sizes.
-  // SPDY uses one socket, and we want a really big buffer.
-  // This greatly helps on links with packet loss - we can even
-  // outperform Vista's dynamic window sizing algorithm.
-  // TODO(mbelshe): more study.
-  const int kSocketBufferSize = 512 * 1024;
-  socket->SetReceiveBufferSize(kSocketBufferSize);
-  socket->SetSendBufferSize(kSocketBufferSize);
-}
 
 class NetLogSpdySessionParameter : public NetLog::EventParameters {
  public:
@@ -246,8 +236,10 @@ SpdySession::SpdySession(const HostPortProxyPair& host_port_proxy_pair,
       streams_pushed_and_claimed_count_(0),
       streams_abandoned_count_(0),
       frames_received_(0),
+      bytes_received_(0),
       sent_settings_(false),
       received_settings_(false),
+      stalled_streams_(0),
       initial_send_window_size_(spdy::kSpdyStreamInitialWindowSize),
       initial_recv_window_size_(spdy::kSpdyStreamInitialWindowSize),
       net_log_(BoundNetLog::Make(net_log, NetLog::SOURCE_SPDY_SESSION)) {
@@ -292,8 +284,6 @@ net::Error SpdySession::InitializeWithSocket(
     int certificate_error_code) {
   static base::StatsCounter spdy_sessions("spdy.sessions");
   spdy_sessions.Increment();
-
-  AdjustSocketBufferSizes(connection->socket());
 
   state_ = CONNECTED;
   connection_.reset(connection);
@@ -346,6 +336,7 @@ int SpdySession::CreateStream(
     return CreateStreamImpl(url, priority, spdy_stream, stream_net_log);
   }
 
+  stalled_streams_++;
   net_log().AddEvent(NetLog::TYPE_SPDY_SESSION_STALLED_MAX_STREAMS, NULL);
   create_stream_queues_[priority].push(
       PendingCreateStream(url, priority, spdy_stream,
@@ -594,6 +585,8 @@ void SpdySession::OnReadComplete(int bytes_read) {
     CloseSessionOnError(error, true);
     return;
   }
+
+  bytes_received_ += bytes_read;
 
   // The SpdyFramer will use callbacks onto |this| as it parses frames.
   // When errors occur, those callbacks can lead to teardown of all references
@@ -945,9 +938,7 @@ scoped_refptr<SpdyStream> SpdySession::GetActivePushStream(
     used_push_streams.Increment();
     return stream;
   }
-  else {
-    return NULL;
-  }
+  return NULL;
 }
 
 bool SpdySession::GetSSLInfo(SSLInfo* ssl_info, bool* was_npn_negotiated) {
@@ -1334,10 +1325,53 @@ void SpdySession::SendWindowUpdate(spdy::SpdyStreamId stream_id,
   QueueFrame(window_update_frame.get(), stream->priority(), stream);
 }
 
+// Given a cwnd that we would have sent to the server, modify it based on the
+// field trial policy.
+uint32 ApplyCwndFieldTrialPolicy(int cwnd) {
+  base::FieldTrial* trial = base::FieldTrialList::Find("SpdyCwnd");
+  if (trial->group_name() == "cwnd32")
+    return 32;
+  else if (trial->group_name() == "cwnd16")
+    return 16;
+  else if (trial->group_name() == "cwndMin16")
+    return std::max(cwnd, 16);
+  else if (trial->group_name() == "cwndMin10")
+    return std::max(cwnd, 10);
+  else if (trial->group_name() == "cwndDynamic")
+    return cwnd;
+  NOTREACHED();
+  return cwnd;
+}
+
 void SpdySession::SendSettings() {
-  const spdy::SpdySettings& settings = spdy_settings_->Get(host_port_pair());
+  // Note:  we're copying the settings here, so that we can potentially modify
+  // the settings for the field trial.  When removing the field trial, make
+  // this a reference to the const SpdySettings again.
+  spdy::SpdySettings settings = spdy_settings_->Get(host_port_pair());
   if (settings.empty())
     return;
+
+  // Record Histogram Data and Apply the SpdyCwnd FieldTrial if applicable.
+  for (spdy::SpdySettings::iterator i = settings.begin(),
+           end = settings.end(); i != end; ++i) {
+    const uint32 id = i->first.id();
+    const uint32 val = i->second;
+    switch (id) {
+      case spdy::SETTINGS_CURRENT_CWND:
+        uint32 cwnd = 0;
+        cwnd = ApplyCwndFieldTrialPolicy(val);
+        UMA_HISTOGRAM_CUSTOM_COUNTS("Net.SpdySettingsCwndSent",
+                                    cwnd,
+                                    1, 200, 100);
+        if (cwnd != val) {
+          i->second = cwnd;
+          i->first.set_flags(spdy::SETTINGS_FLAG_PLEASE_PERSIST);
+          spdy_settings_->Set(host_port_pair(), settings);
+        }
+        break;
+    }
+  }
+
   HandleSettings(settings);
 
   net_log_.AddEvent(
@@ -1383,6 +1417,11 @@ void SpdySession::RecordHistograms() {
                             sent_settings_ ? 1 : 0, 2);
   UMA_HISTOGRAM_ENUMERATION("Net.SpdySettingsReceived",
                             received_settings_ ? 1 : 0, 2);
+  UMA_HISTOGRAM_CUSTOM_COUNTS("Net.SpdyStreamStallsPerSession",
+                              stalled_streams_,
+                              0, 300, 50);
+  UMA_HISTOGRAM_ENUMERATION("Net.SpdySessionsWithStalls",
+                            stalled_streams_ > 0 ? 1 : 0, 2);
 
   if (received_settings_) {
     // Enumerate the saved settings, and set histograms for it.
@@ -1393,9 +1432,31 @@ void SpdySession::RecordHistograms() {
       const spdy::SpdySetting setting = *it;
       switch (setting.first.id()) {
         case spdy::SETTINGS_CURRENT_CWND:
+          // Record several different histograms to see if cwnd converges
+          // for larger volumes of data being sent.
           UMA_HISTOGRAM_CUSTOM_COUNTS("Net.SpdySettingsCwnd",
                                       setting.second,
                                       1, 200, 100);
+          if (bytes_received_ > 10 * 1024) {
+            UMA_HISTOGRAM_CUSTOM_COUNTS("Net.SpdySettingsCwnd10K",
+                                        setting.second,
+                                        1, 200, 100);
+            if (bytes_received_ > 25 * 1024) {
+              UMA_HISTOGRAM_CUSTOM_COUNTS("Net.SpdySettingsCwnd25K",
+                                          setting.second,
+                                          1, 200, 100);
+              if (bytes_received_ > 50 * 1024) {
+                UMA_HISTOGRAM_CUSTOM_COUNTS("Net.SpdySettingsCwnd50K",
+                                            setting.second,
+                                            1, 200, 100);
+                if (bytes_received_ > 100 * 1024) {
+                  UMA_HISTOGRAM_CUSTOM_COUNTS("Net.SpdySettingsCwnd100K",
+                                              setting.second,
+                                              1, 200, 100);
+                }
+              }
+            }
+          }
           break;
         case spdy::SETTINGS_ROUND_TRIP_TIME:
           UMA_HISTOGRAM_CUSTOM_COUNTS("Net.SpdySettingsRTT",

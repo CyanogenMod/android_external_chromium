@@ -11,10 +11,11 @@
 #include "chrome/browser/autofill/personal_data_manager.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/download/download_manager.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/in_process_webkit/webkit_context.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/plugin_data_remover.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/password_manager/password_store.h"
@@ -24,7 +25,7 @@
 #include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/webdata/web_data_service.h"
 #include "chrome/common/net/url_request_context_getter.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/notification_source.h"
 #include "chrome/common/url_constants.h"
 #include "net/base/cookie_monster.h"
 #include "net/base/net_errors.h"
@@ -87,7 +88,8 @@ BrowsingDataRemover::BrowsingDataRemover(Profile* profile,
       waiting_for_clear_databases_(false),
       waiting_for_clear_history_(false),
       waiting_for_clear_cache_(false),
-      waiting_for_clear_appcache_(false) {
+      waiting_for_clear_appcache_(false),
+      waiting_for_clear_lso_data_(false) {
   DCHECK(profile);
 }
 
@@ -100,7 +102,7 @@ void BrowsingDataRemover::Remove(int remove_mask) {
   removing_ = true;
 
   std::vector<GURL> origin_whitelist;
-  ExtensionsService* extensions_service = profile_->GetExtensionsService();
+  ExtensionService* extensions_service = profile_->GetExtensionService();
   if (extensions_service && extensions_service->HasInstalledExtensions()) {
     std::map<GURL, int> whitelist_map =
         extensions_service->protected_storage_map();
@@ -250,6 +252,17 @@ void BrowsingDataRemover::Remove(int remove_mask) {
     BrowserThread::PostTask(
         BrowserThread::IO, FROM_HERE,
         NewRunnableMethod(this, &BrowsingDataRemover::ClearCacheOnIOThread));
+  }
+
+  if (remove_mask & REMOVE_LSO_DATA) {
+    UserMetrics::RecordAction(UserMetricsAction("ClearBrowsingData_LSOData"));
+
+    waiting_for_clear_lso_data_ = true;
+    if (!plugin_data_remover_.get())
+      plugin_data_remover_ = new PluginDataRemover();
+    plugin_data_remover_->StartRemoving(
+        delete_begin_,
+        NewRunnableMethod(this, &BrowsingDataRemover::OnClearedPluginData));
   }
 
   NotifyAndDeleteIfDone();
@@ -458,7 +471,6 @@ void BrowsingDataRemover::OnGotAppCacheInfo(int rv) {
   for (InfoByOrigin::const_iterator origin =
            appcache_info_->infos_by_origin.begin();
        origin != appcache_info_->infos_by_origin.end(); ++origin) {
-
     bool found_in_whitelist = false;
     for (size_t i = 0; i < appcache_whitelist_.size(); ++i) {
       if (appcache_whitelist_[i] == origin->first)
@@ -495,4 +507,9 @@ ChromeAppCacheService* BrowsingDataRemover::GetAppCacheService() {
           request_context_getter_->GetURLRequestContext());
   return request_context ? request_context->appcache_service()
                          : NULL;
+}
+
+void BrowsingDataRemover::OnClearedPluginData() {
+  waiting_for_clear_lso_data_ = false;
+  NotifyAndDeleteIfDone();
 }

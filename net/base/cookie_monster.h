@@ -30,6 +30,8 @@ class Histogram;
 
 namespace net {
 
+class CookieList;
+
 // The cookie monster is the system for storing and retrieving cookies. It has
 // an in-memory list of all cookies, and synchronizes non-session cookies to an
 // optional permanent storage that implements the PersistentCookieStore
@@ -95,7 +97,6 @@ class CookieMonster : public CookieStore {
   // subtantially more entries in the map.
   typedef std::multimap<std::string, CanonicalCookie*> CookieMap;
   typedef std::pair<CookieMap::iterator, CookieMap::iterator> CookieMapItPair;
-  typedef std::vector<CanonicalCookie> CookieList;
 
   // The key and expiry scheme to be used by the monster.
   // EKS_KEEP_RECENT_AND_PURGE_ETLDP1 means to use
@@ -146,7 +147,7 @@ class CookieMonster : public CookieStore {
   // Deletes all cookies with that might apply to |url| that has |cookie_name|.
   virtual void DeleteCookie(const GURL& url, const std::string& cookie_name);
 
-  virtual CookieMonster* GetCookieMonster() { return this; }
+  virtual CookieMonster* GetCookieMonster();
 
   // Sets a cookie given explicit user-provided cookie attributes. The cookie
   // name, value, domain, etc. are each provided as separate strings. This
@@ -169,10 +170,15 @@ class CookieMonster : public CookieStore {
   CookieList GetAllCookies();
 
   // Returns all the cookies, for use in management UI, etc. Filters results
-  // using given url scheme, host / domain and path. This does not mark the
-  // cookies as having been accessed.
+  // using given url scheme, host / domain and path and options. This does not
+  // mark the cookies as having been accessed.
   // The returned cookies are ordered by longest path, then earliest
   // creation date.
+  CookieList GetAllCookiesForURLWithOptions(const GURL& url,
+                                            const CookieOptions& options);
+
+  // Invokes GetAllCookiesForURLWithOptions with options set to include HTTP
+  // only cookies.
   CookieList GetAllCookiesForURL(const GURL& url);
 
   // Deletes all of the cookies.
@@ -207,6 +213,10 @@ class CookieMonster : public CookieStore {
   // function must be called before initialization.
   void SetExpiryAndKeyScheme(ExpiryAndKeyScheme key_scheme);
 
+  // Delegates the call to set the |clear_local_store_on_exit_| flag of the
+  // PersistentStore if it exists.
+  void SetClearPersistentStoreOnExit(bool clear_local_store);
+
   // There are some unknowns about how to correctly handle file:// cookies,
   // and our implementation for this is not robust enough. This allows you
   // to enable support, but it should only be used for testing. Bug 1157243.
@@ -214,14 +224,20 @@ class CookieMonster : public CookieStore {
   static void EnableFileScheme();
   static bool enable_file_scheme_;
 
+<<<<<<< HEAD
 #if defined(ANDROID)
+=======
+>>>>>>> chromium.org at r10.0.621.0
   // Flush the backing store (if any) to disk and post the given task when done.
   // WARNING: THE CALLBACK WILL RUN ON A RANDOM THREAD. IT MUST BE THREAD SAFE.
   // It may be posted to the current thread, or it may run on the thread that
   // actually does the flushing. Your Task should generally post a notification
   // to the thread you actually want to be notified on.
   void FlushStore(Task* completion_task);
+<<<<<<< HEAD
 #endif
+=======
+>>>>>>> chromium.org at r10.0.621.0
 
  private:
   ~CookieMonster();
@@ -692,15 +708,22 @@ typedef base::RefCountedThreadSafe<CookieMonster::PersistentCookieStore>
 class CookieMonster::PersistentCookieStore
     : public RefcountedPersistentCookieStore {
  public:
-  virtual ~PersistentCookieStore() { }
+  virtual ~PersistentCookieStore() {}
 
   // Initializes the store and retrieves the existing cookies. This will be
   // called only once at startup.
-  virtual bool Load(std::vector<CookieMonster::CanonicalCookie*>*) = 0;
+  virtual bool Load(std::vector<CookieMonster::CanonicalCookie*>* cookies) = 0;
 
-  virtual void AddCookie(const CanonicalCookie&) = 0;
-  virtual void UpdateCookieAccessTime(const CanonicalCookie&) = 0;
-  virtual void DeleteCookie(const CanonicalCookie&) = 0;
+  virtual void AddCookie(const CanonicalCookie& cc) = 0;
+  virtual void UpdateCookieAccessTime(const CanonicalCookie& cc) = 0;
+  virtual void DeleteCookie(const CanonicalCookie& cc) = 0;
+
+  // Sets the value of the user preference whether the persistent storage
+  // must be deleted upon destruction.
+  virtual void SetClearLocalStateOnExit(bool clear_local_state) = 0;
+
+  // Flush the store and post the given Task when complete.
+  virtual void Flush(Task* completion_task) = 0;
 
 #if defined(ANDROID)
   // Flush the store and post the given Task when complete.
@@ -708,10 +731,13 @@ class CookieMonster::PersistentCookieStore
 #endif
 
  protected:
-  PersistentCookieStore() { }
+  PersistentCookieStore() {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(PersistentCookieStore);
+};
+
+class CookieList : public std::vector<CookieMonster::CanonicalCookie> {
 };
 
 }  // namespace net

@@ -29,8 +29,8 @@ class PasswordModelWorker : public browser_sync::ModelSafeWorker {
   virtual ~PasswordModelWorker();
 
   // ModelSafeWorker implementation. Called on syncapi SyncerThread.
-  void DoWorkAndWaitUntilDone(Callback0::Type* work);
-  virtual ModelSafeGroup GetModelSafeGroup() { return GROUP_PASSWORD; }
+  virtual void DoWorkAndWaitUntilDone(Callback0::Type* work);
+  virtual ModelSafeGroup GetModelSafeGroup();
   virtual bool CurrentThreadIsWorkThread();
 
  private:

@@ -11,6 +11,7 @@
 #include "base/i18n/file_util_icu.h"
 #include "base/message_loop.h"
 #include "base/platform_thread.h"
+#include "base/thread_restrictions.h"
 #include "net/base/net_errors.h"
 
 namespace net {
@@ -122,6 +123,9 @@ DirectoryLister::DirectoryLister(const FilePath& dir,
 
 DirectoryLister::~DirectoryLister() {
   if (thread_) {
+    // This is a bug and we should stop joining this thread.
+    // http://crbug.com/65331
+    base::ThreadRestrictions::ScopedAllowIO allow_io;
     PlatformThread::Join(thread_);
   }
 }
@@ -147,6 +151,9 @@ void DirectoryLister::Cancel() {
   canceled_.Set();
 
   if (thread_) {
+    // This is a bug and we should stop joining this thread.
+    // http://crbug.com/65331
+    base::ThreadRestrictions::ScopedAllowIO allow_io;
     PlatformThread::Join(thread_);
     thread_ = kNullThreadHandle;
   }

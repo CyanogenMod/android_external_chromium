@@ -5,8 +5,8 @@
 #include "chrome/browser/content_setting_image_model.h"
 
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/host_content_settings_map.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/content_settings/host_content_settings_map.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
 #include "chrome/browser/tab_contents/test_tab_contents.h"
 #include "chrome/test/testing_profile.h"
@@ -59,7 +59,7 @@ TEST_F(ContentSettingImageModelTest, CookieAccessed) {
   EXPECT_EQ(std::string(), content_setting_image_model->get_tooltip());
 
   net::CookieOptions options;
-  content_settings->OnCookieAccessed(
+  content_settings->OnCookieChanged(
       GURL("http://google.com"), "A=B", options, false);
   content_setting_image_model->UpdateFromTabContents(&tab_contents);
   EXPECT_TRUE(content_setting_image_model->is_visible());

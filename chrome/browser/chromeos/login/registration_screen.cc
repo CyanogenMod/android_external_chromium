@@ -9,7 +9,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/child_process_security_policy.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
-#include "chrome/browser/profile_manager.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -142,10 +142,10 @@ void RegistrationScreen::CloseScreen(ScreenObserver::ExitCodes code) {
 }
 
 // static
-URLRequestJob* RegistrationScreen::Factory(URLRequest* request,
-                                           const std::string& scheme) {
+net::URLRequestJob* RegistrationScreen::Factory(net::URLRequest* request,
+                                                const std::string& scheme) {
   VLOG(1) << "Handling url: " << request->url().spec().c_str();
-  return new URLRequestAboutJob(request);
+  return new net::URLRequestAboutJob(request);
 }
 
 }  // namespace chromeos

@@ -8,11 +8,12 @@
 
 #include "base/logging.h"
 #include "chrome/browser/extensions/extension_updater.h"
-#include "chrome/browser/extensions/extensions_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/glue/extension_data.h"
 #include "chrome/browser/sync/glue/extension_sync_traits.h"
+#include "chrome/browser/sync/glue/extension_util.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 
 namespace browser_sync {
@@ -33,20 +34,20 @@ bool RootNodeHasChildren(const char* tag,
   return true;
 }
 
-ExtensionsService* GetExtensionsServiceFromProfile(
+ExtensionService* GetExtensionServiceFromProfile(
     Profile* profile) {
   CHECK(profile);
-  ExtensionsService* extensions_service = profile->GetExtensionsService();
+  ExtensionService* extensions_service = profile->GetExtensionService();
   CHECK(extensions_service);
   return extensions_service;
 }
 
 namespace {
 
-ExtensionsService* GetExtensionsServiceFromProfileSyncService(
+ExtensionService* GetExtensionServiceFromProfileSyncService(
     ProfileSyncService* sync_service) {
   CHECK(sync_service);
-  return GetExtensionsServiceFromProfile(sync_service->profile());
+  return GetExtensionServiceFromProfile(sync_service->profile());
 }
 
 // Updates the value in |extension_data_map| from the given data,
@@ -79,15 +80,15 @@ ExtensionData* SetOrCreateExtensionData(
 // extensions in |unsynced_extensions|.
 void ReadClientDataFromExtensionList(
     const ExtensionList& extensions,
-    const ExtensionTypeSet& allowed_extension_types,
-    ExtensionsService* extensions_service,
+    IsValidAndSyncablePredicate is_valid_and_syncable,
+    ExtensionService* extensions_service,
     std::set<std::string>* unsynced_extensions,
     ExtensionDataMap* extension_data_map) {
   for (ExtensionList::const_iterator it = extensions.begin();
        it != extensions.end(); ++it) {
     CHECK(*it);
     const Extension& extension = **it;
-    if (IsExtensionValidAndSyncable(extension, allowed_extension_types)) {
+    if (is_valid_and_syncable(extension)) {
       sync_pb::ExtensionSpecifics client_specifics;
       GetExtensionSpecifics(extension, extensions_service->extension_prefs(),
                             &client_specifics);
@@ -109,21 +110,21 @@ void ReadClientDataFromExtensionList(
 // Simply calls ReadClientDataFromExtensionList() on the list of
 // enabled and disabled extensions from |extensions_service|.
 void SlurpClientData(
-    const ExtensionTypeSet& allowed_extension_types,
-    ExtensionsService* extensions_service,
+    IsValidAndSyncablePredicate is_valid_and_syncable,
+    ExtensionService* extensions_service,
     std::set<std::string>* unsynced_extensions,
     ExtensionDataMap* extension_data_map) {
   const ExtensionList* extensions = extensions_service->extensions();
   CHECK(extensions);
   ReadClientDataFromExtensionList(
-      *extensions, allowed_extension_types, extensions_service,
+      *extensions, is_valid_and_syncable, extensions_service,
       unsynced_extensions, extension_data_map);
 
   const ExtensionList* disabled_extensions =
       extensions_service->disabled_extensions();
   CHECK(disabled_extensions);
   ReadClientDataFromExtensionList(
-      *disabled_extensions, allowed_extension_types, extensions_service,
+      *disabled_extensions, is_valid_and_syncable, extensions_service,
       unsynced_extensions, extension_data_map);
 }
 
@@ -191,14 +192,14 @@ bool SlurpServerData(
 bool SlurpExtensionData(const ExtensionSyncTraits& traits,
                         ProfileSyncService* sync_service,
                         ExtensionDataMap* extension_data_map) {
-  ExtensionsService* extensions_service =
-      GetExtensionsServiceFromProfileSyncService(sync_service);
+  ExtensionService* extensions_service =
+      GetExtensionServiceFromProfileSyncService(sync_service);
   std::set<std::string> unsynced_extensions;
 
   // Read client-side data first so server data takes precedence, and
   // also so we have an idea of which extensions are unsyncable.
   SlurpClientData(
-      traits.allowed_extension_types, extensions_service,
+      traits.is_valid_and_syncable, extensions_service,
       &unsynced_extensions, extension_data_map);
 
   if (!SlurpServerData(
@@ -258,9 +259,8 @@ bool UpdateServer(
 // function is called.  Otherwise, the extension needs updating to a
 // new version.
 void TryUpdateClient(
-    const ExtensionTypeSet& allowed_extension_types,
-    PendingExtensionInfo::ExpectedCrxType expected_crx_type,
-    ExtensionsService* extensions_service,
+    IsValidAndSyncablePredicate is_valid_and_syncable,
+    ExtensionService* extensions_service,
     ExtensionData* extension_data) {
   DCHECK(!extension_data->NeedsUpdate(ExtensionData::SERVER));
   DCHECK(extension_data->NeedsUpdate(ExtensionData::CLIENT));
@@ -270,7 +270,7 @@ void TryUpdateClient(
   const std::string& id = specifics.id();
   const Extension* extension = extensions_service->GetExtensionById(id, true);
   if (extension) {
-    if (!IsExtensionValidAndSyncable(*extension, allowed_extension_types)) {
+    if (!is_valid_and_syncable(*extension)) {
       LOG(DFATAL) << "TryUpdateClient() called for non-syncable extension "
                   << extension->id();
       return;
@@ -295,7 +295,7 @@ void TryUpdateClient(
     // permissions.
     extensions_service->AddPendingExtensionFromSync(
         id, update_url,
-        expected_crx_type,
+        is_valid_and_syncable,
         true,  // install_silently
         specifics.enabled(),
         specifics.incognito_enabled());
@@ -307,10 +307,10 @@ void TryUpdateClient(
 //
 // TODO(akalin): Combine this with the similar function in
 // theme_util.cc.
-void NudgeExtensionUpdater(ExtensionsService* extensions_service) {
+void NudgeExtensionUpdater(ExtensionService* extensions_service) {
   ExtensionUpdater* extension_updater = extensions_service->updater();
   // Auto-updates should now be on always (see the construction of the
-  // ExtensionsService in ProfileImpl::InitExtensions()).
+  // ExtensionService in ProfileImpl::InitExtensions()).
   if (extension_updater) {
     extension_updater->CheckNow();
   } else {
@@ -332,8 +332,8 @@ bool FlushExtensionData(const ExtensionSyncTraits& traits,
     return false;
   }
 
-  ExtensionsService* extensions_service =
-      GetExtensionsServiceFromProfileSyncService(sync_service);
+  ExtensionService* extensions_service =
+      GetExtensionServiceFromProfileSyncService(sync_service);
 
   // Update server and client as necessary.
   bool should_nudge_extension_updater = false;
@@ -350,8 +350,7 @@ bool FlushExtensionData(const ExtensionSyncTraits& traits,
     }
     DCHECK(!extension_data.NeedsUpdate(ExtensionData::SERVER));
     if (extension_data.NeedsUpdate(ExtensionData::CLIENT)) {
-      TryUpdateClient(traits.allowed_extension_types,
-                      traits.expected_crx_type,
+      TryUpdateClient(traits.is_valid_and_syncable,
                       extensions_service, &extension_data);
       if (extension_data.NeedsUpdate(ExtensionData::CLIENT)) {
         should_nudge_extension_updater = true;
@@ -372,8 +371,7 @@ bool UpdateServerData(const ExtensionSyncTraits& traits,
                       ProfileSyncService* sync_service,
                       std::string* error) {
   const std::string& id = extension.id();
-  if (!IsExtensionValidAndSyncable(extension,
-                                   traits.allowed_extension_types)) {
+  if (!traits.is_valid_and_syncable(extension)) {
     *error =
         std::string("UpdateServerData() called for invalid or "
                     "unsyncable extension ") + id;
@@ -381,8 +379,8 @@ bool UpdateServerData(const ExtensionSyncTraits& traits,
     return false;
   }
 
-  ExtensionsService* extensions_service =
-      GetExtensionsServiceFromProfileSyncService(sync_service);
+  ExtensionService* extensions_service =
+      GetExtensionServiceFromProfileSyncService(sync_service);
   sync_pb::ExtensionSpecifics client_data;
   GetExtensionSpecifics(extension, extensions_service->extension_prefs(),
                         &client_data);
@@ -442,15 +440,14 @@ void RemoveServerData(const ExtensionSyncTraits& traits,
 
 void UpdateClient(const ExtensionSyncTraits& traits,
                   const sync_pb::ExtensionSpecifics& server_data,
-                  ExtensionsService* extensions_service) {
+                  ExtensionService* extensions_service) {
   DcheckIsExtensionSpecificsValid(server_data);
   ExtensionData extension_data =
       ExtensionData::FromData(ExtensionData::SERVER, server_data);
   const Extension* extension =
       extensions_service->GetExtensionById(server_data.id(), true);
   if (extension) {
-    if (!IsExtensionValidAndSyncable(
-            *extension, traits.allowed_extension_types)) {
+    if (!traits.is_valid_and_syncable(*extension)) {
       LOG(WARNING) << "Ignoring server data for invalid or "
                    << "non-syncable extension " << extension->id();
       return;
@@ -465,8 +462,7 @@ void UpdateClient(const ExtensionSyncTraits& traits,
   }
   DCHECK(!extension_data.NeedsUpdate(ExtensionData::SERVER));
   if (extension_data.NeedsUpdate(ExtensionData::CLIENT)) {
-    TryUpdateClient(traits.allowed_extension_types,
-                    traits.expected_crx_type,
+    TryUpdateClient(traits.is_valid_and_syncable,
                     extensions_service, &extension_data);
     if (extension_data.NeedsUpdate(ExtensionData::CLIENT)) {
       NudgeExtensionUpdater(extensions_service);
@@ -477,11 +473,10 @@ void UpdateClient(const ExtensionSyncTraits& traits,
 
 void RemoveFromClient(const ExtensionSyncTraits& traits,
                       const std::string& id,
-                      ExtensionsService* extensions_service) {
+                      ExtensionService* extensions_service) {
   const Extension* extension = extensions_service->GetExtensionById(id, true);
   if (extension) {
-    if (IsExtensionValidAndSyncable(*extension,
-                                    traits.allowed_extension_types)) {
+    if (traits.is_valid_and_syncable(*extension)) {
       extensions_service->UninstallExtension(id, false);
     } else {
       LOG(WARNING) << "Ignoring server data for invalid or "

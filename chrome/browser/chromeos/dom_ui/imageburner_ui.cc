@@ -4,6 +4,8 @@
 
 #include "chrome/browser/chromeos/dom_ui/imageburner_ui.h"
 
+#include <algorithm>
+
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/i18n/rtl.h"
@@ -17,7 +19,8 @@
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/download/download_types.h"
 #include "chrome/browser/download/download_util.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/url_constants.h"
@@ -105,7 +108,7 @@ ImageBurnHandler::ImageBurnHandler(TabContents* contents)
           chromeos::CrosLibrary::Get()->GetBurnLibrary();
   burn_lib->AddObserver(this);
   local_image_file_path_.clear();
-  burn_resource_manager_ = Singleton<ImageBurnResourceManager>::get();
+  burn_resource_manager_ = ImageBurnResourceManager::GetInstance();
 }
 
 ImageBurnHandler::~ImageBurnHandler() {
@@ -398,7 +401,7 @@ void ImageBurnHandler::CreateLocalImagePath() {
 ImageBurnTaskProxy::ImageBurnTaskProxy(
                         const base::WeakPtr<ImageBurnHandler>& handler)
                             : handler_(handler) {
-  resource_manager_ = Singleton<ImageBurnResourceManager>::get();
+  resource_manager_ = ImageBurnResourceManager::GetInstance();
 }
 
 bool ImageBurnTaskProxy::ReportDownloadInitialized() {
@@ -462,6 +465,11 @@ ImageBurnResourceManager::~ImageBurnResourceManager() {
   }
   if (download_manager_)
     download_manager_->RemoveObserver(this);
+}
+
+// static
+ImageBurnResourceManager* ImageBurnResourceManager::GetInstance() {
+  return Singleton<ImageBurnResourceManager>::get();
 }
 
 void ImageBurnResourceManager::OnDownloadUpdated(DownloadItem* download) {
@@ -610,7 +618,7 @@ ImageBurnUI::ImageBurnUI(TabContents* contents) : DOMUI(contents) {
   BrowserThread::PostTask(
        BrowserThread::IO, FROM_HERE,
        NewRunnableMethod(
-           Singleton<ChromeURLDataManager>::get(),
+           ChromeURLDataManager::GetInstance(),
            &ChromeURLDataManager::AddDataSource,
            make_scoped_refptr(html_source)));
 }

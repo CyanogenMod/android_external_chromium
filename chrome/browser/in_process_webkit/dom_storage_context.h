@@ -14,15 +14,15 @@
 #include "base/time.h"
 
 class DOMStorageArea;
-class DOMStorageDispatcherHost;
+class DOMStorageMessageFilter;
 class DOMStorageNamespace;
 class WebKitContext;
 
 // This is owned by WebKitContext and is all the dom storage information that's
-// shared by all the ResourceMessageFilter/DOMStorageDispatcherHosts that share
-// the same profile.  The specifics of responsibilities are fairly well
-// documented here and in StorageNamespace and StorageArea.  Everything is only
-// to be accessed on the WebKit thread unless noted otherwise.
+// shared by all the DOMStorageMessageFilters that share the same profile.  The
+// specifics of responsibilities are fairly well documented here and in
+// StorageNamespace and StorageArea.  Everything is only to be accessed on the
+// WebKit thread unless noted otherwise.
 //
 // NOTE: Virtual methods facilitate mocking functions for testing.
 class DOMStorageContext {
@@ -54,12 +54,12 @@ class DOMStorageContext {
   // namespace if it hasn't been already.
   DOMStorageNamespace* GetStorageNamespace(int64 id, bool allocation_allowed);
 
-  // Sometimes an event from one DOM storage dispatcher host requires
+  // Sometimes an event from one DOM storage message filter requires
   // communication to all of them.
-  typedef std::set<DOMStorageDispatcherHost*> DispatcherHostSet;
-  void RegisterDispatcherHost(DOMStorageDispatcherHost* dispatcher_host);
-  void UnregisterDispatcherHost(DOMStorageDispatcherHost* dispatcher_host);
-  const DispatcherHostSet* GetDispatcherHostSet() const;
+  typedef std::set<DOMStorageMessageFilter*> MessageFilterSet;
+  void RegisterMessageFilter(DOMStorageMessageFilter* message_filter);
+  void UnregisterMessageFilter(DOMStorageMessageFilter* MessageFilter);
+  const MessageFilterSet* GetMessageFilterSet() const;
 
   // Tells storage namespaces to purge any memory they do not need.
   virtual void PurgeMemory();
@@ -85,12 +85,17 @@ class DOMStorageContext {
   // The local storage file extension.
   static const FilePath::CharType kLocalStorageExtension[];
 
-  // Delete all non-extension local storage files.
-  static void ClearLocalState(const FilePath& profile_path,
-                              const char* url_scheme_to_be_skipped);
-
   // Get the file name of the local storage file for the given origin.
   FilePath GetLocalStorageFilePath(const string16& origin_id) const;
+
+  void set_clear_local_state_on_exit_(bool clear_local_state) {
+    clear_local_state_on_exit_ = clear_local_state;
+  }
+
+#ifdef UNIT_TEST
+  // For unit tests allow to override the |data_path_|.
+  void set_data_path(const FilePath& data_path) { data_path_ = data_path; }
+#endif
 
  private:
   // Get the local storage instance.  The object is owned by this class.
@@ -118,12 +123,19 @@ class DOMStorageContext {
   int64 last_session_storage_namespace_id_on_ui_thread_;
   int64 last_session_storage_namespace_id_on_io_thread_;
 
-  // We're owned by this WebKit context.  Used while instantiating LocalStorage.
-  WebKitContext* webkit_context_;
+  // True if the destructor should delete its files.
+  bool clear_local_state_on_exit_;
 
-  // All the DOMStorageDispatcherHosts that are attached to us. ONLY USE ON THE
+  // Path where the profile data is stored.
+  // TODO(pastarmovj): Keep in mind that unlike indexed db data_path_ variable
+  // this one still has to point to the upper level dir because of the
+  // MigrateLocalStorageDirectory function. Once this function disappears we can
+  // make it point directly to the dom storage path.
+  FilePath data_path_;
+
+  // All the DOMStorageMessageFilters that are attached to us. ONLY USE ON THE
   // IO THREAD!
-  DispatcherHostSet dispatcher_host_set_;
+  MessageFilterSet message_filter_set_;
 
   // Maps ids to StorageAreas.  We do NOT own these objects.  StorageNamespace
   // (which does own them) will notify us when we should remove the entries.

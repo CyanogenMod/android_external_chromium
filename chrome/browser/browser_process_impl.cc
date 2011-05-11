@@ -13,6 +13,7 @@
 #include "base/path_service.h"
 #include "base/task.h"
 #include "base/thread.h"
+#include "base/thread_restrictions.h"
 #include "base/waitable_event.h"
 #include "chrome/browser/appcache/chrome_appcache_service.h"
 #include "chrome/browser/automation/automation_provider_list.h"
@@ -29,23 +30,23 @@
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/google/google_url_tracker.h"
 #include "chrome/browser/icon_manager.h"
-#include "chrome/browser/in_process_webkit/dom_storage_context.h"
-#include "chrome/browser/in_process_webkit/indexed_db_context.h"
 #include "chrome/browser/intranet_redirect_detector.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/metrics/metrics_service.h"
+#include "chrome/browser/net/chrome_net_log.h"
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/net/sdch_dictionary_fetcher.h"
-#include "chrome/browser/net/sqlite_persistent_cookie_store.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
+#include "chrome/browser/plugin_data_remover.h"
 #include "chrome/browser/plugin_service.h"
 #include "chrome/browser/plugin_updater.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/printing/print_job_manager.h"
 #include "chrome/browser/printing/print_preview_tab_controller.h"
-#include "chrome/browser/profile_manager.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
+#include "chrome/browser/safe_browsing/client_side_detection_service.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/sidebar/sidebar_manager.h"
 #include "chrome/browser/tab_closeable_state_watcher.h"
@@ -100,6 +101,7 @@ BrowserProcessImpl::BrowserProcessImpl(const CommandLine& command_line)
       created_devtools_manager_(false),
       created_sidebar_manager_(false),
       created_notification_ui_manager_(false),
+      created_safe_browsing_detection_service_(false),
       module_ref_count_(0),
       did_start_(false),
       checked_for_new_frames_(false),
@@ -109,10 +111,16 @@ BrowserProcessImpl::BrowserProcessImpl(const CommandLine& command_line)
   clipboard_.reset(new Clipboard);
   main_notification_service_.reset(new NotificationService);
 
+  notification_registrar_.Add(this,
+                              NotificationType::APP_TERMINATING,
+                              NotificationService::AllSources());
+
   // Must be created after the NotificationService.
   print_job_manager_.reset(new printing::PrintJobManager);
 
   shutdown_event_.reset(new base::WaitableEvent(true, false));
+
+  net_log_.reset(new ChromeNetLog);
 }
 
 BrowserProcessImpl::~BrowserProcessImpl() {
@@ -171,6 +179,9 @@ BrowserProcessImpl::~BrowserProcessImpl() {
   // The IO thread must outlive the BACKGROUND_X11 thread.
   background_x11_thread_.reset();
 #endif
+
+  // Wait for removing plugin data to finish before shutting down the IO thread.
+  WaitForPluginDataRemoverToFinish();
 
   // Need to stop io_thread_ before resource_dispatcher_host_, since
   // io_thread_ may still deref ResourceDispatcherHost and handle resource
@@ -250,6 +261,12 @@ unsigned int BrowserProcessImpl::ReleaseModule() {
   DCHECK_NE(0u, module_ref_count_);
   module_ref_count_--;
   if (0 == module_ref_count_) {
+    // Allow UI and IO threads to do blocking IO on shutdown, since we do a lot
+    // of it on shutdown for valid reasons.
+    base::ThreadRestrictions::SetIOAllowed(true);
+    io_thread()->message_loop()->PostTask(
+        FROM_HERE,
+        NewRunnableFunction(&base::ThreadRestrictions::SetIOAllowed, true));
     MessageLoop::current()->PostTask(
         FROM_HERE, NewRunnableFunction(DidEndMainMessageLoop));
     MessageLoop::current()->Quit();
@@ -483,10 +500,47 @@ TabCloseableStateWatcher* BrowserProcessImpl::tab_closeable_state_watcher() {
   return tab_closeable_state_watcher_.get();
 }
 
+safe_browsing::ClientSideDetectionService*
+    BrowserProcessImpl::safe_browsing_detection_service() {
+  DCHECK(CalledOnValidThread());
+  if (!created_safe_browsing_detection_service_) {
+    CreateSafeBrowsingDetectionService();
+  }
+  return safe_browsing_detection_service_.get();
+}
+
 void BrowserProcessImpl::CheckForInspectorFiles() {
   file_thread()->message_loop()->PostTask
       (FROM_HERE,
        NewRunnableMethod(this, &BrowserProcessImpl::DoInspectorFilesCheck));
+}
+
+void BrowserProcessImpl::Observe(NotificationType type,
+                                 const NotificationSource& source,
+                                 const NotificationDetails& details) {
+  if (type == NotificationType::APP_TERMINATING) {
+    Profile* profile = ProfileManager::GetDefaultProfile();
+    if (profile) {
+      PrefService* prefs = profile->GetPrefs();
+      if (prefs->GetBoolean(prefs::kClearPluginLSODataOnExit) &&
+          local_state()->GetBoolean(prefs::kClearPluginLSODataEnabled)) {
+        plugin_data_remover_ = new PluginDataRemover();
+        plugin_data_remover_->StartRemoving(base::Time(), NULL);
+      }
+    }
+  } else {
+    NOTREACHED();
+  }
+}
+
+void BrowserProcessImpl::WaitForPluginDataRemoverToFinish() {
+  if (!plugin_data_remover_.get() || !plugin_data_remover_->is_removing())
+    return;
+  plugin_data_remover_->set_done_task(new MessageLoop::QuitTask());
+  base::Time start_time(base::Time::Now());
+  MessageLoop::current()->Run();
+  UMA_HISTOGRAM_TIMES("ClearPluginData.wait_at_shutdown",
+                      base::Time::Now() - start_time);
 }
 
 #if (defined(OS_WIN) || defined(OS_LINUX)) && !defined(OS_CHROMEOS)
@@ -503,10 +557,6 @@ bool BrowserProcessImpl::have_inspector_files() const {
 }
 
 void BrowserProcessImpl::ClearLocalState(const FilePath& profile_path) {
-  SQLitePersistentCookieStore::ClearLocalState(profile_path.Append(
-      chrome::kCookieFilename));
-  DOMStorageContext::ClearLocalState(profile_path, chrome::kExtensionScheme);
-  IndexedDBContext::ClearLocalState(profile_path, chrome::kExtensionScheme);
   webkit_database::DatabaseTracker::ClearLocalState(profile_path);
   ChromeAppCacheService::ClearLocalState(profile_path);
 }
@@ -566,7 +616,7 @@ void BrowserProcessImpl::CreateIOThread() {
   background_x11_thread_.swap(background_x11_thread);
 #endif
 
-  scoped_ptr<IOThread> thread(new IOThread(local_state()));
+  scoped_ptr<IOThread> thread(new IOThread(local_state(), net_log_.get()));
   base::Thread::Options options;
   options.message_loop_type = MessageLoop::TYPE_IO;
   if (!thread->StartWithOptions(options))
@@ -641,7 +691,8 @@ void BrowserProcessImpl::CreateLocalState() {
 
   FilePath local_state_path;
   PathService::Get(chrome::FILE_LOCAL_STATE, &local_state_path);
-  local_state_.reset(PrefService::CreatePrefService(local_state_path, NULL));
+  local_state_.reset(
+      PrefService::CreatePrefService(local_state_path, NULL, NULL));
 
   pref_change_registrar_.Init(local_state_.get());
 
@@ -649,7 +700,7 @@ void BrowserProcessImpl::CreateLocalState() {
   // in the plugin blacklist.
   local_state_->RegisterListPref(prefs::kPluginsPluginsBlacklist);
   pref_change_registrar_.Add(prefs::kPluginsPluginsBlacklist,
-                             PluginUpdater::GetPluginUpdater());
+                             PluginUpdater::GetInstance());
 
   // Initialize and set up notifications for the printing enabled
   // preference.
@@ -715,6 +766,38 @@ void BrowserProcessImpl::CreatePrintPreviewTabController() {
   print_preview_tab_controller_ = new printing::PrintPreviewTabController();
 }
 
+void BrowserProcessImpl::CreateSafeBrowsingDetectionService() {
+  DCHECK(safe_browsing_detection_service_.get() == NULL);
+  // Set this flag to true so that we don't retry indefinitely to
+  // create the service class if there was an error.
+  created_safe_browsing_detection_service_ = true;
+
+  FilePath model_file_path;
+  Profile* profile = profile_manager() ?
+    profile_manager()->GetDefaultProfile() : NULL;
+  if (IsSafeBrowsingDetectionServiceEnabled() &&
+      PathService::Get(chrome::DIR_USER_DATA, &model_file_path) &&
+      profile && profile->GetRequestContext()) {
+    safe_browsing_detection_service_.reset(
+        safe_browsing::ClientSideDetectionService::Create(
+            model_file_path.Append(chrome::kSafeBrowsingPhishingModelFilename),
+            profile->GetRequestContext()));
+  }
+}
+
+bool BrowserProcessImpl::IsSafeBrowsingDetectionServiceEnabled() {
+  // The safe browsing client-side detection is enabled only if the switch is
+  // enabled, the user has opted in to UMA usage stats and SafeBrowsing
+  // is enabled.
+  Profile* profile = profile_manager() ?
+      profile_manager()->GetDefaultProfile() : NULL;
+  return (CommandLine::ForCurrentProcess()->HasSwitch(
+              switches::kEnableClientSidePhishingDetection) &&
+          metrics_service() && metrics_service()->reporting_active() &&
+          profile && profile->GetPrefs() &&
+          profile->GetPrefs()->GetBoolean(prefs::kSafeBrowsingEnabled));
+}
+
 // The BrowserProcess object must outlive the file thread so we use traits
 // which don't do any management.
 DISABLE_RUNNABLE_METHOD_REFCOUNT(BrowserProcessImpl);
@@ -724,9 +807,9 @@ DISABLE_RUNNABLE_METHOD_REFCOUNT(BrowserProcessImpl);
 void BrowserProcessImpl::SetIPCLoggingEnabled(bool enable) {
   // First enable myself.
   if (enable)
-    IPC::Logging::current()->Enable();
+    IPC::Logging::GetInstance()->Enable();
   else
-    IPC::Logging::current()->Disable();
+    IPC::Logging::GetInstance()->Disable();
 
   // Now tell subprocesses.  Messages to ChildProcess-derived
   // processes must be done on the IO thread.

@@ -10,16 +10,17 @@
 
 #include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/task.h"
 #include "net/base/directory_lister.h"
 #include "net/url_request/url_request_job.h"
 
 class URLRequestFileDirJob
-  : public URLRequestJob,
+  : public net::URLRequestJob,
     public net::DirectoryLister::DirectoryListerDelegate {
  public:
   URLRequestFileDirJob(net::URLRequest* request, const FilePath& dir_path);
 
-  // URLRequestJob methods:
+  // net::URLRequestJob methods:
   virtual void Start();
   virtual void StartAsync();
   virtual void Kill();
@@ -63,6 +64,7 @@ class URLRequestFileDirJob
   bool read_pending_;
   scoped_refptr<net::IOBuffer> read_buffer_;
   int read_buffer_length_;
+  ScopedRunnableMethodFactory<URLRequestFileDirJob> method_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(URLRequestFileDirJob);
 };

@@ -11,7 +11,6 @@
 #include "chrome/browser/chromeos/cros/system_library.h"
 #include "chrome/browser/chromeos/status/status_area_button.h"
 #include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_service.h"
 #include "unicode/calendar.h"
 #include "views/controls/button/menu_button.h"
 #include "views/controls/menu/menu_2.h"
@@ -37,7 +36,7 @@ class ClockMenuButton : public StatusAreaButton,
   virtual menus::MenuModel::ItemType GetTypeAt(int index) const;
   virtual int GetCommandIdAt(int index) const { return index; }
   virtual string16 GetLabelAt(int index) const;
-  virtual bool IsLabelDynamicAt(int index) const { return true; }
+  virtual bool IsItemDynamicAt(int index) const { return true; }
   virtual bool GetAcceleratorAt(int index,
       menus::Accelerator* accelerator) const { return false; }
   virtual bool IsItemCheckedAt(int index) const { return false; }

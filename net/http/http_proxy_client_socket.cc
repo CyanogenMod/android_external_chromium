@@ -12,6 +12,7 @@
 #include "net/base/io_buffer.h"
 #include "net/base/net_log.h"
 #include "net/base/net_util.h"
+#include "net/http/http_basic_stream.h"
 #include "net/http/http_net_log_params.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_proxy_utils.h"
@@ -31,7 +32,8 @@ HttpProxyClientSocket::HttpProxyClientSocket(
     HttpAuthCache* http_auth_cache,
     HttpAuthHandlerFactory* http_auth_handler_factory,
     bool tunnel,
-    bool using_spdy)
+    bool using_spdy,
+    bool is_https_proxy)
     : ALLOW_THIS_IN_INITIALIZER_LIST(
           io_callback_(this, &HttpProxyClientSocket::OnIOComplete)),
       next_state_(STATE_NONE),
@@ -46,6 +48,7 @@ HttpProxyClientSocket::HttpProxyClientSocket(
           : NULL),
       tunnel_(tunnel),
       using_spdy_(using_spdy),
+      is_https_proxy_(is_https_proxy),
       net_log_(transport_socket->socket()->NetLog()) {
   // Synthesize the bits of a request that we actually use.
   request_.url = request_url;
@@ -59,6 +62,7 @@ HttpProxyClientSocket::~HttpProxyClientSocket() {
   Disconnect();
 }
 
+<<<<<<< HEAD
 #ifdef ANDROID
 // TODO(kristianm): handle the case when wait_for_connect is true
 // (sync requests)
@@ -68,6 +72,15 @@ int HttpProxyClientSocket::Connect(CompletionCallback* callback
                                    , bool wait_for_connect
 #endif
                                   ) {
+=======
+HttpStream* HttpProxyClientSocket::CreateConnectResponseStream() {
+  return new HttpBasicStream(transport_.release(),
+                             http_stream_parser_.release(), false);
+}
+
+
+int HttpProxyClientSocket::Connect(CompletionCallback* callback) {
+>>>>>>> chromium.org at r10.0.621.0
   DCHECK(transport_.get());
   DCHECK(transport_->socket());
   DCHECK(!user_callback_);
@@ -153,7 +166,8 @@ void HttpProxyClientSocket::LogBlockedTunnelResponse(int response_code) const {
 }
 
 void HttpProxyClientSocket::Disconnect() {
-  transport_->socket()->Disconnect();
+  if (transport_.get())
+    transport_->socket()->Disconnect();
 
   // Reset other states to make sure they aren't mistakenly used later.
   // These are the states initialized by Connect().
@@ -168,6 +182,10 @@ bool HttpProxyClientSocket::IsConnected() const {
 bool HttpProxyClientSocket::IsConnectedAndIdle() const {
   return next_state_ == STATE_DONE &&
     transport_->socket()->IsConnectedAndIdle();
+}
+
+const BoundNetLog& HttpProxyClientSocket::NetLog() const {
+  return net_log_;
 }
 
 void HttpProxyClientSocket::SetSubresourceSpeculation() {
@@ -413,6 +431,8 @@ int HttpProxyClientSocket::DoReadHeadersComplete(int result) {
       return HandleAuthChallenge();
 
     default:
+      if (is_https_proxy_)
+        return ERR_HTTPS_PROXY_TUNNEL_RESPONSE;
       // For all other status codes, we conservatively fail the CONNECT
       // request.
       // We lose something by doing this.  We have seen proxy 403, 404, and

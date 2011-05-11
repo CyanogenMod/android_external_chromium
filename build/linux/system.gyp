@@ -93,7 +93,6 @@
                   # out of $(pkg-config --cflags nss) and GYP include paths
                   # come after cflags on the command line. So we have these
                   # bodges:
-                  '-I../net/third_party/nss/ssl',               # for scons
                   '-Inet/third_party/nss/ssl',                  # for make
                   '-IWebKit/chromium/net/third_party/nss/ssl',  # for make in webkit
                   '<!@(<(pkg-config) --cflags nss)',
@@ -346,29 +345,6 @@
           '-lresolv',
         ],
       },
-    },
-    {
-      'target_name': 'openssl',
-      'type': 'settings',
-      'conditions': [
-        ['use_openssl==1', {
-          'direct_dependent_settings': {
-            'defines': [
-              # OpenSSL support is incomplete: http://crbug.com/62803.
-              # Defining USE_OPENSSL disables USE_NSS.
-              'USE_OPENSSL',
-            ],
-            'include_dirs': [
-              '<!@(<(pkg-config) --cflags openssl)',
-            ],
-          },
-          'link_settings': {
-            'libraries': [
-              '<!@(<(pkg-config) --libs-only-l openssl)',
-            ],
-          },
-        },],
-      ],
     },
   ],
 }

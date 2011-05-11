@@ -12,6 +12,7 @@
 #include "chrome/browser/download/download_file.h"
 #include "chrome/browser/renderer_host/global_request_id.h"
 #include "chrome/browser/renderer_host/resource_handler.h"
+#include "chrome/browser/safe_browsing/safe_browsing_service.h"
 
 class DownloadFileManager;
 class ResourceDispatcherHost;
@@ -22,7 +23,8 @@ class URLRequest;
 }  // namespace net
 
 // Forwards data to the download thread.
-class DownloadResourceHandler : public ResourceHandler {
+class DownloadResourceHandler : public ResourceHandler,
+                                public SafeBrowsingService::Client {
  public:
   DownloadResourceHandler(ResourceDispatcherHost* rdh,
                           int render_process_host_id,
@@ -34,29 +36,29 @@ class DownloadResourceHandler : public ResourceHandler {
                           bool save_as,
                           const DownloadSaveInfo& save_info);
 
-  bool OnUploadProgress(int request_id, uint64 position, uint64 size);
+  virtual bool OnUploadProgress(int request_id, uint64 position, uint64 size);
 
   // Not needed, as this event handler ought to be the final resource.
-  bool OnRequestRedirected(int request_id, const GURL& url,
-                           ResourceResponse* response, bool* defer);
+  virtual bool OnRequestRedirected(int request_id, const GURL& url,
+                                   ResourceResponse* response, bool* defer);
 
   // Send the download creation information to the download thread.
-  bool OnResponseStarted(int request_id, ResourceResponse* response);
+  virtual bool OnResponseStarted(int request_id, ResourceResponse* response);
 
   // Pass-through implementation.
-  bool OnWillStart(int request_id, const GURL& url, bool* defer);
+  virtual bool OnWillStart(int request_id, const GURL& url, bool* defer);
 
   // Create a new buffer, which will be handed to the download thread for file
   // writing and deletion.
-  bool OnWillRead(int request_id, net::IOBuffer** buf, int* buf_size,
-                  int min_size);
+  virtual bool OnWillRead(int request_id, net::IOBuffer** buf, int* buf_size,
+                          int min_size);
 
-  bool OnReadCompleted(int request_id, int* bytes_read);
+  virtual bool OnReadCompleted(int request_id, int* bytes_read);
 
-  bool OnResponseCompleted(int request_id,
-                           const URLRequestStatus& status,
-                           const std::string& security_info);
-  void OnRequestClosed();
+  virtual bool OnResponseCompleted(int request_id,
+                                   const URLRequestStatus& status,
+                                   const std::string& security_info);
+  virtual void OnRequestClosed();
 
   // If the content-length header is not present (or contains something other
   // than numbers), the incoming content_length is -1 (unknown size).
@@ -70,9 +72,30 @@ class DownloadResourceHandler : public ResourceHandler {
   std::string DebugString() const;
 
  private:
+  // Enumerate for histogramming purposes.  DO NOT CHANGE THE
+  // ORDERING OF THESE VALUES.
+  enum SBStatsType {
+    DOWNLOAD_URL_CHECKS_TOTAL,
+    DOWNLOAD_URL_CHECKS_CANCELED,
+    DOWNLOAD_URL_CHECKS_MALWARE,
+
+    // Memory space for histograms is determined by the max.  ALWAYS
+    // ADD NEW VALUES BEFORE THIS ONE.
+    DOWNLOAD_URL_CHECKS_MAX
+  };
+
   ~DownloadResourceHandler();
 
   void StartPauseTimer();
+
+  void StartDownloadUrlCheck();
+
+  // Called when the result of checking a download URL is known.
+  void OnDownloadUrlCheckResult(const GURL& url,
+                                SafeBrowsingService::UrlCheckResult result);
+
+  // A helper function that updates UMA for download url checks.
+  static void UpdateDownloadUrlCheckStats(SBStatsType stat_type);
 
   int download_id_;
   GlobalRequestID global_id_;
@@ -89,6 +112,8 @@ class DownloadResourceHandler : public ResourceHandler {
   ResourceDispatcherHost* rdh_;
   bool is_paused_;
   base::OneShotTimer<DownloadResourceHandler> pause_timer_;
+  bool url_check_pending_;
+  base::TimeTicks download_start_time_;  // used to collect stats.
 
   static const int kReadBufSize = 32768;  // bytes
   static const size_t kLoadsToWrite = 100;  // number of data buffers queued

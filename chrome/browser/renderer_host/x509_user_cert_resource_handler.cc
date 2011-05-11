@@ -5,8 +5,6 @@
 #include "chrome/browser/renderer_host/x509_user_cert_resource_handler.h"
 
 #include "base/string_util.h"
-#include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/download/download_types.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
@@ -22,7 +20,7 @@
 #include "net/url_request/url_request_status.h"
 
 X509UserCertResourceHandler::X509UserCertResourceHandler(
-    ResourceDispatcherHost* host, URLRequest* request,
+    ResourceDispatcherHost* host, net::URLRequest* request,
     int render_process_host_id, int render_view_id)
     : host_(host),
       request_(request),

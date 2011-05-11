@@ -4,7 +4,7 @@
 
 // The ResourceRequestDetails object contains additional details about a
 // resource request.  It copies many of the publicly accessible member variables
-// of URLRequest, but exists on the UI thread.
+// of net::URLRequest, but exists on the UI thread.
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_RESOURCE_REQUEST_DETAILS_H_
 #define CHROME_BROWSER_RENDERER_HOST_RESOURCE_REQUEST_DETAILS_H_
@@ -12,7 +12,6 @@
 
 #include <string>
 
-#include "chrome/browser/cert_store.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
 #include "chrome/browser/worker_host/worker_service.h"

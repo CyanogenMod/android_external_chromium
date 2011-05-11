@@ -29,6 +29,8 @@
         'base/address_list_net_log_param.h',
         'base/auth.cc',
         'base/auth.h',
+        'base/bandwidth_metrics.cc',
+        'base/bandwidth_metrics.h',
         'base/cache_type.h',
         'base/capturing_net_log.cc',
         'base/capturing_net_log.h',
@@ -76,8 +78,6 @@
         'base/file_stream_win.cc',
         'base/filter.cc',
         'base/filter.h',
-        'base/forwarding_net_log.cc',
-        'base/forwarding_net_log.h',
         'base/gzip_filter.cc',
         'base/gzip_filter.h',
         'base/gzip_header.cc',
@@ -142,6 +142,8 @@
         'base/network_config_watcher_mac.h',
         'base/nss_memio.c',
         'base/nss_memio.h',
+        'base/openssl_memory_private_key_store.cc',
+        'base/openssl_private_key_store.h',
         'base/pem_tokenizer.cc',
         'base/pem_tokenizer.h',
         'base/platform_mime_util.h',
@@ -175,6 +177,12 @@
         'base/ssl_info.h',
         'base/static_cookie_policy.cc',
         'base/static_cookie_policy.h',
+        'base/test_root_certs.cc',
+        'base/test_root_certs.h',
+        'base/test_root_certs_mac.cc',
+        'base/test_root_certs_nss.cc',
+        'base/test_root_certs_openssl.cc',
+        'base/test_root_certs_win.cc',
         'base/transport_security_state.cc',
         'base/transport_security_state.h',
         'base/sys_addrinfo.h',
@@ -237,7 +245,7 @@
             'conditions': [
               ['use_openssl==1', {
                 'dependencies': [
-                  '../build/linux/system.gyp:openssl',
+                  '../third_party/openssl/openssl.gyp:openssl',
                 ],
               }, {  # else: not using openssl. Use NSS.
                 'dependencies': [
@@ -250,6 +258,7 @@
             'sources!': [
               'base/cert_database_nss.cc',
               'base/keygen_handler_nss.cc',
+              'base/test_root_certs_nss.cc',
               'base/x509_certificate_nss.cc',
               'third_party/mozilla_security_manager/nsKeygenHandler.cpp',
               'third_party/mozilla_security_manager/nsKeygenHandler.h',
@@ -270,6 +279,7 @@
               'base/keygen_handler_nss.cc',
               'base/nss_memio.c',
               'base/nss_memio.h',
+              'base/test_root_certs_nss.cc',
               'base/x509_certificate_nss.cc',
               'third_party/mozilla_security_manager/nsKeygenHandler.cpp',
               'third_party/mozilla_security_manager/nsKeygenHandler.h',
@@ -285,6 +295,9 @@
             'sources!': [
               'base/cert_database_openssl.cc',
               'base/keygen_handler_openssl.cc',
+              'base/openssl_memory_private_key_store.cc',
+              'base/openssl_private_key_store.h',
+              'base/test_root_certs_openssl.cc',
               'base/x509_certificate_openssl.cc',
               'base/x509_openssl_util.cc',
               'base/x509_openssl_util.h',
@@ -334,7 +347,6 @@
         '../third_party/zlib/zlib.gyp:zlib',
         'net_base',
         'net_resources',
-        'ssl_host_info',
       ],
       'sources': [
         'disk_cache/addr.cc',
@@ -400,12 +412,8 @@
         'ftp/ftp_directory_listing_buffer.h',
         'ftp/ftp_directory_listing_parser.cc',
         'ftp/ftp_directory_listing_parser.h',
-        'ftp/ftp_directory_listing_parser_hprc.cc',
-        'ftp/ftp_directory_listing_parser_hprc.h',
         'ftp/ftp_directory_listing_parser_ls.cc',
         'ftp/ftp_directory_listing_parser_ls.h',
-        'ftp/ftp_directory_listing_parser_mlsd.cc',
-        'ftp/ftp_directory_listing_parser_mlsd.h',
         'ftp/ftp_directory_listing_parser_netware.cc',
         'ftp/ftp_directory_listing_parser_netware.h',
         'ftp/ftp_directory_listing_parser_vms.cc',
@@ -519,6 +527,7 @@
         'http/md4.h',
         'http/partial_data.cc',
         'http/partial_data.h',
+        'http/proxy_client_socket.h',
         'http/stream_factory.h',
         'ocsp/nss_ocsp.cc',
         'ocsp/nss_ocsp.h',
@@ -533,6 +542,7 @@
         'proxy/proxy_config.cc',
         'proxy/proxy_config.h',
         'proxy/proxy_config_service.h',
+        'proxy/proxy_config_service_fixed.cc',
         'proxy/proxy_config_service_fixed.h',
         'proxy/proxy_config_service_linux.cc',
         'proxy/proxy_config_service_linux.h',
@@ -584,6 +594,8 @@
         'socket/client_socket_pool_manager.h',
         'socket/dns_cert_provenance_checker.cc',
         'socket/dns_cert_provenance_checker.h',
+        'socket/nss_ssl_util.cc',
+        'socket/nss_ssl_util.h',
         'socket/socket.h',
         'socket/socks5_client_socket.cc',
         'socket/socks5_client_socket.h',
@@ -591,6 +603,7 @@
         'socket/socks_client_socket.h',
         'socket/socks_client_socket_pool.cc',
         'socket/socks_client_socket_pool.h',
+        'socket/ssl_client_socket.cc',
         'socket/ssl_client_socket.h',
         'socket/ssl_client_socket_mac.cc',
         'socket/ssl_client_socket_mac.h',
@@ -608,6 +621,11 @@
         'socket/ssl_client_socket_win.h',
         'socket/ssl_error_params.cc',
         'socket/ssl_error_params.h',
+        'socket/ssl_server_socket.h',
+        'socket/ssl_server_socket_nss.cc',
+        'socket/ssl_server_socket_nss.h',
+        'socket/ssl_host_info.cc',
+        'socket/ssl_host_info.h',
         'socket/tcp_client_socket.cc',
         'socket/tcp_client_socket.h',
         'socket/tcp_client_socket_libevent.cc',
@@ -707,6 +725,7 @@
         'websockets/websocket_handshake_handler.h',
         'websockets/websocket_job.cc',
         'websockets/websocket_job.h',
+        'websockets/websocket_net_log_params.cc',
         'websockets/websocket_net_log_params.h',
         'websockets/websocket_throttle.cc',
         'websockets/websocket_throttle.h',
@@ -732,10 +751,14 @@
               'ocsp/nss_ocsp.h',
               'socket/dns_cert_provenance_check.cc',
               'socket/dns_cert_provenance_check.h',
+              'socket/nss_ssl_util.cc',
+              'socket/nss_ssl_util.h',
               'socket/ssl_client_socket_nss.cc',
               'socket/ssl_client_socket_nss.h',
               'socket/ssl_client_socket_nss_factory.cc',
               'socket/ssl_client_socket_nss_factory.h',
+              'socket/ssl_server_socket_nss.cc',
+              'socket/ssl_server_socket_nss.h',
             ],
           },
           {  # else !use_openssl: remove the unneeded files
@@ -753,7 +776,7 @@
             'conditions': [
               ['use_openssl==1', {
                 'dependencies': [
-                  '../build/linux/system.gyp:openssl',
+                  '../third_party/openssl/openssl.gyp:openssl',
                 ],
               },
               {  # else use_openssl==0, use NSS
@@ -829,6 +852,7 @@
       'sources': [
         'base/address_list_unittest.cc',
         'base/cert_database_nss_unittest.cc',
+        'base/cert_verifier_unittest.cc',
         'base/cookie_monster_unittest.cc',
         'base/data_url_unittest.cc',
         'base/directory_lister_unittest.cc',
@@ -839,7 +863,6 @@
         'base/file_stream_unittest.cc',
         'base/filter_unittest.cc',
         'base/filter_unittest.h',
-        'base/forwarding_net_log_unittest.cc',
         'base/gzip_filter_unittest.cc',
         'base/host_cache_unittest.cc',
         'base/host_mapping_rules_unittest.cc',
@@ -851,6 +874,7 @@
         'base/mapped_host_resolver_unittest.cc',
         'base/mime_sniffer_unittest.cc',
         'base/mime_util_unittest.cc',
+        'base/net_log_unittest.cc',
         'base/net_log_unittest.h',
         'base/net_test_suite.h',
         'base/net_util_unittest.cc',
@@ -886,8 +910,6 @@
         'ftp/ftp_ctrl_response_buffer_unittest.cc',
         'ftp/ftp_directory_listing_buffer_unittest.cc',
         'ftp/ftp_directory_listing_parser_ls_unittest.cc',
-        'ftp/ftp_directory_listing_parser_hprc_unittest.cc',
-        'ftp/ftp_directory_listing_parser_mlsd_unittest.cc',
         'ftp/ftp_directory_listing_parser_netware_unittest.cc',
         'ftp/ftp_directory_listing_parser_vms_unittest.cc',
         'ftp/ftp_directory_listing_parser_windows_unittest.cc',
@@ -947,6 +969,7 @@
         'socket/socks_client_socket_unittest.cc',
         'socket/ssl_client_socket_unittest.cc',
         'socket/ssl_client_socket_pool_unittest.cc',
+        'socket/ssl_server_socket_unittest.cc',
         'socket/tcp_client_socket_pool_unittest.cc',
         'socket/tcp_client_socket_unittest.cc',
         'socket_stream/socket_stream_metrics_unittest.cc',
@@ -1037,46 +1060,6 @@
             ],
           },
         ],
-      ],
-    },
-    {
-      # This is a separate target in order to limit the scope of the protobuf
-      # includes.
-      'target_name': 'ssl_host_info',
-      'type': '<(library)',
-      'dependencies': [
-        '../base/base.gyp:base',
-        '../third_party/protobuf/protobuf.gyp:protobuf_lite',
-        '../third_party/protobuf/protobuf.gyp:protoc#host',
-      ],
-      'sources': [
-        'socket/ssl_host_info.proto',
-        'socket/ssl_host_info.cc',
-        'socket/ssl_host_info.h',
-      ],
-      'rules': [
-        {
-          'rule_name': 'genproto',
-          'extension': 'proto',
-          'inputs': [
-            '<(PRODUCT_DIR)/<(EXECUTABLE_PREFIX)protoc<(EXECUTABLE_SUFFIX)',
-          ],
-          'outputs': [
-            '<(SHARED_INTERMEDIATE_DIR)/protoc_out/net/socket/<(RULE_INPUT_ROOT).pb.h',
-            '<(SHARED_INTERMEDIATE_DIR)/protoc_out/net/socket/<(RULE_INPUT_ROOT).pb.cc',
-          ],
-          'action': [
-            '<(PRODUCT_DIR)/<(EXECUTABLE_PREFIX)protoc<(EXECUTABLE_SUFFIX)',
-            'socket/<(RULE_INPUT_ROOT)<(RULE_INPUT_EXT)',
-            '--cpp_out=<(SHARED_INTERMEDIATE_DIR)/protoc_out/net',
-          ],
-          'message': 'Generating C++ code from <(RULE_INPUT_PATH)',
-          'process_outputs_as_sources': 1,
-        },
-      ],
-      'include_dirs': [
-        '<(SHARED_INTERMEDIATE_DIR)/protoc_out/net',
-        '<(SHARED_INTERMEDIATE_DIR)/protoc_out',
       ],
     },
     {
@@ -1196,8 +1179,8 @@
           'conditions': [
             ['use_openssl==1', {
               'dependencies': [
-                '../build/linux/system.gyp:openssl',
-              ]
+                '../third_party/openssl/openssl.gyp:openssl',
+              ],
             }, {
               'dependencies': [
                 '../build/linux/system.gyp:nss',

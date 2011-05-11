@@ -8,7 +8,7 @@
 #include "chrome/browser/extensions/extension_process_manager.h"
 #include "chrome/browser/notifications/balloon.h"
 #include "chrome/browser/notifications/notification.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/renderer_preferences_util.h"
@@ -91,7 +91,8 @@ const string16& BalloonHost::GetSource() const {
 
 WebPreferences BalloonHost::GetWebkitPrefs() {
   WebPreferences web_prefs =
-      RenderViewHostDelegateHelper::GetWebkitPrefs(GetProfile(), enable_dom_ui_);
+      RenderViewHostDelegateHelper::GetWebkitPrefs(GetProfile(),
+                                                   enable_dom_ui_);
   web_prefs.allow_scripts_to_close_windows = true;
   return web_prefs;
 }
@@ -132,7 +133,9 @@ void BalloonHost::RenderViewReady(RenderViewHost* render_view_host) {
       Source<BalloonHost>(this), NotificationService::NoDetails());
 }
 
-void BalloonHost::RenderViewGone(RenderViewHost* render_view_host) {
+void BalloonHost::RenderViewGone(RenderViewHost* render_view_host,
+                                 base::TerminationStatus status,
+                                 int error_code) {
   Close(render_view_host);
 }
 
@@ -190,6 +193,11 @@ void BalloonHost::ShowCreatedWindow(int route_id,
   browser->AddTabContents(contents, disposition, initial_pos, user_gesture);
 }
 
+bool BalloonHost::PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
+                                         bool* is_keyboard_shortcut) {
+  return false;
+}
+
 void BalloonHost::UpdatePreferredSize(const gfx::Size& new_size) {
   balloon_->SetContentPreferredSize(new_size);
 }
@@ -208,7 +216,7 @@ void BalloonHost::Init() {
   DCHECK(!render_view_host_) << "BalloonViewHost already initialized.";
   RenderViewHost* rvh = new RenderViewHost(
       site_instance_.get(), this, MSG_ROUTING_NONE, NULL);
-  if (GetProfile()->GetExtensionsService()) {
+  if (GetProfile()->GetExtensionService()) {
     extension_function_dispatcher_.reset(
         ExtensionFunctionDispatcher::Create(
             rvh, this, balloon_->notification().content_url()));

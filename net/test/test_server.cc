@@ -26,10 +26,10 @@
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "googleurl/src/gurl.h"
-#include "net/base/cert_test_util.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/host_resolver.h"
 #include "net/base/test_completion_callback.h"
+#include "net/base/test_root_certs.h"
 #include "net/socket/tcp_client_socket.h"
 #include "net/test/python_utils.h"
 #include "testing/platform_test.h"
@@ -57,10 +57,6 @@ std::string GetHostname(TestServer::Type type,
 }
 
 }  // namespace
-
-#if defined(OS_MACOSX)
-void SetMacTestCertificate(X509Certificate* cert);
-#endif
 
 TestServer::HTTPSOptions::HTTPSOptions()
     : server_certificate(CERT_OK),
@@ -103,9 +99,8 @@ TestServer::TestServer(const HTTPSOptions& https_options,
 }
 
 TestServer::~TestServer() {
-#if defined(OS_MACOSX)
-  SetMacTestCertificate(NULL);
-#endif
+  TestRootCerts* root_certs = TestRootCerts::GetInstance();
+  root_certs->Clear();
   Stop();
 }
 
@@ -132,8 +127,6 @@ bool TestServer::Start() {
   if (type_ == TYPE_HTTPS) {
     if (!LoadTestRootCert())
       return false;
-    if (!CheckCATrusted())
-      return false;
   }
 
   // Get path to python server script
@@ -159,6 +152,8 @@ bool TestServer::Start() {
     return false;
   }
 
+  allowed_port_.reset(new ScopedPortException(host_port_pair_.port()));
+
   started_ = true;
   return true;
 }
@@ -180,6 +175,8 @@ bool TestServer::Stop() {
   } else {
     VLOG(1) << "Kill failed?";
   }
+
+  allowed_port_.reset();
 
   return ret;
 }
@@ -314,27 +311,8 @@ FilePath TestServer::GetRootCertificatePath() {
 }
 
 bool TestServer::LoadTestRootCert() {
-#if defined(USE_NSS)
-  if (cert_)
-    return true;
-
-  // TODO(dkegel): figure out how to get this to only happen once?
-
-  // This currently leaks a little memory.
-  // TODO(dkegel): fix the leak and remove the entry in
-  // tools/valgrind/memcheck/suppressions.txt
-  ANNOTATE_SCOPED_MEMORY_LEAK;  // Tell heap checker about the leak.
-  cert_ = LoadTemporaryRootCert(GetRootCertificatePath());
-  return (cert_ != NULL);
-#elif defined(OS_MACOSX)
-  X509Certificate* cert = LoadTemporaryRootCert(GetRootCertificatePath());
-  if (!cert)
-    return false;
-  SetMacTestCertificate(cert);
-  return true;
-#else
-  return true;
-#endif
+  TestRootCerts* root_certs = TestRootCerts::GetInstance();
+  return root_certs->AddFromFile(GetRootCertificatePath());
 }
 
 bool TestServer::AddCommandLineArguments(CommandLine* command_line) const {

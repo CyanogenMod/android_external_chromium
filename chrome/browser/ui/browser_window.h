@@ -168,6 +168,9 @@ class BrowserWindow {
   // Returns whether the bookmark bar is animating or not.
   virtual bool IsBookmarkBarAnimating() const = 0;
 
+  // Returns whether the tab strip is editable (for extensions).
+  virtual bool IsTabStripEditable() const = 0;
+
   // Returns whether the tool bar is visible or not.
   virtual bool IsToolbarVisible() const = 0;
 
@@ -330,6 +333,11 @@ class BrowserWindow {
   // instant isn't currently visible this returns the bounds instant would be
   // placed at.
   virtual gfx::Rect GetInstantBounds() = 0;
+
+#if defined(OS_CHROMEOS)
+  // Shows the keyboard overlay dialog box.
+  virtual void ShowKeyboardOverlay(gfx::NativeWindow owning_window) = 0;
+#endif
 
   // Construct a BrowserWindow implementation for the specified |browser|.
   static BrowserWindow* CreateBrowserWindow(Browser* browser);

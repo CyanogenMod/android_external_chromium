@@ -9,7 +9,7 @@
 #include "base/time.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/glue/bookmark_change_processor.h"
 #include "chrome/browser/sync/glue/bookmark_model_associator.h"
 #include "chrome/browser/sync/profile_sync_service.h"
@@ -86,6 +86,27 @@ void BookmarkDataTypeController::Stop() {
   model_associator_.reset();
 
   state_ = NOT_RUNNING;
+}
+
+bool BookmarkDataTypeController::enabled() {
+  return true;
+}
+
+syncable::ModelType BookmarkDataTypeController::type() {
+  return syncable::BOOKMARKS;
+}
+
+browser_sync::ModelSafeGroup BookmarkDataTypeController::model_safe_group() {
+  return browser_sync::GROUP_UI;
+}
+
+const char* BookmarkDataTypeController::name() const {
+  // For logging only.
+  return "bookmark";
+}
+
+DataTypeController::State BookmarkDataTypeController::state() {
+  return state_;
 }
 
 void BookmarkDataTypeController::OnUnrecoverableError(

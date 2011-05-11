@@ -50,13 +50,14 @@ void AddSandboxTestCase(const char* test_name, MacSandboxTestCase* test_class) {
 
 }  // namespace internal
 
-bool MacSandboxTest:: RunTestInAllSandboxTypes(const char* test_name,
-                                const char* test_data) {
+bool MacSandboxTest::RunTestInAllSandboxTypes(const char* test_name,
+                                              const char* test_data) {
   // Go through all the sandbox types, and run the test case in each of them
   // if one fails, abort.
   for(int i = static_cast<int>(Sandbox::SANDBOX_TYPE_FIRST_TYPE);
       i < Sandbox::SANDBOX_AFTER_TYPE_LAST_TYPE;
       ++i) {
+
     if (!RunTestInSandbox(static_cast<Sandbox::SandboxProcessType>(i),
             test_name, test_data)) {
       LOG(ERROR) << "Sandboxed test (" << test_name << ")" <<
@@ -143,7 +144,7 @@ MULTIPROCESS_TEST_MAIN(mac_sandbox_test_runner) {
     return -1;
   }
 
-  Sandbox::SandboxWarmup();
+  Sandbox::SandboxWarmup(sandbox_type);
 
   if (!Sandbox::EnableSandbox(sandbox_type, FilePath())) {
     LOG(ERROR) << "Failed to initialize sandbox " << sandbox_type;

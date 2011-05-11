@@ -57,8 +57,9 @@ void URLRequestMockNetErrorJob::RemoveMockedURL(const GURL& url) {
 }
 
 // static
-URLRequestJob* URLRequestMockNetErrorJob::Factory(URLRequest* request,
-                                                  const std::string& scheme) {
+net::URLRequestJob* URLRequestMockNetErrorJob::Factory(
+    net::URLRequest* request,
+    const std::string& scheme) {
   GURL url = request->url();
 
   URLMockInfoMap::const_iterator iter = url_mock_info_map_.find(url);
@@ -66,9 +67,9 @@ URLRequestJob* URLRequestMockNetErrorJob::Factory(URLRequest* request,
 
   MockInfo mock_info = iter->second;
 
-  // URLRequestMockNetErrorJob derives from URLRequestFileJob.  We pass a
-  // FilePath so that the URLRequestFileJob methods will do the loading from
-  // the files.
+  // URLRequestMockNetErrorJob derives from net::URLRequestFileJob.  We pass a
+  // FilePath so that the net::URLRequestFileJob methods will do the loading
+  // from the files.
   std::wstring file_url(L"file:///");
   file_url.append(mock_info.base);
   file_url.append(UTF8ToWide(url.path()));
@@ -80,7 +81,7 @@ URLRequestJob* URLRequestMockNetErrorJob::Factory(URLRequest* request,
                                        file_path);
 }
 
-URLRequestMockNetErrorJob::URLRequestMockNetErrorJob(URLRequest* request,
+URLRequestMockNetErrorJob::URLRequestMockNetErrorJob(net::URLRequest* request,
     const std::vector<int>& errors, net::X509Certificate* cert,
     const FilePath& file_path)
     : URLRequestMockHTTPJob(request, file_path),

@@ -50,10 +50,12 @@
 #include "chrome/browser/extensions/extension_tts_api.h"
 #include "chrome/browser/extensions/extension_webstore_private_api.h"
 #include "chrome/browser/extensions/extensions_quota_service.h"
-#include "chrome/browser/extensions/extensions_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/metrics/user_metrics.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
+#include "chrome/common/notification_service.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/render_messages_params.h"
 #include "chrome/common/result_codes.h"
@@ -75,7 +77,7 @@ ExtensionFunction* NewExtensionFunction() {
 // create instances of them.
 class FactoryRegistry {
  public:
-  static FactoryRegistry* instance();
+  static FactoryRegistry* GetInstance();
   FactoryRegistry() { ResetFunctions(); }
 
   // Resets all functions to their default values.
@@ -102,7 +104,7 @@ class FactoryRegistry {
   FactoryMap factories_;
 };
 
-FactoryRegistry* FactoryRegistry::instance() {
+FactoryRegistry* FactoryRegistry::GetInstance() {
   return Singleton<FactoryRegistry>::get();
 }
 
@@ -239,6 +241,7 @@ void FactoryRegistry::ResetFunctions() {
   RegisterFunction<ExtensionTtsSpeakFunction>();
   RegisterFunction<ExtensionTtsStopSpeakingFunction>();
   RegisterFunction<ExtensionTtsIsSpeakingFunction>();
+  RegisterFunction<ExtensionTtsSpeakCompletedFunction>();
 
   // Clipboard.
   RegisterFunction<ExecuteCopyClipboardFunction>();
@@ -325,24 +328,24 @@ ExtensionFunction* FactoryRegistry::NewFunction(const std::string& name) {
 
 void ExtensionFunctionDispatcher::GetAllFunctionNames(
     std::vector<std::string>* names) {
-  FactoryRegistry::instance()->GetAllNames(names);
+  FactoryRegistry::GetInstance()->GetAllNames(names);
 }
 
 bool ExtensionFunctionDispatcher::OverrideFunction(
     const std::string& name, ExtensionFunctionFactory factory) {
-  return FactoryRegistry::instance()->OverrideFunction(name, factory);
+  return FactoryRegistry::GetInstance()->OverrideFunction(name, factory);
 }
 
 void ExtensionFunctionDispatcher::ResetFunctions() {
-  FactoryRegistry::instance()->ResetFunctions();
+  FactoryRegistry::GetInstance()->ResetFunctions();
 }
 
 ExtensionFunctionDispatcher* ExtensionFunctionDispatcher::Create(
     RenderViewHost* render_view_host,
     Delegate* delegate,
     const GURL& url) {
-  ExtensionsService* service =
-      render_view_host->process()->profile()->GetExtensionsService();
+  ExtensionService* service =
+      render_view_host->process()->profile()->GetExtensionService();
   DCHECK(service);
 
   if (!service->ExtensionBindingsAllowed(url))
@@ -387,7 +390,7 @@ ExtensionFunctionDispatcher::ExtensionFunctionDispatcher(
     DOMUIFavIconSource* favicon_source = new DOMUIFavIconSource(profile_);
     BrowserThread::PostTask(
         BrowserThread::IO, FROM_HERE,
-        NewRunnableMethod(Singleton<ChromeURLDataManager>::get(),
+        NewRunnableMethod(ChromeURLDataManager::GetInstance(),
                           &ChromeURLDataManager::AddDataSource,
                           make_scoped_refptr(favicon_source)));
   }
@@ -444,7 +447,7 @@ Browser* ExtensionFunctionDispatcher::GetCurrentBrowser(
 void ExtensionFunctionDispatcher::HandleRequest(
     const ViewHostMsg_DomMessage_Params& params) {
   scoped_refptr<ExtensionFunction> function(
-      FactoryRegistry::instance()->NewFunction(params.name));
+      FactoryRegistry::GetInstance()->NewFunction(params.name));
   function->set_dispatcher_peer(peer_);
   function->set_profile(profile_);
   function->set_extension_id(extension_id());
@@ -453,7 +456,7 @@ void ExtensionFunctionDispatcher::HandleRequest(
   function->set_request_id(params.request_id);
   function->set_has_callback(params.has_callback);
   function->set_user_gesture(params.user_gesture);
-  ExtensionsService* service = profile()->GetExtensionsService();
+  ExtensionService* service = profile()->GetExtensionService();
   DCHECK(service);
   const Extension* extension = service->GetExtensionById(extension_id(), false);
   DCHECK(extension);
@@ -493,6 +496,7 @@ void ExtensionFunctionDispatcher::HandleBadMessage(ExtensionFunction* api) {
     CHECK(false);
   } else {
     NOTREACHED();
+    UserMetrics::RecordAction(UserMetricsAction("BadMessageTerminate_EFD"));
     base::KillProcess(render_view_host_->process()->GetHandle(),
                       ResultCodes::KILLED_BAD_MESSAGE, false);
   }

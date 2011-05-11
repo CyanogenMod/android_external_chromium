@@ -21,7 +21,8 @@
 
 namespace net {
 
-SpdyHttpStream::SpdyHttpStream(SpdySession* spdy_session, bool direct)
+SpdyHttpStream::SpdyHttpStream(SpdySession* spdy_session,
+                               bool direct)
     : ALLOW_THIS_IN_INITIALIZER_LIST(read_callback_factory_(this)),
       stream_(NULL),
       spdy_session_(spdy_session),
@@ -34,6 +35,12 @@ SpdyHttpStream::SpdyHttpStream(SpdySession* spdy_session, bool direct)
       more_read_data_pending_(false),
       direct_(direct) { }
 
+void SpdyHttpStream::InitializeWithExistingStream(SpdyStream* spdy_stream) {
+  stream_ = spdy_stream;
+  stream_->SetDelegate(this);
+  response_headers_received_ = true;
+}
+
 SpdyHttpStream::~SpdyHttpStream() {
   if (stream_)
     stream_->DetachDelegate();
@@ -42,6 +49,7 @@ SpdyHttpStream::~SpdyHttpStream() {
 int SpdyHttpStream::InitializeStream(const HttpRequestInfo* request_info,
                                      const BoundNetLog& stream_net_log,
                                      CompletionCallback* callback) {
+  DCHECK(!stream_.get());
   if (spdy_session_->IsClosed())
    return ERR_CONNECTION_CLOSED;
 
@@ -118,7 +126,7 @@ int SpdyHttpStream::ReadResponseBody(
       }
       bytes_read += bytes_to_copy;
     }
-    if (spdy_session_->flow_control())
+    if (SpdySession::flow_control())
       stream_->IncreaseRecvWindowSize(bytes_read);
     return bytes_read;
   } else if (stream_->closed()) {
@@ -139,6 +147,32 @@ void SpdyHttpStream::Close(bool not_reusable) {
   // Note: the not_reusable flag has no meaning for SPDY streams.
 
   Cancel();
+}
+
+HttpStream* SpdyHttpStream::RenewStreamForAuth() {
+  return NULL;
+}
+
+bool SpdyHttpStream::IsResponseBodyComplete() const {
+  if (!stream_)
+    return false;
+  return stream_->closed();
+}
+
+bool SpdyHttpStream::CanFindEndOfResponse() const {
+  return true;
+}
+
+bool SpdyHttpStream::IsMoreDataBuffered() const {
+  return false;
+}
+
+bool SpdyHttpStream::IsConnectionReused() const {
+  return spdy_session_->IsReused();
+}
+
+void SpdyHttpStream::SetConnectionReused() {
+  // SPDY doesn't need an indicator here.
 }
 
 int SpdyHttpStream::SendRequest(const HttpRequestHeaders& request_headers,
@@ -259,7 +293,10 @@ int SpdyHttpStream::OnResponseReceived(const spdy::SpdyHeaderBlock& response,
   }
 
   response_headers_received_ = true;
-  stream_->GetSSLInfo(&response_info_->ssl_info,
+  // Don't store the SSLInfo in the response here, HttpNetworkTransaction
+  // will take care of that part.
+  SSLInfo ssl_info;
+  stream_->GetSSLInfo(&ssl_info,
                       &response_info_->was_npn_negotiated);
   response_info_->request_time = stream_->GetRequestTime();
   response_info_->vary_data.Init(*request_info_, *response_info_->headers);

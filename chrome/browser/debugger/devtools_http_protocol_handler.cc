@@ -14,11 +14,11 @@
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/debugger/devtools_client_host.h"
 #include "chrome/browser/debugger/devtools_manager.h"
-#include "chrome/browser/profile.h"
-#include "chrome/browser/tab_contents_wrapper.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/devtools_messages.h"
 #include "chrome/common/net/url_request_context_getter.h"
 #include "googleurl/src/gurl.h"
@@ -108,7 +108,8 @@ void DevToolsHttpProtocolHandler::OnHttpRequest(
   }
 
   // Proxy static files from chrome://devtools/*.
-  URLRequest* request = new URLRequest(GURL("chrome:/" + info.path), this);
+  net::URLRequest* request = new net::URLRequest(
+      GURL("chrome:/" + info.path), this);
   Bind(request, socket);
   request->set_context(
       Profile::GetDefaultRequestContext()->GetURLRequestContext());
@@ -144,9 +145,9 @@ void DevToolsHttpProtocolHandler::OnClose(HttpListenSocket* socket) {
   SocketToRequestsMap::iterator it = socket_to_requests_io_.find(socket);
   if (it != socket_to_requests_io_.end()) {
     // Dispose delegating socket.
-    for (std::set<URLRequest*>::iterator it2 = it->second.begin();
+    for (std::set<net::URLRequest*>::iterator it2 = it->second.begin();
          it2 != it->second.end(); ++it2) {
-      URLRequest* request = *it2;
+      net::URLRequest* request = *it2;
       request->Cancel();
       request_to_socket_io_.erase(request);
       request_to_buffer_io_.erase(request);
@@ -155,15 +156,13 @@ void DevToolsHttpProtocolHandler::OnClose(HttpListenSocket* socket) {
     socket_to_requests_io_.erase(socket);
   }
 
-  // This can't use make_scoped_refptr because |socket| is already deleted
-  // when this runs -- http://crbug.com/59930
   BrowserThread::PostTask(
       BrowserThread::UI,
       FROM_HERE,
       NewRunnableMethod(
           this,
           &DevToolsHttpProtocolHandler::OnCloseUI,
-          socket));
+          make_scoped_refptr(socket)));
 }
 
 void DevToolsHttpProtocolHandler::OnHttpRequestUI(
@@ -264,16 +263,28 @@ void DevToolsHttpProtocolHandler::OnWebSocketMessageUI(
 
 void DevToolsHttpProtocolHandler::OnCloseUI(HttpListenSocket* socket) {
   SocketToClientHostMap::iterator it = socket_to_client_host_ui_.find(socket);
-  if (it == socket_to_client_host_ui_.end())
-    return;
-  DevToolsClientHostImpl* client_host =
-      static_cast<DevToolsClientHostImpl*>(it->second);
-  client_host->NotifyCloseListener();
-  delete client_host;
-  socket_to_client_host_ui_.erase(socket);
+  if (it != socket_to_client_host_ui_.end()) {
+    DevToolsClientHostImpl* client_host =
+        static_cast<DevToolsClientHostImpl*>(it->second);
+    client_host->NotifyCloseListener();
+    delete client_host;
+    socket_to_client_host_ui_.erase(socket);
+  }
+
+  // We are holding last reference to scoped refptr 'socket' here.
+  // We can't exit method just like that since 'socket' is going to
+  // be destroyed on the UI thread then. Schedule no-op to IO thread
+  // so that socket is destroyed on IO instead.
+  BrowserThread::PostTask(
+      BrowserThread::IO,
+      FROM_HERE,
+      NewRunnableMethod(
+          this,
+          &DevToolsHttpProtocolHandler::ReleaseSocket,
+          make_scoped_refptr(socket)));
 }
 
-void DevToolsHttpProtocolHandler::OnResponseStarted(URLRequest* request) {
+void DevToolsHttpProtocolHandler::OnResponseStarted(net::URLRequest* request) {
   RequestToSocketMap::iterator it = request_to_socket_io_.find(request);
   if (it == request_to_socket_io_.end())
     return;
@@ -307,7 +318,7 @@ void DevToolsHttpProtocolHandler::OnResponseStarted(URLRequest* request) {
   OnReadCompleted(request, bytes_read);
 }
 
-void DevToolsHttpProtocolHandler::OnReadCompleted(URLRequest* request,
+void DevToolsHttpProtocolHandler::OnReadCompleted(net::URLRequest* request,
                                                   int bytes_read) {
   RequestToSocketMap::iterator it = request_to_socket_io_.find(request);
   if (it == request_to_socket_io_.end())
@@ -341,21 +352,21 @@ void DevToolsHttpProtocolHandler::Teardown() {
   server_ = NULL;
 }
 
-void DevToolsHttpProtocolHandler::Bind(URLRequest* request,
+void DevToolsHttpProtocolHandler::Bind(net::URLRequest* request,
                                        HttpListenSocket* socket) {
   request_to_socket_io_[request] = socket;
   SocketToRequestsMap::iterator it = socket_to_requests_io_.find(socket);
   if (it == socket_to_requests_io_.end()) {
-    std::pair<HttpListenSocket*, std::set<URLRequest*> > value(
+    std::pair<HttpListenSocket*, std::set<net::URLRequest*> > value(
         socket,
-        std::set<URLRequest*>());
+        std::set<net::URLRequest*>());
     it = socket_to_requests_io_.insert(value).first;
   }
   it->second.insert(request);
   request_to_buffer_io_[request] = new net::IOBuffer(kBufferSize);
 }
 
-void DevToolsHttpProtocolHandler::RequestCompleted(URLRequest* request) {
+void DevToolsHttpProtocolHandler::RequestCompleted(net::URLRequest* request) {
   RequestToSocketMap::iterator it = request_to_socket_io_.find(request);
   if (it == request_to_socket_io_.end())
     return;
@@ -403,6 +414,11 @@ void DevToolsHttpProtocolHandler::AcceptWebSocket(
       NewRunnableMethod(socket,
                         &HttpListenSocket::AcceptWebSocket,
                         request));
+}
+
+void DevToolsHttpProtocolHandler::ReleaseSocket(
+    HttpListenSocket* socket) {
+  // This in fact is scoped ref ptr. It'll get nuked on exit.
 }
 
 TabContents* DevToolsHttpProtocolHandler::GetTabContents(int session_id) {

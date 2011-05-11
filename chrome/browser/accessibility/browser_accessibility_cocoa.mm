@@ -210,6 +210,9 @@ bool GetState(BrowserAccessibility* accessibility, int state) {
         WebAccessibility::ATTR_HELP);
   }
   if ([attribute isEqualToString:NSAccessibilityValueAttribute]) {
+    // WebCore uses an attachmentView to get the below behavior.
+    // We do not have any native views backing this object, so need
+    // to approximate Cocoa ax behavior best as we can.
     if ([self role] == @"AXHeading") {
       NSString* headingLevel =
           NSStringForWebAccessibilityAttribute(
@@ -219,6 +222,9 @@ bool GetState(BrowserAccessibility* accessibility, int state) {
         return [NSNumber numberWithInt:
             [[headingLevel substringFromIndex:1] intValue]];
       }
+    } else if ([self role] == NSAccessibilityButtonRole) {
+      // AXValue does not make sense for pure buttons.
+      return @"";
     } else if ([self role] == NSAccessibilityCheckBoxRole) {
       return [NSNumber numberWithInt:GetState(
           browserAccessibility_, WebAccessibility::STATE_CHECKED) ? 1 : 0];
@@ -238,19 +244,23 @@ bool GetState(BrowserAccessibility* accessibility, int state) {
     return [NSNumber numberWithBool:
         !GetState(browserAccessibility_, WebAccessibility::STATE_UNAVAILABLE)];
   }
+  if ([attribute isEqualToString:@"AXVisited"]) {
+    return [NSNumber numberWithBool:
+        GetState(browserAccessibility_, WebAccessibility::STATE_TRAVERSED)];
+  }
 
   // AXWebArea attributes.
   if ([attribute isEqualToString:@"AXLoaded"])
     return [NSNumber numberWithBool:YES];
   if ([attribute isEqualToString:@"AXURL"]) {
+    WebAccessibility::Attribute urlAttribute =
+        [[self role] isEqualToString:@"AXWebArea"] ?
+            WebAccessibility::ATTR_DOC_URL :
+            WebAccessibility::ATTR_URL;
     return NSStringForWebAccessibilityAttribute(
         browserAccessibility_->attributes(),
-        WebAccessibility::ATTR_DOC_URL);
+        urlAttribute);
   }
-
-  // TODO(dtseng): provide complete implementations for the following.
-  if ([attribute isEqualToString:@"AXVisited"])
-    return [NSNumber numberWithBool:NO];
 
   // Text related attributes.
   if ([attribute isEqualToString:
@@ -294,8 +304,11 @@ bool GetState(BrowserAccessibility* accessibility, int state) {
   [ret addObject:NSAccessibilityShowMenuAction];
 
   // TODO(dtseng): this should only get set when there's a default action.
-  if ([self role] != NSAccessibilityStaticTextRole)
+  if ([self role] != NSAccessibilityStaticTextRole &&
+      [self role] != NSAccessibilityTextAreaRole &&
+      [self role] != NSAccessibilityTextFieldRole) {
     [ret addObject:NSAccessibilityPressAction];
+  }
 
   return ret;
 }
@@ -350,14 +363,14 @@ bool GetState(BrowserAccessibility* accessibility, int state) {
       NSAccessibilityTopLevelUIElementAttribute,
       NSAccessibilityValueAttribute,
       NSAccessibilityWindowAttribute,
+      @"AXURL",
+      @"AXVisited",
       nil]];
 
   // Specific role attributes.
   if ([self role] == @"AXWebArea") {
     [ret addObjectsFromArray:[NSArray arrayWithObjects:
         @"AXLoaded",
-        @"AXURL",
-        @"AXVisited",
         nil]];
   }
 
@@ -404,7 +417,11 @@ bool GetState(BrowserAccessibility* accessibility, int state) {
 // that backs this object.
 - (void)accessibilityPerformAction:(NSString*)action {
   // TODO(feldstein): Support more actions.
-  [delegate_ doDefaultAction:browserAccessibility_->renderer_id()];
+  if ([action isEqualToString:NSAccessibilityPressAction]) {
+    [delegate_ doDefaultAction:browserAccessibility_->renderer_id()];
+  } else if ([action isEqualToString:NSAccessibilityShowMenuAction]) {
+    // TODO(dtseng): implement.
+  }
 }
 
 // Returns the description of the given action.

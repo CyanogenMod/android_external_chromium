@@ -9,9 +9,9 @@
 #include <string>
 #include <vector>
 
-#include "chrome/browser/js_modal_dialog.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/tab_contents/render_view_host_delegate_helper.h"
+#include "chrome/browser/ui/app_modal_dialogs/js_modal_dialog.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/view_types.h"
 #include "chrome/common/window_container_type.h"
@@ -58,9 +58,9 @@ class BackgroundContents : public RenderViewHostDelegate,
   RenderViewHost* render_view_host() { return render_view_host_; }
 
   // RenderViewHostDelegate implementation.
-  virtual BackgroundContents* GetAsBackgroundContents() { return this; }
-  virtual RenderViewHostDelegate::View* GetViewDelegate() { return this; }
-  virtual const GURL& GetURL() const { return url_; }
+  virtual BackgroundContents* GetAsBackgroundContents();
+  virtual RenderViewHostDelegate::View* GetViewDelegate();
+  virtual const GURL& GetURL() const;
   virtual ViewType::Type GetRenderViewType() const;
   virtual int GetBrowserWindowID() const;
   virtual void DidNavigate(RenderViewHost* render_view_host,
@@ -129,8 +129,8 @@ class BackgroundContents : public RenderViewHostDelegate,
                                   const std::wstring& prompt);
   virtual void SetSuppressMessageBoxes(bool suppress_message_boxes) {}
   virtual gfx::NativeWindow GetMessageBoxRootWindow();
-  virtual TabContents* AsTabContents() { return NULL; }
-  virtual ExtensionHost* AsExtensionHost() { return NULL; }
+  virtual TabContents* AsTabContents();
+  virtual ExtensionHost* AsExtensionHost();
 
   virtual void UpdateInspectorSetting(const std::string& key,
                                       const std::string& value);

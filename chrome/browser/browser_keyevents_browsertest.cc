@@ -636,14 +636,8 @@ IN_PROC_BROWSER_TEST_F(BrowserKeyEventsTest, AccessKeys) {
 #endif
 }
 
-#if defined(OS_MACOSX)
-// See http://crbug.com/50447 for details.
-#define MAYBE_ReservedAccelerators FLAKY_ReservedAccelerators
-#else
-#define MAYBE_ReservedAccelerators ReservedAccelerators
-#endif
-
-IN_PROC_BROWSER_TEST_F(BrowserKeyEventsTest, MAYBE_ReservedAccelerators) {
+// Flaky, http://crbug.com/65847.
+IN_PROC_BROWSER_TEST_F(BrowserKeyEventsTest, FLAKY_ReservedAccelerators) {
   ASSERT_TRUE(test_server()->Start());
 
   ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
@@ -653,126 +647,66 @@ IN_PROC_BROWSER_TEST_F(BrowserKeyEventsTest, MAYBE_ReservedAccelerators) {
   ASSERT_NO_FATAL_FAILURE(ClickOnView(VIEW_ID_TAB_CONTAINER));
   ASSERT_TRUE(IsViewFocused(VIEW_ID_TAB_CONTAINER_FOCUS_VIEW));
 
-#if defined(OS_WIN) || defined(TOOLKIT_VIEWS)
-  static const KeyEventTestData kTestCtrlT = {
-    app::VKEY_T, true, false, false, false,
-    true, false, false, false, 1,
-    { "D 17 0 true false false false" }
-  };
-
   ASSERT_EQ(1, browser()->tab_count());
-  // Press Ctrl+T, which will open a new tab.
-  EXPECT_NO_FATAL_FAILURE(TestKeyEvent(0, kTestCtrlT));
-  EXPECT_EQ(2, browser()->tab_count());
-  browser()->SelectNumberedTab(0);
-  ASSERT_EQ(0, browser()->selected_index());
 
-  int result_length;
-  ASSERT_NO_FATAL_FAILURE(GetResultLength(0, &result_length));
-  EXPECT_EQ(1, result_length);
-
-  // Reserved accelerators can't be suppressed.
-  ASSERT_NO_FATAL_FAILURE(SuppressAllEvents(0, true));
-  // Press Ctrl+W, which will close the tab.
-  ASSERT_TRUE(ui_test_utils::SendKeyPressSync(
-      browser(), app::VKEY_W, true, false, false, false));
-  EXPECT_EQ(1, browser()->tab_count());
-#elif defined(OS_MACOSX)
-  static const KeyEventTestData kTestCmdT = {
+  static const KeyEventTestData kTestCtrlOrCmdT = {
+#if defined(OS_MACOSX)
     app::VKEY_T, false, false, false, true,
     true, false, false, false, 1,
     { "D 91 0 false false false true" }
+#else
+    app::VKEY_T, true, false, false, false,
+    true, false, false, false, 1,
+    { "D 17 0 true false false false" }
+#endif
   };
 
-  ASSERT_EQ(1, browser()->tab_count());
-  // Press Cmd+T, which will open a new tab.
-  EXPECT_NO_FATAL_FAILURE(TestKeyEvent(0, kTestCmdT));
-  EXPECT_EQ(2, browser()->tab_count());
-  browser()->SelectNumberedTab(0);
-  ASSERT_EQ(0, browser()->selected_index());
+  ui_test_utils::WindowedNotificationObserver wait_for_new_tab(
+      NotificationType::TAB_PARENTED,
+      NotificationService::AllSources());
+
+  // Press Ctrl/Cmd+T, which will open a new tab. It cannot be suppressed.
+  EXPECT_NO_FATAL_FAILURE(TestKeyEvent(0, kTestCtrlOrCmdT));
+
+  ASSERT_NO_FATAL_FAILURE(
+      wait_for_new_tab.WaitFor(Source<NavigationController>(
+      &browser()->GetTabContentsAt(1)->controller())));
 
   int result_length;
   ASSERT_NO_FATAL_FAILURE(GetResultLength(0, &result_length));
   EXPECT_EQ(1, result_length);
 
+  EXPECT_EQ(2, browser()->tab_count());
+  ASSERT_EQ(1, browser()->selected_index());
+
+  // Because of issue http://crbug.com/65375, switching back to the first tab
+  // may cause the focus to be grabbed by omnibox. So instead, we load our
+  // testing page in the newly created tab and try Cmd-W here.
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  // Make sure the focus is in the testing page.
+  ASSERT_NO_FATAL_FAILURE(ClickOnView(VIEW_ID_TAB_CONTAINER));
+  ASSERT_TRUE(IsViewFocused(VIEW_ID_TAB_CONTAINER_FOCUS_VIEW));
+
   // Reserved accelerators can't be suppressed.
-  ASSERT_NO_FATAL_FAILURE(SuppressAllEvents(0, true));
-  // Press Cmd+W, which will close the tab.
+  ASSERT_NO_FATAL_FAILURE(SuppressAllEvents(1, true));
+
+  ui_test_utils::WindowedNotificationObserver wait_for_tab_closed(
+      NotificationType::TAB_CLOSED, Source<NavigationController>(
+          &browser()->GetTabContentsAt(1)->controller()));
+
+  // Press Ctrl/Cmd+W, which will close the tab.
+#if defined(OS_MACOSX)
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(
       browser(), app::VKEY_W, false, false, false, true));
-  EXPECT_EQ(1, browser()->tab_count());
-#elif defined(TOOLKIT_GTK)
-  // Ctrl-[a-z] are not treated as reserved accelerators on GTK.
-  static const KeyEventTestData kTestCtrlT = {
-    app::VKEY_T, true, false, false, false,
-    false, false, false, false, 2,
-    { "D 17 0 true false false false",
-      "D 84 0 true false false false" }
-  };
-
-  static const KeyEventTestData kTestCtrlPageDown = {
-    app::VKEY_NEXT, true, false, false, false,
-    true, false, false, false, 1,
-    { "D 17 0 true false false false" }
-  };
-
-  static const KeyEventTestData kTestCtrlTab = {
-    app::VKEY_TAB, true, false, false, false,
-    true, false, false, false, 1,
-    { "D 17 0 true false false false" }
-  };
-
-  static const KeyEventTestData kTestCtrlTBlocked = {
-    app::VKEY_T, true, false, false, false,
-    true, false, false, false, 4,
-    { "D 17 0 true false false false",
-      "D 84 0 true false false false",
-      "U 84 0 true false false false",
-      "U 17 0 true false false false" }
-  };
-
-  static const KeyEventTestData kTestCtrlWBlocked = {
-    app::VKEY_W, true, false, false, false,
-    true, false, false, false, 4,
-    { "D 17 0 true false false false",
-      "D 87 0 true false false false",
-      "U 87 0 true false false false",
-      "U 17 0 true false false false" }
-  };
-
-  ASSERT_EQ(1, browser()->tab_count());
-
-  // Ctrl+T should be blockable.
-  EXPECT_NO_FATAL_FAILURE(TestKeyEvent(0, kTestCtrlTBlocked));
-  ASSERT_EQ(1, browser()->tab_count());
-
-  EXPECT_NO_FATAL_FAILURE(TestKeyEvent(0, kTestCtrlT));
-  ASSERT_EQ(2, browser()->tab_count());
-  ASSERT_EQ(1, browser()->selected_index());
-  browser()->SelectNumberedTab(0);
-  ASSERT_EQ(0, browser()->selected_index());
-
-  // Ctrl+PageDown and Ctrl+Tab switches to the next tab.
-  EXPECT_NO_FATAL_FAILURE(TestKeyEvent(0, kTestCtrlPageDown));
-  ASSERT_EQ(1, browser()->selected_index());
-
-  browser()->SelectNumberedTab(0);
-  ASSERT_EQ(0, browser()->selected_index());
-  EXPECT_NO_FATAL_FAILURE(TestKeyEvent(0, kTestCtrlTab));
-  ASSERT_EQ(1, browser()->selected_index());
-
-  // Ctrl+W should be blockable.
-  browser()->SelectNumberedTab(0);
-  ASSERT_EQ(0, browser()->selected_index());
-  EXPECT_NO_FATAL_FAILURE(TestKeyEvent(0, kTestCtrlWBlocked));
-  ASSERT_EQ(2, browser()->tab_count());
-
-  // Ctrl+F4 to close the tab.
-  ASSERT_NO_FATAL_FAILURE(SuppressAllEvents(0, true));
+#else
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(
-      browser(), app::VKEY_F4, true, false, false, false));
-  ASSERT_EQ(1, browser()->tab_count());
+      browser(), app::VKEY_W, true, false, false, false));
 #endif
+
+  ASSERT_NO_FATAL_FAILURE(wait_for_tab_closed.Wait());
+
+  EXPECT_EQ(1, browser()->tab_count());
 }
 
 #if defined(OS_MACOSX)

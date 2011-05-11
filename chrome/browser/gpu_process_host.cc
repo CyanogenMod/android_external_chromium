@@ -10,13 +10,12 @@
 #include "base/metrics/histogram.h"
 #include "base/string_piece.h"
 #include "base/thread.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/gpu_blacklist.h"
 #include "chrome/browser/gpu_process_host_ui_shim.h"
+#include "chrome/browser/renderer_host/render_message_filter.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
-#include "chrome/browser/renderer_host/resource_message_filter.h"
 #include "chrome/browser/tab_contents/render_view_host_delegate_helper.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/gpu_feature_flags.h"
@@ -29,25 +28,20 @@
 #include "media/base/media_switches.h"
 
 #if defined(OS_LINUX)
-#include <gdk/gdkwindow.h>
-#include <gdk/gdkx.h>
+// These two #includes need to come after render_messages.h.
+#include <gdk/gdkwindow.h>  // NOLINT
+#include <gdk/gdkx.h>  // NOLINT
 #include "app/x11_util.h"
 #include "gfx/gtk_native_view_id_manager.h"
 #include "gfx/size.h"
-#endif
+#endif  // defined(OS_LINUX)
 
 namespace {
 
-enum GPUBlacklistTestResult {
-  BLOCKED,
-  ALLOWED,
-  BLACKLIST_TEST_RESULT_MAX
-};
-
 enum GPUProcessLifetimeEvent {
-  LAUNCED,
-  CRASHED,
-  GPU_PROCESS_LIFETIME_EVENT_MAX
+  kLaunched,
+  kCrashed,
+  kGPUProcessLifetimeEvent_Max
   };
 
 // Tasks used by this file
@@ -58,7 +52,7 @@ class RouteOnUIThreadTask : public Task {
 
  private:
   void Run() {
-    GpuProcessHostUIShim::Get()->OnMessageReceived(msg_);
+    GpuProcessHostUIShim::GetInstance()->OnMessageReceived(msg_);
   }
   IPC::Message msg_;
 };
@@ -86,8 +80,7 @@ void RouteOnUIThread(const IPC::Message& message) {
 GpuProcessHost::GpuProcessHost()
     : BrowserChildProcessHost(GPU_PROCESS, NULL),
       initialized_(false),
-      initialized_successfully_(false),
-      blacklist_result_recorded_(false) {
+      initialized_successfully_(false) {
   DCHECK_EQ(sole_instance_, static_cast<GpuProcessHost*>(NULL));
 }
 
@@ -139,17 +132,18 @@ bool GpuProcessHost::Send(IPC::Message* msg) {
   return BrowserChildProcessHost::Send(msg);
 }
 
-void GpuProcessHost::OnMessageReceived(const IPC::Message& message) {
+bool GpuProcessHost::OnMessageReceived(const IPC::Message& message) {
   DCHECK(CalledOnValidThread());
 
   if (message.routing_id() == MSG_ROUTING_CONTROL)
-    OnControlMessageReceived(message);
-  else
-    RouteOnUIThread(message);
+    return OnControlMessageReceived(message);
+
+  RouteOnUIThread(message);
+  return true;
 }
 
 void GpuProcessHost::EstablishGpuChannel(int renderer_id,
-                                         ResourceMessageFilter* filter) {
+                                         RenderMessageFilter* filter) {
   DCHECK(CalledOnValidThread());
 
   if (Send(new GpuMsg_EstablishChannel(renderer_id))) {
@@ -160,7 +154,7 @@ void GpuProcessHost::EstablishGpuChannel(int renderer_id,
 }
 
 void GpuProcessHost::Synchronize(IPC::Message* reply,
-                                 ResourceMessageFilter* filter) {
+                                 RenderMessageFilter* filter) {
   DCHECK(CalledOnValidThread());
 
   if (Send(new GpuMsg_Synchronize())) {
@@ -170,7 +164,7 @@ void GpuProcessHost::Synchronize(IPC::Message* reply,
   }
 }
 
-GpuProcessHost::ChannelRequest::ChannelRequest(ResourceMessageFilter* filter)
+GpuProcessHost::ChannelRequest::ChannelRequest(RenderMessageFilter* filter)
     : filter(filter) {
 }
 
@@ -178,14 +172,14 @@ GpuProcessHost::ChannelRequest::~ChannelRequest() {}
 
 GpuProcessHost::SynchronizationRequest::SynchronizationRequest(
     IPC::Message* reply,
-    ResourceMessageFilter* filter)
+    RenderMessageFilter* filter)
     : reply(reply),
       filter(filter) {
 }
 
 GpuProcessHost::SynchronizationRequest::~SynchronizationRequest() {}
 
-void GpuProcessHost::OnControlMessageReceived(const IPC::Message& message) {
+bool GpuProcessHost::OnControlMessageReceived(const IPC::Message& message) {
   DCHECK(CalledOnValidThread());
 
   IPC_BEGIN_MESSAGE_MAP(GpuProcessHost, message)
@@ -209,6 +203,8 @@ void GpuProcessHost::OnControlMessageReceived(const IPC::Message& message) {
     // handle it.
     IPC_MESSAGE_UNHANDLED(RouteOnUIThread(message))
   IPC_END_MESSAGE_MAP()
+
+  return true;
 }
 
 void GpuProcessHost::OnChannelEstablished(
@@ -222,19 +218,11 @@ void GpuProcessHost::OnChannelEstablished(
   const ChannelRequest& request = sent_requests_.front();
   // Currently if any of the GPU features are blacklised, we don't establish a
   // GPU channel.
-  GPUBlacklistTestResult test_result;
   if (gpu_feature_flags.flags() != 0) {
     Send(new GpuMsg_CloseChannel(channel_handle));
     SendEstablishChannelReply(IPC::ChannelHandle(), gpu_info, request.filter);
-    test_result = BLOCKED;
   } else {
     SendEstablishChannelReply(channel_handle, gpu_info, request.filter);
-    test_result = ALLOWED;
-  }
-  if (!blacklist_result_recorded_) {
-    UMA_HISTOGRAM_ENUMERATION("GPU.BlacklistTestResults",
-                              test_result, BLACKLIST_TEST_RESULT_MAX);
-    blacklist_result_recorded_ = true;
   }
   sent_requests_.pop();
 }
@@ -257,7 +245,7 @@ void SendDelayedReply(IPC::Message* reply_msg) {
 void GetViewXIDDispatcher(gfx::NativeViewId id, IPC::Message* reply_msg) {
   XID xid;
 
-  GtkNativeViewManager* manager = Singleton<GtkNativeViewManager>::get();
+  GtkNativeViewManager* manager = GtkNativeViewManager::GetInstance();
   if (!manager->GetPermanentXIDForId(&xid, id)) {
     DLOG(ERROR) << "Can't find XID for view id " << id;
     xid = 0;
@@ -272,7 +260,7 @@ void GetViewXIDDispatcher(gfx::NativeViewId id, IPC::Message* reply_msg) {
 }
 
 void ReleaseXIDDispatcher(unsigned long xid) {
-  GtkNativeViewManager* manager = Singleton<GtkNativeViewManager>::get();
+  GtkNativeViewManager* manager = GtkNativeViewManager::GetInstance();
   manager->ReleasePermanentXID(xid);
 }
 
@@ -475,7 +463,7 @@ void GpuProcessHost::OnGetCompositorHostWindow(
 void GpuProcessHost::SendEstablishChannelReply(
     const IPC::ChannelHandle& channel,
     const GPUInfo& gpu_info,
-    ResourceMessageFilter* filter) {
+    RenderMessageFilter* filter) {
   ViewMsg_GpuChannelEstablished* message =
       new ViewMsg_GpuChannelEstablished(channel, gpu_info);
   // If the renderer process is performing synchronous initialization,
@@ -488,14 +476,8 @@ void GpuProcessHost::SendEstablishChannelReply(
 // Sends the response for synchronization request to the renderer.
 void GpuProcessHost::SendSynchronizationReply(
     IPC::Message* reply,
-    ResourceMessageFilter* filter) {
+    RenderMessageFilter* filter) {
   filter->Send(reply);
-}
-
-URLRequestContext* GpuProcessHost::GetRequestContext(
-    uint32 request_id,
-    const ViewHostMsg_Resource_Request& request_data) {
-  return NULL;
 }
 
 bool GpuProcessHost::CanShutdown() {
@@ -506,16 +488,16 @@ void GpuProcessHost::OnChildDied() {
   // Located in OnChildDied because OnProcessCrashed suffers from a race
   // condition on Linux. The GPU process will only die if it crashes.
   UMA_HISTOGRAM_ENUMERATION("GPU.GPUProcessLifetimeEvents",
-                            CRASHED, GPU_PROCESS_LIFETIME_EVENT_MAX);
+                            kCrashed, kGPUProcessLifetimeEvent_Max);
   BrowserChildProcessHost::OnChildDied();
 }
 
-void GpuProcessHost::OnProcessCrashed() {
+void GpuProcessHost::OnProcessCrashed(int exit_code) {
   if (++g_gpu_crash_count >= kGpuMaxCrashCount) {
     // The gpu process is too unstable to use. Disable it for current session.
     RenderViewHostDelegateHelper::set_gpu_enabled(false);
   }
-  BrowserChildProcessHost::OnProcessCrashed();
+  BrowserChildProcessHost::OnProcessCrashed(exit_code);
 }
 
 bool GpuProcessHost::CanLaunchGpuProcess() const {
@@ -543,8 +525,13 @@ bool GpuProcessHost::LaunchGpuProcess() {
     switches::kDisableLogging,
     switches::kEnableAcceleratedDecoding,
     switches::kEnableLogging,
+#if defined(OS_MACOSX)
+    switches::kEnableSandboxLogging,
+#endif
     switches::kGpuStartupDialog,
     switches::kLoggingLevel,
+    switches::kNoGpuSandbox,
+    switches::kNoSandbox,
   };
   cmd_line->CopySwitchesFrom(browser_command_line, kSwitchNames,
                              arraysize(kSwitchNames));
@@ -563,7 +550,7 @@ bool GpuProcessHost::LaunchGpuProcess() {
       cmd_line);
 
   UMA_HISTOGRAM_ENUMERATION("GPU.GPUProcessLifetimeEvents",
-                            LAUNCED, GPU_PROCESS_LIFETIME_EVENT_MAX);
+                            kLaunched, kGPUProcessLifetimeEvent_Max);
   return true;
 }
 

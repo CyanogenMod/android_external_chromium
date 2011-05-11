@@ -28,7 +28,7 @@
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/gtk/cairo_cached_surface.h"
 #include "chrome/browser/gtk/gtk_theme_provider.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/renderer_preferences.h"
@@ -773,12 +773,15 @@ void DrawTextEntryBackground(GtkWidget* offscreen_entry,
   // above; this is a noop on themes that do).
   gint xborder = our_style->xthickness;
   gint yborder = our_style->ythickness;
-  gtk_paint_flat_box(our_style, widget_to_draw_on->window,
-                     GTK_STATE_NORMAL, GTK_SHADOW_NONE, dirty_rec,
-                     widget_to_draw_on, "entry_bg",
-                     rec->x + xborder, rec->y + yborder,
-                     rec->width - 2 * xborder,
-                     rec->height - 2 * yborder);
+  gint width = rec->width - 2 * xborder;
+  gint height = rec->height - 2 * yborder;
+  if (width > 0 && height > 0) {
+    gtk_paint_flat_box(our_style, widget_to_draw_on->window,
+                       GTK_STATE_NORMAL, GTK_SHADOW_NONE, dirty_rec,
+                       widget_to_draw_on, "entry_bg",
+                       rec->x + xborder, rec->y + yborder,
+                       width, height);
+  }
 
   gtk_style_detach(our_style);
   g_object_unref(our_style);

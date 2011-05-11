@@ -32,6 +32,7 @@ class BoundNetLog;
 class CertVerifier;
 class ClientSocketHandle;
 class DnsCertProvenanceChecker;
+class SingleRequestCertVerifier;
 class SSLHostInfo;
 class X509Certificate;
 
@@ -48,6 +49,7 @@ class SSLClientSocketNSS : public SSLClientSocket {
                      const HostPortPair& host_and_port,
                      const SSLConfig& ssl_config,
                      SSLHostInfo* ssl_host_info,
+                     CertVerifier* cert_verifier,
                      DnsCertProvenanceChecker* dnsrr_resolver);
   ~SSLClientSocketNSS();
 
@@ -67,7 +69,7 @@ class SSLClientSocketNSS : public SSLClientSocket {
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;
   virtual int GetPeerAddress(AddressList* address) const;
-  virtual const BoundNetLog& NetLog() const { return net_log_; }
+  virtual const BoundNetLog& NetLog() const;
   virtual void SetSubresourceSpeculation();
   virtual void SetOmniboxSpeculation();
   virtual bool WasEverUsed() const;
@@ -197,7 +199,8 @@ class SSLClientSocketNSS : public SSLClientSocket {
   std::vector<scoped_refptr<X509Certificate> > client_certs_;
   bool client_auth_cert_needed_;
 
-  scoped_ptr<CertVerifier> verifier_;
+  CertVerifier* const cert_verifier_;
+  scoped_ptr<SingleRequestCertVerifier> verifier_;
 
   // True if NSS has called HandshakeCallback.
   bool handshake_callback_called_;
@@ -252,6 +255,8 @@ class SSLClientSocketNSS : public SSLClientSocket {
   SSLClientSocket::NextProtoStatus predicted_npn_status_;
   std::string predicted_npn_proto_;
   bool predicted_npn_proto_used_;
+
+  base::TimeTicks start_cert_verification_time_;
 
   scoped_ptr<SSLHostInfo> ssl_host_info_;
   DnsCertProvenanceChecker* const dns_cert_checker_;

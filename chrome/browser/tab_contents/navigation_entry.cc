@@ -5,10 +5,11 @@
 #include "chrome/browser/tab_contents/navigation_entry.h"
 
 #include "app/resource_bundle.h"
+#include "app/text_elider.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "chrome/common/chrome_constants.h"
@@ -102,7 +103,9 @@ const string16& NavigationEntry::GetTitleForDisplay(
   } else if (!url_.is_empty()) {
     title = net::FormatUrl(url_, languages);
   }
-  ElideString(UTF16ToWideHack(title), chrome::kMaxTitleChars, &elided_title);
+  gfx::ElideString(UTF16ToWideHack(title),
+                   chrome::kMaxTitleChars,
+                   &elided_title);
   cached_display_title_ = WideToUTF16Hack(elided_title);
   return cached_display_title_;
 }

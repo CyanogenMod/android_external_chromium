@@ -40,7 +40,7 @@ TabContentsViewViews::TabContentsViewViews(TabContents* tab_contents)
       sad_tab_(NULL),
       ignore_next_char_event_(false) {
   last_focused_view_storage_id_ =
-      views::ViewStorage::GetSharedInstance()->CreateStorageID();
+      views::ViewStorage::GetInstance()->CreateStorageID();
   SetLayoutManager(new views::FillLayout());
 }
 
@@ -49,7 +49,7 @@ TabContentsViewViews::~TabContentsViewViews() {
   //
   // It is possible the view went away before us, so we only do this if the
   // view is registered.
-  views::ViewStorage* view_storage = views::ViewStorage::GetSharedInstance();
+  views::ViewStorage* view_storage = views::ViewStorage::GetInstance();
   if (view_storage->RetrieveView(last_focused_view_storage_id_) != NULL)
     view_storage->RemoveView(last_focused_view_storage_id_);
 }
@@ -84,9 +84,8 @@ RenderWidgetHostView* TabContentsViewViews::CreateViewForWidget(
 
   // If we were showing sad tab, remove it now.
   if (sad_tab_ != NULL) {
-    RemoveChildView(sad_tab_);
-    AddChildView(new views::View());
-    sad_tab_ = NULL;
+    RemoveChildView(sad_tab_.get());
+    sad_tab_.reset();
   }
 
   RenderWidgetHostViewViews* view =
@@ -132,6 +131,13 @@ void TabContentsViewViews::SetPageTitle(const std::wstring& title) {
 }
 
 void TabContentsViewViews::OnTabCrashed() {
+  if (sad_tab_ != NULL)
+    return;
+
+  sad_tab_.reset(new SadTabView(tab_contents()));
+  RemoveAllChildViews(true);
+  AddChildView(sad_tab_.get());
+  Layout();
 }
 
 void TabContentsViewViews::SizeContents(const gfx::Size& size) {
@@ -155,7 +161,8 @@ void TabContentsViewViews::Focus() {
   }
 
   RenderWidgetHostView* rwhv = tab_contents()->GetRenderWidgetHostView();
-  gtk_widget_grab_focus(rwhv ? rwhv->GetNativeView() : GetNativeView());
+  if (rwhv)
+    rwhv->Focus();
 }
 
 void TabContentsViewViews::SetInitialFocus() {
@@ -166,7 +173,7 @@ void TabContentsViewViews::SetInitialFocus() {
 }
 
 void TabContentsViewViews::StoreFocus() {
-  views::ViewStorage* view_storage = views::ViewStorage::GetSharedInstance();
+  views::ViewStorage* view_storage = views::ViewStorage::GetInstance();
 
   if (view_storage->RetrieveView(last_focused_view_storage_id_) != NULL)
     view_storage->RemoveView(last_focused_view_storage_id_);
@@ -183,7 +190,7 @@ void TabContentsViewViews::StoreFocus() {
 }
 
 void TabContentsViewViews::RestoreFocus() {
-  views::ViewStorage* view_storage = views::ViewStorage::GetSharedInstance();
+  views::ViewStorage* view_storage = views::ViewStorage::GetInstance();
   views::View* last_focused_view =
       view_storage->RetrieveView(last_focused_view_storage_id_);
   if (!last_focused_view) {
@@ -208,6 +215,12 @@ void TabContentsViewViews::RestoreFocus() {
     }
     view_storage->RemoveView(last_focused_view_storage_id_);
   }
+}
+
+void TabContentsViewViews::DidChangeBounds(const gfx::Rect& previous,
+                                           const gfx::Rect& current) {
+  if (IsVisibleInRootView())
+    WasSized(gfx::Size(current.width(), current.height()));
 }
 
 void TabContentsViewViews::Paint(gfx::Canvas* canvas) {
@@ -251,8 +264,22 @@ void TabContentsViewViews::ShowContextMenu(const ContextMenuParams& params) {
   if (tab_contents()->delegate()->HandleContextMenu(params))
     return;
 
-  // TODO(anicolao): implement context menus for touch
-  NOTIMPLEMENTED();
+  context_menu_.reset(new RenderViewContextMenuViews(tab_contents(), params));
+  context_menu_->Init();
+
+  gfx::Point screen_point(params.x, params.y);
+  RenderWidgetHostViewViews* rwhv = static_cast<RenderWidgetHostViewViews*>
+      (tab_contents()->GetRenderWidgetHostView());
+  if (rwhv) {
+    views::View::ConvertPointToScreen(rwhv, &screen_point);
+  }
+
+  // Enable recursive tasks on the message loop so we can get updates while
+  // the context menu is being displayed.
+  bool old_state = MessageLoop::current()->NestableTasksAllowed();
+  MessageLoop::current()->SetNestableTasksAllowed(true);
+  context_menu_->RunMenuAt(screen_point.x(), screen_point.y());
+  MessageLoop::current()->SetNestableTasksAllowed(old_state);
 }
 
 void TabContentsViewViews::ShowPopupMenu(const gfx::Rect& bounds,

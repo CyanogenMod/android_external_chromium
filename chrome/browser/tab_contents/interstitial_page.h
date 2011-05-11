@@ -9,6 +9,7 @@
 #include <map>
 #include <string>
 
+#include "base/process_util.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/common/notification_observer.h"
@@ -69,7 +70,7 @@ class InterstitialPage : public NotificationObserver,
   static InterstitialPage* GetInterstitialPage(TabContents* tab_contents);
 
   // Sub-classes should return the HTML that should be displayed in the page.
-  virtual std::string GetHTMLContents() { return std::string(); }
+  virtual std::string GetHTMLContents();
 
   // Reverts to the page showing before the interstitial.
   // Sub-classes should call this method when the user has chosen NOT to proceed
@@ -100,9 +101,7 @@ class InterstitialPage : public NotificationObserver,
   // Called when tab traversing.
   void FocusThroughTabTraversal(bool reverse);
 
-  virtual ViewType::Type GetRenderViewType() const {
-    return ViewType::INTERSTITIAL_PAGE;
-  }
+  virtual ViewType::Type GetRenderViewType() const;
   virtual int GetBrowserWindowID() const;
 
   // See description above field.
@@ -124,7 +123,9 @@ class InterstitialPage : public NotificationObserver,
   // RenderViewHostDelegate implementation:
   virtual View* GetViewDelegate();
   virtual const GURL& GetURL() const;
-  virtual void RenderViewGone(RenderViewHost* render_view_host);
+  virtual void RenderViewGone(RenderViewHost* render_view_host,
+                              base::TerminationStatus status,
+                              int error_code);
   virtual void DidNavigate(RenderViewHost* render_view_host,
                            const ViewHostMsg_FrameNavigate_Params& params);
   virtual void UpdateTitle(RenderViewHost* render_view_host,

@@ -5,6 +5,7 @@
 #include "chrome/browser/dom_ui/options/options_ui.h"
 
 #include <algorithm>
+#include <vector>
 
 #include "app/resource_bundle.h"
 #include "base/callback.h"
@@ -29,19 +30,19 @@
 #include "chrome/browser/dom_ui/options/core_options_handler.h"
 #include "chrome/browser/dom_ui/options/font_settings_handler.h"
 #include "chrome/browser/dom_ui/options/import_data_handler.h"
-#include "chrome/browser/dom_ui/options/passwords_exceptions_handler.h"
+#include "chrome/browser/dom_ui/options/password_manager_handler.h"
 #include "chrome/browser/dom_ui/options/personal_options_handler.h"
 #include "chrome/browser/dom_ui/options/search_engine_manager_handler.h"
+#include "chrome/browser/dom_ui/options/startup_page_manager_handler.h"
 #include "chrome/browser/dom_ui/options/stop_syncing_handler.h"
 #include "chrome/browser/dom_ui/options/sync_options_handler.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
 #include "chrome/common/jstemplate_builder.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/time_format.h"
 #include "chrome/common/url_constants.h"
@@ -121,6 +122,10 @@ OptionsPageUIHandler::OptionsPageUIHandler() {
 OptionsPageUIHandler::~OptionsPageUIHandler() {
 }
 
+bool OptionsPageUIHandler::IsEnabled() {
+  return true;
+}
+
 void OptionsPageUIHandler::UserMetricsRecordAction(
     const UserMetricsAction& action) {
   UserMetrics::RecordAction(action, dom_ui_->GetProfile());
@@ -150,9 +155,10 @@ OptionsUI::OptionsUI(TabContents* contents) : DOMUI(contents) {
   AddOptionsPageUIHandler(localized_strings, new ContentSettingsHandler());
   AddOptionsPageUIHandler(localized_strings, new CookiesViewHandler());
   AddOptionsPageUIHandler(localized_strings, new FontSettingsHandler());
-  AddOptionsPageUIHandler(localized_strings, new PasswordsExceptionsHandler());
+  AddOptionsPageUIHandler(localized_strings, new PasswordManagerHandler());
   AddOptionsPageUIHandler(localized_strings, new PersonalOptionsHandler());
   AddOptionsPageUIHandler(localized_strings, new SearchEngineManagerHandler());
+  AddOptionsPageUIHandler(localized_strings, new StartupPageManagerHandler());
   AddOptionsPageUIHandler(localized_strings, new ImportDataHandler());
   AddOptionsPageUIHandler(localized_strings, new StopSyncingHandler());
   AddOptionsPageUIHandler(localized_strings, new SyncOptionsHandler());
@@ -192,7 +198,7 @@ OptionsUI::OptionsUI(TabContents* contents) : DOMUI(contents) {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
-          Singleton<ChromeURLDataManager>::get(),
+          ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(html_source)));
 
@@ -201,7 +207,7 @@ OptionsUI::OptionsUI(TabContents* contents) : DOMUI(contents) {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
-          Singleton<ChromeURLDataManager>::get(),
+          ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(theme)));
 }

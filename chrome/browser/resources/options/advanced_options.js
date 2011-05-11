@@ -59,14 +59,11 @@ var OptionsPage = options.OptionsPage;
       $('defaultZoomLevel').onchange = function(event) {
         chrome.send('defaultZoomLevelAction',
             [String(event.target.options[event.target.selectedIndex].value)]);
-      }
-      $('optionsReset').onclick = function(event) {
-        AlertOverlay.show(undefined,
-            localStrings.getString('optionsResetMessage'),
-            localStrings.getString('optionsResetOkLabel'),
-            localStrings.getString('optionsResetCancelLabel'),
-            function() { chrome.send('resetToDefaults'); });
-      }
+      };
+      $('defaultFontSize').onchange = function(event) {
+        chrome.send('defaultFontSizeAction',
+            [String(event.target.options[event.target.selectedIndex].value)]);
+      };
 
       if (cr.isWindows || cr.isMac) {
         $('certificatesManageButton').onclick = function(event) {
@@ -85,16 +82,16 @@ var OptionsPage = options.OptionsPage;
         $('proxiesConfigureButton').onclick = function(event) {
           chrome.send('showNetworkProxySettings');
         };
-        $('downloadLocationBrowseButton').onclick = function(event) {
+        $('downloadLocationChangeButton').onclick = function(event) {
           chrome.send('selectDownloadLocation');
         };
 
         // Remove Windows-style accelerators from the Browse button label.
         // TODO(csilv): Remove this after the accelerator has been removed from
         // the localized strings file, pending removal of old options window.
-        $('downloadLocationBrowseButton').textContent =
+        $('downloadLocationChangeButton').textContent =
             localStrings.getStringWithoutAccelerator(
-                'downloadLocationBrowseButton');
+                'downloadLocationChangeButton');
       } else {
         $('proxiesConfigureButton').onclick = function(event) {
           OptionsPage.showPageByName('proxy');
@@ -107,10 +104,6 @@ var OptionsPage = options.OptionsPage;
         $('sslCheckRevocation').onclick = function(event) {
           chrome.send('checkRevocationCheckboxAction',
               [String($('sslCheckRevocation').checked)]);
-        };
-        $('sslUseSSL2').onclick = function(event) {
-          chrome.send('useSSL2CheckboxAction',
-              [String($('sslUseSSL2').checked)]);
         };
         $('sslUseSSL3').onclick = function(event) {
           chrome.send('useSSL3CheckboxAction',
@@ -144,16 +137,6 @@ var OptionsPage = options.OptionsPage;
           chrome.send('showCloudPrintManagePage');
         };
       }
-    },
-
-    /**
-     * Show a 'restart required' alert.
-     * @private
-     */
-    showRestartRequiredAlert_: function() {
-      AlertOverlay.show(undefined,
-          localStrings.getString('optionsRestartRequired'),
-          undefined, '', undefined);
     }
   };
 
@@ -162,13 +145,12 @@ var OptionsPage = options.OptionsPage;
   //
 
   // Set the checked state of the metrics reporting checkbox.
-  AdvancedOptions.SetMetricsReportingCheckboxState = function(checked,
-      disabled, user_changed) {
+  AdvancedOptions.SetMetricsReportingCheckboxState = function(
+      checked, disabled) {
     $('metricsReportingEnabled').checked = checked;
     $('metricsReportingEnabled').disabled = disabled;
-
-    if (user_changed)
-      AdvancedOptions.getInstance().showRestartRequiredAlert_();
+    if (disabled)
+      $('metricsReportingEnabledText').className = 'disable-services-span';
   }
 
   AdvancedOptions.SetMetricsReportingSettingVisibility = function(visible) {
@@ -191,6 +173,31 @@ var OptionsPage = options.OptionsPage;
     selectCtl.selectedIndex = 4;  // 100%
   };
 
+  // Set the font size selected item.
+  AdvancedOptions.SetFontSize = function(fixed_font_size_value,
+      font_size_value) {
+    var selectCtl = $('defaultFontSize');
+    if (fixed_font_size_value == font_size_value) {
+      for (var i = 0; i < selectCtl.options.length; i++) {
+        if (selectCtl.options[i].value == font_size_value) {
+          selectCtl.selectedIndex = i;
+          if ($('Custom'))
+            selectCtl.remove($('Custom').index);
+          return;
+        }
+      }
+    }
+
+    // Add/Select Custom Option in the font size label list.
+    if (!$('Custom')) {
+      var option = new Option(localStrings.getString('fontSizeLabelCustom'),
+                              -1, false, true);
+      option.setAttribute("id", "Custom");
+      selectCtl.add(option);
+    }
+    $('Custom').selected = true;
+  };
+
   // Set the download path.
   AdvancedOptions.SetDownloadLocationPath = function(path) {
     if (!cr.isChromeOS)
@@ -209,16 +216,10 @@ var OptionsPage = options.OptionsPage;
   };
 
   // Set the checked state for the sslCheckRevocation checkbox.
-  AdvancedOptions.SetCheckRevocationCheckboxState = function(checked,
-      disabled) {
+  AdvancedOptions.SetCheckRevocationCheckboxState = function(
+      checked, disabled) {
     $('sslCheckRevocation').checked = checked;
     $('sslCheckRevocation').disabled = disabled;
-  };
-
-  // Set the checked state for the sslUseSSL2 checkbox.
-  AdvancedOptions.SetUseSSL2CheckboxState = function(checked, disabled) {
-    $('sslUseSSL2').checked = checked;
-    $('sslUseSSL2').disabled = disabled;
   };
 
   // Set the checked state for the sslUseSSL3 checkbox.

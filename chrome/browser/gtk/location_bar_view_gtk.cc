@@ -26,7 +26,7 @@
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/extensions/extension_browser_event_router.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/gtk/bookmark_bubble_gtk.h"
 #include "chrome/browser/gtk/bookmark_utils_gtk.h"
 #include "chrome/browser/gtk/cairo_cached_surface.h"
@@ -39,12 +39,12 @@
 #include "chrome/browser/gtk/rounded_window.h"
 #include "chrome/browser/gtk/view_id_util.h"
 #include "chrome/browser/instant/instant_controller.h"
-#include "chrome/browser/location_bar_util.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/omnibox/location_bar_util.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_action.h"
 #include "chrome/common/extensions/extension_resource.h"
@@ -464,12 +464,7 @@ bool LocationBarViewGtk::OnCommitSuggestedText(
 }
 
 bool LocationBarViewGtk::AcceptCurrentInstantPreview() {
-  InstantController* instant = browser_->instant();
-  if (instant && instant->IsCurrent()) {
-    instant->CommitCurrentPreview(INSTANT_COMMIT_PRESSED_ENTER);
-    return true;
-  }
-  return false;
+  return InstantController::CommitIfCurrent(browser_->instant());
 }
 
 void LocationBarViewGtk::OnSetSuggestedSearchText(
@@ -680,7 +675,7 @@ void LocationBarViewGtk::UpdateContentSettingsIcons() {
 
 void LocationBarViewGtk::UpdatePageActions() {
   std::vector<ExtensionAction*> page_actions;
-  ExtensionsService* service = profile_->GetExtensionsService();
+  ExtensionService* service = profile_->GetExtensionService();
   if (!service)
     return;
 
@@ -754,6 +749,10 @@ AutocompleteEditView* LocationBarViewGtk::location_entry() {
 
 LocationBarTesting* LocationBarViewGtk::GetLocationBarForTesting() {
   return this;
+}
+
+int LocationBarViewGtk::PageActionCount() {
+  return page_action_views_.size();
 }
 
 int LocationBarViewGtk::PageActionVisibleCount() {
@@ -991,7 +990,7 @@ void LocationBarViewGtk::SetKeywordLabel(const std::wstring& keyword) {
     if (is_extension_keyword) {
       const TemplateURL* template_url =
           profile_->GetTemplateURLModel()->GetTemplateURLForKeyword(keyword);
-      const SkBitmap& bitmap = profile_->GetExtensionsService()->
+      const SkBitmap& bitmap = profile_->GetExtensionService()->
           GetOmniboxIcon(template_url->GetExtensionId());
       GdkPixbuf* pixbuf = gfx::GdkPixbufFromSkBitmap(&bitmap);
       gtk_image_set_from_pixbuf(GTK_IMAGE(tab_to_search_magnifier_), pixbuf);
@@ -1344,7 +1343,7 @@ LocationBarViewGtk::PageActionViewGtk::PageActionViewGtk(
   image_.Own(gtk_image_new());
   gtk_container_add(GTK_CONTAINER(event_box_.get()), image_.get());
 
-  const Extension* extension = profile->GetExtensionsService()->
+  const Extension* extension = profile->GetExtensionService()->
       GetExtensionById(page_action->extension_id(), false);
   DCHECK(extension);
 
@@ -1508,7 +1507,7 @@ gboolean LocationBarViewGtk::PageActionViewGtk::OnButtonPressed(
           event->button.button);
     }
   } else {
-    const Extension* extension = profile_->GetExtensionsService()->
+    const Extension* extension = profile_->GetExtensionService()->
         GetExtensionById(page_action()->extension_id(), false);
 
     context_menu_model_ =

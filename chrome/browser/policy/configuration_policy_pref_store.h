@@ -10,7 +10,7 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/gtest_prod_util.h"
+#include "base/observer_list.h"
 #include "base/scoped_ptr.h"
 #include "base/values.h"
 #include "chrome/browser/policy/configuration_policy_provider.h"
@@ -21,24 +21,27 @@ class Profile;
 
 namespace policy {
 
-// An implementation of the |PrefStore| that holds a Dictionary
-// created through applied policy.
-class ConfigurationPolicyPrefStore : public PrefStore,
-                                     public ConfigurationPolicyStoreInterface {
- public:
-  typedef std::set<const char*> ProxyPreferenceSet;
+class ConfigurationPolicyPrefKeeper;
 
+// An implementation of PrefStore that bridges policy settings as read from a
+// ConfigurationPolicyProvider to preferences.
+class ConfigurationPolicyPrefStore
+    : public PrefStore,
+      public ConfigurationPolicyProvider::Observer {
+ public:
   // The ConfigurationPolicyPrefStore does not take ownership of the
   // passed-in |provider|.
   explicit ConfigurationPolicyPrefStore(ConfigurationPolicyProvider* provider);
-  virtual ~ConfigurationPolicyPrefStore() {}
+  virtual ~ConfigurationPolicyPrefStore();
 
   // PrefStore methods:
-  virtual PrefReadError ReadPrefs();
-  virtual DictionaryValue* prefs() const { return prefs_.get(); }
+  virtual void AddObserver(PrefStore::Observer* observer);
+  virtual void RemoveObserver(PrefStore::Observer* observer);
+  virtual bool IsInitializationComplete() const;
+  virtual ReadResult GetValue(const std::string& key, Value** result) const;
 
-  // ConfigurationPolicyStore methods:
-  virtual void Apply(ConfigurationPolicyType setting, Value* value);
+  // ConfigurationPolicyProvider::Observer methods:
+  virtual void OnUpdatePolicy();
 
   // Creates a ConfigurationPolicyPrefStore that reads managed platform policy.
   static ConfigurationPolicyPrefStore* CreateManagedPlatformPolicyPrefStore();
@@ -55,85 +58,27 @@ class ConfigurationPolicyPrefStore : public PrefStore,
   static const ConfigurationPolicyProvider::PolicyDefinitionList*
       GetChromePolicyDefinitionList();
 
-  // Returns the set of preference paths that can be affected by a proxy
-  // policy.
-  static void GetProxyPreferenceSet(ProxyPreferenceSet* proxy_pref_set);
-
  private:
-  // Policies that map to a single preference are handled
-  // by an automated converter. Each one of these policies
-  // has an entry in |simple_policy_map_| with the following type.
-  struct PolicyToPreferenceMapEntry {
-    Value::ValueType value_type;
-    ConfigurationPolicyType policy_type;
-    const char* preference_path;  // A DictionaryValue path, not a file path.
-  };
+  // Refreshes policy information, rereading policy from the provider and
+  // sending out change notifications as appropriate.
+  void Refresh();
 
-  static const PolicyToPreferenceMapEntry kSimplePolicyMap[];
-  static const PolicyToPreferenceMapEntry kProxyPolicyMap[];
-  static const PolicyToPreferenceMapEntry kDefaultSearchPolicyMap[];
   static const ConfigurationPolicyProvider::PolicyDefinitionList
       kPolicyDefinitionList;
 
+  // The policy provider from which policy settings are read.
   ConfigurationPolicyProvider* provider_;
-  scoped_ptr<DictionaryValue> prefs_;
 
-  // Set to false until the first proxy-relevant policy is applied. At that
-  // time, default values are provided for all proxy-relevant prefs
-  // to override any values set from stores with a lower priority.
-  bool lower_priority_proxy_settings_overridden_;
+  // Initialization status as reported by the policy provider the last time we
+  // queried it.
+  bool initialization_complete_;
 
-  // The following are used to track what proxy-relevant policy has been applied
-  // accross calls to Apply to provide a warning if a policy specifies a
-  // contradictory proxy configuration. |proxy_disabled_| is set to true if and
-  // only if the kPolicyNoProxyServer has been applied,
-  // |proxy_configuration_specified_| is set to true if and only if any other
-  // proxy policy other than kPolicyNoProxyServer has been applied.
-  bool proxy_disabled_;
-  bool proxy_configuration_specified_;
+  // Current policy preferences.
+  scoped_ptr<ConfigurationPolicyPrefKeeper> policy_keeper_;
 
-  // Set to true if a the proxy mode policy has been set to force Chrome
-  // to use the system proxy.
-  bool use_system_proxy_;
+  ObserverList<PrefStore::Observer, true> observers_;
 
-  // Returns the map entry that corresponds to |policy| in the map.
-  const PolicyToPreferenceMapEntry* FindPolicyInMap(
-      ConfigurationPolicyType policy,
-      const PolicyToPreferenceMapEntry* map,
-      int size) const;
-
-  // Remove the preferences found in the map from |prefs_|.  Returns true if
-  // any such preferences were found and removed.
-  bool RemovePreferencesOfMap(const PolicyToPreferenceMapEntry* map,
-                              int table_size);
-
-  bool ApplyPolicyFromMap(ConfigurationPolicyType policy,
-                          Value* value,
-                          const PolicyToPreferenceMapEntry* map,
-                          int size);
-
-  // Processes proxy-specific policies. Returns true if the specified policy
-  // is a proxy-related policy. ApplyProxyPolicy assumes the ownership
-  // of |value| in the case that the policy is proxy-specific.
-  bool ApplyProxyPolicy(ConfigurationPolicyType policy, Value* value);
-
-  // Handles sync-related policies. Returns true if the policy was handled.
-  // Assumes ownership of |value| in that case.
-  bool ApplySyncPolicy(ConfigurationPolicyType policy, Value* value);
-
-  // Handles policies that affect AutoFill. Returns true if the policy was
-  // handled and assumes ownership of |value| in that case.
-  bool ApplyAutoFillPolicy(ConfigurationPolicyType policy, Value* value);
-
-  // Make sure that the |path| if present in |prefs_|.  If not, set it to
-  // a blank string.
-  void EnsureStringPrefExists(const std::string& path);
-
-  // If the required entries for default search are specified and valid,
-  // finalizes the policy-specified configuration by initializing the
-  // unspecified map entries.  Otherwise wipes all default search related
-  // map entries from |prefs_|.
-  void FinalizeDefaultSearchPolicySettings();
+  ConfigurationPolicyObserverRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(ConfigurationPolicyPrefStore);
 };

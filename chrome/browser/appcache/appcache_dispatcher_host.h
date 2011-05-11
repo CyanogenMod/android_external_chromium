@@ -12,6 +12,7 @@
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/appcache/appcache_frontend_proxy.h"
+#include "chrome/browser/browser_message_filter.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "ipc/ipc_message.h"
 #include "webkit/appcache/appcache_backend_impl.h"
@@ -22,32 +23,30 @@ class URLRequestContextGetter;
 
 // Handles appcache related messages sent to the main browser process from
 // its child processes. There is a distinct host for each child process.
-// Messages are handled on the IO thread. The ResourceMessageFilter and
+// Messages are handled on the IO thread. The BrowserRenderProcessHost and
 // WorkerProcessHost create an instance and delegates calls to it.
-class AppCacheDispatcherHost {
+class AppCacheDispatcherHost : public BrowserMessageFilter {
  public:
   // Constructor for use on the IO thread.
-  explicit AppCacheDispatcherHost(
-      URLRequestContext* request_context);
+  AppCacheDispatcherHost(URLRequestContext* request_context,
+                         int process_id);
 
   // Constructor for use on the UI thread.
-  explicit AppCacheDispatcherHost(
-      URLRequestContextGetter* request_context_getter);
+  AppCacheDispatcherHost(URLRequestContextGetter* request_context_getter,
+                         int process_id);
 
   ~AppCacheDispatcherHost();
 
-  void Initialize(ResourceDispatcherHost::Receiver* receiver);
-  bool OnMessageReceived(const IPC::Message& msg, bool* msg_is_ok);
-
-  int process_id() const { return backend_impl_.process_id(); }
-
-  // Note: needed to satisfy ipc message dispatching macros.
-  bool Send(IPC::Message* msg) {
-    return frontend_proxy_.sender()->Send(msg);
-  }
+  // BrowserIOMessageFilter implementation
+  virtual void OnChannelConnected(int32 peer_pid);
+  virtual bool OnMessageReceived(const IPC::Message& message,
+                                 bool* message_was_ok);
 
  private:
-  // Ipc message handlers
+  // BrowserMessageFilter override.
+  virtual void BadMessageReceived();
+
+  // IPC message handlers
   void OnRegisterHost(int host_id);
   void OnUnregisterHost(int host_id);
   void OnSelectCache(int host_id, const GURL& document_url,
@@ -68,25 +67,26 @@ class AppCacheDispatcherHost {
   void StartUpdateCallback(bool result, void* param);
   void SwapCacheCallback(bool result, void* param);
 
-  void ReceivedBadMessage(uint32 msg_type);
+  // This is only valid once Initialize() has been called.  This MUST be defined
+  // before backend_impl_ since the latter maintains a (non-refcounted) pointer
+  // to it.
+  scoped_refptr<ChromeAppCacheService> appcache_service_;
 
   AppCacheFrontendProxy frontend_proxy_;
   appcache::AppCacheBackendImpl backend_impl_;
 
-  // Temporary until Initialize() can be called from the IO thread,
+  // Temporary until OnChannelConnected() can be called from the IO thread,
   // which will extract the AppCacheService from the URLRequestContext.
   scoped_refptr<URLRequestContext> request_context_;
   scoped_refptr<URLRequestContextGetter> request_context_getter_;
-
-  // This is only valid once Initialize() has been called.
-  scoped_refptr<ChromeAppCacheService> appcache_service_;
 
   scoped_ptr<appcache::GetStatusCallback> get_status_callback_;
   scoped_ptr<appcache::StartUpdateCallback> start_update_callback_;
   scoped_ptr<appcache::SwapCacheCallback> swap_cache_callback_;
   scoped_ptr<IPC::Message> pending_reply_msg_;
 
-  ResourceDispatcherHost::Receiver* receiver_;
+  // The corresponding ChildProcessHost object's id().
+  int process_id_;
 
   DISALLOW_COPY_AND_ASSIGN(AppCacheDispatcherHost);
 };

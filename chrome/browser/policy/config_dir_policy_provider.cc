@@ -12,11 +12,12 @@
 
 namespace policy {
 
-ConfigDirPolicyLoader::ConfigDirPolicyLoader(const FilePath& config_dir)
-    : FileBasedPolicyProvider::Delegate(config_dir) {
+ConfigDirPolicyProviderDelegate::ConfigDirPolicyProviderDelegate(
+    const FilePath& config_dir)
+    : FileBasedPolicyProvider::ProviderDelegate(config_dir) {
 }
 
-DictionaryValue* ConfigDirPolicyLoader::Load() {
+DictionaryValue* ConfigDirPolicyProviderDelegate::Load() {
   // Enumerate the files and sort them lexicographically.
   std::set<FilePath> files;
   file_util::FileEnumerator file_enumerator(config_file_path(), false,
@@ -49,7 +50,7 @@ DictionaryValue* ConfigDirPolicyLoader::Load() {
   return policy;
 }
 
-base::Time ConfigDirPolicyLoader::GetLastModification() {
+base::Time ConfigDirPolicyProviderDelegate::GetLastModification() {
   base::Time last_modification = base::Time();
   base::PlatformFileInfo file_info;
 
@@ -68,7 +69,7 @@ base::Time ConfigDirPolicyLoader::GetLastModification() {
        config_file = file_enumerator.Next()) {
     if (file_util::GetFileInfo(config_file, &file_info) &&
         !file_info.is_directory) {
-      last_modification = std::min(last_modification, file_info.last_modified);
+      last_modification = std::max(last_modification, file_info.last_modified);
     }
   }
 
@@ -78,8 +79,9 @@ base::Time ConfigDirPolicyLoader::GetLastModification() {
 ConfigDirPolicyProvider::ConfigDirPolicyProvider(
     const ConfigurationPolicyProvider::PolicyDefinitionList* policy_list,
     const FilePath& config_dir)
-    : FileBasedPolicyProvider(policy_list,
-                              new ConfigDirPolicyLoader(config_dir)) {
+    : FileBasedPolicyProvider(
+        policy_list,
+        new ConfigDirPolicyProviderDelegate(config_dir)) {
 }
 
 }  // namespace policy

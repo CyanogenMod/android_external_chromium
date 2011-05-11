@@ -5,11 +5,21 @@
 #include "chrome/browser/chromeos/cros/speech_synthesis_library.h"
 
 #include "base/message_loop.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
-#include "cros/chromeos_speech_synthesis.h"
+#include "third_party/cros/chromeos_speech_synthesis.h"
 
 namespace chromeos {
+
+// TODO(chaitanyag): rename to "locale" after making equivalent change in
+// Chrome OS code.
+const char SpeechSynthesisLibrary::kSpeechPropertyLocale[] = "name";
+
+const char SpeechSynthesisLibrary::kSpeechPropertyGender[] = "gender";
+const char SpeechSynthesisLibrary::kSpeechPropertyRate[] = "rate";
+const char SpeechSynthesisLibrary::kSpeechPropertyPitch[] = "pitch";
+const char SpeechSynthesisLibrary::kSpeechPropertyVolume[] = "volume";
+const char SpeechSynthesisLibrary::kSpeechPropertyEquals[] = "=";
+const char SpeechSynthesisLibrary::kSpeechPropertyDelimiter[] = ";";
 
 class SpeechSynthesisLibraryImpl : public SpeechSynthesisLibrary {
  public:

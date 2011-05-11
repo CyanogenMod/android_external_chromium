@@ -31,6 +31,8 @@ class WriteTransaction;
 
 namespace browser_sync {
 
+extern const char kAutofillProfileTag[];
+
 class AutofillChangeProcessor;
 class UnrecoverableErrorHandler;
 
@@ -70,19 +72,14 @@ class AutofillProfileModelAssociator
   // See ModelAssociator interface.
   virtual void AbortAssociation();
 
-  virtual const std::string* GetChromeNodeFromSyncId(
-      int64 sync_id) {
-    return NULL;
-  }
+  virtual const std::string* GetChromeNodeFromSyncId(int64 sync_id);
 
-  virtual bool InitSyncNodeFromChromeId(std::string node_id,
-                                        sync_api::BaseNode* sync_node) {
-    return false;
-  }
+  virtual bool InitSyncNodeFromChromeId(const std::string& node_id,
+                                        sync_api::BaseNode* sync_node);
 
   // Returns the sync id for the given autofill name, or sync_api::kInvalidId
   // if the autofill name is not associated to any sync id.
-  virtual int64 GetSyncIdFromChromeId(std::string node_id);
+  virtual int64 GetSyncIdFromChromeId(const std::string& node_id);
 
   // Associates the given autofill name with the given sync id.
   virtual void Associate(const std::string* node, int64 sync_id);
@@ -94,15 +91,17 @@ class AutofillProfileModelAssociator
   // given permanent tag was found and update
   // |sync_id| with that node's id. No current use. To Implement
   // only for completeness.
-  virtual bool GetSyncIdForTaggedNode(const std::string& tag, int64* sync_id) {
-    return false;
-  }
+  virtual bool GetSyncIdForTaggedNode(const std::string& tag, int64* sync_id);
 
   // Returns sync service instance.
   ProfileSyncService* sync_service() { return sync_service_; }
 
+  static bool OverwriteProfileWithServerData(
+      AutoFillProfile* merge_into,
+      const sync_pb::AutofillProfileSpecifics& specifics);
+
  protected:
-  AutofillProfileModelAssociator() {}
+  AutofillProfileModelAssociator();
   bool TraverseAndAssociateChromeAutoFillProfiles(
       sync_api::WriteTransaction* write_trans,
       const sync_api::ReadNode& autofill_root,
@@ -137,10 +136,6 @@ class AutofillProfileModelAssociator
       const sync_api::ReadNode& autofill_root,
       DataBundle* bundle);
 
-  static bool OverwriteProfileWithServerData(
-      AutoFillProfile* merge_into,
-      const sync_pb::AutofillProfileSpecifics& specifics);
-
  private:
   typedef std::map<std::string, int64> AutofillToSyncIdMap;
   typedef std::map<int64, std::string> SyncIdToAutofillMap;
@@ -168,6 +163,8 @@ class AutofillProfileModelAssociator
       const sync_api::BaseNode& autofill_root,
       const AutoFillProfile& profile);
 
+  bool MigrationLoggingEnabled();
+
   ProfileSyncService* sync_service_;
   WebDatabase* web_database_;
   PersonalDataManager* personal_data_;
@@ -181,6 +178,8 @@ class AutofillProfileModelAssociator
   // AssociateModels method as soon as possible.
   Lock abort_association_pending_lock_;
   bool abort_association_pending_;
+
+  int number_of_profiles_created_;
 
   DISALLOW_COPY_AND_ASSIGN(AutofillProfileModelAssociator);
 };

@@ -14,9 +14,9 @@
 #include "base/string_util.h"
 #include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
-#include "cros/chromeos_input_method_ui.h"
 #include "gfx/canvas.h"
 #include "gfx/font.h"
+#include "third_party/cros/chromeos_input_method_ui.h"
 #include "views/controls/label.h"
 #include "views/controls/textfield/textfield.h"
 #include "views/event.h"
@@ -236,6 +236,15 @@ int ComputeShortcutColumnWidth(
   return shortcut_column_width;
 }
 
+// Computes the page index. For instance, if the page size is 9, and the
+// cursor is pointing to 13th candidate, the page index will be 1 (2nd
+// page, as the index is zero-origin). Returns -1 on error.
+int ComputePageIndex(const chromeos::InputMethodLookupTable& lookup_table) {
+  if (lookup_table.page_size > 0)
+    return lookup_table.cursor_absolute_index / lookup_table.page_size;
+  return -1;
+}
+
 // Computes candidate column width.
 int ComputeCandidateColumnWidth(
     const chromeos::InputMethodLookupTable& lookup_table) {
@@ -244,8 +253,9 @@ int ComputeCandidateColumnWidth(
       CreateCandidateLabel(lookup_table.orientation));
 
   // Compute the start index of |lookup_table_|.
-  const int current_page_index =
-      lookup_table.cursor_absolute_index / lookup_table.page_size;
+  const int current_page_index = ComputePageIndex(lookup_table);
+  if (current_page_index < 0)
+    return 0;
   const size_t start_from = current_page_index * lookup_table.page_size;
 
   // Compute the max width in candidate labels.
@@ -271,8 +281,9 @@ int ComputeAnnotationColumnWidth(
       CreateAnnotationLabel(lookup_table.orientation));
 
   // Compute the start index of |lookup_table_|.
-  const int current_page_index =
-      lookup_table.cursor_absolute_index / lookup_table.page_size;
+  const int current_page_index = ComputePageIndex(lookup_table);
+  if (current_page_index < 0)
+    return 0;
   const size_t start_from = current_page_index * lookup_table.page_size;
 
   // Compute max width in annotation labels.
@@ -345,14 +356,39 @@ class CandidateWindowView : public views::View {
   // Updates the auxiliary text.
   void UpdateAuxiliaryText(const std::string& utf8_text);
 
+  // Returns true if we should update candidate views in the window.  For
+  // instance, if we are going to show the same candidates as before, we
+  // don't have to update candidate views. This happens when the user just
+  // moves the cursor in the same page in the candidate window.
+  bool ShouldUpdateCandidateViews(
+      const InputMethodLookupTable& old_table,
+      const InputMethodLookupTable& new_table);
+
   // Updates candidates of the candidate window from |lookup_table|.
   // Candidates are arranged per |orientation|.
   void UpdateCandidates(const InputMethodLookupTable& lookup_table);
 
-  // Resizes the parent frame and schedules painting. This needs to be
-  // called when the visible contents of the candidate window are
-  // modified.
-  void ResizeAndSchedulePaint();
+  // Resizes and moves the parent frame. The two actions should be
+  // performed consecutively as resizing may require the candidate window
+  // to move. For instance, we may need to move the candidate window from
+  // below the cursor to above the cursor, if the candidate window becomes
+  // too big to be shown near the bottom of the screen.  This function
+  // needs to be called when the visible contents of the candidate window
+  // are modified.
+  void ResizeAndMoveParentFrame();
+
+  // Resizes the parent frame per the current contents size.
+  //
+  // The function is rarely used solely. See comments at
+  // ResizeAndMoveParentFrame().
+  void ResizeParentFrame();
+
+  // Moves the candidate window per the current cursor location, and the
+  // horizontal offset.
+  //
+  // The function is rarely used solely. See comments at
+  // ResizeAndMoveParentFrame().
+  void MoveParentFrame();
 
   // Returns the horizontal offset used for placing the vertical candidate
   // window so that the first candidate is aligned with the the text being
@@ -366,6 +402,19 @@ class CandidateWindowView : public views::View {
   //
   // Returns 0 if no candidate is present.
   int GetHorizontalOffset();
+
+  void set_cursor_location(const gfx::Rect& cursor_location) {
+    cursor_location_ = cursor_location;
+  }
+
+  const gfx::Rect& cursor_location() const { return cursor_location_; }
+
+ protected:
+  // Override View::VisibilityChanged()
+  virtual void VisibilityChanged(View* starting_from, bool is_visible);
+
+  // Override View::VisibleBoundsInRootChanged()
+  virtual void VisibleBoundsInRootChanged();
 
  private:
   // Initializes the candidate views if needed.
@@ -381,10 +430,6 @@ class CandidateWindowView : public views::View {
 
   // The lookup table (candidates).
   InputMethodLookupTable lookup_table_;
-
-  // Zero-origin index of the current page. If the cursor is on the first
-  // page, the value will be 0.
-  int current_page_index_;
 
   // The index in the current page of the candidate currently being selected.
   int selected_candidate_index_in_page_;
@@ -427,6 +472,9 @@ class CandidateWindowView : public views::View {
   int previous_shortcut_column_width_;
   int previous_candidate_column_width_;
   int previous_annotation_column_width_;
+
+  // The last cursor location.
+  gfx::Rect cursor_location_;
 };
 
 // CandidateRow renderes a row of a candidate.
@@ -508,23 +556,10 @@ class CandidateWindowController::Impl : public CandidateWindowView::Observer {
   bool Init();
 
  private:
-  // Returns the work area of the monitor nearest the candidate window.
-  gfx::Rect GetMonitorWorkAreaNearestWindow();
-
-  // Moves the candidate window per the given cursor location, and the
-  // horizontal offset.
-  void MoveCandidateWindow(const gfx::Rect& cursor_location,
-                           int horizontal_offset);
-
   // CandidateWindowView::Observer implementation.
   virtual void OnCandidateCommitted(int index,
                                     int button,
                                     int flags);
-
-  const gfx::Rect& cursor_location() const { return cursor_location_; }
-  void set_cursor_location(const gfx::Rect& cursor_location) {
-    cursor_location_ = cursor_location;
-  }
 
   // Creates the candidate window view.
   void CreateView();
@@ -570,9 +605,6 @@ class CandidateWindowController::Impl : public CandidateWindowView::Observer {
   // This is the outer frame of the candidate window view. The frame will
   // own |candidate_window_|.
   scoped_ptr<views::Widget> frame_;
-
-  // The last cursor location received in OnSetCursorLocation().
-  gfx::Rect cursor_location_;
 };
 
 CandidateView::CandidateView(
@@ -652,11 +684,14 @@ void CandidateView::Select() {
   set_background(
       views::Background::CreateSolidBackground(kSelectedRowBackgroundColor));
   set_border(views::Border::CreateSolidBorder(1, kSelectedRowFrameColor));
+  // Need to call SchedulePaint() for background and border color changes.
+  SchedulePaint();
 }
 
 void CandidateView::Unselect() {
   set_background(NULL);
   set_border(NULL);
+  SchedulePaint();  // See comments at Select().
 }
 
 void CandidateView::SetRowEnabled(bool enabled) {
@@ -696,8 +731,7 @@ void CandidateView::OnMouseReleased(const views::MouseEvent& event,
 
 CandidateWindowView::CandidateWindowView(
     views::Widget* parent_frame)
-    : current_page_index_(0),
-      selected_candidate_index_in_page_(0),
+    : selected_candidate_index_in_page_(0),
       parent_frame_(parent_frame),
       candidate_area_(NULL),
       footer_area_(NULL),
@@ -707,6 +741,8 @@ CandidateWindowView::CandidateWindowView(
       previous_shortcut_column_width_(0),
       previous_candidate_column_width_(0),
       previous_annotation_column_width_(0) {
+
+  SetNotifyWhenVisibleBoundsInRootChanges(true);
 }
 
 void CandidateWindowView::Init() {
@@ -753,7 +789,6 @@ void CandidateWindowView::HideAuxiliaryText() {
   // Put the place holder to the target display area.
   target_area->RemoveAllChildViews(false);  // Don't delete child views.
   target_area->AddChildView(target_place_holder);
-  ResizeAndSchedulePaint();
 }
 
 void CandidateWindowView::ShowAuxiliaryText() {
@@ -764,10 +799,12 @@ void CandidateWindowView::ShowAuxiliaryText() {
       lookup_table_.orientation == InputMethodLookupTable::kHorizontal ?
       header_area_contents_.get() :
       footer_area_contents_.get());
-  // Put contents to the target display area.
-  target_area->RemoveAllChildViews(false);  // Don't delete child views.
-  target_area->AddChildView(target_contents);
-  ResizeAndSchedulePaint();
+
+  if (!target_area->HasChildView(target_contents)) {
+    // If contents not in display area, put it in.
+    target_area->RemoveAllChildViews(false);  // Don't delete child views.
+    target_area->AddChildView(target_contents);
+  }
 }
 
 void CandidateWindowView::UpdateAuxiliaryText(const std::string& utf8_text) {
@@ -777,64 +814,89 @@ void CandidateWindowView::UpdateAuxiliaryText(const std::string& utf8_text) {
   target_label->SetText(UTF8ToWide(utf8_text));
 }
 
+bool CandidateWindowView::ShouldUpdateCandidateViews(
+    const InputMethodLookupTable& old_table,
+    const InputMethodLookupTable& new_table) {
+  // Check if most table contents are identical.
+  if (old_table.page_size == new_table.page_size &&
+      old_table.orientation == new_table.orientation &&
+      old_table.candidates == new_table.candidates &&
+      old_table.labels == new_table.labels &&
+      old_table.annotations == new_table.annotations &&
+      // Check if the page indexes are identical.
+      ComputePageIndex(old_table) == ComputePageIndex(new_table)) {
+    // If all of the conditions are met, we don't have to update candidate
+    // views.
+    return false;
+  }
+  return true;
+}
+
 void CandidateWindowView::UpdateCandidates(
-    const InputMethodLookupTable& lookup_table) {
-  // Initialize candidate views if necessary.
-  MaybeInitializeCandidateViews(lookup_table);
+    const InputMethodLookupTable& new_lookup_table) {
+  const bool should_update = ShouldUpdateCandidateViews(lookup_table_,
+                                                        new_lookup_table);
+  // Updating the candidate views is expensive. We'll skip this if possible.
+  if (should_update) {
+    // Initialize candidate views if necessary.
+    MaybeInitializeCandidateViews(new_lookup_table);
 
-  // In MaybeInitializeCandidateViews(),
-  // |lookup_table| values and |lookup_table_| values are compared,
-  // so this substitution is needed after the function.
-  lookup_table_ = lookup_table;
-
-  // Compute the index of the current page.
-  current_page_index_ =
-      lookup_table.cursor_absolute_index / lookup_table.page_size;
-
-  // Update the candidates in the current page.
-  const size_t start_from = current_page_index_ * lookup_table.page_size;
-
-  // In some cases, engines send empty shortcut labels. For instance,
-  // ibus-mozc sends empty labels when they show suggestions. In this
-  // case, we should not show shortcut labels.
-  const bool no_shortcut_mode = (start_from < lookup_table_.labels.size() &&
-                                 lookup_table_.labels[start_from] == "");
-  for (size_t i = 0; i < candidate_views_.size(); ++i) {
-    const size_t index_in_page = i;
-    const size_t candidate_index = start_from + index_in_page;
-    CandidateView* candidate_view = candidate_views_[index_in_page];
-    // Set the shortcut text.
-    if (no_shortcut_mode) {
-      candidate_view->SetShortcutText(L"");
-    } else {
-      // At this moment, we don't use labels sent from engines for UX
-      // reasons. First, we want to show shortcut labels in empty rows
-      // (ex. show 6, 7, 8, ... in empty rows when the number of
-      // candidates is 5). Second, we want to add a period after each
-      // shortcut label when the candidate window is horizontal.
-      candidate_view->SetShortcutText(
-          CreateShortcutText(i, lookup_table_.orientation));
+    // Compute the index of the current page.
+    const int current_page_index = ComputePageIndex(new_lookup_table);
+    if (current_page_index < 0) {
+      LOG(ERROR) << "Invalid lookup_table: " << new_lookup_table.ToString();
+      return;
     }
-    // Set the candidate text.
-    if (candidate_index < lookup_table_.candidates.size() &&
-        candidate_index < lookup_table_.annotations.size()) {
-      candidate_view->SetCandidateText(
-          UTF8ToWide(lookup_table_.candidates[candidate_index]));
-      candidate_view->SetAnnotationText(
-          UTF8ToWide(lookup_table_.annotations[candidate_index]));
-      candidate_view->SetRowEnabled(true);
-    } else {
-      // Disable the empty row.
-      candidate_view->SetCandidateText(L"");
-      candidate_view->SetAnnotationText(L"");
-      candidate_view->SetRowEnabled(false);
+
+    // Update the candidates in the current page.
+    const size_t start_from = current_page_index * new_lookup_table.page_size;
+
+    // In some cases, engines send empty shortcut labels. For instance,
+    // ibus-mozc sends empty labels when they show suggestions. In this
+    // case, we should not show shortcut labels.
+    const bool no_shortcut_mode =
+        (start_from < new_lookup_table.labels.size() &&
+         new_lookup_table.labels[start_from] == "");
+    for (size_t i = 0; i < candidate_views_.size(); ++i) {
+      const size_t index_in_page = i;
+      const size_t candidate_index = start_from + index_in_page;
+      CandidateView* candidate_view = candidate_views_[index_in_page];
+      // Set the shortcut text.
+      if (no_shortcut_mode) {
+        candidate_view->SetShortcutText(L"");
+      } else {
+        // At this moment, we don't use labels sent from engines for UX
+        // reasons. First, we want to show shortcut labels in empty rows
+        // (ex. show 6, 7, 8, ... in empty rows when the number of
+        // candidates is 5). Second, we want to add a period after each
+        // shortcut label when the candidate window is horizontal.
+        candidate_view->SetShortcutText(
+            CreateShortcutText(i, new_lookup_table.orientation));
+      }
+      // Set the candidate text.
+      if (candidate_index < new_lookup_table.candidates.size() &&
+          candidate_index < new_lookup_table.annotations.size()) {
+        candidate_view->SetCandidateText(
+            UTF8ToWide(new_lookup_table.candidates[candidate_index]));
+        candidate_view->SetAnnotationText(
+            UTF8ToWide(new_lookup_table.annotations[candidate_index]));
+        candidate_view->SetRowEnabled(true);
+      } else {
+        // Disable the empty row.
+        candidate_view->SetCandidateText(L"");
+        candidate_view->SetAnnotationText(L"");
+        candidate_view->SetRowEnabled(false);
+      }
     }
   }
+  // Update the current lookup table. We'll use lookup_table_ from here.
+  // Note that SelectCandidateAt() uses lookup_table_.
+  lookup_table_ = new_lookup_table;
 
-  // Select the first candidate candidate in the page.
-  const int first_candidate_in_page =
-      lookup_table.cursor_absolute_index % lookup_table.page_size;
-  SelectCandidateAt(first_candidate_in_page);
+  // Select the current candidate in the page.
+  const int current_candidate_in_page =
+      lookup_table_.cursor_absolute_index % lookup_table_.page_size;
+  SelectCandidateAt(current_candidate_in_page);
 }
 
 void CandidateWindowView::MaybeInitializeCandidateViews(
@@ -858,6 +920,13 @@ void CandidateWindowView::MaybeInitializeCandidateViews(
 
   // If the requested number of views matches the number of current views, and
   // previous and current column width are same, just reuse these.
+  //
+  // Note that the early exit logic is not only useful for improving
+  // performance, but also necessary for the horizontal candidate window
+  // to be redrawn properly. If we get rid of the logic, the horizontal
+  // candidate window won't get redrawn properly for some reason when
+  // there is no size change. You can test this by removing "return" here
+  // and type "ni" with Pinyin input method.
   if (static_cast<int>(candidate_views_.size()) == page_size &&
       lookup_table_.orientation == orientation &&
       previous_shortcut_column_width_ == shortcut_column_width &&
@@ -925,7 +994,7 @@ void CandidateWindowView::MaybeInitializeCandidateViews(
   // Compute views size in |layout|.
   // If we don't call this function, GetHorizontalOffset() often
   // returns invalid value (returns 0), then candidate window
-  // moves right from the correct position in MoveCandidateWindow().
+  // moves right from the correct position in MoveParentFrame().
   // TODO(nhiroki): Figure out why it returns invalid value.
   // It seems that the x-position of the candidate labels is not set.
   layout->Layout(this);
@@ -996,8 +1065,14 @@ views::View* CandidateWindowView::CreateFooterArea() {
 }
 
 void CandidateWindowView::SelectCandidateAt(int index_in_page) {
-  int cursor_absolute_index =
-      lookup_table_.page_size * current_page_index_ + index_in_page;
+  const int current_page_index = ComputePageIndex(lookup_table_);
+  if (current_page_index < 0) {
+    LOG(ERROR) << "Invalid lookup_table: " << lookup_table_.ToString();
+    return;
+  }
+
+  const int cursor_absolute_index =
+      lookup_table_.page_size * current_page_index + index_in_page;
   // Ignore click on out of range views.
   if (cursor_absolute_index < 0 ||
       cursor_absolute_index >=
@@ -1005,22 +1080,16 @@ void CandidateWindowView::SelectCandidateAt(int index_in_page) {
     return;
   }
 
+  // Unselect the currently selected candidate.
+  candidate_views_[selected_candidate_index_in_page_]->Unselect();
   // Remember the currently selected candidate index in the current page.
   selected_candidate_index_in_page_ = index_in_page;
 
-  // Unselect all the candidate first. Theoretically, we could remember
-  // the lastly selected candidate and only unselect it, but unselecting
-  // everything is simpler.
-  for (size_t i = 0; i < candidate_views_.size(); ++i) {
-    candidate_views_[i]->Unselect();
-  }
   // Select the candidate specified by index_in_page.
   candidate_views_[index_in_page]->Select();
 
   // Update the cursor indexes in the model.
   lookup_table_.cursor_absolute_index = cursor_absolute_index;
-
-  ResizeAndSchedulePaint();
 }
 
 void CandidateWindowView::OnCandidateDragged(
@@ -1046,16 +1115,57 @@ void CandidateWindowView::CommitCandidate() {
                                          key_modifilers));
 }
 
-void CandidateWindowView::ResizeAndSchedulePaint() {
+void CandidateWindowView::ResizeAndMoveParentFrame() {
+  ResizeParentFrame();
+  MoveParentFrame();
+}
+
+void CandidateWindowView::ResizeParentFrame() {
   // Resize the parent frame, with the current candidate window size.
   gfx::Size size = GetPreferredSize();
   gfx::Rect bounds;
   parent_frame_->GetBounds(&bounds, false);
-  bounds.set_width(size.width());
-  bounds.set_height(size.height());
-  parent_frame_->SetBounds(bounds);
+  // SetBounds() is not cheap. Only call this when the size is changed.
+  if (bounds.size() != size) {
+    bounds.set_size(size);
+    parent_frame_->SetBounds(bounds);
+  }
+}
 
-  SchedulePaint();
+void CandidateWindowView::MoveParentFrame() {
+  const int x = cursor_location_.x();
+  const int y = cursor_location_.y();
+  const int height = cursor_location_.height();
+  const int horizontal_offset = GetHorizontalOffset();
+
+  gfx::Rect frame_bounds;
+  parent_frame_->GetBounds(&frame_bounds, false);
+
+  gfx::Rect screen_bounds = views::Screen::GetMonitorWorkAreaNearestWindow(
+      parent_frame_->GetNativeView());
+
+  // The default position.
+  frame_bounds.set_x(x + horizontal_offset);
+  frame_bounds.set_y(y + height);
+
+  // Handle overflow at the left and the top.
+  frame_bounds.set_x(std::max(frame_bounds.x(), screen_bounds.x()));
+  frame_bounds.set_y(std::max(frame_bounds.y(), screen_bounds.y()));
+
+  // Handle overflow at the right.
+  const int right_overflow = frame_bounds.right() - screen_bounds.right();
+  if (right_overflow > 0) {
+    frame_bounds.set_x(frame_bounds.x() - right_overflow);
+  }
+
+  // Handle overflow at the bottom.
+  const int bottom_overflow = frame_bounds.bottom() - screen_bounds.bottom();
+  if (bottom_overflow > 0) {
+    frame_bounds.set_y(frame_bounds.y() - height - frame_bounds.height());
+  }
+
+  // Move the window per the cursor location.
+  parent_frame_->SetBounds(frame_bounds);
 }
 
 int CandidateWindowView::GetHorizontalOffset() {
@@ -1067,6 +1177,20 @@ int CandidateWindowView::GetHorizontalOffset() {
   return 0;
 }
 
+void CandidateWindowView::VisibilityChanged(View* starting_from,
+                                            bool is_visible) {
+  if (is_visible) {
+    // If the visibility of candidate window is changed,
+    // we should move the frame to the right position.
+    MoveParentFrame();
+  }
+}
+
+void CandidateWindowView::VisibleBoundsInRootChanged() {
+  // If the bounds(size) of candidate window is changed,
+  // we should move the frame to the right position.
+  MoveParentFrame();
+}
 
 bool CandidateWindowController::Impl::Init() {
   // Initialize the input method UI status connection.
@@ -1129,53 +1253,13 @@ CandidateWindowController::Impl::~Impl() {
   chromeos::DisconnectInputMethodUiStatus(ui_status_connection_);
 }
 
-gfx::Rect CandidateWindowController::Impl::GetMonitorWorkAreaNearestWindow() {
-  return views::Screen::GetMonitorWorkAreaNearestWindow(
-      frame_->GetNativeView());
-}
-
-void CandidateWindowController::Impl::MoveCandidateWindow(
-    const gfx::Rect& cursor_location,
-    int horizontal_offset) {
-  const int x = cursor_location.x();
-  const int y = cursor_location.y();
-  const int height = cursor_location.height();
-
-  gfx::Rect frame_bounds;
-  frame_->GetBounds(&frame_bounds, false);
-
-  gfx::Rect screen_bounds = GetMonitorWorkAreaNearestWindow();
-
-  // The default position.
-  frame_bounds.set_x(x + horizontal_offset);
-  frame_bounds.set_y(y + height);
-
-  // Handle overflow at the left and the top.
-  frame_bounds.set_x(std::max(frame_bounds.x(), screen_bounds.x()));
-  frame_bounds.set_y(std::max(frame_bounds.y(), screen_bounds.y()));
-
-  // Handle overflow at the right.
-  const int right_overflow = frame_bounds.right() - screen_bounds.right();
-  if (right_overflow > 0) {
-    frame_bounds.set_x(frame_bounds.x() - right_overflow);
-  }
-
-  // Handle overflow at the bottom.
-  const int bottom_overflow = frame_bounds.bottom() - screen_bounds.bottom();
-  if (bottom_overflow > 0) {
-    frame_bounds.set_y(frame_bounds.y() - height - frame_bounds.height());
-  }
-
-  // Move the window per the cursor location.
-  frame_->SetBounds(frame_bounds);
-}
-
 void CandidateWindowController::Impl::OnHideAuxiliaryText(
     void* input_method_library) {
   CandidateWindowController::Impl* controller =
       static_cast<CandidateWindowController::Impl*>(input_method_library);
 
   controller->candidate_window_->HideAuxiliaryText();
+  controller->candidate_window_->ResizeParentFrame();
 }
 
 void CandidateWindowController::Impl::OnHideLookupTable(
@@ -1198,7 +1282,8 @@ void CandidateWindowController::Impl::OnSetCursorLocation(
   // A workaround for http://crosbug.com/6460. We should ignore very short Y
   // move to prevent the window from shaking up and down.
   const int kKeepPositionThreshold = 2;  // px
-  const gfx::Rect& last_location = controller->cursor_location();
+  const gfx::Rect& last_location =
+      controller->candidate_window_->cursor_location();
   const int delta_y = abs(last_location.y() - y);
   if ((last_location.x() == x) && (delta_y <= kKeepPositionThreshold)) {
     DLOG(INFO) << "Ignored set_cursor_location signal to prevent window shake";
@@ -1206,14 +1291,10 @@ void CandidateWindowController::Impl::OnSetCursorLocation(
   }
 
   // Remember the cursor location.
-  controller->set_cursor_location(gfx::Rect(x, y, width, height));
+  controller->candidate_window_->set_cursor_location(
+      gfx::Rect(x, y, width, height));
   // Move the window per the cursor location.
-  controller->MoveCandidateWindow(
-      controller->cursor_location(),
-      controller->candidate_window_->GetHorizontalOffset());
-  // The call is needed to ensure that the candidate window is redrawed
-  // properly after the cursor location is changed.
-  controller->candidate_window_->ResizeAndSchedulePaint();
+  controller->candidate_window_->MoveParentFrame();
 }
 
 void CandidateWindowController::Impl::OnUpdateAuxiliaryText(
@@ -1229,6 +1310,7 @@ void CandidateWindowController::Impl::OnUpdateAuxiliaryText(
   }
   controller->candidate_window_->UpdateAuxiliaryText(utf8_text);
   controller->candidate_window_->ShowAuxiliaryText();
+  controller->candidate_window_->ResizeParentFrame();
 }
 
 void CandidateWindowController::Impl::OnUpdateLookupTable(
@@ -1244,13 +1326,8 @@ void CandidateWindowController::Impl::OnUpdateLookupTable(
   }
 
   controller->candidate_window_->UpdateCandidates(lookup_table);
+  controller->candidate_window_->ResizeParentFrame();
   controller->frame_->Show();
-  // We should call MoveCandidateWindow() after
-  // controller->frame_->Show(), as GetHorizontalOffset() returns a valid
-  // value only after the Show() method is called.
-  controller->MoveCandidateWindow(
-      controller->cursor_location(),
-      controller->candidate_window_->GetHorizontalOffset());
 }
 
 void CandidateWindowController::Impl::OnCandidateCommitted(int index,

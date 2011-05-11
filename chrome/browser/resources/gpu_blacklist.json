@@ -1,8 +1,8 @@
 {
   "name": "gpu blacklist",
-  "version": "0.7",
+  "version": "0.1",
   "entries": [
-    { // ATI Radeon X1900 on Mac, BUGWEBKIT=47028
+    { // ATI Radeon X1900 on Mac
       "os": {
         "type": "macosx"
       },
@@ -10,70 +10,6 @@
       "device_id": "0x7249",
       "blacklist": [
         "webgl"
-      ]
-    },
-    { // Intel Corporation Mobile 4 Series Chipset Integrated Graphics Controller, BUG=67345,67939
-      "os": {
-        "type": "linux"
-      },
-      "vendor_id": "0x8086",
-      "device_id": "0x2a42",
-      "blacklist": [
-        "webgl"
-      ]
-    },
-    { // Intel Corporation Core Processor Integrated Graphics Controller, BUG=66718
-      "os": {
-        "type": "linux"
-      },
-      "vendor_id": "0x8086",
-      "device_id": "0x0046",
-      "blacklist": [
-        "webgl"
-      ]
-    },
-    { // Intel Mobile 945 Express Chipset Family
-      "os": {
-        "type": "any"
-      },
-      "vendor_id": "0x8086",
-      "device_id": "0x27AE",
-      "blacklist": [
-        "webgl"
-      ]
-    },
-    { // All ATI cards in linux, BUG=71381
-      "id": "5",
-      "os": {
-        "type": "linux"
-      },
-      "vendor_id": "0x1002",
-      "blacklist": [
-        "webgl"
-      ]
-    },
-    { // ATI Radeon HD2600 on Mac, BUG=68859
-      "id": "6",
-      "os": {
-        "type": "macosx"
-      },
-      "vendor_id": "0x1002",
-      "device_id": "0x9583",
-      "blacklist": [
-        "webgl",
-        "accelerated_compositing"
-      ]
-    },
-    { // ATI Radeon HD2400 on Mac, BUG=68859
-      "id": "7",
-      "os": {
-        "type": "macosx"
-      },
-      "vendor_id": "0x1002",
-      "device_id": "0x94c8",
-      "blacklist": [
-        "webgl",
-        "accelerated_compositing"
       ]
     }
   ]

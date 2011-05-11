@@ -8,7 +8,7 @@
 #include "base/logging.h"
 #include "base/time.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/glue/theme_change_processor.h"
 #include "chrome/browser/sync/glue/theme_model_associator.h"
 #include "chrome/browser/sync/profile_sync_service.h"
@@ -85,6 +85,28 @@ void ThemeDataTypeController::Stop() {
 
   state_ = NOT_RUNNING;
 }
+
+bool ThemeDataTypeController::enabled() {
+    return true;
+  }
+
+syncable::ModelType ThemeDataTypeController::type() {
+  return syncable::THEMES;
+}
+
+browser_sync::ModelSafeGroup ThemeDataTypeController::model_safe_group() {
+  return browser_sync::GROUP_UI;
+}
+
+const char* ThemeDataTypeController::name() const {
+  // For logging only.
+  return "theme";
+}
+
+DataTypeController::State ThemeDataTypeController::state() {
+  return state_;
+}
+
 
 void ThemeDataTypeController::OnUnrecoverableError(
     const tracked_objects::Location& from_here,

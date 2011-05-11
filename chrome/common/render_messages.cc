@@ -2,18 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/common/render_messages.h"
-
 #include "base/values.h"
 #include "chrome/common/edit_command.h"
 #include "chrome/common/extensions/extension_extent.h"
 #include "chrome/common/extensions/url_pattern.h"
 #include "chrome/common/gpu_param_traits.h"
-#include "chrome/common/indexed_db_key.h"
-#include "chrome/common/indexed_db_param_traits.h"
 #include "chrome/common/render_messages_params.h"
 #include "chrome/common/resource_response.h"
-#include "chrome/common/serialized_script_value.h"
 #include "chrome/common/speech_input_result.h"
 #include "chrome/common/thumbnail_score.h"
 #include "chrome/common/web_apps.h"
@@ -23,33 +18,24 @@
 #include "net/base/upload_data.h"
 #include "net/http/http_response_headers.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebCompositionUnderline.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebFindOptions.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebMediaPlayerAction.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebScreenInfo.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "webkit/appcache/appcache_interfaces.h"
 #include "webkit/blob/blob_data.h"
-#include "webkit/glue/context_menu.h"
-#include "webkit/glue/form_data.h"
 #include "webkit/glue/form_field.h"
 #include "webkit/glue/password_form.h"
-#include "webkit/glue/password_form_dom_manager.h"
-#include "webkit/glue/plugins/webplugin.h"
-#include "webkit/glue/plugins/webplugininfo.h"
 #include "webkit/glue/resource_loader_bridge.h"
 #include "webkit/glue/webaccessibility.h"
 #include "webkit/glue/webcookie.h"
 #include "webkit/glue/webcursor.h"
-#include "webkit/glue/webdropdata.h"
 #include "webkit/glue/webmenuitem.h"
+#include "webkit/plugins/npapi/webplugin.h"
 
 #if defined(OS_MACOSX)
 #include "chrome/common/font_descriptor_mac.h"
 #endif
 
-#define MESSAGES_INTERNAL_IMPL_FILE \
-  "chrome/common/render_messages_internal.h"
-#include "ipc/ipc_message_impl_macros.h"
+#define IPC_MESSAGE_IMPL
+#include "chrome/common/render_messages.h"
 
 namespace IPC {
 
@@ -210,8 +196,8 @@ void ParamTraits<ContextMenuParams>::Log(const param_type& p,
   l->append("<ContextMenuParams>");
 }
 
-void ParamTraits<webkit_glue::WebPluginGeometry>::Write(Message* m,
-                                                        const param_type& p) {
+void ParamTraits<webkit::npapi::WebPluginGeometry>::Write(Message* m,
+                                                          const param_type& p) {
   WriteParam(m, p.window);
   WriteParam(m, p.window_rect);
   WriteParam(m, p.clip_rect);
@@ -220,7 +206,7 @@ void ParamTraits<webkit_glue::WebPluginGeometry>::Write(Message* m,
   WriteParam(m, p.visible);
 }
 
-bool ParamTraits<webkit_glue::WebPluginGeometry>::Read(
+bool ParamTraits<webkit::npapi::WebPluginGeometry>::Read(
     const Message* m, void** iter, param_type* p) {
   return
       ReadParam(m, iter, &p->window) &&
@@ -231,8 +217,8 @@ bool ParamTraits<webkit_glue::WebPluginGeometry>::Read(
       ReadParam(m, iter, &p->visible);
 }
 
-void ParamTraits<webkit_glue::WebPluginGeometry>::Log(const param_type& p,
-                                                      std::string* l) {
+void ParamTraits<webkit::npapi::WebPluginGeometry>::Log(const param_type& p,
+                                                        std::string* l) {
   l->append("(");
   LogParam(p.window, l);
   l->append(", ");
@@ -248,21 +234,24 @@ void ParamTraits<webkit_glue::WebPluginGeometry>::Log(const param_type& p,
   l->append(")");
 }
 
-void ParamTraits<WebPluginMimeType>::Write(Message* m, const param_type& p) {
+void ParamTraits<webkit::npapi::WebPluginMimeType>::Write(Message* m,
+                                                          const param_type& p) {
   WriteParam(m, p.mime_type);
   WriteParam(m, p.file_extensions);
   WriteParam(m, p.description);
 }
 
-bool ParamTraits<WebPluginMimeType>::Read(const Message* m, void** iter,
-                                          param_type* r) {
+bool ParamTraits<webkit::npapi::WebPluginMimeType>::Read(const Message* m,
+                                                         void** iter,
+                                                         param_type* r) {
   return
       ReadParam(m, iter, &r->mime_type) &&
       ReadParam(m, iter, &r->file_extensions) &&
       ReadParam(m, iter, &r->description);
 }
 
-void ParamTraits<WebPluginMimeType>::Log(const param_type& p, std::string* l) {
+void ParamTraits<webkit::npapi::WebPluginMimeType>::Log(const param_type& p,
+                                                        std::string* l) {
   l->append("(");
   LogParam(p.mime_type, l);
   l->append(", ");
@@ -272,7 +261,8 @@ void ParamTraits<WebPluginMimeType>::Log(const param_type& p, std::string* l) {
   l->append(")");
 }
 
-void ParamTraits<WebPluginInfo>::Write(Message* m, const param_type& p) {
+void ParamTraits<webkit::npapi::WebPluginInfo>::Write(Message* m,
+                                                      const param_type& p) {
   WriteParam(m, p.name);
   WriteParam(m, p.path);
   WriteParam(m, p.version);
@@ -281,8 +271,9 @@ void ParamTraits<WebPluginInfo>::Write(Message* m, const param_type& p) {
   WriteParam(m, p.enabled);
 }
 
-bool ParamTraits<WebPluginInfo>::Read(const Message* m, void** iter,
-                                      param_type* r) {
+bool ParamTraits<webkit::npapi::WebPluginInfo>::Read(const Message* m,
+                                                     void** iter,
+                                                     param_type* r) {
   return
       ReadParam(m, iter, &r->name) &&
       ReadParam(m, iter, &r->path) &&
@@ -292,7 +283,8 @@ bool ParamTraits<WebPluginInfo>::Read(const Message* m, void** iter,
       ReadParam(m, iter, &r->enabled);
 }
 
-void ParamTraits<WebPluginInfo>::Log(const param_type& p, std::string* l) {
+void ParamTraits<webkit::npapi::WebPluginInfo>::Log(const param_type& p,
+                                                    std::string* l) {
   l->append("(");
   LogParam(p.name, l);
   l->append(", ");
@@ -1219,26 +1211,6 @@ void ParamTraits<AudioBuffersState>::Log(const param_type& p, std::string* l) {
   LogParam(p.hardware_delay_bytes, l);
   l->append(", ");
   LogParam(p.timestamp, l);
-  l->append(")");
-}
-
-void ParamTraits<PepperDirEntry>::Write(Message* m, const param_type& p) {
-  WriteParam(m, p.name);
-  WriteParam(m, p.is_dir);
-}
-
-bool ParamTraits<PepperDirEntry>::Read(const Message* m,
-                                    void** iter,
-                                    param_type* p) {
-  return ReadParam(m, iter, &p->name) &&
-      ReadParam(m, iter, &p->is_dir);
-}
-
-void ParamTraits<PepperDirEntry>::Log(const param_type& p, std::string* l) {
-  l->append("(");
-  LogParam(p.name, l);
-  l->append(", ");
-  LogParam(p.is_dir, l);
   l->append(")");
 }
 

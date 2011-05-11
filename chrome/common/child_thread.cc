@@ -43,11 +43,11 @@ void ChildThread::Init() {
   }
 
   channel_.reset(new IPC::SyncChannel(channel_name_,
-      IPC::Channel::MODE_CLIENT, this, NULL,
+      IPC::Channel::MODE_CLIENT, this,
       ChildProcess::current()->io_message_loop(), true,
       ChildProcess::current()->GetShutDownEvent()));
 #ifdef IPC_MESSAGE_LOG_ENABLED
-  IPC::Logging::current()->SetIPCSender(this);
+  IPC::Logging::GetInstance()->SetIPCSender(this);
 #endif
 
   resource_dispatcher_.reset(new ResourceDispatcher(this));
@@ -66,10 +66,15 @@ void ChildThread::Init() {
 
 ChildThread::~ChildThread() {
 #ifdef IPC_MESSAGE_LOG_ENABLED
-  IPC::Logging::current()->SetIPCSender(NULL);
+  IPC::Logging::GetInstance()->SetIPCSender(NULL);
 #endif
 
   channel_->RemoveFilter(sync_message_filter_.get());
+
+  // Close this channel before resetting the message loop attached to it so
+  // the message loop can call ChannelProxy::Context::OnChannelClosed(), which
+  // releases the reference count to this channel.
+  channel_->Close();
 
   // The ChannelProxy object caches a pointer to the IPC thread, so need to
   // reset it as it's not guaranteed to outlive this object.
@@ -134,14 +139,14 @@ MessageLoop* ChildThread::message_loop() {
   return message_loop_;
 }
 
-void ChildThread::OnMessageReceived(const IPC::Message& msg) {
+bool ChildThread::OnMessageReceived(const IPC::Message& msg) {
   // Resource responses are sent to the resource dispatcher.
   if (resource_dispatcher_->OnMessageReceived(msg))
-    return;
+    return true;
   if (socket_stream_dispatcher_->OnMessageReceived(msg))
-    return;
+    return true;
   if (file_system_dispatcher_->OnMessageReceived(msg))
-    return;
+    return true;
 
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(ChildThread, msg)
@@ -155,13 +160,12 @@ void ChildThread::OnMessageReceived(const IPC::Message& msg) {
   IPC_END_MESSAGE_MAP()
 
   if (handled)
-    return;
+    return true;
 
-  if (msg.routing_id() == MSG_ROUTING_CONTROL) {
-    OnControlMessageReceived(msg);
-  } else {
-    router_.OnMessageReceived(msg);
-  }
+  if (msg.routing_id() == MSG_ROUTING_CONTROL)
+    return OnControlMessageReceived(msg);
+
+  return router_.OnMessageReceived(msg);
 }
 
 void ChildThread::OnAskBeforeShutdown() {
@@ -175,9 +179,9 @@ void ChildThread::OnShutdown() {
 #if defined(IPC_MESSAGE_LOG_ENABLED)
 void ChildThread::OnSetIPCLoggingEnabled(bool enable) {
   if (enable)
-    IPC::Logging::current()->Enable();
+    IPC::Logging::GetInstance()->Enable();
   else
-    IPC::Logging::current()->Disable();
+    IPC::Logging::GetInstance()->Disable();
 }
 #endif  //  IPC_MESSAGE_LOG_ENABLED
 

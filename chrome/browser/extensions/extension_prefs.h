@@ -16,9 +16,23 @@
 #include "chrome/common/extensions/extension.h"
 #include "googleurl/src/gurl.h"
 
+class ExtensionPrefStore;
+
 // Class for managing global and per-extension preferences.
-// This class is instantiated by ExtensionsService, so it should be accessed
-// from there.
+//
+// This class distinguishes the following kinds of preferences:
+// - global preferences:
+//       internal state for the extension system in general, not associated
+//       with an individual extension, such as lastUpdateTime.
+// - per-extension preferences:
+//       meta-preferences describing properties of the extension like
+//       installation time, whether the extension is enabled, etc.
+// - extension controlled preferences:
+//       browser preferences that an extension controls. For example, an
+//       extension could use the proxy API to specify the browser's proxy
+//       preference. Extension-controlled preferences are stored in
+//       PrefValueStore::extension_prefs(), which this class populates and
+//       maintains as the underlying extensions change.
 class ExtensionPrefs {
  public:
   // Key name for a preference that keeps track of per-extension settings. This
@@ -27,6 +41,12 @@ class ExtensionPrefs {
   static const char kExtensionsPref[];
 
   typedef std::vector<linked_ptr<ExtensionInfo> > ExtensionsInfo;
+
+  // Vector containing identifiers for preferences.
+  typedef std::set<std::string> PrefKeySet;
+
+  // Vector containing identifiers for extensions.
+  typedef std::vector<std::string> ExtensionIdSet;
 
   // This enum is used for the launch type the user wants to use for an
   // application.
@@ -39,7 +59,9 @@ class ExtensionPrefs {
     LAUNCH_WINDOW
   };
 
-  explicit ExtensionPrefs(PrefService* prefs, const FilePath& root_dir_);
+  explicit ExtensionPrefs(PrefService* prefs,
+                          const FilePath& root_dir,
+                          ExtensionPrefStore* extension_pref_store);
   ~ExtensionPrefs();
 
   // Returns a copy of the Extensions prefs.
@@ -47,8 +69,9 @@ class ExtensionPrefs {
   // aware of the internal structure of the preferences.
   DictionaryValue* CopyCurrentExtensions();
 
-  // Populate |killed_ids| with extension ids that have been killed.
-  void GetKilledExtensionIds(std::set<std::string>* killed_ids);
+  // Returns true if the specified extension has an entry in prefs
+  // and its killbit is on.
+  bool IsExtensionKilled(const std::string& id);
 
   // Get the order that toolstrip URLs appear in the shelf.
   typedef std::vector<GURL> URLList;
@@ -74,10 +97,13 @@ class ExtensionPrefs {
                               bool external_uninstall);
 
   // Returns the state (enabled/disabled) of the given extension.
-  Extension::State GetExtensionState(const std::string& extension_id);
+  Extension::State GetExtensionState(const std::string& extension_id) const;
 
   // Called to change the extension's state when it is enabled/disabled.
   void SetExtensionState(const Extension* extension, Extension::State);
+
+  // Returns all installed and enabled extensions
+  void GetEnabledExtensions(ExtensionIdSet* out) const;
 
   // Getter and setter for browser action visibility.
   bool GetBrowserActionVisibility(const Extension* extension);
@@ -232,10 +258,22 @@ class ExtensionPrefs {
                         const std::string& data);
   std::string GetUpdateUrlData(const std::string& extension_id);
 
+  // Sets a preference value that is controlled by the extension. In other
+  // words, this is not a pref value *about* the extension but something
+  // global the extension wants to override.
+  void SetExtensionControlledPref(const std::string& extension_id,
+                                  const std::string& pref_key,
+                                  Value* value);
+
   static void RegisterUserPrefs(PrefService* prefs);
 
   // The underlying PrefService.
   PrefService* pref_service() const { return prefs_; }
+
+ protected:
+  // For unit testing. Enables injecting an artificial clock that is used
+  // to query the current time, when an extension is installed.
+  virtual base::Time GetCurrentTime() const;
 
  private:
   // Converts absolute paths in the pref to paths relative to the
@@ -296,6 +334,11 @@ class ExtensionPrefs {
   // Same as above, but returns NULL if it doesn't exist.
   DictionaryValue* GetExtensionPref(const std::string& id) const;
 
+  // Returns the dictionary of preferences controlled by the specified extension
+  // or NULL if unknown. All entries in the dictionary contain non-expanded
+  // paths.
+  DictionaryValue* GetExtensionControlledPrefs(const std::string& id) const;
+
   // Serializes the data and schedules a persistent save via the |PrefService|.
   // Additionally fires a PREF_CHANGED notification with the top-level
   // |kExtensionsPref| path set.
@@ -313,11 +356,43 @@ class ExtensionPrefs {
   base::Time LastPingDayImpl(const DictionaryValue* dictionary) const;
   void SetLastPingDayImpl(const base::Time& time, DictionaryValue* dictionary);
 
+  // Helper method to acquire the installation time of an extension.
+  base::Time GetInstallTime(const std::string& extension_id) const;
+
+  // Fix missing preference entries in the extensions that are were introduced
+  // in a later Chrome version.
+  void FixMissingPrefs(const ExtensionIdSet& extension_ids);
+
+  // Installs the persistent extension preferences into |prefs_|'s extension
+  // pref store.
+  void InitPrefStore();
+
+  // Returns the extension controlled preference value of the extension that was
+  // installed most recently.
+  const Value* GetWinningExtensionControlledPrefValue(
+      const std::string& key) const;
+
+  // Executes UpdatePrefStore for all |pref_keys|.
+  void UpdatePrefStore(const PrefKeySet& pref_keys);
+
+  // Finds the most recently installed extension that defines a preference
+  // for |pref_key|, then stores its value in the PrefValueStore's extension
+  // pref store and sends notifications to observers in case the value changed.
+  void UpdatePrefStore(const std::string& pref_key);
+
+  // Retrieves a list of preference keys that the specified extension
+  // intends to manage. Keys are always appended, |out| is not cleared.
+  void GetExtensionControlledPrefKeys(const std::string& extension_id,
+                                      PrefKeySet *out) const;
+
   // The pref service specific to this set of extension prefs.
   PrefService* prefs_;
 
   // Base extensions install directory.
   FilePath install_directory_;
+
+  // Used to manipulate extension preferences.
+  ExtensionPrefStore* pref_store_;
 
   // The URLs of all of the toolstrips.
   URLList shelf_order_;

@@ -5,8 +5,8 @@
 #include "chrome/browser/extensions/user_script_listener.h"
 
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/extensions/extensions_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/global_request_id.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
 #include "chrome/common/extensions/extension.h"
@@ -34,7 +34,7 @@ void UserScriptListener::ShutdownMainThread() {
 }
 
 bool UserScriptListener::ShouldDelayRequest(
-    URLRequest* request,
+    net::URLRequest* request,
     const ResourceDispatcherHostRequestInfo& request_info,
     const GlobalRequestID& request_id) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
@@ -136,14 +136,14 @@ void UserScriptListener::Observe(NotificationType type,
 
     case NotificationType::EXTENSION_UNLOADED: {
       const Extension* unloaded_extension =
-          Details<const Extension>(details).ptr();
+          Details<UnloadedExtensionInfo>(details)->extension;
       if (unloaded_extension->content_scripts().empty())
         return;  // no patterns to delete for this extension.
 
       // Clear all our patterns and reregister all the still-loaded extensions.
       URLPatterns new_patterns;
-      ExtensionsService* service =
-          Source<Profile>(source).ptr()->GetExtensionsService();
+      ExtensionService* service =
+          Source<Profile>(source).ptr()->GetExtensionService();
       for (ExtensionList::const_iterator it = service->extensions()->begin();
            it != service->extensions()->end(); ++it) {
         if (*it != unloaded_extension)

@@ -12,6 +12,7 @@
 
 class GURL;
 class Profile;
+class PrefService;
 
 namespace chromeos {
 
@@ -35,15 +36,21 @@ class LoginUtils {
 
   // Invoked after the user has successfully logged in. This launches a browser
   // and does other bookkeeping after logging in.
+  // If |pending_requests| is true, there's a pending online auth request.
   virtual void CompleteLogin(
       const std::string& username,
       const std::string& password,
-      const GaiaAuthConsumer::ClientLoginResult& credentials) = 0;
+      const GaiaAuthConsumer::ClientLoginResult& credentials,
+      bool pending_requests) = 0;
 
   // Invoked after the tmpfs is successfully mounted.
   // Asks session manager to restart Chrome in Browse Without Sign In mode.
   // |start_url| is url for launched browser to open.
   virtual void CompleteOffTheRecordLogin(const GURL& start_url) = 0;
+
+  // Invoked when the user is logging in for the first time, or is logging in as
+  // a guest user.
+  virtual void SetFirstLoginPrefs(PrefService* prefs) = 0;
 
   // Creates and returns the authenticator to use. The caller owns the returned
   // Authenticator and must delete it when done.
@@ -58,6 +65,17 @@ class LoginUtils {
 
   // Prewarms the authentication network connection.
   virtual void PrewarmAuthentication() = 0;
+
+  // Given the credentials try to exchange them for
+  // full-fledged Google authentication cookies.
+  virtual void FetchCookies(
+      Profile* profile,
+      const GaiaAuthConsumer::ClientLoginResult& credentials) = 0;
+
+  // Supply credentials for sync and others to use.
+  virtual void FetchTokens(
+      Profile* profile,
+      const GaiaAuthConsumer::ClientLoginResult& credentials) = 0;
 
 };
 

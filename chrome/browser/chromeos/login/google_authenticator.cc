@@ -16,7 +16,6 @@
 #include "base/string_util.h"
 #include "base/third_party/nss/blapi.h"
 #include "base/third_party/nss/sha256.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/boot_times_loader.h"
 #include "chrome/browser/chromeos/cros/cryptohome_library.h"
@@ -25,8 +24,8 @@
 #include "chrome/browser/chromeos/login/login_status_consumer.h"
 #include "chrome/browser/chromeos/login/ownership_service.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
-#include "chrome/browser/profile.h"
-#include "chrome/browser/profile_manager.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/net/gaia/gaia_auth_fetcher.h"
 #include "chrome/common/net/gaia/gaia_constants.h"
@@ -205,8 +204,7 @@ void GoogleAuthenticator::OnClientLoginSuccess(
 }
 
 void GoogleAuthenticator::OnClientLoginFailure(
-   const GoogleServiceAuthError& error) {
-
+    const GoogleServiceAuthError& error) {
   if (error.state() == GoogleServiceAuthError::REQUEST_CANCELED) {
     if (try_again_) {
       try_again_ = false;

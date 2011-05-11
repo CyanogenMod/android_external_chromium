@@ -5,14 +5,13 @@
 #include "chrome/browser/views/frame/browser_frame_gtk.h"
 
 #include "base/logging.h"
-#include "chrome/browser/profile.h"
-#include "chrome/browser/status_bubble.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
-#include "chrome/browser/views/frame/app_panel_browser_frame_view.h"
-#include "chrome/browser/views/frame/browser_root_view.h"
-#include "chrome/browser/views/frame/browser_view.h"
-#include "chrome/browser/views/frame/opaque_browser_frame_view.h"
-#include "chrome/browser/views/frame/popup_non_client_frame_view.h"
+#include "chrome/browser/ui/status_bubble.h"
+#include "chrome/browser/ui/views/frame/app_panel_browser_frame_view.h"
+#include "chrome/browser/ui/views/frame/browser_non_client_frame_view.h"
+#include "chrome/browser/ui/views/frame/browser_root_view.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
 #include "gfx/font.h"
 #include "views/widget/root_view.h"
 #include "views/window/hit_test.h"
@@ -46,12 +45,10 @@ BrowserFrameGtk::~BrowserFrameGtk() {
 }
 
 void BrowserFrameGtk::Init() {
-  if (browser_frame_view_ == NULL) {
-    if (browser_view_->browser()->type() & Browser::TYPE_POPUP)
-      browser_frame_view_ = new PopupNonClientFrameView();
-    else
-      browser_frame_view_ = new OpaqueBrowserFrameView(this, browser_view_);
-  }
+  if (browser_frame_view_ == NULL)
+    browser_frame_view_ =
+        browser::CreateBrowserNonClientFrameView(this, browser_view_);
+
   GetNonClientView()->SetFrameView(browser_frame_view_);
   WindowGtk::Init(NULL, gfx::Rect());
   // Don't focus anything on creation, selecting a tab will set the focus.

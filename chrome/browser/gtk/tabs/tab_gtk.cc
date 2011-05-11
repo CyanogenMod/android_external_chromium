@@ -13,7 +13,7 @@
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/gtk/accelerators_gtk.h"
 #include "chrome/browser/gtk/menu_gtk.h"
-#include "chrome/browser/tab_menu_model.h"
+#include "chrome/browser/ui/tabs/tab_menu_model.h"
 #include "gfx/path.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -69,7 +69,7 @@ class TabGtk::ContextMenuController : public menus::SimpleMenuModel::Delegate,
                                                            &browser_command))
       return false;
     const menus::AcceleratorGtk* accelerator_gtk =
-        Singleton<AcceleratorsGtk>()->GetPrimaryAcceleratorForCommand(
+        AcceleratorsGtk::GetInstance()->GetPrimaryAcceleratorForCommand(
             browser_command);
     if (accelerator_gtk)
       *accelerator = *accelerator_gtk;
@@ -128,6 +128,7 @@ TabGtk::TabGtk(TabDelegate* delegate)
     : TabRendererGtk(delegate->GetThemeProvider()),
       delegate_(delegate),
       closing_(false),
+      dragging_(false),
       last_mouse_down_(NULL),
       drag_widget_(NULL),
       title_width_(0),

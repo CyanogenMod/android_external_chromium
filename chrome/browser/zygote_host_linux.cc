@@ -20,14 +20,13 @@
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/scoped_ptr.h"
-#include "base/unix_domain_socket_posix.h"
 #include "base/utf_string_conversions.h"
-
 #include "chrome/browser/renderer_host/render_sandbox_host_linux.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/process_watcher.h"
-
+#include "chrome/common/result_codes.h"
+#include "chrome/common/unix_domain_socket_posix.h"
 #include "sandbox/linux/suid/suid_unsafe_environment_variables.h"
 
 static void SaveSUIDUnsafeEnvironmentVariables() {
@@ -66,6 +65,11 @@ ZygoteHost::~ZygoteHost() {
     close(control_fd_);
 }
 
+// static
+ZygoteHost* ZygoteHost::GetInstance() {
+  return Singleton<ZygoteHost>::get();
+}
+
 void ZygoteHost::Init(const std::string& sandbox_cmd) {
   DCHECK(!init_);
   init_ = true;
@@ -98,11 +102,8 @@ void ZygoteHost::Init(const std::string& sandbox_cmd) {
     switches::kUserDataDir,  // Make logs go to the right file.
     // Load (in-process) Pepper plugins in-process in the zygote pre-sandbox.
     switches::kRegisterPepperPlugins,
-#if defined(USE_SECCOMP_SANDBOX)
     switches::kDisableSeccompSandbox,
-#else
     switches::kEnableSeccompSandbox,
-#endif
   };
   cmd_line.CopySwitchesFrom(browser_command_line, kForwardSwitches,
                             arraysize(kForwardSwitches));
@@ -129,7 +130,7 @@ void ZygoteHost::Init(const std::string& sandbox_cmd) {
 
   // Start up the sandbox host process and get the file descriptor for the
   // renderers to talk to it.
-  const int sfd = Singleton<RenderSandboxHostLinux>()->GetRendererSocket();
+  const int sfd = RenderSandboxHostLinux::GetInstance()->GetRendererSocket();
   fds_to_map.push_back(std::make_pair(sfd, 5));
 
   int dummy_fd = -1;
@@ -151,7 +152,8 @@ void ZygoteHost::Init(const std::string& sandbox_cmd) {
     std::vector<int> fds_vec;
     const int kExpectedLength = sizeof(kZygoteMagic);
     char buf[kExpectedLength];
-    const ssize_t len = base::RecvMsg(fds[0], buf, sizeof(buf), &fds_vec);
+    const ssize_t len = UnixDomainSocket::RecvMsg(fds[0], buf, sizeof(buf),
+                                                  &fds_vec);
     CHECK(len == kExpectedLength) << "Incorrect zygote magic length";
     CHECK(0 == strcmp(buf, kZygoteMagic)) << "Incorrect zygote magic";
 
@@ -188,7 +190,8 @@ void ZygoteHost::Init(const std::string& sandbox_cmd) {
   Pickle pickle;
   pickle.WriteInt(kCmdGetSandboxStatus);
   std::vector<int> empty_fds;
-  if (!base::SendMsg(control_fd_, pickle.data(), pickle.size(), empty_fds))
+  if (!UnixDomainSocket::SendMsg(control_fd_, pickle.data(), pickle.size(),
+                                 empty_fds))
     LOG(FATAL) << "Cannot communicate with zygote";
   // We don't wait for the reply. We'll read it in ReadReply.
 }
@@ -233,7 +236,8 @@ pid_t ZygoteHost::ForkRenderer(
   pid_t pid;
   {
     AutoLock lock(control_lock_);
-    if (!base::SendMsg(control_fd_, pickle.data(), pickle.size(), fds))
+    if (!UnixDomainSocket::SendMsg(control_fd_, pickle.data(), pickle.size(),
+                                   fds))
       return base::kNullProcessHandle;
 
     if (ReadReply(&pid, sizeof(pid)) != sizeof(pid))
@@ -311,12 +315,17 @@ void ZygoteHost::EnsureProcessTerminated(pid_t process) {
     PLOG(ERROR) << "write";
 }
 
-bool ZygoteHost::DidProcessCrash(base::ProcessHandle handle,
-                                 bool* child_exited) {
+base::TerminationStatus ZygoteHost::GetTerminationStatus(
+    base::ProcessHandle handle,
+    int* exit_code) {
   DCHECK(init_);
   Pickle pickle;
-  pickle.WriteInt(kCmdDidProcessCrash);
+  pickle.WriteInt(kCmdGetTerminationStatus);
   pickle.WriteInt(handle);
+
+  // Set this now to handle the early termination cases.
+  if (exit_code)
+    *exit_code = ResultCodes::NORMAL_EXIT;
 
   static const unsigned kMaxMessageLength = 128;
   char buf[kMaxMessageLength];
@@ -331,23 +340,23 @@ bool ZygoteHost::DidProcessCrash(base::ProcessHandle handle,
 
   if (len == -1) {
     LOG(WARNING) << "Error reading message from zygote: " << errno;
-    return false;
+    return base::TERMINATION_STATUS_NORMAL_TERMINATION;
   } else if (len == 0) {
     LOG(WARNING) << "Socket closed prematurely.";
-    return false;
+    return base::TERMINATION_STATUS_NORMAL_TERMINATION;
   }
 
   Pickle read_pickle(buf, len);
-  bool did_crash, tmp_child_exited;
+  int status, tmp_exit_code;
   void* iter = NULL;
-  if (!read_pickle.ReadBool(&iter, &did_crash) ||
-      !read_pickle.ReadBool(&iter, &tmp_child_exited)) {
-    LOG(WARNING) << "Error parsing DidProcessCrash response from zygote.";
-    return false;
+  if (!read_pickle.ReadInt(&iter, &status) ||
+      !read_pickle.ReadInt(&iter, &tmp_exit_code)) {
+    LOG(WARNING) << "Error parsing GetTerminationStatus response from zygote.";
+    return base::TERMINATION_STATUS_NORMAL_TERMINATION;
   }
 
-  if (child_exited)
-    *child_exited = tmp_child_exited;
+  if (exit_code)
+    *exit_code = tmp_exit_code;
 
-  return did_crash;
+  return static_cast<base::TerminationStatus>(status);
 }

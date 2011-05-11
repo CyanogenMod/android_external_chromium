@@ -12,6 +12,7 @@
 
 #include "app/surface/transport_dib.h"
 #include "base/gtest_prod_util.h"
+#include "base/process_util.h"
 #include "base/scoped_ptr.h"
 #include "base/string16.h"
 #include "base/timer.h"
@@ -177,13 +178,13 @@ class RenderWidgetHost : public IPC::Channel::Listener,
   virtual void Shutdown();
 
   // Manual RTTI FTW. We are not hosting a web page.
-  virtual bool IsRenderView() const { return false; }
+  virtual bool IsRenderView() const;
 
   // IPC::Channel::Listener
-  virtual void OnMessageReceived(const IPC::Message& msg);
+  virtual bool OnMessageReceived(const IPC::Message& msg);
 
   // Sends a message to the corresponding object in the renderer.
-  bool Send(IPC::Message* msg);
+  virtual bool Send(IPC::Message* msg);
 
   // Called to notify the RenderWidget that it has been hidden or restored from
   // having been hidden.
@@ -404,6 +405,9 @@ class RenderWidgetHost : public IPC::Channel::Listener,
     return ignore_input_events_;
   }
 
+  // Activate deferred plugin handles.
+  void ActivateDeferredPluginHandles();
+
  protected:
   // Internal implementation of the public Forward*Event() methods.
   void ForwardInputEvent(const WebKit::WebInputEvent& input_event,
@@ -412,7 +416,7 @@ class RenderWidgetHost : public IPC::Channel::Listener,
   // Called when we receive a notification indicating that the renderer
   // process has gone. This will reset our state so that our state will be
   // consistent if a new renderer is created.
-  void RendererExited();
+  void RendererExited(base::TerminationStatus status, int exit_code);
 
   // Retrieves an id the renderer can use to refer to its view.
   // This is used for various IPC messages, including plugins.
@@ -425,9 +429,7 @@ class RenderWidgetHost : public IPC::Channel::Listener,
   // be handled in HandleKeyboardEvent() method as a normal keyboard shortcut,
   // |*is_keyboard_shortcut| should be set to true.
   virtual bool PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
-                                      bool* is_keyboard_shortcut) {
-    return false;
-  }
+                                      bool* is_keyboard_shortcut);
 
   // Called when a keyboard event was not processed by the renderer. This is
   // overridden by RenderView to send upwards to its delegate.
@@ -472,7 +474,7 @@ class RenderWidgetHost : public IPC::Channel::Listener,
 
   // IPC message handlers
   void OnMsgRenderViewReady();
-  void OnMsgRenderViewGone();
+  void OnMsgRenderViewGone(int status, int error_code);
   void OnMsgClose();
   void OnMsgRequestMove(const gfx::Rect& pos);
   void OnMsgPaintAtSizeAck(int tag, const gfx::Size& size);
@@ -682,6 +684,8 @@ class RenderWidgetHost : public IPC::Channel::Listener,
   // switching back to the original tab, because the content may already be
   // changed.
   bool suppress_next_char_events_;
+
+  std::vector<gfx::PluginWindowHandle> deferred_plugin_handles_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderWidgetHost);
 };

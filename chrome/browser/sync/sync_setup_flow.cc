@@ -12,18 +12,18 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#if defined(OS_MACOSX)
-#include "chrome/browser/cocoa/html_dialog_window_controller_cppsafe.h"
-#endif
 #include "chrome/browser/dom_ui/dom_ui_util.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
+#if defined(OS_MACOSX)
+#include "chrome/browser/ui/cocoa/html_dialog_window_controller_cppsafe.h"
+#endif
 #include "chrome/common/net/gaia/google_service_auth_error.h"
 #include "chrome/common/pref_names.h"
 #include "gfx/font.h"
@@ -345,6 +345,10 @@ void SyncSetupFlow::GetDialogSize(gfx::Size* size) const {
 #endif
 }
 
+std::string SyncSetupFlow::GetDialogArgs() const {
+  return dialog_start_args_;
+}
+
 // A callback to notify the delegate that the dialog closed.
 void SyncSetupFlow::OnDialogClosed(const std::string& json_retval) {
   DCHECK(json_retval.empty());
@@ -383,6 +387,18 @@ void SyncSetupFlow::OnDialogClosed(const std::string& json_retval) {
 
   service_->OnUserCancelledDialog();
   delete this;
+}
+
+std::wstring SyncSetupFlow::GetDialogTitle() const {
+  return l10n_util::GetString(IDS_SYNC_MY_BOOKMARKS_LABEL);
+}
+
+bool SyncSetupFlow::IsDialogModal() const {
+  return false;
+}
+
+bool SyncSetupFlow::ShouldShowDialogTitle() const {
+  return true;
 }
 
 // static
@@ -594,6 +610,10 @@ void SyncSetupFlow::Focus() {
   // implementation of HTML dialogs as described by akalin below.
   NOTIMPLEMENTED();
 #endif  // defined(OS_MACOSX)
+}
+
+GURL SyncSetupFlow::GetDialogContentURL() const {
+  return GURL("chrome://syncresources/setup");
 }
 
 // static

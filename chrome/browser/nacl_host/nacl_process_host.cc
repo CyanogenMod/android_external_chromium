@@ -13,7 +13,7 @@
 #include "base/command_line.h"
 #include "base/metrics/nacl_histogram.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/renderer_host/resource_message_filter.h"
+#include "chrome/browser/renderer_host/render_message_filter.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/logging_chrome.h"
 #include "chrome/common/nacl_cmd_line.h"
@@ -74,10 +74,10 @@ NaClProcessHost::~NaClProcessHost() {
   // OnProcessLaunched didn't get called because the process couldn't launch.
   // Don't keep the renderer hanging.
   reply_msg_->set_reply_error();
-  resource_message_filter_->Send(reply_msg_);
+  render_message_filter_->Send(reply_msg_);
 }
 
-bool NaClProcessHost::Launch(ResourceMessageFilter* resource_message_filter,
+bool NaClProcessHost::Launch(RenderMessageFilter* render_message_filter,
                              int socket_count,
                              IPC::Message* reply_msg) {
 #ifdef DISABLE_NACL
@@ -116,7 +116,7 @@ bool NaClProcessHost::Launch(ResourceMessageFilter* resource_message_filter,
     return false;
   }
   UmaNaclHistogramEnumeration(NACL_STARTED);
-  resource_message_filter_ = resource_message_filter;
+  render_message_filter_ = render_message_filter;
   reply_msg_ = reply_msg;
 
   return true;
@@ -163,10 +163,11 @@ void NaClProcessHost::OnProcessLaunchedByBroker(base::ProcessHandle handle) {
   OnProcessLaunched();
 }
 
-bool NaClProcessHost::DidChildCrash() {
+base::TerminationStatus NaClProcessHost::GetChildTerminationStatus(
+    int* exit_code) {
   if (running_on_wow64_)
-    return base::DidProcessCrash(NULL, handle());
-  return BrowserChildProcessHost::DidChildCrash();
+    return base::GetTerminationStatus(handle(), exit_code);
+  return BrowserChildProcessHost::GetChildTerminationStatus(exit_code);
 }
 
 void NaClProcessHost::OnChildDied() {
@@ -186,7 +187,7 @@ void NaClProcessHost::OnProcessLaunched() {
     HANDLE handle_in_renderer;
     DuplicateHandle(base::GetCurrentProcessHandle(),
                     reinterpret_cast<HANDLE>(sockets_for_renderer_[i]),
-                    resource_message_filter_->handle(),
+                    render_message_filter_->peer_handle(),
                     &handle_in_renderer,
                     GENERIC_READ | GENERIC_WRITE,
                     FALSE,
@@ -207,7 +208,7 @@ void NaClProcessHost::OnProcessLaunched() {
   // Copy the process handle into the renderer process.
   DuplicateHandle(base::GetCurrentProcessHandle(),
                   handle(),
-                  resource_message_filter_->handle(),
+                  render_message_filter_->peer_handle(),
                   &nacl_process_handle,
                   PROCESS_DUP_HANDLE,
                   FALSE,
@@ -222,8 +223,8 @@ void NaClProcessHost::OnProcessLaunched() {
 
   ViewHostMsg_LaunchNaCl::WriteReplyParams(
       reply_msg_, handles_for_renderer, nacl_process_handle, nacl_process_id);
-  resource_message_filter_->Send(reply_msg_);
-  resource_message_filter_ = NULL;
+  render_message_filter_->Send(reply_msg_);
+  render_message_filter_ = NULL;
   reply_msg_ = NULL;
   sockets_for_renderer_.clear();
 
@@ -281,14 +282,13 @@ void NaClProcessHost::SendStartMessage() {
   sockets_for_sel_ldr_.clear();
 }
 
-void NaClProcessHost::OnMessageReceived(const IPC::Message& msg) {
+bool NaClProcessHost::OnMessageReceived(const IPC::Message& msg) {
   NOTREACHED() << "Invalid message with type = " << msg.type();
+  return false;
 }
 
-URLRequestContext* NaClProcessHost::GetRequestContext(
-    uint32 request_id,
-    const ViewHostMsg_Resource_Request& request_data) {
-  return NULL;
+bool NaClProcessHost::CanShutdown() {
+  return true;
 }
 
 #if defined(OS_WIN)

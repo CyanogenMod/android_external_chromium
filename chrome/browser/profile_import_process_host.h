@@ -16,7 +16,6 @@
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/importer/importer_data_types.h"
 #include "chrome/browser/importer/profile_writer.h"
-#include "ipc/ipc_channel.h"
 
 namespace webkit_glue {
 struct PasswordForm;
@@ -40,7 +39,7 @@ class ProfileImportProcessHost : public BrowserChildProcessHost {
     // These methods are used by the ProfileImportProcessHost to pass messages
     // received from the external process back to the ImportProcessClient in
     // ImporterHost.
-    virtual void OnProcessCrashed() {}
+    virtual void OnProcessCrashed(int exit_status) {}
     virtual void OnImportStart() {}
     virtual void OnImportFinished(bool succeeded, std::string error_msg) {}
     virtual void OnImportItemStart(int item) {}
@@ -74,7 +73,7 @@ class ProfileImportProcessHost : public BrowserChildProcessHost {
         const std::vector<TemplateURL>& template_urls,
             int default_keyword_index, bool unique_on_host_and_path) {}
 
-    virtual void OnMessageReceived(const IPC::Message& message);
+    virtual bool OnMessageReceived(const IPC::Message& message);
 
    protected:
     friend class base::RefCountedThreadSafe<ImportProcessClient>;
@@ -123,14 +122,11 @@ class ProfileImportProcessHost : public BrowserChildProcessHost {
 
   // Called by the external importer process to send messages back to the
   // ImportProcessClient.
-  void OnMessageReceived(const IPC::Message& message);
+  virtual bool OnMessageReceived(const IPC::Message& message);
 
   // Overridden from BrowserChildProcessHost:
-  virtual void OnProcessCrashed();
+  virtual void OnProcessCrashed(int exit_code);
   virtual bool CanShutdown();
-  virtual URLRequestContext* GetRequestContext(
-      uint32 request_id,
-      const ViewHostMsg_Resource_Request& request_data);
 
   // Receives messages to be passed back to the importer host.
   scoped_refptr<ImportProcessClient> import_process_client_;

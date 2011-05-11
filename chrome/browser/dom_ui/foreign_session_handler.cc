@@ -4,14 +4,16 @@
 
 #include "chrome/browser/dom_ui/foreign_session_handler.h"
 
+#include <string>
+
 #include "base/scoped_vector.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/dom_ui/value_helper.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_restore.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/profile_sync_service.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_service.h"
@@ -105,7 +107,7 @@ void ForeignSessionHandler::OpenForeignSession(
   ScopedVector<ForeignSession> session;
   associator->AppendForeignSessionWithID(id, &session.get(), &trans);
 
-  DCHECK(session.size() == 1);
+  DCHECK_EQ(1U, session.size());
   std::vector<SessionWindow*> windows = (*session.begin())->windows;
   SessionRestore::RestoreForeignSessionWindows(dom_ui_->GetProfile(), &windows);
 }

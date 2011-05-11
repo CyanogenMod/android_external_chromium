@@ -5,17 +5,18 @@
 #include "chrome/browser/printing/printer_query.h"
 
 #include "base/message_loop.h"
+#include "base/thread_restrictions.h"
 #include "chrome/browser/printing/print_job_worker.h"
 
 namespace printing {
 
 PrinterQuery::PrinterQuery()
-    : ui_message_loop_(MessageLoop::current()),
+    : io_message_loop_(MessageLoop::current()),
       ALLOW_THIS_IN_INITIALIZER_LIST(worker_(new PrintJobWorker(this))),
       is_print_dialog_box_shown_(false),
       cookie_(PrintSettings::NewCookie()),
       last_status_(PrintingContext::FAILED) {
-  DCHECK_EQ(ui_message_loop_->type(), MessageLoop::TYPE_UI);
+  DCHECK_EQ(io_message_loop_->type(), MessageLoop::TYPE_IO);
 }
 
 PrinterQuery::~PrinterQuery() {
@@ -28,7 +29,6 @@ PrinterQuery::~PrinterQuery() {
     callback_->Cancel();
   }
   // It may get deleted in a different thread that the one that created it.
-  // That's fine so don't DCHECK_EQ(ui_message_loop_, MessageLoop::current());
 }
 
 void PrinterQuery::GetSettingsDone(const PrintSettings& new_settings,
@@ -58,13 +58,25 @@ PrintJobWorker* PrinterQuery::DetachWorker(PrintJobWorkerOwner* new_owner) {
   return worker_.release();
 }
 
+MessageLoop* PrinterQuery::message_loop() {
+  return io_message_loop_;
+}
+
+const PrintSettings& PrinterQuery::settings() const {
+  return settings_;
+}
+
+int PrinterQuery::cookie() const {
+  return cookie_;
+}
+
 void PrinterQuery::GetSettings(GetSettingsAskParam ask_user_for_settings,
                                gfx::NativeView parent_view,
                                int expected_page_count,
                                bool has_selection,
                                bool use_overlays,
                                CancelableTask* callback) {
-  DCHECK_EQ(ui_message_loop_, MessageLoop::current());
+  DCHECK_EQ(io_message_loop_, MessageLoop::current());
   DCHECK(!is_print_dialog_box_shown_);
   DCHECK(!callback_.get());
   DCHECK(worker_.get());
@@ -97,6 +109,10 @@ void PrinterQuery::GetSettings(GetSettingsAskParam ask_user_for_settings,
 
 void PrinterQuery::StopWorker() {
   if (worker_.get()) {
+    // http://crbug.com/66082: We're blocking on the PrinterQuery's worker
+    // thread.  It's not clear to me if this may result in blocking the current
+    // thread for an unacceptable time.  We should probably fix it.
+    base::ThreadRestrictions::ScopedAllowIO allow_io;
     worker_->Stop();
     worker_.reset();
   }

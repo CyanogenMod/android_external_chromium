@@ -48,7 +48,7 @@ class DownloadShelfContextMenu : public menus::SimpleMenuModel::Delegate {
  public:
   virtual ~DownloadShelfContextMenu();
 
-  virtual DownloadItem* download() const { return download_; }
+  virtual DownloadItem* download() const;
 
   enum ContextMenuCommands {
     SHOW_IN_FOLDER = 1,  // Open a file explorer window with the item selected.
@@ -73,7 +73,7 @@ class DownloadShelfContextMenu : public menus::SimpleMenuModel::Delegate {
   virtual void ExecuteCommand(int command_id);
   virtual bool GetAcceleratorForCommandId(int command_id,
                                           menus::Accelerator* accelerator);
-  virtual bool IsLabelForCommandIdDynamic(int command_id) const;
+  virtual bool IsItemForCommandIdDynamic(int command_id) const;
   virtual string16 GetLabelForCommandId(int command_id) const;
 
   // A model to control the cancel behavior.

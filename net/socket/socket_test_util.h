@@ -245,14 +245,12 @@ struct SSLSocketDataProvider {
   SSLSocketDataProvider(bool async, int result)
       : connect(async, result),
         next_proto_status(SSLClientSocket::kNextProtoUnsupported),
-        was_npn_negotiated(false),
-        cert_request_info(NULL) { }
+        was_npn_negotiated(false) { }
 
   MockConnect connect;
   SSLClientSocket::NextProtoStatus next_proto_status;
   std::string next_proto;
   bool was_npn_negotiated;
-  net::SSLCertRequestInfo* cert_request_info;
 };
 
 // A DataProvider where the client must write a request before the reads (e.g.
@@ -539,6 +537,7 @@ class MockClientSocketFactory : public ClientSocketFactory {
       const HostPortPair& host_and_port,
       const SSLConfig& ssl_config,
       SSLHostInfo* ssl_host_info,
+      CertVerifier* cert_verifier,
       DnsCertProvenanceChecker* dns_cert_checker);
   SocketDataProviderArray<SocketDataProvider>& mock_data() {
     return mock_data_;
@@ -715,8 +714,6 @@ class MockSSLClientSocket : public MockClientSocket {
 
   // SSLClientSocket methods:
   virtual void GetSSLInfo(net::SSLInfo* ssl_info);
-  virtual void GetSSLCertRequestInfo(
-      net::SSLCertRequestInfo* cert_request_info);
   virtual NextProtoStatus GetNextProto(std::string* proto);
   virtual bool was_npn_negotiated() const;
   virtual bool set_was_npn_negotiated(bool negotiated);
@@ -886,6 +883,7 @@ class DeterministicMockClientSocketFactory : public ClientSocketFactory {
       const HostPortPair& host_and_port,
       const SSLConfig& ssl_config,
       SSLHostInfo* ssl_host_info,
+      CertVerifier* cert_verifier,
       DnsCertProvenanceChecker* dns_cert_checker);
 
   SocketDataProviderArray<DeterministicSocketData>& mock_data() {

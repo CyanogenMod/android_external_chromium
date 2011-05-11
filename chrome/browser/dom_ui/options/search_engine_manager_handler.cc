@@ -9,7 +9,7 @@
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/keyword_editor_controller.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
@@ -56,8 +56,6 @@ void SearchEngineManagerHandler::GetLocalizedValues(
       l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_KEYWORD_COLUMN));
   localized_strings->SetString("addSearchEngineButton",
       l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_NEW_BUTTON));
-  localized_strings->SetString("removeSearchEngineButton",
-      l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_REMOVE_BUTTON));
   localized_strings->SetString("editSearchEngineButton",
       l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_EDIT_BUTTON));
   localized_strings->SetString("makeDefaultSearchEngineButton",
@@ -234,6 +232,7 @@ void SearchEngineManagerHandler::EditSearchEngine(const ListValue* args) {
     engine_details.SetString("keyword", WideToUTF16Hack(edit_url->keyword()));
     engine_details.SetString("url",
                              WideToUTF16Hack(edit_url->url()->DisplayURL()));
+    engine_details.SetBoolean("urlLocked", edit_url->prepopulate_id() > 0);
     dom_ui_->CallJavascriptFunction(L"EditSearchEngineOverlay.setEditDetails",
                                     engine_details);
   }

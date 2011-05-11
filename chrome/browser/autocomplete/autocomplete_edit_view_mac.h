@@ -11,7 +11,7 @@
 #include "base/scoped_ptr.h"
 #include "base/string16.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
-#include "chrome/browser/cocoa/location_bar/autocomplete_text_field.h"
+#include "chrome/browser/ui/cocoa/location_bar/autocomplete_text_field.h"
 
 class AutocompleteEditController;
 class AutocompletePopupViewMac;
@@ -74,6 +74,7 @@ class AutocompleteEditViewMac : public AutocompleteEditView,
                                            bool save_original_selection);
   virtual bool OnInlineAutocompleteTextMaybeChanged(
       const std::wstring& display_text, size_t user_text_length);
+  virtual void OnStartingIME();
   virtual void OnRevertTemporaryText();
   virtual void OnBeforePossibleChange();
   virtual bool OnAfterPossibleChange();

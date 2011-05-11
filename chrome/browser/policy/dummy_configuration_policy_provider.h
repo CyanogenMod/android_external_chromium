@@ -6,24 +6,26 @@
 #define CHROME_BROWSER_POLICY_DUMMY_CONFIGURATION_POLICY_PROVIDER_H_
 #pragma once
 
-#include "chrome/browser/policy/configuration_policy_store_interface.h"
 #include "chrome/browser/policy/configuration_policy_provider.h"
 
 namespace policy {
 
+class ConfigurationPolicyStoreInterface;
+
 class DummyConfigurationPolicyProvider : public ConfigurationPolicyProvider {
  public:
   explicit DummyConfigurationPolicyProvider(
-      const PolicyDefinitionList* policy_list)
-      : ConfigurationPolicyProvider(policy_list) {
-  }
-  virtual ~DummyConfigurationPolicyProvider() {}
+      const PolicyDefinitionList* policy_list);
+  virtual ~DummyConfigurationPolicyProvider();
 
-  virtual bool Provide(ConfigurationPolicyStoreInterface* store) {
-    return true;
-  }
+  virtual bool Provide(ConfigurationPolicyStoreInterface* store);
 
  private:
+  // ConfigurationPolicyProvider overrides:
+  virtual void AddObserver(ConfigurationPolicyProvider::Observer* observer) {}
+  virtual void RemoveObserver(
+      ConfigurationPolicyProvider::Observer* observer) {}
+
   DISALLOW_COPY_AND_ASSIGN(DummyConfigurationPolicyProvider);
 };
 

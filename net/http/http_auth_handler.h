@@ -27,6 +27,14 @@ struct HttpRequestInfo;
 // HttpAuthHandler objects are typically created by an HttpAuthHandlerFactory.
 class HttpAuthHandler {
  public:
+  enum AuthScheme {
+    AUTH_SCHEME_BASIC = 0,
+    AUTH_SCHEME_DIGEST,
+    AUTH_SCHEME_NTLM,
+    AUTH_SCHEME_NEGOTIATE,
+    AUTH_SCHEME_MAX,
+  };
+
   HttpAuthHandler();
   virtual ~HttpAuthHandler();
 
@@ -80,6 +88,11 @@ class HttpAuthHandler {
                         CompletionCallback* callback,
                         std::string* auth_token);
 
+  // The authentication scheme as an enumerated value.
+  AuthScheme auth_scheme() const {
+    return auth_scheme_;
+  }
+
   // Lowercase name of the auth scheme
   const std::string& scheme() const {
     return scheme_;
@@ -105,6 +118,13 @@ class HttpAuthHandler {
     return target_;
   }
 
+  // Returns the proxy or server which issued the authentication challenge
+  // that this HttpAuthHandler is handling. The URL includes scheme, host, and
+  // port, but does not include path.
+  const GURL& origin() const {
+    return origin_;
+  }
+
   // Returns true if the authentication scheme does not send the username and
   // password in the clear.
   bool encrypts_identity() const {
@@ -123,14 +143,14 @@ class HttpAuthHandler {
   // requires an identity.
   // TODO(wtc): Find a better way to handle a multi-round challenge-response
   // sequence used by a connection-based authentication scheme.
-  virtual bool NeedsIdentity() { return true; }
+  virtual bool NeedsIdentity();
 
   // Returns whether the default credentials may be used for the |origin| passed
   // into |InitFromChallenge|. If true, the user does not need to be prompted
   // for username and password to establish credentials.
   // NOTE: SSO is a potential security risk.
   // TODO(cbentzel): Add a pointer to Firefox documentation about risk.
-  virtual bool AllowsDefaultCredentials() { return false; }
+  virtual bool AllowsDefaultCredentials();
 
  protected:
   enum Property {
@@ -154,6 +174,9 @@ class HttpAuthHandler {
                                     const HttpRequestInfo* request,
                                     CompletionCallback* callback,
                                     std::string* auth_token) = 0;
+
+  // The auth-scheme as an enumerated value.
+  AuthScheme auth_scheme_;
 
   // The lowercase auth-scheme {"basic", "digest", "ntlm", "negotiate"}
   std::string scheme_;

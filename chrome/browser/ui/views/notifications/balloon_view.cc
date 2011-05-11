@@ -16,7 +16,6 @@
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_options_menu_model.h"
-#include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
@@ -132,6 +131,10 @@ gfx::Size BalloonViewImpl::GetSize() const {
   return gfx::Size(GetTotalWidth(), GetTotalHeight());
 }
 
+BalloonHost* BalloonViewImpl::GetHost() const {
+  return html_contents_.get();
+}
+
 void BalloonViewImpl::RunMenu(views::View* source, const gfx::Point& pt) {
   RunOptionsMenu(pt);
 }
@@ -165,6 +168,10 @@ void BalloonViewImpl::DelayedClose(bool by_user) {
 void BalloonViewImpl::DidChangeBounds(const gfx::Rect& previous,
                                       const gfx::Rect& current) {
   SizeContentsWindow();
+}
+
+gfx::Size BalloonViewImpl::GetPreferredSize() {
+  return gfx::Size(1000, 1000);
 }
 
 void BalloonViewImpl::SizeContentsWindow() {

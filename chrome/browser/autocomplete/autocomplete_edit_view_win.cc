@@ -38,7 +38,7 @@
 #include "chrome/browser/command_updater.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/net/url_fixer_upper.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -711,14 +711,6 @@ void AutocompleteEditViewWin::UpdatePopup() {
     return;
   }
 
-  // Figure out whether the user is trying to compose something in an IME.
-  bool ime_composing = false;
-  HIMC context = ImmGetContext(m_hWnd);
-  if (context) {
-    ime_composing = !!ImmGetCompositionString(context, GCS_COMPSTR, NULL, 0);
-    ImmReleaseContext(m_hWnd, context);
-  }
-
   // Don't inline autocomplete when:
   //   * The user is deleting text
   //   * The caret/selection isn't at the end of the text
@@ -727,7 +719,7 @@ void AutocompleteEditViewWin::UpdatePopup() {
   CHARRANGE sel;
   GetSel(sel);
   model_->StartAutocomplete(sel.cpMax != sel.cpMin,
-                            (sel.cpMax < GetTextLength()) || ime_composing);
+                            (sel.cpMax < GetTextLength()) || IsImeComposing());
 }
 
 void AutocompleteEditViewWin::ClosePopup() {
@@ -1011,7 +1003,7 @@ bool AutocompleteEditViewWin::GetAcceleratorForCommandId(
   return parent_view_->GetWidget()->GetAccelerator(command_id, accelerator);
 }
 
-bool AutocompleteEditViewWin::IsLabelForCommandIdDynamic(int command_id) const {
+bool AutocompleteEditViewWin::IsItemForCommandIdDynamic(int command_id) const {
   // No need to change the default IDS_PASTE_AND_GO label unless this is a
   // search.
   return command_id == IDS_PASTE_AND_GO;
@@ -2130,7 +2122,7 @@ LONG AutocompleteEditViewWin::ClipXCoordToVisibleText(
   if (end_position_x >= first_position_x) {
     right_bound = std::min(right_bound, end_position_x);  // LTR case.
   }
-  // For trailing characters that are 2 pixels wide of less (like "l" in some
+  // For trailing characters that are 2 pixels wide or less (like "l" in some
   // fonts), we have a problem:
   //   * Clicks on any pixel within the character will place the cursor before
   //     the character.
@@ -2592,4 +2584,14 @@ int AutocompleteEditViewWin::WidthNeededToDisplay(const std::wstring& text) {
   // apparently buggy. In both LTR UI and RTL UI with left-to-right layout,
   // PosFromChar(i) might return 0 when i is greater than 1.
   return font_.GetStringWidth(text) + GetHorizontalMargin();
+}
+
+bool AutocompleteEditViewWin::IsImeComposing() const {
+  bool ime_composing = false;
+  HIMC context = ImmGetContext(m_hWnd);
+  if (context) {
+    ime_composing = !!ImmGetCompositionString(context, GCS_COMPSTR, NULL, 0);
+    ImmReleaseContext(m_hWnd, context);
+  }
+  return ime_composing;
 }

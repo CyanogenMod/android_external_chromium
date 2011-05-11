@@ -17,18 +17,14 @@
 #include "base/string16.h"
 #include "chrome/common/common_param_traits.h"
 #include "chrome/common/css_colors.h"
-#include "chrome/common/dom_storage_common.h"
-#include "chrome/common/indexed_db_param_traits.h"
 #include "chrome/common/page_transition_types.h"
 #include "chrome/common/translate_errors.h"
 #include "chrome/common/view_types.h"
 #include "chrome/common/webkit_param_traits.h"
 #include "ipc/ipc_message_utils.h"
 #include "ipc/ipc_platform_file.h"                     // ifdefed typedef.
-#include "third_party/WebKit/WebKit/chromium/public/WebStorageArea.h"
 #include "webkit/appcache/appcache_interfaces.h"  // enum appcache::Status
 #include "webkit/fileapi/file_system_types.h"  // enum fileapi::FileSystemType
-#include "webkit/glue/plugins/pepper_dir_contents.h"
 
 #if defined(OS_MACOSX)
 struct FontDescriptor;
@@ -65,8 +61,15 @@ struct ResourceLoadTimingInfo;
 struct ResourceResponseInfo;
 struct WebAccessibility;
 struct WebCookie;
-struct WebPluginGeometry;
 struct WebAccessibility;
+}
+
+namespace webkit {
+namespace npapi {
+struct WebPluginGeometry;
+struct WebPluginInfo;
+struct WebPluginMimeType;
+}
 }
 
 struct AudioBuffersState;
@@ -81,8 +84,6 @@ struct SyncLoadResult;
 struct RendererPreferences;
 struct WebDropData;
 struct WebMenuItem;
-struct WebPluginInfo;
-struct WebPluginMimeType;
 struct WebPreferences;
 
 // Forward declarations of structures used to store data for when we have a lot
@@ -99,17 +100,11 @@ struct ViewHostMsg_Resource_Request;
 struct ViewMsg_Print_Params;
 struct ViewMsg_PrintPage_Params;
 struct ViewMsg_PrintPages_Params;
+struct ViewHostMsg_DidPreviewDocument_Params;
 struct ViewHostMsg_DidPrintPage_Params;
 struct ViewHostMsg_Audio_CreateStream_Params;
 struct ViewHostMsg_ShowPopup_Params;
 struct ViewHostMsg_ScriptedPrint_Params;
-struct ViewMsg_DOMStorageEvent_Params;
-struct ViewHostMsg_IDBFactoryOpen_Params;
-struct ViewHostMsg_IDBDatabaseCreateObjectStore_Params;
-struct ViewHostMsg_IDBIndexOpenCursor_Params;
-struct ViewHostMsg_IDBObjectStoreCreateIndex_Params;
-struct ViewHostMsg_IDBObjectStoreOpenCursor_Params;
-struct ViewHostMsg_IDBObjectStorePut_Params;
 struct ViewMsg_ExecuteCode_Params;
 struct ViewHostMsg_CreateWorker_Params;
 struct ViewHostMsg_ShowNotification_Params;
@@ -162,8 +157,8 @@ struct ParamTraits<ContextMenuParams> {
 };
 
 template <>
-struct ParamTraits<webkit_glue::WebPluginGeometry> {
-  typedef webkit_glue::WebPluginGeometry param_type;
+struct ParamTraits<webkit::npapi::WebPluginGeometry> {
+  typedef webkit::npapi::WebPluginGeometry param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, void** iter, param_type* p);
   static void Log(const param_type& p, std::string* l);
@@ -171,16 +166,16 @@ struct ParamTraits<webkit_glue::WebPluginGeometry> {
 
 // Traits for ViewMsg_GetPlugins_Reply structure to pack/unpack.
 template <>
-struct ParamTraits<WebPluginMimeType> {
-  typedef WebPluginMimeType param_type;
+struct ParamTraits<webkit::npapi::WebPluginMimeType> {
+  typedef webkit::npapi::WebPluginMimeType param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, void** iter, param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
 template <>
-struct ParamTraits<WebPluginInfo> {
-  typedef WebPluginInfo param_type;
+struct ParamTraits<webkit::npapi::WebPluginInfo> {
+  typedef webkit::npapi::WebPluginInfo param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, void** iter, param_type* r);
   static void Log(const param_type& p, std::string* l);
@@ -480,73 +475,6 @@ struct ParamTraits<EditCommand> {
   static void Log(const param_type& p, std::string* l);
 };
 
-// Traits for DOMStorageType enum.
-template <>
-struct ParamTraits<DOMStorageType> {
-  typedef DOMStorageType param_type;
-  static void Write(Message* m, const param_type& p) {
-    m->WriteInt(p);
-  }
-  static bool Read(const Message* m, void** iter, param_type* p) {
-    int type;
-    if (!m->ReadInt(iter, &type))
-      return false;
-    *p = static_cast<param_type>(type);
-    return true;
-  }
-  static void Log(const param_type& p, std::string* l) {
-    std::string control;
-    switch (p) {
-      case DOM_STORAGE_LOCAL:
-        control = "DOM_STORAGE_LOCAL";
-        break;
-      case DOM_STORAGE_SESSION:
-        control = "DOM_STORAGE_SESSION";
-        break;
-      default:
-        NOTIMPLEMENTED();
-        control = "UNKNOWN";
-        break;
-    }
-    LogParam(control, l);
-  }
-};
-
-// Traits for WebKit::WebStorageArea::Result enum.
-template <>
-struct ParamTraits<WebKit::WebStorageArea::Result> {
-  typedef WebKit::WebStorageArea::Result param_type;
-  static void Write(Message* m, const param_type& p) {
-    m->WriteInt(p);
-  }
-  static bool Read(const Message* m, void** iter, param_type* p) {
-    int type;
-    if (!m->ReadInt(iter, &type))
-      return false;
-    *p = static_cast<param_type>(type);
-    return true;
-  }
-  static void Log(const param_type& p, std::string* l) {
-    std::string control;
-    switch (p) {
-      case WebKit::WebStorageArea::ResultOK:
-        control = "WebKit::WebStorageArea::ResultOK";
-        break;
-      case WebKit::WebStorageArea::ResultBlockedByQuota:
-        control = "WebKit::WebStorageArea::ResultBlockedByQuota";
-        break;
-      case WebKit::WebStorageArea::ResultBlockedByPolicy:
-        control = "WebKit::WebStorageArea::ResultBlockedByPolicy";
-        break;
-      default:
-        NOTIMPLEMENTED();
-        control = "UNKNOWN";
-        break;
-    }
-    LogParam(control, l);
-  }
-};
-
 // Traits for WebCookie
 template <>
 struct ParamTraits<webkit_glue::WebCookie> {
@@ -602,12 +530,6 @@ struct ParamTraits<scoped_refptr<webkit_blob::BlobData> > {
   static void Log(const param_type& p, std::string* l);
 };
 
-// Traits for base::PlatformFileError
-template <>
-struct SimilarTypeTraits<base::PlatformFileError> {
-  typedef int Type;
-};
-
 template <>
 struct SimilarTypeTraits<fileapi::FileSystemType> {
   typedef int Type;
@@ -623,14 +545,6 @@ struct ParamTraits<AudioBuffersState> {
 };
 
 template <>
-struct ParamTraits<PepperDirEntry> {
-  typedef PepperDirEntry param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, void** iter, param_type* p);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template <>
 struct ParamTraits<speech_input::SpeechInputResultItem> {
   typedef speech_input::SpeechInputResultItem param_type;
   static void Write(Message* m, const param_type& p);
@@ -640,7 +554,6 @@ struct ParamTraits<speech_input::SpeechInputResultItem> {
 
 }  // namespace IPC
 
-#define MESSAGES_INTERNAL_FILE "chrome/common/render_messages_internal.h"
-#include "ipc/ipc_message_macros.h"
+#include "chrome/common/render_messages_internal.h"
 
 #endif  // CHROME_COMMON_RENDER_MESSAGES_H_

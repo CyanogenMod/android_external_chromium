@@ -29,7 +29,7 @@
 #include "chrome/browser/tabs/tab_strip_model_observer.h"   // TODO(beng): remove
 #include "chrome/browser/tab_contents/page_navigator.h"
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
-#include "chrome/browser/toolbar_model.h"
+#include "chrome/browser/ui/toolbar/toolbar_model.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/page_transition_types.h"
@@ -63,32 +63,27 @@ class Browser : public TabHandlerDelegate,
                 public ProfileSyncServiceObserver,
                 public InstantDelegate {
  public:
-  // If you change the values in this enum you'll need to update browser_proxy.
-  // TODO(sky): move into a common place that is referenced by both ui_tests
-  // and chrome.
+  // SessionService::WindowType mirrors these values.  If you add to this
+  // enum, look at SessionService::WindowType to see if it needs to be
+  // updated.
   enum Type {
     TYPE_NORMAL = 1,
     TYPE_POPUP = 2,
     // The old-style app created via "Create application shortcuts".
+    // Shortcuts to a URL and shortcuts to an installed application
+    // both have this type.
     TYPE_APP = 4,
-    // The new-style app created by installing a crx. This kinda needs to be
-    // separate because we require larger icons and an application name that
-    // are found in the crx. If we ever decide to create this kind of app
-    // using some other system (eg some web standard), maybe we should
-    // generalize this name to TYPE_MULTITAB or something.
-    TYPE_EXTENSION_APP = 8,
     TYPE_APP_POPUP = TYPE_APP | TYPE_POPUP,
-    TYPE_DEVTOOLS = TYPE_APP | 16,
+    TYPE_DEVTOOLS = TYPE_APP | 8,
 
     // TODO(skerner): crbug/56776: Until the panel UI is complete on all
     // platforms, apps that set app.launch.container = "panel" have type
     // APP_POPUP. (see Browser::CreateForApp)
     // NOTE: TYPE_APP_PANEL is a superset of TYPE_APP_POPUP.
-    TYPE_APP_PANEL = TYPE_APP | TYPE_POPUP | 32,
+    TYPE_APP_PANEL = TYPE_APP | TYPE_POPUP | 16,
     TYPE_ANY = TYPE_NORMAL |
                TYPE_POPUP |
                TYPE_APP |
-               TYPE_EXTENSION_APP |
                TYPE_DEVTOOLS |
                TYPE_APP_PANEL
   };
@@ -144,19 +139,16 @@ class Browser : public TabHandlerDelegate,
 
   // Like Create, but creates a toolbar-less "app" window for the specified
   // app. |app_name| is required and is used to identify the window to the
-  // shell.  |extension| is optional. If supplied, we create a window with
-  // a bigger icon and title text, that supports tabs.
+  // shell.  If |extension| is set, it is used to determine the size of the
+  // window to open.
   static Browser* CreateForApp(const std::string& app_name,
-                               const Extension* extension,
+                               const gfx::Size& window_size,
                                Profile* profile,
                                bool is_panel);
 
   // Like Create, but creates a tabstrip-less and toolbar-less
   // DevTools "app" window.
   static Browser* CreateForDevTools(Profile* profile);
-
-  // Returns the extension app associated with this window, if any.
-  const Extension* extension_app() { return extension_app_; }
 
   // Set overrides for the initial window bounds and maximized state.
   void set_override_bounds(const gfx::Rect& bounds) {
@@ -227,7 +219,7 @@ class Browser : public TabHandlerDelegate,
   // Open an application specified by |app_id| in the appropriate launch
   // container. |existing_tab| is reused if it is not NULL and the launch
   // container is a tab. Returns NULL if the app_id is invalid or if
-  // ExtensionsService isn't ready/available.
+  // ExtensionService isn't ready/available.
   static TabContents* OpenApplication(Profile* profile,
                                       const std::string& app_id,
                                       TabContents* existing_tab);
@@ -321,6 +313,10 @@ class Browser : public TabHandlerDelegate,
 
   // In-progress download termination handling /////////////////////////////////
 
+  // Are normal and/or incognito downloads in progress?
+  void CheckDownloadsInProgress(bool* normal_downloads,
+                                bool* incognito_downloads);
+
   // Called when the user has decided whether to proceed or not with the browser
   // closure.  |cancel_downloads| is true if the downloads should be canceled
   // and the browser closed, false if the browser should stay open and the
@@ -351,6 +347,9 @@ class Browser : public TabHandlerDelegate,
   void CloseAllTabs();
 
   // Tab adding/showing functions /////////////////////////////////////////////
+
+  // Returns true if the tab strip is editable (for extensions).
+  bool IsTabStripEditable() const;
 
   // Returns the index to insert a tab at during session restore and startup.
   // |relative_index| gives the index of the url into the number of tabs that
@@ -469,12 +468,13 @@ class Browser : public TabHandlerDelegate,
 #if defined(OS_CHROMEOS)
   void ToggleCompactNavigationBar();
   void Search();
+  void ShowKeyboardOverlay();
 #endif
 
   // Page-related commands
   void BookmarkCurrentPage();
   void SavePage();
-  void ViewSource();
+  void ViewSelectedSource();
   void ShowFindBar();
 
   // Returns true if the Browser supports the specified feature. The value of
@@ -601,6 +601,10 @@ class Browser : public TabHandlerDelegate,
   // Calls ExecuteCommandWithDisposition with the given disposition.
   void ExecuteCommandWithDisposition(int id, WindowOpenDisposition);
 
+  // Executes a command if it's enabled.
+  // Returns true if the command is executed.
+  bool ExecuteCommandIfEnabled(int id);
+
   // Returns whether the |id| is a reserved command, whose keyboard shortcuts
   // should not be sent to the renderer.
   bool IsReservedCommand(int id);
@@ -707,6 +711,9 @@ class Browser : public TabHandlerDelegate,
   virtual void TabPinnedStateChanged(TabContentsWrapper* contents, int index);
   virtual void TabStripEmpty();
 
+  // Figure out if there are tabs that have beforeunload handlers.
+  bool TabsNeedBeforeUnloadFired();
+
  private:
   FRIEND_TEST_ALL_PREFIXES(BrowserTest, NoTabsInPopups);
   FRIEND_TEST_ALL_PREFIXES(BrowserTest, ConvertTabToAppShortcut);
@@ -777,6 +784,7 @@ class Browser : public TabHandlerDelegate,
                             const GURL& url,
                             const NavigationEntry::SSLStatus& ssl,
                             bool show_history);
+  virtual void ViewSourceForTab(TabContents* source, const GURL& page_url);
   virtual bool PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
                                         bool* is_keyboard_shortcut);
   virtual void HandleKeyboardEvent(const NativeWebKeyboardEvent& event);
@@ -985,6 +993,15 @@ class Browser : public TabHandlerDelegate,
   // If this browser should have instant one is created, otherwise does nothing.
   void CreateInstantIfNecessary();
 
+  // Opens view-source tab for given tab contents.
+  void ViewSource(TabContentsWrapper* tab);
+
+  // Inserts contents dupe next to the original contents. This method is used
+  // to insert duplicate tab and view source tab next to the original tab.
+  void InsertContentsDupe(
+      TabContentsWrapper* original_content,
+      TabContentsWrapper* clone_content);
+
   // Data members /////////////////////////////////////////////////////////////
 
   NotificationRegistrar registrar_;
@@ -1108,9 +1125,6 @@ class Browser : public TabHandlerDelegate,
   // Which deferred action to perform when OnDidGetApplicationInfo is notified
   // from a TabContents. Currently, only one pending action is allowed.
   WebAppAction pending_web_app_action_;
-
-  // The extension app associated with this window, if any.
-  const Extension* extension_app_;
 
   // Tracks the display mode of the tabstrip.
   mutable BooleanPrefMember use_vertical_tabs_;

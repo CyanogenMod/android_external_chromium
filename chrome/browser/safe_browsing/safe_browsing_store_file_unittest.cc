@@ -99,10 +99,11 @@ TEST_F(SafeBrowsingStoreFileTest, DetectsCorruption) {
 
   // Can successfully open and read the store.
   std::vector<SBAddFullHash> pending_adds;
+  std::set<SBPrefix> prefix_misses;
   std::vector<SBAddPrefix> orig_prefixes;
   std::vector<SBAddFullHash> orig_hashes;
   EXPECT_TRUE(test_store.BeginUpdate());
-  EXPECT_TRUE(test_store.FinishUpdate(pending_adds,
+  EXPECT_TRUE(test_store.FinishUpdate(pending_adds, prefix_misses,
                                       &orig_prefixes, &orig_hashes));
   EXPECT_GT(orig_prefixes.size(), 0U);
   EXPECT_GT(orig_hashes.size(), 0U);
@@ -125,7 +126,7 @@ TEST_F(SafeBrowsingStoreFileTest, DetectsCorruption) {
   std::vector<SBAddFullHash> add_hashes;
   corruption_detected_ = false;
   EXPECT_TRUE(test_store.BeginUpdate());
-  EXPECT_FALSE(test_store.FinishUpdate(pending_adds,
+  EXPECT_FALSE(test_store.FinishUpdate(pending_adds, prefix_misses,
                                        &add_prefixes, &add_hashes));
   EXPECT_TRUE(corruption_detected_);
   EXPECT_EQ(add_prefixes.size(), 0U);
@@ -178,10 +179,24 @@ void LoadStore(SafeBrowsingStore* store) {
   EXPECT_TRUE(store->FinishChunk());
 
   std::vector<SBAddFullHash> pending_adds;
+  std::set<SBPrefix> prefix_misses;
   std::vector<SBAddPrefix> add_prefixes;
   std::vector<SBAddFullHash> add_hashes;
-  EXPECT_TRUE(store->FinishUpdate(pending_adds, &add_prefixes, &add_hashes));
+  EXPECT_TRUE(store->FinishUpdate(pending_adds, prefix_misses,
+                                  &add_prefixes, &add_hashes));
   EXPECT_EQ(3U, add_prefixes.size());
+  EXPECT_EQ(1U, add_hashes.size());
+
+  // Make sure add prefixes are correct.
+  std::vector<SBAddPrefix> in_store_add_prefixes;
+  EXPECT_TRUE(store->GetAddPrefixes(&in_store_add_prefixes));
+  ASSERT_EQ(3U, in_store_add_prefixes.size());
+  EXPECT_EQ(kPrefix1, in_store_add_prefixes[0].prefix);
+  EXPECT_EQ(kAddChunk1, in_store_add_prefixes[0].chunk_id);
+  EXPECT_EQ(kPrefix2, in_store_add_prefixes[1].prefix);
+  EXPECT_EQ(kAddChunk1, in_store_add_prefixes[1].chunk_id);
+  EXPECT_EQ(kPrefix3, in_store_add_prefixes[2].prefix);
+  EXPECT_EQ(kAddChunk2, in_store_add_prefixes[2].chunk_id);
 }
 
 // Verify that the store looks like what results from LoadStore(), and
@@ -221,10 +236,13 @@ void UpdateStore(SafeBrowsingStore* store) {
   store->DeleteAddChunk(kAddChunk2);
 
   std::vector<SBAddFullHash> pending_adds;
+  std::set<SBPrefix> prefix_misses;
   std::vector<SBAddPrefix> add_prefixes;
   std::vector<SBAddFullHash> add_hashes;
-  EXPECT_TRUE(store->FinishUpdate(pending_adds, &add_prefixes, &add_hashes));
+  EXPECT_TRUE(store->FinishUpdate(pending_adds, prefix_misses,
+                                  &add_prefixes, &add_hashes));
   EXPECT_EQ(2U, add_prefixes.size());
+  EXPECT_EQ(0U, add_hashes.size());
 }
 
 // Verify that the expected UpdateStore() data is present.
@@ -245,6 +263,15 @@ void CheckStore(SafeBrowsingStore* store) {
   EXPECT_EQ(kSubChunk2, sub_chunks[1]);
 
   EXPECT_TRUE(store->CancelUpdate());
+
+  // Make sure add prefixes are correct.
+  std::vector<SBAddPrefix> add_prefixes;
+  EXPECT_TRUE(store->GetAddPrefixes(&add_prefixes));
+  ASSERT_EQ(2U, add_prefixes.size());
+  EXPECT_EQ(kPrefix2, add_prefixes[0].prefix);
+  EXPECT_EQ(kAddChunk1, add_prefixes[0].chunk_id);
+  EXPECT_EQ(kPrefix5, add_prefixes[1].prefix);
+  EXPECT_EQ(kAddChunk3, add_prefixes[1].chunk_id);
 }
 
 // Verify that the migration sequence works as expected in the

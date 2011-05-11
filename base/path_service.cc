@@ -13,9 +13,9 @@
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/hash_tables.h"
+#include "base/lazy_instance.h"
 #include "base/lock.h"
 #include "base/logging.h"
-#include "base/singleton.h"
 
 namespace base {
   bool PathProvider(int key, FilePath* result);
@@ -118,8 +118,10 @@ struct PathData {
   }
 };
 
+static base::LazyInstance<PathData> g_path_data(base::LINKER_INITIALIZED);
+
 static PathData* GetPathData() {
-  return Singleton<PathData>::get();
+  return g_path_data.Pointer();
 }
 
 }  // namespace
@@ -202,18 +204,6 @@ bool PathService::Get(int key, FilePath* result) {
   *result = path;
   return true;
 }
-
-#if defined(OS_WIN)
-// static
-bool PathService::Get(int key, std::wstring* result) {
-  // Deprecated compatibility function.
-  FilePath path;
-  if (!Get(key, &path))
-    return false;
-  *result = path.ToWStringHack();
-  return true;
-}
-#endif
 
 bool PathService::Override(int key, const FilePath& path) {
   PathData* path_data = GetPathData();

@@ -35,12 +35,18 @@ class OwnershipService;
 class SignedSettings : public base::RefCountedThreadSafe<SignedSettings>,
                        public OwnerManager::Delegate {
  public:
+  enum ReturnCode {
+    SUCCESS,
+    NOT_FOUND,        // Email address or property name not found.
+    KEY_UNAVAILABLE,  // Owner key not yet configured.
+    OPERATION_FAILED  // Signature op or IPC to signed settings daemon failed.
+  };
+
   template <class T>
   class Delegate {
    public:
-    // These methods will be called on the UI thread.
-    virtual void OnSettingsOpSucceeded(T value) {}
-    virtual void OnSettingsOpFailed() {}
+    // This method will be called on the UI thread.
+    virtual void OnSettingsOpCompleted(ReturnCode code, T value) {}
   };
 
   SignedSettings();
@@ -67,7 +73,9 @@ class SignedSettings : public base::RefCountedThreadSafe<SignedSettings>,
       const std::string& name,
       SignedSettings::Delegate<std::string>* d);
 
-  virtual bool Execute() = 0;
+  static ReturnCode MapKeyOpCode(OwnerManager::KeyOpCode code);
+
+  virtual void Execute() = 0;
 
   // Implementation of OwnerManager::Delegate::OnKeyOpComplete()
   void OnKeyOpComplete(const OwnerManager::KeyOpCode return_code,

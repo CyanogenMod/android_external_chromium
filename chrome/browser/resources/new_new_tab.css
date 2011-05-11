@@ -16,7 +16,7 @@ html[mode=app-launcher] {
 }
 
 #main {
-  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
   -webkit-transition: width .15s;
   margin: 0 auto;
   min-height: 100%;
@@ -155,7 +155,7 @@ html[anim=false] *,
   background-color: hsla(213, 63%, 93%, 0);
   display: block;
   line-height: 20px;
-  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -322,6 +322,10 @@ html[hasattribution=false] #attribution > div {
   font-size: 92%;
 }
 
+body.noscroll {
+  overflow: hidden;
+}
+
 html[anim=true][enable-section-animations=true] .section {
   -webkit-transition: top .15s;
 }
@@ -458,6 +462,10 @@ html[dir=rtl] .section-close-button {
   padding: 5px 0 30px;
   position: absolute;
   -webkit-mask-attachment: fixed;
+  opacity: 0;
+}
+
+.maxiview.opaque {
   opacity: 1;
 }
 
@@ -467,9 +475,14 @@ html[dir=rtl] .section-close-button {
 
 .maxiview.hidden {
   display: none;
+  opacity: 0;
 }
 
-html[anim=true] .maxiview {
+html[anim=true][enable-section-animations=true] .maxiview {
+  -webkit-transition: opacity .10s, top .15s;
+}
+
+html[anim=true][enable-section-animations=true] .miniview {
   -webkit-transition: opacity .15s;
 }
 
@@ -484,9 +497,17 @@ html[anim=true] .maxiview {
   display: none;
 }
 
-.section.hidden > h2,
+.section.hidden > h2 {
+  display: block;
+}
+
 .section.hidden > .miniview {
   display: block;
+  opacity: 0;
+}
+
+.section.hidden > .miniview.opaque {
+  opacity: 1;
 }
 
 .section.hidden > h2 {

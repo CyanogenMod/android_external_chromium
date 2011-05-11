@@ -11,6 +11,7 @@
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_list.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/dom_ui/dom_ui_util.h"
 #if defined(TOOLKIT_GTK)
@@ -22,7 +23,7 @@
 #include "chrome/browser/printing/cloud_print/cloud_print_setup_message_handler.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_setup_source.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_url.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/service/service_process_control.h"
 #include "chrome/browser/service/service_process_control_manager.h"
@@ -101,7 +102,7 @@ CloudPrintSetupFlow::CloudPrintSetupFlow(const std::string& args,
   profile_ = profile;
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(Singleton<ChromeURLDataManager>::get(),
+      NewRunnableMethod(ChromeURLDataManager::GetInstance(),
                         &ChromeURLDataManager::AddDataSource,
                         make_scoped_refptr(new CloudPrintSetupSource())));
 }
@@ -164,17 +165,21 @@ std::string CloudPrintSetupFlow::GetDialogArgs() const {
     return dialog_start_args_;
 }
 
-void  CloudPrintSetupFlow::OnCloseContents(TabContents* source,
-                                         bool* out_close_dialog) {
+void CloudPrintSetupFlow::OnCloseContents(TabContents* source,
+                                          bool* out_close_dialog) {
 }
 
-std::wstring  CloudPrintSetupFlow::GetDialogTitle() const {
+std::wstring CloudPrintSetupFlow::GetDialogTitle() const {
   return l10n_util::GetString(IDS_CLOUD_PRINT_SETUP_DIALOG_TITLE);
 }
 
-bool  CloudPrintSetupFlow::IsDialogModal() const {
+bool CloudPrintSetupFlow::IsDialogModal() const {
   // We are always modeless.
   return false;
+}
+
+bool CloudPrintSetupFlow::ShouldShowDialogTitle() const {
+  return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

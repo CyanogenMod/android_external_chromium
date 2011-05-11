@@ -18,7 +18,9 @@
 //    to run.
 
 #include <time.h>
+
 #include <algorithm>
+#include <string>
 
 #include "app/sql/connection.h"
 #include "app/sql/statement.h"
@@ -34,7 +36,6 @@
 #include "base/string_util.h"
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/history/download_create_info.h"
 #include "chrome/browser/history/history.h"
@@ -47,7 +48,8 @@
 #include "chrome/browser/history/top_sites.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/notification_details.h"
+#include "chrome/common/notification_source.h"
 #include "chrome/common/thumbnail_score.h"
 #include "chrome/tools/profiles/thumbnail-inl.h"
 #include "gfx/codec/jpeg_codec.h"
@@ -198,7 +200,7 @@ class HistoryTest : public testing::Test {
 
   int64 AddDownload(int32 state, const Time& time) {
     DownloadCreateInfo download(FilePath(FILE_PATH_LITERAL("foo-path")),
-                                GURL("foo-url"), time, 0, 512, state, 0);
+                                GURL("foo-url"), time, 0, 512, state, 0, false);
     return db_->CreateDownload(download);
   }
 

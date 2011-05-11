@@ -14,7 +14,7 @@
 #include "chrome/browser/extensions/extension_cookies_api_constants.h"
 #include "chrome/browser/extensions/extension_cookies_helpers.h"
 #include "chrome/browser/extensions/extension_event_router.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_error_utils.h"
 #include "chrome/common/net/url_request_context_getter.h"
@@ -191,7 +191,7 @@ void GetCookieFunction::GetCookieOnIOThread() {
 void GetCookieFunction::RespondOnUIThread() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
-  net::CookieMonster::CookieList::iterator it;
+  net::CookieList::iterator it;
   for (it = cookie_list_.begin(); it != cookie_list_.end(); ++it) {
     // Return the first matching cookie. Relies on the fact that the
     // CookieMonster returns them in canonical order (longest path, then
@@ -425,7 +425,7 @@ bool GetAllCookieStoresFunction::RunImpl() {
   scoped_ptr<ListValue> original_tab_ids(new ListValue());
   Profile* incognito_profile = NULL;
   scoped_ptr<ListValue> incognito_tab_ids;
-  if (include_incognito()) {
+  if (include_incognito() && profile()->HasOffTheRecordProfile()) {
     incognito_profile = profile()->GetOffTheRecordProfile();
     if (incognito_profile)
       incognito_tab_ids.reset(new ListValue());

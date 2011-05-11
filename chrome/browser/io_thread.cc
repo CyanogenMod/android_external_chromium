@@ -15,7 +15,6 @@
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/thread_restrictions.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/gpu_process_host.h"
 #include "chrome/browser/net/chrome_net_log.h"
@@ -23,12 +22,13 @@
 #include "chrome/browser/net/connect_interceptor.h"
 #include "chrome/browser/net/passive_log_collector.h"
 #include "chrome/browser/net/predictor_api.h"
-#include "chrome/browser/net/prerender_interceptor.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prerender/prerender_interceptor.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/net/raw_host_resolver_proc.h"
 #include "chrome/common/net/url_fetcher.h"
 #include "chrome/common/pref_names.h"
+#include "net/base/cert_verifier.h"
 #include "net/base/dnsrr_resolver.h"
 #include "net/base/host_cache.h"
 #include "net/base/host_resolver.h"
@@ -37,10 +37,13 @@
 #include "net/base/net_util.h"
 #include "net/http/http_auth_filter.h"
 #include "net/http/http_auth_handler_factory.h"
+#include "net/http/http_network_layer.h"
 #if defined(USE_NSS)
 #include "net/ocsp/nss_ocsp.h"
 #endif  // defined(USE_NSS)
 #include "net/proxy/proxy_script_fetcher_impl.h"
+#include "net/socket/client_socket_factory.h"
+#include "net/spdy/spdy_session_pool.h"
 
 namespace {
 
@@ -174,35 +177,25 @@ class LoggingNetworkChangeObserver
   DISALLOW_COPY_AND_ASSIGN(LoggingNetworkChangeObserver);
 };
 
+scoped_refptr<URLRequestContext>
+ConstructProxyScriptFetcherContext(IOThread::Globals* globals,
+                                   net::NetLog* net_log) {
+  scoped_refptr<URLRequestContext> context(new URLRequestContext);
+  context->set_net_log(net_log);
+  context->set_host_resolver(globals->host_resolver.get());
+  context->set_cert_verifier(globals->cert_verifier.get());
+  context->set_dnsrr_resolver(globals->dnsrr_resolver.get());
+  context->set_http_auth_handler_factory(
+      globals->http_auth_handler_factory.get());
+  context->set_proxy_service(globals->proxy_script_fetcher_proxy_service.get());
+  context->set_http_transaction_factory(
+      globals->proxy_script_fetcher_http_transaction_factory.get());
+  // In-memory cookie store.
+  context->set_cookie_store(new net::CookieMonster(NULL, NULL));
+  return context;
+}
+
 }  // namespace
-
-// This is a wrapper class around ProxyScriptFetcherImpl that will
-// keep track of live instances.
-class IOThread::ManagedProxyScriptFetcher
-    : public net::ProxyScriptFetcherImpl {
- public:
-  ManagedProxyScriptFetcher(URLRequestContext* context,
-                            IOThread* io_thread)
-      : net::ProxyScriptFetcherImpl(context),
-        io_thread_(io_thread) {
-    DCHECK(!ContainsKey(*fetchers(), this));
-    fetchers()->insert(this);
-  }
-
-  virtual ~ManagedProxyScriptFetcher() {
-    DCHECK(ContainsKey(*fetchers(), this));
-    fetchers()->erase(this);
-  }
-
- private:
-  ProxyScriptFetchers* fetchers() {
-    return &io_thread_->fetchers_;
-  }
-
-  IOThread* io_thread_;
-
-  DISALLOW_COPY_AND_ASSIGN(ManagedProxyScriptFetcher);
-};
 
 // The IOThread object must outlive any tasks posted to the IO thread before the
 // Quit task.
@@ -214,8 +207,9 @@ IOThread::Globals::~Globals() {}
 
 // |local_state| is passed in explicitly in order to (1) reduce implicit
 // dependencies and (2) make IOThread more flexible for testing.
-IOThread::IOThread(PrefService* local_state)
+IOThread::IOThread(PrefService* local_state, ChromeNetLog* net_log)
     : BrowserProcessSubThread(BrowserThread::IO),
+      net_log_(net_log),
       globals_(NULL),
       speculative_interceptor_(NULL),
       predictor_(NULL) {
@@ -243,6 +237,10 @@ IOThread::~IOThread() {
 IOThread::Globals* IOThread::globals() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   return globals_;
+}
+
+ChromeNetLog* IOThread::net_log() {
+  return net_log_;
 }
 
 void IOThread::InitNetworkPredictor(
@@ -296,11 +294,6 @@ void IOThread::ChangedToOnTheRecord() {
           &IOThread::ChangedToOnTheRecordOnIOThread));
 }
 
-net::ProxyScriptFetcher* IOThread::CreateAndRegisterProxyScriptFetcher(
-    URLRequestContext* url_request_context) {
-  return new ManagedProxyScriptFetcher(url_request_context, this);
-}
-
 void IOThread::Init() {
 #if !defined(OS_CHROMEOS)
   // TODO(evan): test and enable this on all platforms.
@@ -320,30 +313,54 @@ void IOThread::Init() {
   DCHECK(!globals_);
   globals_ = new Globals;
 
-  globals_->net_log.reset(new ChromeNetLog());
-
   // Add an observer that will emit network change events to the ChromeNetLog.
   // Assuming NetworkChangeNotifier dispatches in FIFO order, we should be
   // logging the network change before other IO thread consumers respond to it.
   network_change_observer_.reset(
-      new LoggingNetworkChangeObserver(globals_->net_log.get()));
+      new LoggingNetworkChangeObserver(net_log_));
 
+  globals_->client_socket_factory =
+      net::ClientSocketFactory::GetDefaultFactory();
   globals_->host_resolver.reset(
-      CreateGlobalHostResolver(globals_->net_log.get()));
+      CreateGlobalHostResolver(net_log_));
+  globals_->cert_verifier.reset(new net::CertVerifier);
   globals_->dnsrr_resolver.reset(new net::DnsRRResolver);
+  // TODO(willchan): Use the real SSLConfigService.
+  globals_->ssl_config_service =
+      net::SSLConfigService::CreateSystemSSLConfigService();
   globals_->http_auth_handler_factory.reset(CreateDefaultAuthHandlerFactory(
       globals_->host_resolver.get()));
+  // For the ProxyScriptFetcher, we use a direct ProxyService.
+  globals_->proxy_script_fetcher_proxy_service =
+      net::ProxyService::CreateDirectWithNetLog(net_log_);
+  globals_->proxy_script_fetcher_http_transaction_factory.reset(
+      new net::HttpNetworkLayer(
+          globals_->client_socket_factory,
+          globals_->host_resolver.get(),
+          globals_->cert_verifier.get(),
+          globals_->dnsrr_resolver.get(),
+          NULL /* dns_cert_checker */,
+          NULL /* ssl_host_info_factory */,
+          globals_->proxy_script_fetcher_proxy_service.get(),
+          globals_->ssl_config_service.get(),
+          new net::SpdySessionPool(globals_->ssl_config_service.get()),
+          globals_->http_auth_handler_factory.get(),
+          &globals_->network_delegate,
+          net_log_));
+
+  scoped_refptr<URLRequestContext> proxy_script_fetcher_context =
+      ConstructProxyScriptFetcherContext(globals_, net_log_);
+  globals_->proxy_script_fetcher_context = proxy_script_fetcher_context;
 
   if (CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnablePagePrerender)) {
-    prerender_interceptor_.reset(
-        new chrome_browser_net::PrerenderInterceptor());
+    prerender_interceptor_.reset(new PrerenderInterceptor());
   }
 }
 
 void IOThread::CleanUp() {
   // Step 1: Kill all things that might be holding onto
-  // URLRequest/URLRequestContexts.
+  // net::URLRequest/URLRequestContexts.
 
 #if defined(USE_NSS)
   net::ShutdownOCSP();
@@ -351,23 +368,6 @@ void IOThread::CleanUp() {
 
   // Destroy all URLRequests started by URLFetchers.
   URLFetcher::CancelAll();
-
-  // Break any cycles between the ProxyScriptFetcher and URLRequestContext.
-  for (ProxyScriptFetchers::const_iterator it = fetchers_.begin();
-       it != fetchers_.end();) {
-    ManagedProxyScriptFetcher* fetcher = *it;
-    {
-      // Hang on to the context while cancelling to avoid problems
-      // with the cancellation causing the context to be destroyed
-      // (see http://crbug.com/63796 ).  Ideally, the IOThread would
-      // own the URLRequestContexts.
-      scoped_refptr<URLRequestContext> context(fetcher->GetRequestContext());
-      fetcher->Cancel();
-    }
-    // Any number of fetchers may have been deleted at this point, so
-    // use upper_bound instead of a simple increment.
-    it = fetchers_.upper_bound(fetcher);
-  }
 
   // If any child processes are still running, terminate them and
   // and delete the BrowserChildProcessHost instances to release whatever
@@ -416,10 +416,6 @@ void IOThread::CleanUp() {
     globals_->host_resolver.get()->GetAsHostResolverImpl()->Shutdown();
   }
 
-  // We will delete the NetLog as part of CleanUpAfterMessageLoopDestruction()
-  // in case any of the message loop destruction observers try to access it.
-  deferred_net_log_to_delete_.reset(globals_->net_log.release());
-
   delete globals_;
   globals_ = NULL;
 
@@ -427,22 +423,16 @@ void IOThread::CleanUp() {
 }
 
 void IOThread::CleanUpAfterMessageLoopDestruction() {
-  // TODO(eroman): get rid of this special case for 39723. If we could instead
-  // have a method that runs after the message loop destruction observers have
-  // run, but before the message loop itself is destroyed, we could safely
-  // combine the two cleanups.
-  deferred_net_log_to_delete_.reset();
-
   // This will delete the |notification_service_|.  Make sure it's done after
   // anything else can reference it.
   BrowserProcessSubThread::CleanUpAfterMessageLoopDestruction();
 
-  // URLRequest instances must NOT outlive the IO thread.
+  // net::URLRequest instances must NOT outlive the IO thread.
   //
   // To allow for URLRequests to be deleted from
   // MessageLoop::DestructionObserver this check has to happen after CleanUp
   // (which runs before DestructionObservers).
-  base::debug::LeakTracker<URLRequest>::CheckForLeaks();
+  base::debug::LeakTracker<net::URLRequest>::CheckForLeaks();
 }
 
 // static
@@ -529,5 +519,5 @@ void IOThread::ChangedToOnTheRecordOnIOThread() {
   // Clear all of the passively logged data.
   // TODO(eroman): this is a bit heavy handed, really all we need to do is
   //               clear the data pertaining to off the record context.
-  globals_->net_log->passive_collector()->Clear();
+  net_log_->ClearAllPassivelyCapturedEvents();
 }

@@ -11,6 +11,9 @@
 #include "chrome/browser/background_page_tracker.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
 #include "chrome/browser/browser_shutdown.h"
+#include "chrome/browser/content_settings/host_content_settings_map.h"
+#include "chrome/browser/content_settings/policy_content_settings_provider.h"
+#include "chrome/browser/content_settings/pref_content_settings_provider.h"
 #include "chrome/browser/debugger/devtools_manager.h"
 #include "chrome/browser/dom_ui/flags_ui.h"
 #include "chrome/browser/dom_ui/new_tab_ui.h"
@@ -23,7 +26,6 @@
 #include "chrome/browser/geolocation/geolocation_content_settings_map.h"
 #include "chrome/browser/geolocation/geolocation_prefs.h"
 #include "chrome/browser/google/google_url_tracker.h"
-#include "chrome/browser/host_content_settings_map.h"
 #include "chrome/browser/host_zoom_map.h"
 #include "chrome/browser/intranet_redirect_detector.h"
 #include "chrome/browser/instant/instant_controller.h"
@@ -36,7 +38,7 @@
 #include "chrome/browser/page_info_model.h"
 #include "chrome/browser/password_manager/password_manager.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
-#include "chrome/browser/profile_impl.h"
+#include "chrome/browser/profiles/profile_impl.h"
 #include "chrome/browser/renderer_host/browser_render_process_host.h"
 #include "chrome/browser/renderer_host/web_cache_manager.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
@@ -90,7 +92,6 @@ void RegisterLocalState(PrefService* local_state) {
   MetricsService::RegisterPrefs(local_state);
   SafeBrowsingService::RegisterPrefs(local_state);
   browser_shutdown::RegisterPrefs(local_state);
-  chrome_browser_net::RegisterPrefs(local_state);
 #if defined(TOOLKIT_VIEWS)
   BrowserView::RegisterBrowserViewPrefs(local_state);
 #endif
@@ -112,7 +113,6 @@ void RegisterLocalState(PrefService* local_state) {
 void RegisterUserPrefs(PrefService* user_prefs) {
   // User prefs
   AutoFillManager::RegisterUserPrefs(user_prefs);
-  BackgroundModeManager::RegisterUserPrefs(user_prefs);
   SessionStartupPref::RegisterUserPrefs(user_prefs);
   Browser::RegisterUserPrefs(user_prefs);
   PasswordManager::RegisterUserPrefs(user_prefs);
@@ -128,6 +128,8 @@ void RegisterUserPrefs(PrefService* user_prefs) {
   PluginsUI::RegisterUserPrefs(user_prefs);
   ProfileImpl::RegisterUserPrefs(user_prefs);
   HostContentSettingsMap::RegisterUserPrefs(user_prefs);
+  PolicyContentSettingsProvider::RegisterUserPrefs(user_prefs);
+  PrefContentSettingsProvider::RegisterUserPrefs(user_prefs);
   HostZoomMap::RegisterUserPrefs(user_prefs);
   DevToolsManager::RegisterUserPrefs(user_prefs);
   PinnedTabCodec::RegisterUserPrefs(user_prefs);

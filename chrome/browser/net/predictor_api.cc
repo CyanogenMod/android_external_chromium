@@ -8,7 +8,7 @@
 #include <string>
 
 #include "base/metrics/field_trial.h"
-#include "base/singleton.h"
+#include "base/lazy_instance.h"
 #include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
 #include "base/thread.h"
@@ -22,7 +22,7 @@
 #include "chrome/browser/net/url_info.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_service.h"
@@ -133,12 +133,9 @@ void OnTheRecord(bool enable) {
     g_browser_process->io_thread()->ChangedToOnTheRecord();
 }
 
-void RegisterPrefs(PrefService* local_state) {
-  local_state->RegisterListPref(prefs::kDnsStartupPrefetchList);
-  local_state->RegisterListPref(prefs::kDnsHostReferralList);
-}
-
 void RegisterUserPrefs(PrefService* user_prefs) {
+  user_prefs->RegisterListPref(prefs::kDnsPrefetchingStartupList);
+  user_prefs->RegisterListPref(prefs::kDnsPrefetchingHostReferralList);
   user_prefs->RegisterBooleanPref(prefs::kDnsPrefetchingEnabled, true);
 }
 
@@ -330,7 +327,8 @@ class OffTheRecordObserver : public NotificationObserver {
   }
 
  private:
-  friend struct DefaultSingletonTraits<OffTheRecordObserver>;
+  friend struct base::DefaultLazyInstanceTraits<OffTheRecordObserver>;
+
   OffTheRecordObserver() : count_off_the_record_windows_(0) {}
   ~OffTheRecordObserver() {}
 
@@ -339,6 +337,9 @@ class OffTheRecordObserver : public NotificationObserver {
 
   DISALLOW_COPY_AND_ASSIGN(OffTheRecordObserver);
 };
+
+static base::LazyInstance<OffTheRecordObserver> g_off_the_record_observer(
+    base::LINKER_INITIALIZED);
 
 //------------------------------------------------------------------------------
 // This section supports the about:dns page.
@@ -389,8 +390,21 @@ static void InitNetworkPredictor(TimeDelta max_dns_queue_delay,
       GetPredictedUrlListAtStartup(user_prefs, local_state);
 
   ListValue* referral_list =
-      static_cast<ListValue*>(
-          local_state->GetMutableList(prefs::kDnsHostReferralList)->DeepCopy());
+      static_cast<ListValue*>(user_prefs->GetMutableList(
+          prefs::kDnsPrefetchingHostReferralList)->DeepCopy());
+
+  // Remove obsolete preferences from local state if necessary.
+  int dns_prefs_version =
+      user_prefs->GetInteger(prefs::kMultipleProfilePrefMigration);
+  if (dns_prefs_version < 1) {
+    // These prefs only need to be registered if they need to be cleared from
+    // local state.
+    local_state->RegisterListPref(prefs::kDnsStartupPrefetchList);
+    local_state->RegisterListPref(prefs::kDnsHostReferralList);
+    local_state->ClearPref(prefs::kDnsStartupPrefetchList);
+    local_state->ClearPref(prefs::kDnsHostReferralList);
+    user_prefs->SetInteger(prefs::kMultipleProfilePrefMigration, 1);
+  }
 
   g_browser_process->io_thread()->InitNetworkPredictor(
       prefetching_enabled, max_dns_queue_delay, max_parallel_resolves, urls,
@@ -458,9 +472,9 @@ void SavePredictorStateForNextStartupAndTrim(PrefService* prefs) {
       BrowserThread::IO,
       FROM_HERE,
       NewRunnableFunction(SaveDnsPrefetchStateForNextStartupAndTrimOnIOThread,
-                          prefs->GetMutableList(prefs::kDnsStartupPrefetchList),
-                          prefs->GetMutableList(prefs::kDnsHostReferralList),
-                          &completion));
+          prefs->GetMutableList(prefs::kDnsPrefetchingStartupList),
+          prefs->GetMutableList(prefs::kDnsPrefetchingHostReferralList),
+          &completion));
 
   DCHECK(posted);
   if (posted)
@@ -476,7 +490,8 @@ static UrlList GetPredictedUrlListAtStartup(PrefService* user_prefs,
   // also catch more of the "primary" home pages, since that was (presumably)
   // rendered first (and will be rendered first this time too).
   ListValue* startup_list =
-      local_state->GetMutableList(prefs::kDnsStartupPrefetchList);
+      user_prefs->GetMutableList(prefs::kDnsPrefetchingStartupList);
+
   if (startup_list) {
     ListValue::iterator it = startup_list->begin();
     int format_version = -1;
@@ -576,7 +591,7 @@ PredictorInit::PredictorInit(PrefService* user_prefs,
 
   // We will register the incognito observer regardless of whether prefetching
   // is enabled, as it is also used to clear the host cache.
-  Singleton<OffTheRecordObserver>::get()->Register();
+  g_off_the_record_observer.Get().Register();
 
   if (trial_->group() != disabled_prefetch) {
     // Initialize the DNS prefetch system.

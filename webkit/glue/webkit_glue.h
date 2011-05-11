@@ -23,7 +23,6 @@
 
 class GURL;
 class SkBitmap;
-struct WebPluginInfo;
 
 namespace base {
 class StringPiece;
@@ -39,6 +38,12 @@ class WebString;
 class WebView;
 }
 
+namespace webkit {
+namespace npapi {
+struct WebPluginInfo;
+}
+}
+
 namespace webkit_glue {
 
 
@@ -50,21 +55,21 @@ void SetJavaScriptFlags(const std::string& flags);
 void EnableWebCoreNotImplementedLogging();
 
 // Returns the text of the document element.
-std::wstring DumpDocumentText(WebKit::WebFrame* web_frame);
+string16 DumpDocumentText(WebKit::WebFrame* web_frame);
 
 // Returns the text of the document element and optionally its child frames.
 // If recursive is false, this is equivalent to DumpDocumentText followed by
 // a newline.  If recursive is true, it recursively dumps all frames as text.
-std::wstring DumpFramesAsText(WebKit::WebFrame* web_frame, bool recursive);
+string16 DumpFramesAsText(WebKit::WebFrame* web_frame, bool recursive);
 
 // Returns the renderer's description of its tree (its externalRepresentation).
-std::wstring DumpRenderer(WebKit::WebFrame* web_frame);
+string16 DumpRenderer(WebKit::WebFrame* web_frame);
 
 // Fill the value of counter in the element specified by the id into
 // counter_value.  Return false when the specified id doesn't exist.
 bool CounterValueForElementById(WebKit::WebFrame* web_frame,
                                 const std::string& id,
-                                std::wstring* counter_value);
+                                string16* counter_value);
 
 // Returns the number of page where the specified element will be put.
 int PageNumberForElementById(WebKit::WebFrame* web_frame,
@@ -78,13 +83,12 @@ int NumberOfPages(WebKit::WebFrame* web_frame,
                   float page_height_in_pixels);
 
 // Returns a dump of the scroll position of the webframe.
-std::wstring DumpFrameScrollPosition(WebKit::WebFrame* web_frame,
-                                     bool recursive);
+string16 DumpFrameScrollPosition(WebKit::WebFrame* web_frame, bool recursive);
 
 // Returns a dump of the given history state suitable for implementing the
 // dumpBackForwardList command of the layoutTestController.
-std::wstring DumpHistoryState(const std::string& history_state, int indent,
-                              bool is_current);
+string16 DumpHistoryState(const std::string& history_state, int indent,
+                          bool is_current);
 
 // Cleans up state left over from the previous test run.
 void ResetBeforeTestRun(WebKit::WebView* view);
@@ -109,6 +113,10 @@ std::string CreateHistoryStateForURL(const GURL& url);
 
 // Removes any form data state from the history state string |content_state|.
 std::string RemoveFormDataFromHistoryState(const std::string& content_state);
+
+// Removes scroll offset from the history state string |content_state|.
+std::string RemoveScrollOffsetFromHistoryState(
+    const std::string& content_state);
 
 #ifndef NDEBUG
 // Checks various important objects to see if there are any in memory, and
@@ -222,7 +230,8 @@ bool GetApplicationDirectory(FilePath* path);
 bool GetExeDirectory(FilePath* path);
 
 // Embedders implement this function to return the list of plugins to Webkit.
-void GetPlugins(bool refresh, std::vector<WebPluginInfo>* plugins);
+void GetPlugins(bool refresh,
+                std::vector<webkit::npapi::WebPluginInfo>* plugins);
 
 // Returns true if the plugins run in the same process as the renderer, and
 // false otherwise.
@@ -271,6 +280,12 @@ void EnableSpdy(bool enable);
 
 // Notifies the browser that the given action has been performed.
 void UserMetricsRecordAction(const std::string& action);
+
+#if !defined(DISABLE_NACL)
+// Launch NaCl's sel_ldr process.
+bool LaunchSelLdr(const char* alleged_url, int socket_count, void* imc_handles,
+                  void* nacl_process_handle, int* nacl_process_id);
+#endif
 
 #if defined(OS_LINUX)
 // Return a read-only file descriptor to the font which best matches the given

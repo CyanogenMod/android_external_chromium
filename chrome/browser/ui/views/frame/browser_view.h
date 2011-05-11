@@ -275,6 +275,7 @@ class BrowserView : public BrowserBubbleHost,
   virtual void DestroyBrowser();
   virtual bool IsBookmarkBarVisible() const;
   virtual bool IsBookmarkBarAnimating() const;
+  virtual bool IsTabStripEditable() const;
   virtual bool IsToolbarVisible() const;
   virtual void DisableInactiveFrame();
   virtual void ConfirmSetDefaultSearchProvider(
@@ -327,6 +328,9 @@ class BrowserView : public BrowserBubbleHost,
   virtual void ShowInstant(TabContents* preview_contents);
   virtual void HideInstant(bool instant_is_active);
   virtual gfx::Rect GetInstantBounds();
+#if defined(OS_CHROMEOS)
+  virtual void ShowKeyboardOverlay(gfx::NativeWindow owning_window);
+#endif
 
   // Overridden from BrowserWindowTesting:
   virtual BookmarkBarView* GetBookmarkBarView() const;
@@ -357,7 +361,7 @@ class BrowserView : public BrowserBubbleHost,
   virtual bool IsCommandIdEnabled(int command_id) const;
   virtual bool GetAcceleratorForCommandId(int command_id,
                                           menus::Accelerator* accelerator);
-  virtual bool IsLabelForCommandIdDynamic(int command_id) const;
+  virtual bool IsItemForCommandIdDynamic(int command_id) const;
   virtual string16 GetLabelForCommandId(int command_id) const;
   virtual void ExecuteCommand(int command_id);
 

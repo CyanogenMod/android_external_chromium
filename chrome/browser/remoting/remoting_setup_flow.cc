@@ -10,11 +10,12 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/dom_ui/dom_ui_util.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/remoting/remoting_resources_source.h"
 #include "chrome/browser/remoting/remoting_setup_message_handler.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
@@ -101,7 +102,7 @@ RemotingSetupFlow::RemotingSetupFlow(const std::string& args, Profile* profile)
   // TODO(hclam): The data source should be added once.
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(Singleton<ChromeURLDataManager>::get(),
+      NewRunnableMethod(ChromeURLDataManager::GetInstance(),
                         &ChromeURLDataManager::AddDataSource,
                         make_scoped_refptr(new RemotingResourcesSource())));
 }
@@ -208,7 +209,7 @@ void RemotingSetupFlow::OnIssueAuthTokenSuccess(const std::string& service,
   // If we have already connected to the service process then submit the tokens
   // to it to register the host.
   process_control_ =
-      ServiceProcessControlManager::instance()->GetProcessControl(profile_);
+      ServiceProcessControlManager::GetInstance()->GetProcessControl(profile_);
 
   if (process_control_->is_connected()) {
     // TODO(hclam): Need to figure out what to do when the service process is
@@ -261,8 +262,8 @@ void RemotingSetupFlow::OnUserSubmittedAuth(const std::string& user,
 void RemotingSetupFlow::OnProcessLaunched() {
   DCHECK(process_control_->is_connected());
   // TODO(hclam): Need to wait for an ACK to be sure that it is actually active.
-  process_control_->EnableRemotingWithTokens(login_, remoting_token_,
-                                             sync_token_);
+  process_control_->SetRemotingHostCredentials(login_, sync_token_);
+  process_control_->EnableRemotingHost();
 
   // Save the preference that we have completed the setup of remoting.
   profile_->GetPrefs()->SetBoolean(prefs::kRemotingHasSetupCompleted, true);

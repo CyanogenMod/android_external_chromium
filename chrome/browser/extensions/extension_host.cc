@@ -21,12 +21,11 @@
 #include "chrome/browser/dom_ui/dom_ui_factory.h"
 #include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/file_select_helper.h"
-#include "chrome/browser/message_box_handler.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host.h"
@@ -37,6 +36,7 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/ui/app_modal_dialogs/message_box_handler.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/bindings_policy.h"
 #include "chrome/common/extensions/extension.h"
@@ -66,7 +66,7 @@ bool ExtensionHost::enable_dom_automation_ = false;
 // ExtensionHosts, to avoid blocking the UI.
 class ExtensionHost::ProcessCreationQueue {
  public:
-  static ProcessCreationQueue* get() {
+  static ProcessCreationQueue* GetInstance() {
     return Singleton<ProcessCreationQueue>::get();
   }
 
@@ -155,7 +155,7 @@ ExtensionHost::~ExtensionHost() {
       NotificationType::EXTENSION_HOST_DESTROYED,
       Source<Profile>(profile_),
       Details<ExtensionHost>(this));
-  ProcessCreationQueue::get()->Remove(this);
+  ProcessCreationQueue::GetInstance()->Remove(this);
   render_view_host_->Shutdown();  // deletes render_view_host
 }
 
@@ -175,6 +175,10 @@ void ExtensionHost::CreateView(Browser* browser) {
   // TODO(port)
   NOTREACHED();
 #endif
+}
+
+TabContents* ExtensionHost::associated_tab_contents() const {
+  return associated_tab_contents_;
 }
 
 RenderProcessHost* ExtensionHost::render_process_host() const {
@@ -197,7 +201,7 @@ void ExtensionHost::CreateRenderViewSoon(RenderWidgetHostView* host_view) {
     // to defer.
     CreateRenderViewNow();
   } else {
-    ProcessCreationQueue::get()->CreateSoon(this);
+    ProcessCreationQueue::GetInstance()->CreateSoon(this);
   }
 }
 
@@ -206,7 +210,7 @@ void ExtensionHost::CreateRenderViewNow() {
   NavigateToURL(url_);
   DCHECK(IsRenderViewLive());
   if (is_background_page())
-    profile_->GetExtensionsService()->DidCreateRenderViewForBackgroundPage(
+    profile_->GetExtensionService()->DidCreateRenderViewForBackgroundPage(
         this);
 }
 
@@ -231,7 +235,7 @@ void ExtensionHost::NavigateToURL(const GURL& url) {
   url_ = url;
 
   if (!is_background_page() &&
-      !profile_->GetExtensionsService()->IsBackgroundPageReady(extension_)) {
+      !profile_->GetExtensionService()->IsBackgroundPageReady(extension_)) {
     // Make sure the background page loads before any others.
     registrar_.Add(this, NotificationType::EXTENSION_BACKGROUND_PAGE_READY,
                    Source<Extension>(extension_));
@@ -246,7 +250,7 @@ void ExtensionHost::Observe(NotificationType type,
                             const NotificationDetails& details) {
   switch (type.value) {
     case NotificationType::EXTENSION_BACKGROUND_PAGE_READY:
-      DCHECK(profile_->GetExtensionsService()->
+      DCHECK(profile_->GetExtensionService()->
            IsBackgroundPageReady(extension_));
       NavigateToURL(url_);
       break;
@@ -261,7 +265,7 @@ void ExtensionHost::Observe(NotificationType type,
       // sent. NULL it out so that dirty pointer issues don't arise in cases
       // when multiple ExtensionHost objects pointing to the same Extension are
       // present.
-      if (extension_ == Details<const Extension>(details).ptr())
+      if (extension_ == Details<UnloadedExtensionInfo>(details)->extension)
         extension_ = NULL;
       break;
     default:
@@ -284,7 +288,9 @@ void ExtensionHost::ClearInspectorSettings() {
   RenderViewHostDelegateHelper::ClearInspectorSettings(profile());
 }
 
-void ExtensionHost::RenderViewGone(RenderViewHost* render_view_host) {
+void ExtensionHost::RenderViewGone(RenderViewHost* render_view_host,
+                                   base::TerminationStatus status,
+                                   int error_code) {
   // During browser shutdown, we may use sudden termination on an extension
   // process, so it is expected to lose our connection to the render view.
   // Do nothing.
@@ -391,7 +397,7 @@ void ExtensionHost::DocumentAvailableInMainFrame(RenderViewHost* rvh) {
 
   document_element_available_ = true;
   if (is_background_page()) {
-    profile_->GetExtensionsService()->SetBackgroundPageReady(extension_);
+    profile_->GetExtensionService()->SetBackgroundPageReady(extension_);
   } else {
     switch (extension_host_type_) {
       case ViewType::EXTENSION_INFOBAR:
@@ -444,6 +450,14 @@ gfx::NativeWindow ExtensionHost::GetMessageBoxRootWindow() {
   return NULL;
 }
 
+TabContents* ExtensionHost::AsTabContents() {
+  return NULL;
+}
+
+ExtensionHost* ExtensionHost::AsExtensionHost() {
+  return this;
+}
+
 void ExtensionHost::OnMessageBoxClosed(IPC::Message* reply_msg,
                                        bool success,
                                        const std::wstring& prompt) {
@@ -486,6 +500,14 @@ WebPreferences ExtensionHost::GetWebkitPrefs() {
   if (extension_host_type_ == ViewType::EXTENSION_POPUP ||
       extension_host_type_ == ViewType::EXTENSION_INFOBAR)
     webkit_prefs.allow_scripts_to_close_windows = true;
+
+  // Disable anything that requires the GPU process for background pages.
+  // See http://crbug.com/64512 and http://crbug.com/64841.
+  if (extension_host_type_ == ViewType::EXTENSION_BACKGROUND_PAGE) {
+    webkit_prefs.experimental_webgl_enabled = false;
+    webkit_prefs.accelerated_compositing_enabled = false;
+    webkit_prefs.accelerated_2d_canvas_enabled = false;
+  }
 
   // TODO(dcheng): incorporate this setting into kClipboardPermission check.
   webkit_prefs.javascript_can_access_clipboard = true;
@@ -732,6 +754,10 @@ void ExtensionHost::HandleMouseActivate() {
 
 ViewType::Type ExtensionHost::GetRenderViewType() const {
   return extension_host_type_;
+}
+
+const GURL& ExtensionHost::GetURL() const {
+  return url_;
 }
 
 void ExtensionHost::RenderViewCreated(RenderViewHost* render_view_host) {

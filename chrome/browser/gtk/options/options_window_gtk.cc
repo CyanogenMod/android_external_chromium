@@ -2,17 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/options_window.h"
-
 #include <gtk/gtk.h>
 
 #include "app/l10n_util.h"
 #include "base/message_loop.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/accessibility_events.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/gtk/accessible_widget_helper_gtk.h"
 #include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/gtk/options/advanced_page_gtk.h"
@@ -20,9 +16,11 @@
 #include "chrome/browser/gtk/options/general_page_gtk.h"
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
-#include "chrome/browser/window_sizer.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/options/options_window.h"
+#include "chrome/browser/ui/window_sizer.h"
 #include "chrome/common/pref_names.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"

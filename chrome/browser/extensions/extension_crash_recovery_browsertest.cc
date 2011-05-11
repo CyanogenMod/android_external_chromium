@@ -7,19 +7,21 @@
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_process_manager.h"
-#include "chrome/browser/extensions/extensions_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/common/result_codes.h"
 #include "chrome/test/ui_test_utils.h"
 
 class ExtensionCrashRecoveryTest : public ExtensionBrowserTest {
  protected:
-  ExtensionsService* GetExtensionsService() {
-    return browser()->profile()->GetExtensionsService();
+  ExtensionService* GetExtensionService() {
+    return browser()->profile()->GetExtensionService();
   }
 
   ExtensionProcessManager* GetExtensionProcessManager() {
@@ -50,9 +52,9 @@ class ExtensionCrashRecoveryTest : public ExtensionBrowserTest {
   }
 
   void CrashExtension(size_t index) {
-    ASSERT_LT(index, GetExtensionsService()->extensions()->size());
+    ASSERT_LT(index, GetExtensionService()->extensions()->size());
     const Extension* extension =
-        GetExtensionsService()->extensions()->at(index);
+        GetExtensionService()->extensions()->at(index);
     ASSERT_TRUE(extension);
     std::string extension_id(extension->id());
     ExtensionHost* extension_host =
@@ -61,17 +63,16 @@ class ExtensionCrashRecoveryTest : public ExtensionBrowserTest {
 
     RenderProcessHost* extension_rph =
         extension_host->render_view_host()->process();
-    base::KillProcess(extension_rph->GetHandle(),
-                      base::PROCESS_END_KILLED_BY_USER, false);
+    base::KillProcess(extension_rph->GetHandle(), ResultCodes::KILLED, false);
     ASSERT_TRUE(WaitForExtensionCrash(extension_id));
     ASSERT_FALSE(
         GetExtensionProcessManager()->GetBackgroundHostForExtension(extension));
   }
 
   void CheckExtensionConsistency(size_t index) {
-    ASSERT_LT(index, GetExtensionsService()->extensions()->size());
+    ASSERT_LT(index, GetExtensionService()->extensions()->size());
     const Extension* extension =
-        GetExtensionsService()->extensions()->at(index);
+        GetExtensionService()->extensions()->at(index);
     ASSERT_TRUE(extension);
     ExtensionHost* extension_host =
         GetExtensionProcessManager()->GetBackgroundHostForExtension(extension);
@@ -84,21 +85,21 @@ class ExtensionCrashRecoveryTest : public ExtensionBrowserTest {
 
   void LoadTestExtension() {
     ExtensionBrowserTest::SetUpInProcessBrowserTestFixture();
-    const size_t size_before = GetExtensionsService()->extensions()->size();
+    const size_t size_before = GetExtensionService()->extensions()->size();
     ASSERT_TRUE(LoadExtension(
         test_data_dir_.AppendASCII("common").AppendASCII("background_page")));
-    const Extension* extension = GetExtensionsService()->extensions()->back();
+    const Extension* extension = GetExtensionService()->extensions()->back();
     ASSERT_TRUE(extension);
     first_extension_id_ = extension->id();
     CheckExtensionConsistency(size_before);
   }
 
   void LoadSecondExtension() {
-    int offset = GetExtensionsService()->extensions()->size();
+    int offset = GetExtensionService()->extensions()->size();
     ASSERT_TRUE(LoadExtension(
         test_data_dir_.AppendASCII("install").AppendASCII("install")));
     const Extension* extension =
-        GetExtensionsService()->extensions()->at(offset);
+        GetExtensionService()->extensions()->at(offset);
     ASSERT_TRUE(extension);
     second_extension_id_ = extension->id();
     CheckExtensionConsistency(offset);
@@ -109,10 +110,10 @@ class ExtensionCrashRecoveryTest : public ExtensionBrowserTest {
 };
 
 IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest, Basic) {
-  const size_t size_before = GetExtensionsService()->extensions()->size();
+  const size_t size_before = GetExtensionService()->extensions()->size();
   LoadTestExtension();
   CrashExtension(size_before);
-  ASSERT_EQ(size_before, GetExtensionsService()->extensions()->size());
+  ASSERT_EQ(size_before, GetExtensionService()->extensions()->size());
   AcceptCrashedExtensionInfobar(0);
 
   SCOPED_TRACE("after clicking the infobar");
@@ -120,10 +121,10 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest, Basic) {
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest, CloseAndReload) {
-  const size_t size_before = GetExtensionsService()->extensions()->size();
+  const size_t size_before = GetExtensionService()->extensions()->size();
   LoadTestExtension();
   CrashExtension(size_before);
-  ASSERT_EQ(size_before, GetExtensionsService()->extensions()->size());
+  ASSERT_EQ(size_before, GetExtensionService()->extensions()->size());
   CancelCrashedExtensionInfobar(0);
   ReloadExtension(first_extension_id_);
 
@@ -132,10 +133,10 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest, CloseAndReload) {
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest, ReloadIndependently) {
-  const size_t size_before = GetExtensionsService()->extensions()->size();
+  const size_t size_before = GetExtensionService()->extensions()->size();
   LoadTestExtension();
   CrashExtension(size_before);
-  ASSERT_EQ(size_before, GetExtensionsService()->extensions()->size());
+  ASSERT_EQ(size_before, GetExtensionService()->extensions()->size());
 
   ReloadExtension(first_extension_id_);
 
@@ -150,22 +151,148 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest, ReloadIndependently) {
   ASSERT_EQ(0, current_tab->infobar_delegate_count());
 }
 
+IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest,
+                       ReloadIndependentlyChangeTabs) {
+  const size_t size_before = GetExtensionService()->extensions()->size();
+  LoadTestExtension();
+  CrashExtension(size_before);
+  ASSERT_EQ(size_before, GetExtensionService()->extensions()->size());
+
+  TabContents* original_tab = browser()->GetSelectedTabContents();
+  ASSERT_TRUE(original_tab);
+  ASSERT_EQ(1, original_tab->infobar_delegate_count());
+
+  // Open a new tab so the info bar will not be in the current tab.
+  browser()->NewTab();
+  TabContents* new_current_tab = browser()->GetSelectedTabContents();
+  ASSERT_TRUE(new_current_tab);
+  ASSERT_NE(new_current_tab, original_tab);
+  ASSERT_EQ(0, new_current_tab->infobar_delegate_count());
+
+  ReloadExtension(first_extension_id_);
+
+  SCOPED_TRACE("after reloading");
+  CheckExtensionConsistency(size_before);
+
+  // The infobar should automatically hide after the extension is successfully
+  // reloaded.
+  ASSERT_EQ(0, original_tab->infobar_delegate_count());
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest,
+                       ReloadIndependentlyNavigatePage) {
+  const size_t size_before = GetExtensionService()->extensions()->size();
+  LoadTestExtension();
+  CrashExtension(size_before);
+  ASSERT_EQ(size_before, GetExtensionService()->extensions()->size());
+
+  TabContents* current_tab = browser()->GetSelectedTabContents();
+  ASSERT_TRUE(current_tab);
+  ASSERT_EQ(1, current_tab->infobar_delegate_count());
+
+  // Navigate to another page.
+  ui_test_utils::NavigateToURL(browser(),
+      ui_test_utils::GetTestUrl(FilePath(FilePath::kCurrentDirectory),
+                                FilePath(FILE_PATH_LITERAL("title1.html"))));
+  ASSERT_EQ(1, current_tab->infobar_delegate_count());
+
+  ReloadExtension(first_extension_id_);
+
+  SCOPED_TRACE("after reloading");
+  CheckExtensionConsistency(size_before);
+
+  // The infobar should automatically hide after the extension is successfully
+  // reloaded.
+  ASSERT_EQ(0, current_tab->infobar_delegate_count());
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest,
+                       ReloadIndependentlyTwoInfoBars) {
+  const size_t size_before = GetExtensionService()->extensions()->size();
+  LoadTestExtension();
+
+  // Open a new window so that there will be an info bar in each.
+  Browser* browser2 = CreateBrowser(browser()->profile());
+
+  CrashExtension(size_before);
+  ASSERT_EQ(size_before, GetExtensionService()->extensions()->size());
+
+  TabContents* current_tab = browser()->GetSelectedTabContents();
+  ASSERT_TRUE(current_tab);
+  ASSERT_EQ(1, current_tab->infobar_delegate_count());
+
+  TabContents* current_tab2 = browser2->GetSelectedTabContents();
+  ASSERT_TRUE(current_tab2);
+  ASSERT_EQ(1, current_tab2->infobar_delegate_count());
+
+  ReloadExtension(first_extension_id_);
+
+  SCOPED_TRACE("after reloading");
+  CheckExtensionConsistency(size_before);
+
+  // Both infobars should automatically hide after the extension is successfully
+  // reloaded.
+  ASSERT_EQ(0, current_tab->infobar_delegate_count());
+  ASSERT_EQ(0, current_tab2->infobar_delegate_count());
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest,
+                       ReloadIndependentlyTwoInfoBarsSameBrowser) {
+  const size_t size_before = GetExtensionService()->extensions()->size();
+  LoadTestExtension();
+
+  // Open a new window so that there will be an info bar in each.
+  Browser* browser2 = CreateBrowser(browser()->profile());
+
+  CrashExtension(size_before);
+  ASSERT_EQ(size_before, GetExtensionService()->extensions()->size());
+
+  TabContents* current_tab = browser()->GetSelectedTabContents();
+  ASSERT_TRUE(current_tab);
+  ASSERT_EQ(1, current_tab->infobar_delegate_count());
+
+  TabContents* current_tab2 = browser2->GetSelectedTabContents();
+  ASSERT_TRUE(current_tab2);
+  ASSERT_EQ(1, current_tab2->infobar_delegate_count());
+
+  // Move second window into first browser so there will be multiple tabs
+  // with the info bar for the same extension in one browser.
+  TabContentsWrapper* contents =
+      browser2->tabstrip_model()->DetachTabContentsAt(0);
+  browser()->tabstrip_model()->AppendTabContents(contents, true);
+  current_tab2 = browser()->GetSelectedTabContents();
+  ASSERT_EQ(1, current_tab2->infobar_delegate_count());
+  ASSERT_NE(current_tab2, current_tab);
+
+  ReloadExtension(first_extension_id_);
+
+  SCOPED_TRACE("after reloading");
+  CheckExtensionConsistency(size_before);
+
+  // Both infobars should automatically hide after the extension is successfully
+  // reloaded.
+  ASSERT_EQ(0, current_tab2->infobar_delegate_count());
+  browser()->SelectPreviousTab();
+  ASSERT_EQ(current_tab, browser()->GetSelectedTabContents());
+  ASSERT_EQ(0, current_tab->infobar_delegate_count());
+}
+
 // Make sure that when we don't do anything about the crashed extension
 // and close the browser, it doesn't crash. The browser is closed implicitly
 // at the end of each browser test.
 IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest, ShutdownWhileCrashed) {
-  const size_t size_before = GetExtensionsService()->extensions()->size();
+  const size_t size_before = GetExtensionService()->extensions()->size();
   LoadTestExtension();
   CrashExtension(size_before);
-  ASSERT_EQ(size_before, GetExtensionsService()->extensions()->size());
+  ASSERT_EQ(size_before, GetExtensionService()->extensions()->size());
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest, TwoExtensionsCrashFirst) {
-  const size_t size_before = GetExtensionsService()->extensions()->size();
+  const size_t size_before = GetExtensionService()->extensions()->size();
   LoadTestExtension();
   LoadSecondExtension();
   CrashExtension(size_before);
-  ASSERT_EQ(size_before + 1, GetExtensionsService()->extensions()->size());
+  ASSERT_EQ(size_before + 1, GetExtensionService()->extensions()->size());
   AcceptCrashedExtensionInfobar(0);
 
   SCOPED_TRACE("after clicking the infobar");
@@ -174,11 +301,11 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest, TwoExtensionsCrashFirst) {
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest, TwoExtensionsCrashSecond) {
-  const size_t size_before = GetExtensionsService()->extensions()->size();
+  const size_t size_before = GetExtensionService()->extensions()->size();
   LoadTestExtension();
   LoadSecondExtension();
   CrashExtension(size_before + 1);
-  ASSERT_EQ(size_before + 1, GetExtensionsService()->extensions()->size());
+  ASSERT_EQ(size_before + 1, GetExtensionService()->extensions()->size());
   AcceptCrashedExtensionInfobar(0);
 
   SCOPED_TRACE("after clicking the infobar");
@@ -188,13 +315,13 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest, TwoExtensionsCrashSecond) {
 
 IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest,
                        TwoExtensionsCrashBothAtOnce) {
-  const size_t size_before = GetExtensionsService()->extensions()->size();
+  const size_t size_before = GetExtensionService()->extensions()->size();
   LoadTestExtension();
   LoadSecondExtension();
   CrashExtension(size_before);
-  ASSERT_EQ(size_before + 1, GetExtensionsService()->extensions()->size());
+  ASSERT_EQ(size_before + 1, GetExtensionService()->extensions()->size());
   CrashExtension(size_before);
-  ASSERT_EQ(size_before, GetExtensionsService()->extensions()->size());
+  ASSERT_EQ(size_before, GetExtensionService()->extensions()->size());
 
   {
     SCOPED_TRACE("first infobar");
@@ -211,13 +338,13 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest,
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest, TwoExtensionsOneByOne) {
-  const size_t size_before = GetExtensionsService()->extensions()->size();
+  const size_t size_before = GetExtensionService()->extensions()->size();
   LoadTestExtension();
   CrashExtension(size_before);
-  ASSERT_EQ(size_before, GetExtensionsService()->extensions()->size());
+  ASSERT_EQ(size_before, GetExtensionService()->extensions()->size());
   LoadSecondExtension();
   CrashExtension(size_before);
-  ASSERT_EQ(size_before, GetExtensionsService()->extensions()->size());
+  ASSERT_EQ(size_before, GetExtensionService()->extensions()->size());
 
   {
     SCOPED_TRACE("first infobar");
@@ -238,42 +365,42 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest, TwoExtensionsOneByOne) {
 // at the end of each browser test.
 IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest,
                        TwoExtensionsShutdownWhileCrashed) {
-  const size_t size_before = GetExtensionsService()->extensions()->size();
+  const size_t size_before = GetExtensionService()->extensions()->size();
   LoadTestExtension();
   CrashExtension(size_before);
-  ASSERT_EQ(size_before, GetExtensionsService()->extensions()->size());
+  ASSERT_EQ(size_before, GetExtensionService()->extensions()->size());
   LoadSecondExtension();
   CrashExtension(size_before);
-  ASSERT_EQ(size_before, GetExtensionsService()->extensions()->size());
+  ASSERT_EQ(size_before, GetExtensionService()->extensions()->size());
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest,
                        TwoExtensionsIgnoreFirst) {
-  const size_t size_before = GetExtensionsService()->extensions()->size();
+  const size_t size_before = GetExtensionService()->extensions()->size();
   LoadTestExtension();
   LoadSecondExtension();
   CrashExtension(size_before);
-  ASSERT_EQ(size_before + 1, GetExtensionsService()->extensions()->size());
+  ASSERT_EQ(size_before + 1, GetExtensionService()->extensions()->size());
   CrashExtension(size_before);
-  ASSERT_EQ(size_before, GetExtensionsService()->extensions()->size());
+  ASSERT_EQ(size_before, GetExtensionService()->extensions()->size());
 
   CancelCrashedExtensionInfobar(0);
   AcceptCrashedExtensionInfobar(1);
 
   SCOPED_TRACE("infobars done");
-  ASSERT_EQ(size_before + 1, GetExtensionsService()->extensions()->size());
+  ASSERT_EQ(size_before + 1, GetExtensionService()->extensions()->size());
   CheckExtensionConsistency(size_before);
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest,
                        TwoExtensionsReloadIndependently) {
-  const size_t size_before = GetExtensionsService()->extensions()->size();
+  const size_t size_before = GetExtensionService()->extensions()->size();
   LoadTestExtension();
   LoadSecondExtension();
   CrashExtension(size_before);
-  ASSERT_EQ(size_before + 1, GetExtensionsService()->extensions()->size());
+  ASSERT_EQ(size_before + 1, GetExtensionService()->extensions()->size());
   CrashExtension(size_before);
-  ASSERT_EQ(size_before, GetExtensionsService()->extensions()->size());
+  ASSERT_EQ(size_before, GetExtensionService()->extensions()->size());
 
   {
     SCOPED_TRACE("first: reload");

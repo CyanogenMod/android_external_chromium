@@ -41,7 +41,15 @@ const char kRestoreOnStartup[] = "session.restore_on_startup";
 const char kURLsToRestoreOnStartup[] = "session.urls_to_restore_on_startup";
 
 // The application locale.
+// For OS_CHROMEOS we maintain kApplicationLocale property in both local state
+// and user's profile.  Global property determines locale of login screen,
+// while user's profile determines his personal locale preference.
 const char kApplicationLocale[] = "intl.app_locale";
+#if defined(OS_CHROMEOS)
+// Non-syncable item.  Used for two-step initialization of locale in ChromeOS
+// because synchronization of kApplicationLocale is not instant.
+const char kApplicationLocaleBackup[] = "intl.app_locale_backup";
+#endif
 
 // The default character encoding to assume for a web page in the
 // absence of MIME charset specification
@@ -194,18 +202,27 @@ const char kAlternateErrorPagesEnabled[] = "alternate_error_pages.enabled";
 // A boolean pref set to true if DNS pre-fetching is being done in browser.
 const char kDnsPrefetchingEnabled[] = "dns_prefetching.enabled";
 
-// An adaptively identified list of domain names to be pre-fetched during the
-// next startup, based on what was actually needed during this startup.
+// OBSOLETE: new pref now stored with user prefs instead of profile, as
+// kDnsPrefetchingStartupList.
 const char kDnsStartupPrefetchList[] = "StartupDNSPrefetchList";
 
-// Disables the SPDY protocol.
-const char kDisableSpdy[] = "spdy.disabled";
+// An adaptively identified list of domain names to be pre-fetched during the
+// next startup, based on what was actually needed during this startup.
+const char kDnsPrefetchingStartupList[] = "dns_prefetching.startup_list";
+
+// OBSOLETE: new pref now stored with user prefs instead of profile, as
+// kDnsPrefetchingHostReferralList.
+const char kDnsHostReferralList[] = "HostReferralList";
 
 // A list of host names used to fetch web pages, and their commonly used
 // sub-resource hostnames (and expected latency benefits from pre-resolving, or
 // preconnecting to, such sub-resource hostnames).
 // This list is adaptively grown and pruned.
-const char kDnsHostReferralList[] = "HostReferralList";
+const char kDnsPrefetchingHostReferralList[] =
+    "dns_prefetching.host_referral_list";
+
+// Disables the SPDY protocol.
+const char kDisableSpdy[] = "spdy.disabled";
 
 // Is the cookie prompt expanded?
 const char kCookiePromptExpanded[] = "cookieprompt.expanded";
@@ -226,11 +243,18 @@ const char kInstantEnabledTime[] = "instant.enabled_time";
 // that are used.
 const char kInstantPromo[] = "instant.promo";
 
+// Used to migrate preferences from local state to user preferences to
+// enable multiple profiles.
+// Holds possible values:
+// 0: no preferences migrated yet.
+// 1: dns prefetching preferences stored in user preferences.
+const char kMultipleProfilePrefMigration[] =
+    "profile.multiple_profile_prefs_version";
+
 #if defined(USE_NSS) || defined(USE_OPENSSL)
 // Prefs for SSLConfigServicePref.  Currently, these are only present on
 // and used by NSS/OpenSSL using OSes.
 const char kCertRevocationCheckingEnabled[] = "ssl.rev_checking.enabled";
-const char kSSL2Enabled[] = "ssl.ssl2.enabled";
 const char kSSL3Enabled[] = "ssl.ssl3.enabled";
 const char kTLS1Enabled[] = "ssl.tls1.enabled";
 #endif
@@ -443,7 +467,11 @@ const char kDeleteCache[] = "browser.clear_data.cache";
 const char kDeleteCookies[] = "browser.clear_data.cookies";
 const char kDeletePasswords[] = "browser.clear_data.passwords";
 const char kDeleteFormData[] = "browser.clear_data.form_data";
+const char kDeleteLSOData[] = "browser.clear_data.lso_data";
 const char kDeleteTimePeriod[] = "browser.clear_data.time_period";
+
+// Whether there is a Flash version installed that supports clearing LSO data.
+const char kClearPluginLSODataEnabled[] = "browser.clear_lso_data_enabled";
 
 // Boolean pref to define the default values for using spellchecker.
 const char kEnableSpellCheck[] = "browser.enable_spellchecking";
@@ -554,6 +582,11 @@ const char kBlockNonsandboxedPlugins[] = "profile.block_nonsandboxed_plugins";
 // Boolean that is true when all locally stored site data (e.g. cookies, local
 // storage, etc..) should be deleted on exit.
 const char kClearSiteDataOnExit[] = "profile.clear_site_data_on_exit";
+
+// Boolean that is true when plug-in locally stored data ("Flash cookies")
+// should be deleted on exit.
+const char kClearPluginLSODataOnExit[] =
+    "profile.clear_plugin_lso_data_on_exit";
 
 // Double that indicates the default zoom level.
 const char kDefaultZoomLevel[] = "profile.default_zoom_level";
@@ -762,11 +795,6 @@ const char kPreferencesWindowPlacement[] = "preferences.window_placement";
 // An integer specifying the total number of bytes to be used by the
 // renderer's in-memory cache of objects.
 const char kMemoryCacheSize[] = "renderer.memory_cache.size";
-
-// Boolean that records if chrome has set "launch on startup" property for
-// itself earlier and is allowed to reset it later, reducing likelihood of
-// overriding user choices.
-const char kLaunchOnStartupResetAllowed[] = "launch_on_startup_reset_allowed";
 
 // String which specifies where to download files to by default.
 const char kDownloadDefaultDirectory[] = "download.default_directory";
@@ -1001,6 +1029,7 @@ const char kSyncPasswords[] = "sync.passwords";
 const char kSyncPreferences[] = "sync.preferences";
 const char kSyncApps[] = "sync.apps";
 const char kSyncAutofill[] = "sync.autofill";
+const char kSyncAutofillProfile[] = "sync.autofill_profile";
 const char kSyncThemes[] = "sync.themes";
 const char kSyncTypedUrls[] = "sync.typed_urls";
 const char kSyncExtensions[] = "sync.extensions";
@@ -1017,6 +1046,10 @@ const char kSyncSuppressStart[] = "sync.suppress_start";
 // Boolean to reperesent if sync credentials have been migrated from the
 // user settings DB to the token service.
 const char kSyncCredentialsMigrated[] = "sync.credentials_migrated";
+
+// Boolean to represent whether the legacy autofill profile data has been
+// migrated to the new model.
+const char kAutofillProfileMigrated[] = "sync.autofill_migrated";
 
 // A string that can be used to restore sync encryption infrastructure on
 // startup so that the user doesn't need to provide credentials on each start.
@@ -1102,11 +1135,10 @@ const char kCloudPrintPrintSystemSettings[] =
 // Used by the service process to determine if the remoting host is enabled.
 const char kRemotingHostEnabled[] = "remoting.host_enabled";
 
-// Boolean to disable proxy altogether. If true, other proxy
-// preferences are ignored.
-const char kNoProxyServer[] = "proxy.disabled";
-// Boolean specifying if proxy should be auto-detected.
-const char kProxyAutoDetect[] = "proxy.auto_detect";
+// Integer to specify the type of proxy settings.
+// See ProxyPrefs for possible values and interactions with the other proxy
+// preferences.
+const char kProxyMode[] = "proxy.mode";
 // String specifying the proxy server. For a specification of the expected
 // syntax see net::ProxyConfig::ProxyRules::ParseFromString().
 const char kProxyServer[] = "proxy.server";

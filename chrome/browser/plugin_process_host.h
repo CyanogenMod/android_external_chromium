@@ -18,7 +18,7 @@
 #include "chrome/browser/browser_child_process_host.h"
 #include "chrome/browser/net/resolve_proxy_msg_helper.h"
 #include "gfx/native_widget_types.h"
-#include "webkit/glue/plugins/webplugininfo.h"
+#include "webkit/plugins/npapi/webplugininfo.h"
 
 namespace gfx {
 class Rect;
@@ -28,8 +28,6 @@ namespace IPC {
 struct ChannelHandle;
 }
 
-class URLRequestContext;
-struct ViewHostMsg_Resource_Request;
 class GURL;
 
 // Represents the browser side of the browser <--> plugin communication
@@ -49,7 +47,7 @@ class PluginProcessHost : public BrowserChildProcessHost,
     // the channel.
     virtual int ID() = 0;
     virtual bool OffTheRecord() = 0;
-    virtual void SetPluginInfo(const WebPluginInfo& info) = 0;
+    virtual void SetPluginInfo(const webkit::npapi::WebPluginInfo& info) = 0;
     // The client should delete itself when one of these methods is called.
     virtual void OnChannelOpened(const IPC::ChannelHandle& handle) = 0;
     virtual void OnError() = 0;
@@ -63,12 +61,12 @@ class PluginProcessHost : public BrowserChildProcessHost,
 
   // Initialize the new plugin process, returning true on success. This must
   // be called before the object can be used.
-  bool Init(const WebPluginInfo& info, const std::string& locale);
+  bool Init(const webkit::npapi::WebPluginInfo& info, const std::string& locale);
 
   // Force the plugin process to shutdown (cleanly).
-  void ForceShutdown();
+  virtual void ForceShutdown();
 
-  virtual void OnMessageReceived(const IPC::Message& msg);
+  virtual bool OnMessageReceived(const IPC::Message& msg);
   virtual void OnChannelConnected(int32 peer_pid);
   virtual void OnChannelError();
 
@@ -94,7 +92,7 @@ class PluginProcessHost : public BrowserChildProcessHost,
   void OnAppActivation();
 #endif
 
-  const WebPluginInfo& info() const { return info_; }
+  const webkit::npapi::WebPluginInfo& info() const { return info_; }
 
 #if defined(OS_WIN)
   // Tracks plugin parent windows created on the browser UI thread.
@@ -103,11 +101,6 @@ class PluginProcessHost : public BrowserChildProcessHost,
 
  private:
   friend class PluginResolveProxyHelper;
-
-  // ResourceDispatcherHost::Receiver implementation:
-  virtual URLRequestContext* GetRequestContext(
-      uint32 request_id,
-      const ViewHostMsg_Resource_Request& request_data);
 
   // Sends a message to the plugin process to request creation of a new channel
   // for the given mime type.
@@ -144,7 +137,7 @@ class PluginProcessHost : public BrowserChildProcessHost,
   void OnPluginSetCursorVisibility(bool visible);
 #endif
 
-  virtual bool CanShutdown() { return sent_requests_.empty(); }
+  virtual bool CanShutdown();
 
   void CancelRequests();
 
@@ -157,7 +150,7 @@ class PluginProcessHost : public BrowserChildProcessHost,
   std::queue<Client*> sent_requests_;
 
   // Information about the plugin.
-  WebPluginInfo info_;
+  webkit::npapi::WebPluginInfo info_;
 
   // Helper class for handling PluginProcessHost_ResolveProxy messages (manages
   // the requests to the proxy service).

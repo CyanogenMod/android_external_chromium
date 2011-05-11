@@ -9,7 +9,6 @@
 #include <string>
 
 #include "base/message_loop.h"
-#include "chrome/browser/profile.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/profile_sync_factory.h"
 #include "chrome/browser/sync/profile_sync_service.h"
@@ -19,10 +18,11 @@
 #include "chrome/browser/sync/sessions/session_state.h"
 #include "chrome/browser/sync/syncable/directory_manager.h"
 #include "chrome/browser/sync/syncable/syncable.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/test/profile_mock.h"
 #include "chrome/test/sync/test_http_bridge_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
+
+class Profile;
 
 using browser_sync::ModelSafeRoutingInfo;
 using browser_sync::sessions::ErrorCounters;
@@ -175,7 +175,6 @@ class SyncBackendHostForProfileSyncTest : public SyncBackendHost {
   Task* initial_condition_setup_task_;
   bool set_initial_sync_ended_on_init_;
   bool synchronous_init_;
-
 };
 
 }  // namespace browser_sync

@@ -20,12 +20,11 @@
 #import "chrome/browser/app_controller_mac.h"
 #include "chrome/browser/browser_main_win.h"
 #import "chrome/browser/chrome_browser_application_mac.h"
-#import "chrome/browser/cocoa/keystone_glue.h"
+#import "chrome/browser/ui/cocoa/keystone_glue.h"
 #include "chrome/browser/metrics/metrics_service.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/main_function_params.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/result_codes.h"
 #include "net/socket/ssl_client_socket_mac_factory.h"
 

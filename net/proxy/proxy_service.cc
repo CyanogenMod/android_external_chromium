@@ -12,7 +12,6 @@
 #include "base/message_loop.h"
 #include "base/string_util.h"
 #include "googleurl/src/gurl.h"
-#include "net/base/forwarding_net_log.h"
 #include "net/base/net_log.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
@@ -127,6 +126,10 @@ class ProxyResolverNull : public ProxyResolver {
     NOTREACHED();
   }
 
+  virtual void CancelSetPacScript() {
+    NOTREACHED();
+  }
+
   virtual int SetPacScript(
       const scoped_refptr<ProxyResolverScriptData>& /*script_data*/,
       CompletionCallback* /*callback*/) {
@@ -155,6 +158,10 @@ class ProxyResolverFromPacString : public ProxyResolver {
     NOTREACHED();
   }
 
+  virtual void CancelSetPacScript() {
+    NOTREACHED();
+  }
+
   virtual int SetPacScript(
       const scoped_refptr<ProxyResolverScriptData>& pac_script,
       CompletionCallback* callback) {
@@ -170,16 +177,14 @@ class ProxyResolverFactoryForV8 : public ProxyResolverFactory {
  public:
   // |async_host_resolver|, |io_loop| and |net_log| must remain
   // valid for the duration of our lifetime.
-  // Both |async_host_resolver| and |net_log| will only be operated on
-  // |io_loop|.
+  // |async_host_resolver| will only be operated on |io_loop|.
   ProxyResolverFactoryForV8(HostResolver* async_host_resolver,
                             MessageLoop* io_loop,
                             NetLog* net_log)
       : ProxyResolverFactory(true /*expects_pac_bytes*/),
         async_host_resolver_(async_host_resolver),
         io_loop_(io_loop),
-        forwarding_net_log_(
-            net_log ? new ForwardingNetLog(net_log, io_loop) : NULL) {
+        net_log_(net_log) {
   }
 
   virtual ProxyResolver* CreateProxyResolver() {
@@ -189,8 +194,7 @@ class ProxyResolverFactoryForV8 : public ProxyResolverFactory {
         new SyncHostResolverBridge(async_host_resolver_, io_loop_);
 
     ProxyResolverJSBindings* js_bindings =
-        ProxyResolverJSBindings::CreateDefault(sync_host_resolver,
-                                               forwarding_net_log_.get());
+        ProxyResolverJSBindings::CreateDefault(sync_host_resolver, net_log_);
 
     // ProxyResolverV8 takes ownership of |js_bindings|.
     return new ProxyResolverV8(js_bindings);
@@ -199,10 +203,7 @@ class ProxyResolverFactoryForV8 : public ProxyResolverFactory {
  private:
   HostResolver* const async_host_resolver_;
   MessageLoop* io_loop_;
-
-  // Thread-safe wrapper around a non-threadsafe NetLog implementation. This
-  // enables the proxy resolver to emit log messages from the PAC thread.
-  scoped_ptr<ForwardingNetLog> forwarding_net_log_;
+  NetLog* net_log_;
 };
 
 // Creates ProxyResolvers using a platform-specific implementation.
@@ -480,9 +481,13 @@ ProxyService* ProxyService::CreateFixed(const std::string& proxy) {
 
 // static
 ProxyService* ProxyService::CreateDirect() {
+  return CreateDirectWithNetLog(NULL);
+}
+
+ProxyService* ProxyService::CreateDirectWithNetLog(NetLog* net_log) {
   // Use direct connections.
   return new ProxyService(new ProxyConfigServiceDirect, new ProxyResolverNull,
-                          NULL);
+                          net_log);
 }
 
 // static

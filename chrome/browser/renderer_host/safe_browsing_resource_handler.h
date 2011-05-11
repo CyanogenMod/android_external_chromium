@@ -11,11 +11,10 @@
 #include "base/ref_counted.h"
 #include "base/time.h"
 #include "base/timer.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/renderer_host/resource_handler.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+
+class ResourceDispatcherHost;
 
 // SafeBrowsingResourceHandler checks that URLs are "safe" before navigating
 // to them. To be considered "safe", a URL must not appear in the
@@ -40,44 +39,37 @@
 // If on the other hand the URL was decided to be safe, the request is
 // resumed.
 class SafeBrowsingResourceHandler : public ResourceHandler,
-                                    public SafeBrowsingService::Client,
-                                    public NotificationObserver {
+                                    public SafeBrowsingService::Client {
  public:
   SafeBrowsingResourceHandler(ResourceHandler* handler,
                               int render_process_host_id,
                               int render_view_id,
                               ResourceType::Type resource_type,
                               SafeBrowsingService* safe_browsing,
-                              ResourceDispatcherHost* resource_dispatcher_host,
-                              ResourceDispatcherHost::Receiver* receiver);
+                              ResourceDispatcherHost* resource_dispatcher_host);
 
   // ResourceHandler implementation:
-  bool OnUploadProgress(int request_id, uint64 position, uint64 size);
-  bool OnRequestRedirected(int request_id, const GURL& new_url,
-                           ResourceResponse* response, bool* defer);
-  bool OnResponseStarted(int request_id, ResourceResponse* response);
-  bool OnWillStart(int request_id, const GURL& url, bool* defer);
-  bool OnWillRead(int request_id, net::IOBuffer** buf, int* buf_size,
-                  int min_size);
-  bool OnReadCompleted(int request_id, int* bytes_read);
-  bool OnResponseCompleted(int request_id,
-                           const URLRequestStatus& status,
-                           const std::string& security_info);
+  virtual bool OnUploadProgress(int request_id, uint64 position, uint64 size);
+  virtual bool OnRequestRedirected(int request_id, const GURL& new_url,
+                                   ResourceResponse* response, bool* defer);
+  virtual bool OnResponseStarted(int request_id, ResourceResponse* response);
+  virtual bool OnWillStart(int request_id, const GURL& url, bool* defer);
+  virtual bool OnWillRead(int request_id, net::IOBuffer** buf, int* buf_size,
+                          int min_size);
+  virtual bool OnReadCompleted(int request_id, int* bytes_read);
+  virtual bool OnResponseCompleted(int request_id,
+                                   const URLRequestStatus& status,
+                                   const std::string& security_info);
   virtual void OnRequestClosed();
 
   // SafeBrowsingService::Client implementation, called on the IO thread once
   // the URL has been classified.
-  void OnUrlCheckResult(const GURL& url,
-                        SafeBrowsingService::UrlCheckResult result);
+  virtual void OnBrowseUrlCheckResult(
+      const GURL& url, SafeBrowsingService::UrlCheckResult result);
 
   // SafeBrowsingService::Client implementation, called on the IO thread when
   // the user has decided to proceed with the current request, or go back.
-  void OnBlockingPageComplete(bool proceed);
-
-  // NotificationObserver interface.
-  void Observe(NotificationType type,
-               const NotificationSource& source,
-               const NotificationDetails& details);
+  virtual void OnBlockingPageComplete(bool proceed);
 
  private:
   // Describes what phase of the check a handler is in.
@@ -145,7 +137,6 @@ class SafeBrowsingResourceHandler : public ResourceHandler,
   int deferred_request_id_;
   scoped_refptr<ResourceResponse> deferred_redirect_response_;
 
-  NotificationRegistrar registrar_;
   scoped_refptr<ResourceHandler> next_handler_;
   int render_process_host_id_;
   int render_view_id_;

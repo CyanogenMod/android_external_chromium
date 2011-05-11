@@ -32,7 +32,10 @@ const char kDefaultSearchProviderIconURL[] =
 const char kDefaultSearchProviderEncodings[] =
     "DefaultSearchProviderEncodings";
 const char kDisableSpdy[] = "DisableSpdy";
-const char kProxyServerMode[] = "ProxyServerMode";
+// We consider the name ProxyMode more apt than ProxyServerMode but could
+// not change it after publishing that name for the win registry and policy
+// config files.
+const char kProxyMode[] = "ProxyServerMode";
 const char kProxyServer[] = "ProxyServer";
 const char kProxyPacUrl[] = "ProxyPacUrl";
 const char kProxyBypassList[] = "ProxyBypassList";
@@ -62,6 +65,8 @@ const char kDefaultImagesSetting[] = "DefaultImagesSetting";
 const char kDefaultJavaScriptSetting[] = "DefaultJavaScriptSetting";
 const char kDefaultPluginsSetting[] = "DefaultPluginsSetting";
 const char kDefaultPopupsSetting[] = "DefaultPopupsSetting";
+const char kDefaultNotificationSetting[] = "DefaultNotificationSetting";
+const char kDefaultGeolocationSetting[] = "DefaultGeolocationSetting";
 const char kAuthSchemes[] = "AuthSchemes";
 const char kDisableAuthNegotiateCnameLookup[] =
     "DisableAuthNegotiateCnameLookup";

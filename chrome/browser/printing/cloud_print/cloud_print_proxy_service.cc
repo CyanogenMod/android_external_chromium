@@ -11,11 +11,12 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/service/service_process_control.h"
 #include "chrome/browser/service/service_process_control_manager.h"
 #include "chrome/common/pref_names.h"
@@ -140,7 +141,7 @@ void CloudPrintProxyService::OnDialogClosed() {
 void CloudPrintProxyService::RefreshCloudPrintProxyStatus() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   ServiceProcessControl* process_control =
-      ServiceProcessControlManager::instance()->GetProcessControl(profile_);
+      ServiceProcessControlManager::GetInstance()->GetProcessControl(profile_);
   DCHECK(process_control->is_connected());
   Callback2<bool, std::string>::Type* callback =
        NewCallback(this, &CloudPrintProxyService::StatusCallback);
@@ -151,7 +152,7 @@ void CloudPrintProxyService::RefreshCloudPrintProxyStatus() {
 void CloudPrintProxyService::EnableCloudPrintProxy(const std::string& lsid,
                                                    const std::string& email) {
   ServiceProcessControl* process_control =
-      ServiceProcessControlManager::instance()->GetProcessControl(profile_);
+      ServiceProcessControlManager::GetInstance()->GetProcessControl(profile_);
   DCHECK(process_control->is_connected());
   process_control->Send(new ServiceMsg_EnableCloudPrintProxy(lsid));
   // Assume the IPC worked.
@@ -160,7 +161,7 @@ void CloudPrintProxyService::EnableCloudPrintProxy(const std::string& lsid,
 
 void CloudPrintProxyService::DisableCloudPrintProxy() {
   ServiceProcessControl* process_control =
-      ServiceProcessControlManager::instance()->GetProcessControl(profile_);
+      ServiceProcessControlManager::GetInstance()->GetProcessControl(profile_);
   DCHECK(process_control->is_connected());
   process_control->Send(new ServiceMsg_DisableCloudPrintProxy);
   // Assume the IPC worked.
@@ -174,7 +175,7 @@ void CloudPrintProxyService::StatusCallback(bool enabled, std::string email) {
 
 bool CloudPrintProxyService::InvokeServiceTask(Task* task) {
   ServiceProcessControl* process_control =
-      ServiceProcessControlManager::instance()->GetProcessControl(profile_);
+      ServiceProcessControlManager::GetInstance()->GetProcessControl(profile_);
   DCHECK(process_control);
   if (process_control)
     process_control->Launch(task, NULL);

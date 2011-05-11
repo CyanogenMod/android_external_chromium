@@ -4,6 +4,8 @@
 
 #include "chrome/browser/dom_ui/options/personal_options_handler.h"
 
+#include <string>
+
 #include "app/l10n_util.h"
 #include "base/basictypes.h"
 #include "base/callback.h"
@@ -13,21 +15,15 @@
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_process.h"
-#if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/login/user_manager.h"
-#endif
+#include "chrome/browser/dom_ui/options/dom_options_util.h"
 #include "chrome/browser/dom_ui/options/options_managed_banner_handler.h"
-#if defined(TOOLKIT_GTK)
-#include "chrome/browser/gtk/gtk_theme_provider.h"
-#endif  // defined(TOOLKIT_GTK)
-#include "chrome/browser/options_page_base.h"
-#include "chrome/browser/options_window.h"
-#include "chrome/browser/profile.h"
-#include "chrome/browser/profile_manager.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/ui/options/options_page_base.h"
+#include "chrome/browser/ui/options/options_window.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/chrome_paths.h"
@@ -36,6 +32,13 @@
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/login/user_manager.h"
+#endif  // defined(OS_CHROMEOS)
+#if defined(TOOLKIT_GTK)
+#include "chrome/browser/gtk/gtk_theme_provider.h"
+#endif  // defined(TOOLKIT_GTK)
 
 PersonalOptionsHandler::PersonalOptionsHandler() {
 }
@@ -52,12 +55,14 @@ void PersonalOptionsHandler::GetLocalizedValues(
   DCHECK(localized_strings);
 
   localized_strings->SetString("syncSection",
-      l10n_util::GetStringUTF16(IDS_SYNC_OPTIONS_GROUP_NAME));
+      dom_options_util::StripColon(
+          l10n_util::GetStringUTF16(IDS_SYNC_OPTIONS_GROUP_NAME)));
   localized_strings->SetString("privacyDashboardLink",
       l10n_util::GetStringUTF16(IDS_SYNC_PRIVACY_DASHBOARD_LINK_LABEL));
 
   localized_strings->SetString("passwords",
-      l10n_util::GetStringUTF16(IDS_OPTIONS_PASSWORDS_GROUP_NAME));
+      dom_options_util::StripColon(
+          l10n_util::GetStringUTF16(IDS_OPTIONS_PASSWORDS_GROUP_NAME)));
   localized_strings->SetString("passwordsAskToSave",
       l10n_util::GetStringUTF16(IDS_OPTIONS_PASSWORDS_ASKTOSAVE));
   localized_strings->SetString("passwordsNeverSave",
@@ -66,12 +71,16 @@ void PersonalOptionsHandler::GetLocalizedValues(
       l10n_util::GetStringUTF16(IDS_OPTIONS_PASSWORDS_MANAGE_PASSWORDS));
 
   localized_strings->SetString("autofill",
-      l10n_util::GetStringUTF16(IDS_AUTOFILL_SETTING_WINDOWS_GROUP_NAME));
-  localized_strings->SetString("autofillOptions",
-      l10n_util::GetStringUTF16(IDS_AUTOFILL_OPTIONS));
+      dom_options_util::StripColon(
+          l10n_util::GetStringUTF16(IDS_AUTOFILL_SETTING_WINDOWS_GROUP_NAME)));
+  localized_strings->SetString("autoFillEnabled",
+      l10n_util::GetStringUTF16(IDS_OPTIONS_AUTOFILL_ENABLE));
+  localized_strings->SetString("manageAutofillSettings",
+      l10n_util::GetStringUTF16(IDS_OPTIONS_MANAGE_AUTOFILL_SETTINGS));
 
   localized_strings->SetString("browsingData",
-      l10n_util::GetStringUTF16(IDS_OPTIONS_BROWSING_DATA_GROUP_NAME));
+      dom_options_util::StripColon(
+          l10n_util::GetStringUTF16(IDS_OPTIONS_BROWSING_DATA_GROUP_NAME)));
   localized_strings->SetString("importData",
       l10n_util::GetStringUTF16(IDS_OPTIONS_IMPORT_DATA_BUTTON));
 
@@ -82,7 +91,8 @@ void PersonalOptionsHandler::GetLocalizedValues(
 
 #if defined(TOOLKIT_GTK)
   localized_strings->SetString("appearance",
-      l10n_util::GetStringUTF16(IDS_APPEARANCE_GROUP_NAME));
+      dom_options_util::StripColon(
+          l10n_util::GetStringUTF16(IDS_APPEARANCE_GROUP_NAME)));
   localized_strings->SetString("themesGTKButton",
       l10n_util::GetStringUTF16(IDS_THEMES_GTK_BUTTON));
   localized_strings->SetString("themesSetClassic",
@@ -93,10 +103,27 @@ void PersonalOptionsHandler::GetLocalizedValues(
       l10n_util::GetStringUTF16(IDS_HIDE_WINDOW_DECORATIONS_RADIO));
 #else
   localized_strings->SetString("themes",
-      l10n_util::GetStringUTF16(IDS_THEMES_GROUP_NAME));
+      dom_options_util::StripColon(
+          l10n_util::GetStringUTF16(IDS_THEMES_GROUP_NAME)));
   localized_strings->SetString("themesReset",
       l10n_util::GetStringUTF16(IDS_THEMES_RESET_BUTTON));
 #endif
+
+  // Sync select control.
+  ListValue* sync_select_list = new ListValue;
+  ListValue* datatypes = new ListValue;
+  datatypes->Append(Value::CreateBooleanValue(false));
+  datatypes->Append(
+      Value::CreateStringValue(
+          l10n_util::GetStringUTF8(IDS_SYNC_OPTIONS_SELECT_DATATYPES)));
+  sync_select_list->Append(datatypes);
+  ListValue* everything = new ListValue;
+  everything->Append(Value::CreateBooleanValue(true));
+  everything->Append(
+      Value::CreateStringValue(
+          l10n_util::GetStringUTF8(IDS_SYNC_OPTIONS_SELECT_EVERYTHING)));
+  sync_select_list->Append(everything);
+  localized_strings->Set("syncSelectList", sync_select_list);
 }
 
 void PersonalOptionsHandler::RegisterMessages() {
@@ -176,21 +203,6 @@ void PersonalOptionsHandler::OnStateChanged() {
 
   label.reset(Value::CreateStringValue(start_stop_button_label));
   dom_ui_->CallJavascriptFunction(L"PersonalOptions.setStartStopButtonLabel",
-                                  *label);
-
-  visible.reset(Value::CreateBooleanValue(
-      sync_setup_completed && !status_has_error));
-  dom_ui_->CallJavascriptFunction(L"PersonalOptions.setCustomizeButtonVisible",
-                                  *visible);
-
-  enabled.reset(Value::CreateBooleanValue(!managed));
-  dom_ui_->CallJavascriptFunction(L"PersonalOptions.setCustomizeButtonEnabled",
-                                  *enabled);
-
-  string16 customize_button_label =
-    l10n_util::GetStringUTF16(IDS_SYNC_CUSTOMIZE_BUTTON_LABEL);
-  label.reset(Value::CreateStringValue(customize_button_label));
-  dom_ui_->CallJavascriptFunction(L"PersonalOptions.setCustomizeButtonLabel",
                                   *label);
 
 #if !defined(OS_CHROMEOS)

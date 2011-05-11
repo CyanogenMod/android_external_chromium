@@ -116,17 +116,26 @@ TEST_F(TransportSecurityStateTest, ValidHeaders) {
 
   EXPECT_TRUE(TransportSecurityState::ParseHeader(
       "max-age=39408299  ;incLudesUbdOmains", &max_age, &include_subdomains));
-  EXPECT_EQ(max_age, 39408299);
+  EXPECT_EQ(max_age,
+            std::min(TransportSecurityState::kMaxHSTSAgeSecs, 39408299l));
   EXPECT_TRUE(include_subdomains);
 
   EXPECT_TRUE(TransportSecurityState::ParseHeader(
       "max-age=394082038  ;  incLudesUbdOmains", &max_age, &include_subdomains));
-  EXPECT_EQ(max_age, 394082038);
+  EXPECT_EQ(max_age,
+            std::min(TransportSecurityState::kMaxHSTSAgeSecs, 394082038l));
   EXPECT_TRUE(include_subdomains);
 
   EXPECT_TRUE(TransportSecurityState::ParseHeader(
       "  max-age=0  ;  incLudesUbdOmains   ", &max_age, &include_subdomains));
   EXPECT_EQ(max_age, 0);
+  EXPECT_TRUE(include_subdomains);
+
+  EXPECT_TRUE(TransportSecurityState::ParseHeader(
+      "  max-age=999999999999999999999999999999999999999999999  ;"
+      "  incLudesUbdOmains   ",
+      &max_age, &include_subdomains));
+  EXPECT_EQ(max_age, TransportSecurityState::kMaxHSTSAgeSecs);
   EXPECT_TRUE(include_subdomains);
 }
 
@@ -346,12 +355,17 @@ TEST_F(TransportSecurityStateTest, Preloaded) {
   EXPECT_TRUE(state->IsEnabledForHost(&domain_state, "neg9.org"));
   EXPECT_FALSE(state->IsEnabledForHost(&domain_state, "www.neg9.org"));
 
+  EXPECT_TRUE(state->IsEnabledForHost(&domain_state, "riseup.net"));
+  EXPECT_TRUE(state->IsEnabledForHost(&domain_state, "foo.riseup.net"));
+
   EXPECT_TRUE(state->IsEnabledForHost(&domain_state, "factor.cc"));
   EXPECT_FALSE(state->IsEnabledForHost(&domain_state, "www.factor.cc"));
 
-  EXPECT_TRUE(state->IsEnabledForHost(&domain_state, "splendidbacon.com"));
-  EXPECT_TRUE(state->IsEnabledForHost(&domain_state, "www.splendidbacon.com"));
-  EXPECT_TRUE(state->IsEnabledForHost(&domain_state, "foo.splendidbacon.com"));
+  EXPECT_TRUE(state->IsEnabledForHost(&domain_state, "members.mayfirst.org"));
+  EXPECT_TRUE(state->IsEnabledForHost(&domain_state, "support.mayfirst.org"));
+  EXPECT_TRUE(state->IsEnabledForHost(&domain_state, "id.mayfirst.org"));
+  EXPECT_TRUE(state->IsEnabledForHost(&domain_state, "lists.mayfirst.org"));
+  EXPECT_FALSE(state->IsEnabledForHost(&domain_state, "www.mayfirst.org"));
 }
 
 TEST_F(TransportSecurityStateTest, LongNames) {

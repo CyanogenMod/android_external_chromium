@@ -41,6 +41,7 @@ class Entry;
 
 namespace net {
 
+class CertVerifier;
 class DnsCertProvenanceChecker;
 class DnsRRResolver;
 class HostResolver;
@@ -117,6 +118,7 @@ class HttpCache : public HttpTransactionFactory,
   // The disk cache is initialized lazily (by CreateTransaction) in this case.
   // The HttpCache takes ownership of the |backend_factory|.
   HttpCache(HostResolver* host_resolver,
+            CertVerifier* cert_verifier,
             DnsRRResolver* dnsrr_resolver,
             DnsCertProvenanceChecker* dns_cert_checker,
             ProxyService* proxy_service,
@@ -178,10 +180,6 @@ class HttpCache : public HttpTransactionFactory,
   // recycled connections.  For sockets currently in use, they may not close
   // immediately, but they will not be reusable. This is for debugging.
   void CloseCurrentConnections();
-
-  void set_enable_range_support(bool value) {
-    enable_range_support_ = value;
-  }
 
  protected:
   // Disk cache entry data indices.
@@ -367,8 +365,6 @@ class HttpCache : public HttpTransactionFactory,
   PendingOpsMap pending_ops_;
 
   ScopedRunnableMethodFactory<HttpCache> task_factory_;
-
-  bool enable_range_support_;
 
   typedef base::hash_map<std::string, int> PlaybackCacheMap;
   scoped_ptr<PlaybackCacheMap> playback_cache_map_;

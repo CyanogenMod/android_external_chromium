@@ -10,17 +10,17 @@
 #include <set>
 #include <string>
 
-#include "base/singleton.h"
 #include "base/task.h"
 #include "net/url_request/url_request.h"
 
+template <typename T> struct DefaultSingletonTraits;
 class URLRequestContext;
 
 namespace net {
 
 // This should be scoped inside HTTPSProber, but VC cannot compile
 // HTTPProber::Delegate when HTTPSProber also inherits from
-// URLRequest::Delegate.
+// net::URLRequest::Delegate.
 class HTTPSProberDelegate {
  public:
   virtual void ProbeComplete(bool result) = 0;
@@ -31,10 +31,10 @@ class HTTPSProberDelegate {
 // HTTPSProber is a singleton object that manages HTTPS probes. A HTTPS probe
 // determines if we can connect to a given host over HTTPS. It's used when
 // transparently upgrading from HTTP to HTTPS (for example, for SPDY).
-class HTTPSProber : public URLRequest::Delegate {
+class HTTPSProber : public net::URLRequest::Delegate {
  public:
-  HTTPSProber();
-  ~HTTPSProber();
+  // Returns the singleton instance.
+  static HTTPSProber* GetInstance();
 
   // HaveProbed returns true if the given host is known to have been probed
   // since the browser was last started.
@@ -52,19 +52,22 @@ class HTTPSProber : public URLRequest::Delegate {
   bool ProbeHost(const std::string& host, URLRequestContext* ctx,
                  HTTPSProberDelegate* delegate);
 
-  // Implementation of URLRequest::Delegate
-  void OnAuthRequired(URLRequest* request,
-                      net::AuthChallengeInfo* auth_info);
-  void OnSSLCertificateError(URLRequest* request,
-                             int cert_error,
-                             net::X509Certificate* cert);
-  void OnResponseStarted(URLRequest* request);
-  void OnReadCompleted(URLRequest* request, int bytes_read);
+  // Implementation of net::URLRequest::Delegate
+  virtual void OnAuthRequired(net::URLRequest* request,
+                              net::AuthChallengeInfo* auth_info);
+  virtual void OnSSLCertificateError(net::URLRequest* request,
+                                     int cert_error,
+                                     net::X509Certificate* cert);
+  virtual void OnResponseStarted(net::URLRequest* request);
+  virtual void OnReadCompleted(net::URLRequest* request, int bytes_read);
 
  private:
-  void Success(URLRequest* request);
-  void Failure(URLRequest* request);
-  void DoCallback(URLRequest* request, bool result);
+  HTTPSProber();
+  ~HTTPSProber();
+
+  void Success(net::URLRequest* request);
+  void Failure(net::URLRequest* request);
+  void DoCallback(net::URLRequest* request, bool result);
 
   std::map<std::string, HTTPSProberDelegate*> inflight_probes_;
   std::set<std::string> probed_;

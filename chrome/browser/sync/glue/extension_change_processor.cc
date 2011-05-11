@@ -10,8 +10,8 @@
 #include "base/logging.h"
 #include "base/stl_util-inl.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/profile.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/sync/glue/extension_sync.h"
 #include "chrome/browser/sync/glue/extension_util.h"
 #include "chrome/browser/sync/protocol/extension_specifics.pb.h"
@@ -49,8 +49,7 @@ void ExtensionChangeProcessor::Observe(NotificationType type,
       (type != NotificationType::EXTENSION_UNINSTALLED) &&
       (type != NotificationType::EXTENSION_LOADED) &&
       (type != NotificationType::EXTENSION_UPDATE_DISABLED) &&
-      (type != NotificationType::EXTENSION_UNLOADED) &&
-      (type != NotificationType::EXTENSION_UNLOADED_DISABLED)) {
+      (type != NotificationType::EXTENSION_UNLOADED)) {
     LOG(DFATAL) << "Received unexpected notification of type "
                 << type.value;
     return;
@@ -61,23 +60,24 @@ void ExtensionChangeProcessor::Observe(NotificationType type,
     const UninstalledExtensionInfo* uninstalled_extension_info =
         Details<UninstalledExtensionInfo>(details).ptr();
     CHECK(uninstalled_extension_info);
-    ExtensionType extension_type =
-        GetExtensionTypeFromUninstalledExtensionInfo(
-            *uninstalled_extension_info);
-    if (ContainsKey(traits_.allowed_extension_types, extension_type)) {
+    if (traits_.should_handle_extension_uninstall(
+            *uninstalled_extension_info)) {
       const std::string& id = uninstalled_extension_info->extension_id;
       VLOG(1) << "Removing server data for uninstalled extension " << id
-              << " of type " << extension_type;
+              << " of type " << uninstalled_extension_info->extension_type;
       RemoveServerData(traits_, id, profile_->GetProfileSyncService());
     }
   } else {
-    const Extension* extension = Details<const Extension>(details).ptr();
+    const Extension* extension = NULL;
+    if (type == NotificationType::EXTENSION_UNLOADED) {
+      extension = Details<UnloadedExtensionInfo>(details)->extension;
+    } else {
+      extension = Details<const Extension>(details).ptr();
+    }
     CHECK(extension);
     VLOG(1) << "Updating server data for extension " << extension->id()
             << " (notification type = " << type.value << ")";
-    // Ignore non-syncable extensions.
-    if (!IsExtensionValidAndSyncable(
-            *extension, traits_.allowed_extension_types)) {
+    if (!traits_.is_valid_and_syncable(*extension)) {
       return;
     }
     std::string error;
@@ -96,8 +96,8 @@ void ExtensionChangeProcessor::ApplyChangesFromSyncModel(
   if (!running()) {
     return;
   }
-  ExtensionsService* extensions_service =
-      GetExtensionsServiceFromProfile(profile_);
+  ExtensionService* extensions_service =
+      GetExtensionServiceFromProfile(profile_);
   for (int i = 0; i < change_count; ++i) {
     const sync_api::SyncManager::ChangeRecord& change = changes[i];
     switch (change.action) {
@@ -180,9 +180,6 @@ void ExtensionChangeProcessor::StartObserving() {
 
   notification_registrar_.Add(
       this, NotificationType::EXTENSION_UNLOADED,
-      Source<Profile>(profile_));
-  notification_registrar_.Add(
-      this, NotificationType::EXTENSION_UNLOADED_DISABLED,
       Source<Profile>(profile_));
 }
 

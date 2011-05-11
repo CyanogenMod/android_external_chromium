@@ -5,14 +5,14 @@
 #include "chrome/browser/extensions/extension_toolbar_model.h"
 
 #include "chrome/browser/extensions/extension_prefs.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 
-ExtensionToolbarModel::ExtensionToolbarModel(ExtensionsService* service)
+ExtensionToolbarModel::ExtensionToolbarModel(ExtensionService* service)
     : service_(service),
       prefs_(service->profile()->GetPrefs()),
       extensions_initialized_(false) {
@@ -21,8 +21,6 @@ ExtensionToolbarModel::ExtensionToolbarModel(ExtensionsService* service)
   registrar_.Add(this, NotificationType::EXTENSION_LOADED,
                  Source<Profile>(service_->profile()));
   registrar_.Add(this, NotificationType::EXTENSION_UNLOADED,
-                 Source<Profile>(service_->profile()));
-  registrar_.Add(this, NotificationType::EXTENSION_UNLOADED_DISABLED,
                  Source<Profile>(service_->profile()));
   registrar_.Add(this, NotificationType::EXTENSIONS_READY,
                  Source<Profile>(service_->profile()));
@@ -96,7 +94,12 @@ void ExtensionToolbarModel::Observe(NotificationType type,
   if (!service_->is_ready())
     return;
 
-  const Extension* extension = Details<const Extension>(details).ptr();
+  const Extension* extension = NULL;
+  if (type == NotificationType::EXTENSION_UNLOADED) {
+    extension = Details<UnloadedExtensionInfo>(details)->extension;
+  } else {
+    extension = Details<const Extension>(details).ptr();
+  }
   if (type == NotificationType::EXTENSION_LOADED) {
     // We don't want to add the same extension twice. It may have already been
     // added by EXTENSION_BROWSER_ACTION_VISIBILITY_CHANGED below, if the user
@@ -105,9 +108,9 @@ void ExtensionToolbarModel::Observe(NotificationType type,
       if (toolitems_[i].get() == extension)
         return;  // Already exists.
     }
-    AddExtension(extension);
-  } else if (type == NotificationType::EXTENSION_UNLOADED ||
-             type == NotificationType::EXTENSION_UNLOADED_DISABLED) {
+    if (service_->GetBrowserActionVisibility(extension))
+      AddExtension(extension);
+  } else if (type == NotificationType::EXTENSION_UNLOADED) {
     RemoveExtension(extension);
   } else if (type ==
              NotificationType::EXTENSION_BROWSER_ACTION_VISIBILITY_CHANGED) {
@@ -160,7 +163,7 @@ void ExtensionToolbarModel::RemoveExtension(const Extension* extension) {
 }
 
 // Combine the currently enabled extensions that have browser actions (which
-// we get from the ExtensionsService) with the ordering we get from the
+// we get from the ExtensionService) with the ordering we get from the
 // pref service. For robustness we use a somewhat inefficient process:
 // 1. Create a vector of extensions sorted by their pref values. This vector may
 // have holes.

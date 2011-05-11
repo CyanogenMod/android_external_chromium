@@ -31,6 +31,8 @@
         'base',
       ],
       'sources': [
+        'i18n/break_iterator.cc',
+        'i18n/break_iterator.h',
         'i18n/char_iterator.cc',
         'i18n/char_iterator.h',
         'i18n/file_util_icu.cc',
@@ -47,8 +49,6 @@
         'i18n/rtl.h',
         'i18n/time_formatting.cc',
         'i18n/time_formatting.h',
-        'i18n/word_iterator.cc',
-        'i18n/word_iterator.h',
       ],
     },
     {
@@ -74,7 +74,6 @@
         'crypto/signature_creator_unittest.cc',
         'crypto/signature_verifier_unittest.cc',
         'crypto/symmetric_key_unittest.cc',
-        'data_pack_unittest.cc',
         'debug/leak_tracker_unittest.cc',
         'debug/stack_trace_unittest.cc',
         'debug/trace_event_win_unittest.cc',
@@ -87,11 +86,11 @@
         'gmock_unittest.cc',
         'hmac_unittest.cc',
         'id_map_unittest.cc',
+        'i18n/break_iterator_unittest.cc',
         'i18n/char_iterator_unittest.cc',
         'i18n/file_util_icu_unittest.cc',
         'i18n/icu_string_conversions_unittest.cc',
         'i18n/rtl_unittest.cc',
-        'i18n/word_iterator_unittest.cc',
         'json/json_reader_unittest.cc',
         'json/json_writer_unittest.cc',
         'json/string_escape_unittest.cc',
@@ -141,6 +140,7 @@
         'sys_string_conversions_mac_unittest.mm',
         'sys_string_conversions_unittest.cc',
         'task_queue_unittest.cc',
+        'task_unittest.cc',
         'thread_checker_unittest.cc',
         'thread_collision_warner_unittest.cc',
         'thread_local_storage_unittest.cc',
@@ -171,12 +171,8 @@
         'win/scoped_bstr_unittest.cc',
         'win/scoped_comptr_unittest.cc',
         'win/scoped_variant_unittest.cc',
+        'worker_pool_posix_unittest.cc',
         'worker_pool_unittest.cc',
-      ],
-      'include_dirs': [
-        # word_iterator.h (used by word_iterator_unittest.cc) leaks an ICU
-        # #include for unicode/uchar.h.  This should probably be cleaned up.
-        '../third_party/icu/public/common',
       ],
       'dependencies': [
         'base',
@@ -189,7 +185,6 @@
         ['OS == "linux" or OS == "freebsd" or OS == "openbsd" or OS == "solaris"', {
           'sources!': [
             'file_version_info_unittest.cc',
-            'worker_pool_linux_unittest.cc',
           ],
           'sources': [
             'nix/xdg_util_unittest.cc',
@@ -222,6 +217,7 @@
           'sources!': [
             'dir_reader_posix_unittest.cc',
             'file_descriptor_shuffle_unittest.cc',
+            'worker_pool_posix_unittest.cc',
           ],
         }, {  # OS != "win"
           'sources/': [
@@ -261,6 +257,8 @@
       ],
       'sources': [
         'perftimer.cc',
+        'test/mock_chrome_application_mac.h',
+        'test/mock_chrome_application_mac.mm',
         'test/multiprocess_test.cc',
         'test/multiprocess_test.h',
         'test/perf_test_suite.cc',

@@ -5,7 +5,9 @@
 #include "chrome/browser/instant/instant_loader.h"
 
 #include <algorithm>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "app/l10n_util.h"
 #include "base/command_line.h"
@@ -16,7 +18,7 @@
 #include "chrome/browser/favicon_service.h"
 #include "chrome/browser/history/history_marshaling.h"
 #include "chrome/browser/instant/instant_loader_delegate.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
@@ -26,11 +28,12 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
-#include "chrome/browser/tab_contents_wrapper.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/notification_details.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/page_transition_types.h"
 #include "chrome/common/render_messages.h"

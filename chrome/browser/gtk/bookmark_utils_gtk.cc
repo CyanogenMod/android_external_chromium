@@ -17,7 +17,7 @@
 #include "chrome/browser/gtk/gtk_chrome_button.h"
 #include "chrome/browser/gtk/gtk_theme_provider.h"
 #include "chrome/browser/gtk/gtk_util.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "gfx/canvas_skia_paint.h"
 #include "gfx/font.h"
 #include "gfx/gtk_util.h"
@@ -246,8 +246,8 @@ std::string BuildTooltipFor(const BookmarkNode* node) {
   const std::string& url = node->GetURL().possibly_invalid_spec();
   const std::string& title = UTF16ToUTF8(node->GetTitle());
 
-  std::string truncated_url = WideToUTF8(l10n_util::TruncateString(
-      UTF8ToWide(url), kMaxTooltipURLLength));
+  std::string truncated_url = UTF16ToUTF8(l10n_util::TruncateString(
+      UTF8ToUTF16(url), kMaxTooltipURLLength));
   gchar* escaped_url_cstr = g_markup_escape_text(truncated_url.c_str(),
                                                  truncated_url.size());
   std::string escaped_url(escaped_url_cstr);
@@ -257,8 +257,8 @@ std::string BuildTooltipFor(const BookmarkNode* node) {
   if (url == title || title.empty()) {
     return escaped_url;
   } else {
-    std::string truncated_title = WideToUTF8(l10n_util::TruncateString(
-        UTF16ToWideHack(node->GetTitle()), kMaxTooltipTitleLength));
+    std::string truncated_title = UTF16ToUTF8(l10n_util::TruncateString(
+        node->GetTitle(), kMaxTooltipTitleLength));
     gchar* escaped_title_cstr = g_markup_escape_text(truncated_title.c_str(),
                                                      truncated_title.size());
     std::string escaped_title(escaped_title_cstr);
@@ -424,6 +424,17 @@ bool CreateNewBookmarksFromURIList(GtkSelectionData* selection_data,
     std::string title = GetNameForURL(urls[i]);
     model->AddURL(parent, idx++, UTF8ToUTF16(title), urls[i]);
   }
+  return true;
+}
+
+bool CreateNewBookmarkFromNetscapeURL(GtkSelectionData* selection_data,
+    BookmarkModel* model, const BookmarkNode* parent, int idx) {
+  GURL url;
+  string16 title;
+  if (!gtk_dnd_util::ExtractNetscapeURL(selection_data, &url, &title))
+    return false;
+
+  model->AddURL(parent, idx, title, url);
   return true;
 }
 
