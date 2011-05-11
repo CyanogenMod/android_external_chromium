@@ -55,15 +55,14 @@ typedef pthread_mutex_t* MutexHandle;
 #include "base/utf_string_conversions.h"
 #ifndef ANDROID
 #include "base/vlog.h"
-<<<<<<< HEAD
-=======
+#endif
+
 #if defined(OS_POSIX)
 #include "base/safe_strerror_posix.h"
 #endif
 #if defined(OS_MACOSX)
 #include "base/mac/scoped_cftyperef.h"
 #include "base/sys_string_conversions.h"
->>>>>>> chromium.org at r10.0.621.0
 #endif
 
 namespace logging {
