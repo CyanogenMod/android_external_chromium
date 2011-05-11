@@ -668,11 +668,7 @@ void MessageLoopForUI::DidProcessMessage(const MSG& message) {
 }
 #endif  // defined(OS_WIN)
 
-<<<<<<< HEAD
-#if !defined(OS_MACOSX) && !defined(ANDROID)
-=======
-#if !defined(OS_MACOSX) && !defined(OS_NACL)
->>>>>>> chromium.org at r10.0.621.0
+#if !defined(OS_MACOSX) && !defined(OS_NACL) && !defined(ANDROID)
 void MessageLoopForUI::AddObserver(Observer* observer) {
   pump_ui()->AddObserver(observer);
 }
