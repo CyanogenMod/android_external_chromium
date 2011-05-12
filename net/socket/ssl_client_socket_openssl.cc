@@ -314,11 +314,7 @@ class SSLContext {
     SSL_CTX_sess_set_remove_cb(ssl_ctx_.get(), RemoveSessionCallbackStatic);
     SSL_CTX_set_timeout(ssl_ctx_.get(), kSessionCacheTimeoutSeconds);
     SSL_CTX_sess_set_cache_size(ssl_ctx_.get(), kSessionCacheMaxEntires);
-<<<<<<< HEAD
-#ifdef ANDROID
-=======
     SSL_CTX_set_client_cert_cb(ssl_ctx_.get(), ClientCertCallback);
->>>>>>> chromium.org at r10.0.621.0
 #if defined(OPENSSL_NPN_NEGOTIATED)
     // TODO(kristianm): Only select this if ssl_config_.next_proto is not empty.
     // It would be better if the callback were not a global setting,
@@ -326,10 +322,6 @@ class SSLContext {
     SSL_CTX_set_next_proto_select_cb(ssl_ctx_.get(), SelectNextProtoCallback,
                                      NULL);
 #endif
-<<<<<<< HEAD
-#endif
-=======
->>>>>>> chromium.org at r10.0.621.0
   }
 
   static int NewSessionCallbackStatic(SSL* ssl, SSL_SESSION* session) {
@@ -351,30 +343,19 @@ class SSLContext {
     session_cache_.OnSessionRemoved(session);
   }
 
-<<<<<<< HEAD
-#ifdef ANDROID
-=======
   static int ClientCertCallback(SSL* ssl, X509** x509, EVP_PKEY** pkey) {
     SSLClientSocketOpenSSL* socket = GetInstance()->GetClientSocketFromSSL(ssl);
     CHECK(socket);
     return socket->ClientCertRequestCallback(ssl, x509, pkey);
   }
 
->>>>>>> chromium.org at r10.0.621.0
   static int SelectNextProtoCallback(SSL* ssl,
                                      unsigned char** out, unsigned char* outlen,
                                      const unsigned char* in,
                                      unsigned int inlen, void* arg) {
-<<<<<<< HEAD
-    SSLClientSocketOpenSSL* socket = Get()->GetClientSocketFromSSL(ssl);
-    return socket->SelectNextProtoCallback(out, outlen, in, inlen);
-  }
-#endif
-=======
     SSLClientSocketOpenSSL* socket = GetInstance()->GetClientSocketFromSSL(ssl);
     return socket->SelectNextProtoCallback(out, outlen, in, inlen);
   }
->>>>>>> chromium.org at r10.0.621.0
 
   // This is the index used with SSL_get_ex_data to retrieve the owner
   // SSLClientSocketOpenSSL object from an SSL instance.
@@ -424,13 +405,7 @@ SSLClientSocketOpenSSL::SSLClientSocketOpenSSL(
       host_and_port_(host_and_port),
       ssl_config_(ssl_config),
       trying_cached_session_(false),
-<<<<<<< HEAD
-#ifdef ANDROID
       npn_status_(kNextProtoUnsupported),
-#endif
-=======
-      npn_status_(kNextProtoUnsupported),
->>>>>>> chromium.org at r10.0.621.0
       net_log_(transport_socket->socket()->NetLog()) {
 }
 
@@ -482,7 +457,6 @@ bool SSLClientSocketOpenSSL::Init() {
 
   SSL_set_options(ssl_, options.set_mask);
   SSL_clear_options(ssl_, options.clear_mask);
-<<<<<<< HEAD
 
   // Same as above, this time for the SSL mode.
   SslSetClearMask mode;
@@ -498,31 +472,12 @@ bool SSLClientSocketOpenSSL::Init() {
   mode.ConfigureFlag(SSL_MODE_RELEASE_BUFFERS, true);
 #endif
 
-=======
-
-  // Same as above, this time for the SSL mode.
-  SslSetClearMask mode;
-
-#if defined(SSL_MODE_HANDSHAKE_CUTTHROUGH)
-  mode.ConfigureFlag(SSL_MODE_HANDSHAKE_CUTTHROUGH,
-                     ssl_config_.false_start_enabled &&
-                     !SSLConfigService::IsKnownFalseStartIncompatibleServer(
-                         host_and_port_.host()));
-#endif
-
-#if defined(SSL_MODE_RELEASE_BUFFERS)
-  mode.ConfigureFlag(SSL_MODE_RELEASE_BUFFERS, true);
-#endif
-
->>>>>>> chromium.org at r10.0.621.0
 #if defined(SSL_MODE_SMALL_BUFFERS)
   mode.ConfigureFlag(SSL_MODE_SMALL_BUFFERS, true);
 #endif
 
   SSL_set_mode(ssl_, mode.set_mask);
   SSL_clear_mode(ssl_, mode.clear_mask);
-<<<<<<< HEAD
-=======
 
   // Removing ciphers by ID from OpenSSL is a bit involved as we must use the
   // textual name with SSL_set_cipher_list because there is no public API to
@@ -561,7 +516,6 @@ bool SSLClientSocketOpenSSL::Init() {
   // handshake at which point the appropriate error is bubbled up to the client.
   LOG_IF(WARNING, rv != 1) << "SSL_set_cipher_list('" << command << "') "
                               "returned " << rv;
->>>>>>> chromium.org at r10.0.621.0
   return true;
 }
 
@@ -643,15 +597,8 @@ void SSLClientSocketOpenSSL::GetSSLCertRequestInfo(
 
 SSLClientSocket::NextProtoStatus SSLClientSocketOpenSSL::GetNextProto(
     std::string* proto) {
-<<<<<<< HEAD
-#ifdef ANDROID
   *proto = npn_proto_;
   return npn_status_;
-#endif
-=======
-  *proto = npn_proto_;
-  return npn_status_;
->>>>>>> chromium.org at r10.0.621.0
 }
 
 void SSLClientSocketOpenSSL::DoReadCallback(int rv) {
@@ -833,10 +780,6 @@ int SSLClientSocketOpenSSL::DoHandshake() {
   return net_error;
 }
 
-<<<<<<< HEAD
-#ifdef ANDROID
-=======
->>>>>>> chromium.org at r10.0.621.0
 int SSLClientSocketOpenSSL::SelectNextProtoCallback(unsigned char** out,
                                                     unsigned char* outlen,
                                                     const unsigned char* in,
@@ -869,17 +812,10 @@ int SSLClientSocketOpenSSL::SelectNextProtoCallback(unsigned char** out,
       NOTREACHED() << status;
       break;
   }
-<<<<<<< HEAD
-#endif
-  return SSL_TLSEXT_ERR_OK;
-}
-#endif
-=======
   DVLOG(2) << "next protocol: '" << npn_proto_ << "' status: " << npn_status_;
 #endif
   return SSL_TLSEXT_ERR_OK;
 }
->>>>>>> chromium.org at r10.0.621.0
 
 int SSLClientSocketOpenSSL::DoVerifyCert(int result) {
   DCHECK(server_cert_);

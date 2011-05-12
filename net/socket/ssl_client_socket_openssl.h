@@ -44,13 +44,6 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
 
   const HostPortPair& host_and_port() const { return host_and_port_; }
 
-<<<<<<< HEAD
-#ifdef ANDROID
-  // Callback from the SSL layer to check which NPN protocol we are supporting
-  int SelectNextProtoCallback(unsigned char** out, unsigned char* outlen,
-                              const unsigned char* in, unsigned int inlen);
-#endif
-=======
   // Callback from the SSL layer that indicates the remote server is requesting
   // a certificate for this client.
   int ClientCertRequestCallback(SSL* ssl, X509** x509, EVP_PKEY** pkey);
@@ -58,7 +51,6 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
   // Callback from the SSL layer to check which NPN protocol we are supporting
   int SelectNextProtoCallback(unsigned char** out, unsigned char* outlen,
                               const unsigned char* in, unsigned int inlen);
->>>>>>> chromium.org at r10.0.621.0
 
   // SSLClientSocket methods:
   virtual void GetSSLInfo(SSLInfo* ssl_info);
@@ -167,15 +159,8 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
     STATE_VERIFY_CERT_COMPLETE,
   };
   State next_handshake_state_;
-<<<<<<< HEAD
-#ifdef ANDROID
   NextProtoStatus npn_status_;
   std::string npn_proto_;
-#endif
-=======
-  NextProtoStatus npn_status_;
-  std::string npn_proto_;
->>>>>>> chromium.org at r10.0.621.0
   BoundNetLog net_log_;
 };
 
