@@ -224,20 +224,12 @@ class CookieMonster : public CookieStore {
   static void EnableFileScheme();
   static bool enable_file_scheme_;
 
-<<<<<<< HEAD
-#if defined(ANDROID)
-=======
->>>>>>> chromium.org at r10.0.621.0
   // Flush the backing store (if any) to disk and post the given task when done.
   // WARNING: THE CALLBACK WILL RUN ON A RANDOM THREAD. IT MUST BE THREAD SAFE.
   // It may be posted to the current thread, or it may run on the thread that
   // actually does the flushing. Your Task should generally post a notification
   // to the thread you actually want to be notified on.
   void FlushStore(Task* completion_task);
-<<<<<<< HEAD
-#endif
-=======
->>>>>>> chromium.org at r10.0.621.0
 
  private:
   ~CookieMonster();
@@ -724,11 +716,6 @@ class CookieMonster::PersistentCookieStore
 
   // Flush the store and post the given Task when complete.
   virtual void Flush(Task* completion_task) = 0;
-
-#if defined(ANDROID)
-  // Flush the store and post the given Task when complete.
-  virtual void Flush(Task* completion_task) = 0;
-#endif
 
  protected:
   PersistentCookieStore() {}

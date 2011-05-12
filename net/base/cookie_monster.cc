@@ -407,15 +407,11 @@ void CookieMonster::SetExpiryAndKeyScheme(ExpiryAndKeyScheme key_scheme) {
   expiry_and_key_scheme_ = key_scheme;
 }
 
-<<<<<<< HEAD
-#if defined(ANDROID)
-=======
 void CookieMonster::SetClearPersistentStoreOnExit(bool clear_local_store) {
   if(store_)
     store_->SetClearLocalStateOnExit(clear_local_store);
 }
 
->>>>>>> chromium.org at r10.0.621.0
 void CookieMonster::FlushStore(Task* completion_task) {
   AutoLock autolock(lock_);
   if (initialized_ && store_)
@@ -423,10 +419,6 @@ void CookieMonster::FlushStore(Task* completion_task) {
   else if (completion_task)
     MessageLoop::current()->PostTask(FROM_HERE, completion_task);
 }
-<<<<<<< HEAD
-#endif
-=======
->>>>>>> chromium.org at r10.0.621.0
 
 // The system resolution is not high enough, so we can have multiple
 // set cookies that result in the same system time.  When this happens, we
