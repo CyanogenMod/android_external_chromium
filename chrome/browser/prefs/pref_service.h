@@ -215,15 +215,11 @@ class PrefService : public NonThreadSafe {
   // preference is not registered.
   const Preference* FindPreference(const char* pref_name) const;
 
-<<<<<<< HEAD
-  bool read_only() const { return pref_value_store_->ReadOnly(); }
+  bool ReadOnly() const;
 
 #ifndef ANDROID
   PrefNotifier* pref_notifier() const { return pref_notifier_.get(); }
 #endif
-=======
-  bool ReadOnly() const;
->>>>>>> chromium.org at r10.0.621.0
 
   // TODO(mnissler): This should not be public. Change client code to call a
   // preference setter or use ScopedPrefUpdate.
@@ -244,12 +240,8 @@ class PrefService : public NonThreadSafe {
   // The PrefNotifier handles registering and notifying preference observers.
   // It is created and owned by this PrefService. Subclasses may access it for
   // unit testing.
-<<<<<<< HEAD
-  scoped_ptr<PrefNotifier> pref_notifier_;
-#endif
-=======
   scoped_ptr<PrefNotifierImpl> pref_notifier_;
->>>>>>> chromium.org at r10.0.621.0
+#endif
 
  private:
   friend class PrefServiceMockBuilder;
