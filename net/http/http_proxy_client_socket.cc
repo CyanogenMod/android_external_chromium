@@ -62,7 +62,11 @@ HttpProxyClientSocket::~HttpProxyClientSocket() {
   Disconnect();
 }
 
-<<<<<<< HEAD
+HttpStream* HttpProxyClientSocket::CreateConnectResponseStream() {
+  return new HttpBasicStream(transport_.release(),
+                             http_stream_parser_.release(), false);
+}
+
 #ifdef ANDROID
 // TODO(kristianm): handle the case when wait_for_connect is true
 // (sync requests)
@@ -72,15 +76,6 @@ int HttpProxyClientSocket::Connect(CompletionCallback* callback
                                    , bool wait_for_connect
 #endif
                                   ) {
-=======
-HttpStream* HttpProxyClientSocket::CreateConnectResponseStream() {
-  return new HttpBasicStream(transport_.release(),
-                             http_stream_parser_.release(), false);
-}
-
-
-int HttpProxyClientSocket::Connect(CompletionCallback* callback) {
->>>>>>> chromium.org at r10.0.621.0
   DCHECK(transport_.get());
   DCHECK(transport_->socket());
   DCHECK(!user_callback_);

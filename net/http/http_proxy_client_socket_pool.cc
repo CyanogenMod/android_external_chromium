@@ -334,18 +334,13 @@ int HttpProxyConnectJob::DoHttpProxyConnect() {
                                 params_->http_auth_cache(),
                                 params_->http_auth_handler_factory(),
                                 params_->tunnel(),
-<<<<<<< HEAD
-                                using_spdy_));
+                                using_spdy_,
+                                params_->ssl_params() != NULL));
   return transport_socket_->Connect(&callback_
 #ifdef ANDROID
                                     , false
 #endif
                                    );
-=======
-                                using_spdy_,
-                                params_->ssl_params() != NULL));
-  return transport_socket_->Connect(&callback_);
->>>>>>> chromium.org at r10.0.621.0
 }
 
 int HttpProxyConnectJob::DoHttpProxyConnectComplete(int result) {
