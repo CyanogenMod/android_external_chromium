@@ -144,6 +144,7 @@ class ProfileImplAndroid : public Profile {
   virtual ExtensionProcessManager* GetExtensionProcessManager() { NOTREACHED(); return NULL; }
   virtual ExtensionMessageService* GetExtensionMessageService() { NOTREACHED(); return NULL; }
   virtual ExtensionEventRouter* GetExtensionEventRouter() { NOTREACHED(); return NULL; }
+  virtual ExtensionService* GetExtensionService() { NOTREACHED(); return NULL; }
   virtual FaviconService* GetFaviconService(ServiceAccessType sat) { NOTREACHED(); return NULL; }
   virtual HistoryService* GetHistoryService(ServiceAccessType sat) { NOTREACHED(); return NULL; }
   virtual HistoryService* GetHistoryServiceWithoutCreating() { NOTREACHED(); return NULL; }
@@ -154,7 +155,7 @@ class ProfileImplAndroid : public Profile {
   virtual TemplateURLModel* GetTemplateURLModel() { NOTREACHED(); return NULL; }
   virtual TemplateURLFetcher* GetTemplateURLFetcher() { NOTREACHED(); return NULL; }
   virtual DownloadManager* GetDownloadManager() { NOTREACHED(); return NULL; }
-  virtual BrowserFileSystemContext* GetFileSystemContext() { NOTREACHED(); return NULL; }
+  virtual fileapi::SandboxedFileSystemContext* GetFileSystemContext() { NOTREACHED(); return NULL; }
   virtual void InitThemes() { NOTREACHED(); }
   virtual void SetTheme(const Extension* extension) { NOTREACHED(); }
   virtual void SetNativeTheme() { NOTREACHED(); }
@@ -210,6 +211,7 @@ class ProfileImplAndroid : public Profile {
 
   virtual policy::ProfilePolicyContext* GetPolicyContext() { NOTREACHED(); return NULL; }
   virtual PrefProxyConfigTracker* GetProxyConfigTracker() { NOTREACHED(); return NULL; }
+  virtual PrerenderManager* GetPrerenderManager() { NOTREACHED(); return NULL; }
 
  private:
   friend class Profile;
