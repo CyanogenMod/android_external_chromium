@@ -783,14 +783,10 @@ void URLRequestHttpJob::AddExtraHeaders() {
     if (!request_info_.extra_headers.HasHeader(
         HttpRequestHeaders::kAcceptLanguage)) {
       request_info_.extra_headers.SetHeader(
-<<<<<<< HEAD
-          net::HttpRequestHeaders::kAcceptLanguage,
+          HttpRequestHeaders::kAcceptLanguage,
 #ifdef ANDROID
           context->GetAcceptLanguage());
 #else
-=======
-          HttpRequestHeaders::kAcceptLanguage,
->>>>>>> chromium.org at r10.0.621.0
           context->accept_language());
 #endif
     }
