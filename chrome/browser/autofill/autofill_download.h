@@ -16,14 +16,11 @@
 #include "chrome/browser/autofill/form_structure.h"
 #include "chrome/common/net/url_fetcher.h"
 
-<<<<<<< HEAD
 #ifdef ANDROID
 #include "android/autofill/url_fetcher_proxy.h"
 #endif
 
-=======
 class AutoFillMetrics;
->>>>>>> chromium.org at r10.0.621.0
 class Profile;
 
 // Handles getting and updating AutoFill heuristics.
