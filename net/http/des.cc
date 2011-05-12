@@ -95,15 +95,8 @@ void DESMakeKey(const uint8* raw, uint8* key) {
 #if defined(USE_OPENSSL)
 
 void DESEncrypt(const uint8* key, const uint8* src, uint8* hash) {
-<<<<<<< HEAD
-#ifndef ANDROID
   base::EnsureOpenSSLInit();
 
-#endif
-=======
-  base::EnsureOpenSSLInit();
-
->>>>>>> chromium.org at r10.0.621.0
   DES_key_schedule ks;
   DES_set_key_unchecked(
       reinterpret_cast<const_DES_cblock*>(const_cast<uint8*>(key)), &ks);
