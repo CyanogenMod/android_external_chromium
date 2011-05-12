@@ -34,19 +34,11 @@ class SQLitePersistentCookieStore
 
   virtual void SetClearLocalStateOnExit(bool clear_local_state);
 
-<<<<<<< HEAD
-#if defined(ANDROID)
   virtual void Flush(Task* completion_task);
-#endif
 
 #if defined(ANDROID)
   int GetCookieCount();
 #endif
-
-  static void ClearLocalState(const FilePath& path);
-=======
-  virtual void Flush(Task* completion_task);
->>>>>>> chromium.org at r10.0.621.0
 
  private:
   class Backend;
