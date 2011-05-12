@@ -20,12 +20,8 @@
 #include "chrome/browser/autofill/phone_number.h"
 #include "chrome/browser/autofill/select_control_handler.h"
 #include "chrome/browser/prefs/pref_service.h"
-<<<<<<< HEAD
-#include "chrome/browser/profile.h"
-#ifndef ANDROID
-=======
 #include "chrome/browser/profiles/profile.h"
->>>>>>> chromium.org at r10.0.621.0
+#ifndef ANDROID
 #include "chrome/browser/renderer_host/render_view_host.h"
 #endif
 #include "chrome/browser/tab_contents/tab_contents.h"

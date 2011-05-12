@@ -9,7 +9,7 @@
 #ifdef ANDROID
 #include "android/autofill/profile_android.h"
 #include "base/scoped_ptr.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/autofill/autofill_host.h"
 
 // Autofill does not need the entire TabContents class, just
