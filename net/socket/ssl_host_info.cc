@@ -10,16 +10,6 @@
 #include "net/base/ssl_config_service.h"
 #include "net/base/x509_certificate.h"
 #include "net/socket/ssl_client_socket.h"
-<<<<<<< HEAD
-#ifdef ANDROID
-// the android platform build system use a fixed include path relative to the
-// top directory (root of the source tree).
-#include "external/chromium/net/socket/ssl_host_info.pb.h"
-#else
-#include "net/socket/ssl_host_info.pb.h"
-#endif
-=======
->>>>>>> chromium.org at r10.0.621.0
 
 namespace net {
 
