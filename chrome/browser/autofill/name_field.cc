@@ -4,10 +4,9 @@
 
 #include "chrome/browser/autofill/name_field.h"
 
-<<<<<<< HEAD
+#ifdef ANDROID
 #include "app/l10n_util.h"
-=======
->>>>>>> chromium.org at r10.0.621.0
+#endif
 #include "base/logging.h"
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"

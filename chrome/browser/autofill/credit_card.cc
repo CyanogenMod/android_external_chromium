@@ -18,12 +18,8 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_type.h"
 #include "chrome/browser/autofill/field_types.h"
-<<<<<<< HEAD
-#include "chrome/browser/guid.h"
-#ifndef ANDROID
-=======
 #include "chrome/common/guid.h"
->>>>>>> chromium.org at r10.0.621.0
+#ifndef ANDROID
 #include "grit/generated_resources.h"
 #endif
 

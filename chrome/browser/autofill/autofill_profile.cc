@@ -16,12 +16,8 @@
 #include "chrome/browser/autofill/fax_number.h"
 #include "chrome/browser/autofill/home_address.h"
 #include "chrome/browser/autofill/home_phone_number.h"
-<<<<<<< HEAD
-#include "chrome/browser/guid.h"
-#ifndef ANDROID
-=======
 #include "chrome/common/guid.h"
->>>>>>> chromium.org at r10.0.621.0
+#ifndef ANDROID
 #include "grit/generated_resources.h"
 #endif
 
@@ -383,33 +379,19 @@ string16 AutoFillProfile::ConstructInferredLabel(
        it != included_fields.end() && num_fields_used < num_fields_to_use;
        ++it) {
     string16 field = GetFieldText(AutoFillType(*it));
-<<<<<<< HEAD
-    if (!field.empty()) {
-      if (!label.empty()) {
-        label.append(separator);
-      }
-#ifndef ANDROID
-      // No support on Android for FAX numbers at the moment.
-      // Fax number has special format, to indicate that this is a fax number.
-      if (*it == PHONE_FAX_WHOLE_NUMBER) {
-        field = l10n_util::GetStringFUTF16(
-            IDS_AUTOFILL_DIALOG_ADDRESS_SUMMARY_FAX_FORMAT, field);
-      }
-#endif
-      label.append(field);
-=======
     if (field.empty())
       continue;
 
     if (!label.empty())
       label.append(separator);
 
+#ifndef ANDROID
     // Fax number has special format, to indicate that this is a fax number.
     if (*it == PHONE_FAX_WHOLE_NUMBER) {
       field = l10n_util::GetStringFUTF16(
           IDS_AUTOFILL_DIALOG_ADDRESS_SUMMARY_FAX_FORMAT, field);
->>>>>>> chromium.org at r10.0.621.0
     }
+#endif
     label.append(field);
     ++num_fields_used;
   }
