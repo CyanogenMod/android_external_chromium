@@ -225,7 +225,6 @@ class PrefService : public NonThreadSafe {
   // preference setter or use ScopedPrefUpdate.
   PrefNotifier* pref_notifier() const;
 
-#ifndef ANDROID
  protected:
   // Construct a new pref service, specifying the pref sources as explicit
   // PrefStore pointers. This constructor is what CreatePrefService() ends up
@@ -237,6 +236,7 @@ class PrefService : public NonThreadSafe {
               PersistentPrefStore* user_prefs,
               PrefStore* recommended_prefs);
 
+#ifndef ANDROID
   // The PrefNotifier handles registering and notifying preference observers.
   // It is created and owned by this PrefService. Subclasses may access it for
   // unit testing.

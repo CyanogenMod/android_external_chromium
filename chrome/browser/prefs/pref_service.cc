@@ -23,19 +23,15 @@
 #include "base/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_thread.h"
-<<<<<<< HEAD
-#include "chrome/browser/profile.h"
-#ifndef ANDROID
-// Notifications do not compile on Android and are the cause
-// of most of the ANDROID guards in this file.
-=======
 #include "chrome/browser/policy/configuration_policy_pref_store.h"
 #include "chrome/browser/prefs/command_line_pref_store.h"
 #include "chrome/browser/prefs/default_pref_store.h"
 #include "chrome/browser/prefs/pref_notifier_impl.h"
 #include "chrome/browser/prefs/pref_value_store.h"
 #include "chrome/common/json_pref_store.h"
->>>>>>> chromium.org at r10.0.621.0
+#ifndef ANDROID
+// Notifications do not compile on Android and are the cause
+// of most of the ANDROID guards in this file.
 #include "chrome/common/notification_service.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -101,13 +97,9 @@ void NotifyReadError(PrefService* pref, int message_id) {
 PrefService* PrefService::CreatePrefService(const FilePath& pref_filename,
                                             PrefStore* extension_prefs,
                                             Profile* profile) {
-<<<<<<< HEAD
-#if defined(OS_LINUX) && !defined(ANDROID)
-=======
   using policy::ConfigurationPolicyPrefStore;
 
-#if defined(OS_LINUX)
->>>>>>> chromium.org at r10.0.621.0
+#if defined(OS_LINUX) && !defined(ANDROID)
   // We'd like to see what fraction of our users have the preferences
   // stored on a network file system, as we've had no end of troubles
   // with NFS/AFS.
@@ -120,23 +112,9 @@ PrefService* PrefService::CreatePrefService(const FilePath& pref_filename,
   }
 #endif
 
-<<<<<<< HEAD
-  return new PrefService(
-      PrefValueStore::CreatePrefValueStore(pref_filename, profile, false));
-}
-
-// static
-PrefService* PrefService::CreateUserPrefService(const FilePath& pref_filename) {
-  return new PrefService(
-      PrefValueStore::CreatePrefValueStore(pref_filename, NULL, true));
-}
-
-PrefService::PrefService(PrefValueStore* pref_value_store)
-    : pref_value_store_(pref_value_store) {
-#ifndef ANDROID
-  pref_notifier_.reset(new PrefNotifier(this, pref_value_store));
-#endif
-=======
+#ifdef ANDROID
+  return new PrefService(NULL, NULL, NULL, NULL, NULL, NULL);
+#else
   ConfigurationPolicyPrefStore* managed =
       ConfigurationPolicyPrefStore::CreateManagedPlatformPolicyPrefStore();
   ConfigurationPolicyPrefStore* device_management =
@@ -152,6 +130,7 @@ PrefService::PrefService(PrefValueStore* pref_value_store)
 
   return new PrefService(managed, device_management, extension_prefs,
                          command_line, user, recommended);
+#endif
 }
 
 PrefService::PrefService(PrefStore* managed_platform_prefs,
@@ -161,7 +140,9 @@ PrefService::PrefService(PrefStore* managed_platform_prefs,
                          PersistentPrefStore* user_prefs,
                          PrefStore* recommended_prefs)
     : user_pref_store_(user_prefs) {
+#ifndef ANDROID
   pref_notifier_.reset(new PrefNotifierImpl(this));
+#endif
   default_store_ = new DefaultPrefStore();
   pref_value_store_ =
       new PrefValueStore(managed_platform_prefs,
@@ -171,8 +152,11 @@ PrefService::PrefService(PrefStore* managed_platform_prefs,
                          user_pref_store_,
                          recommended_prefs,
                          default_store_,
+#ifdef ANDROID
+                         NULL);
+#else
                          pref_notifier_.get());
->>>>>>> chromium.org at r10.0.621.0
+#endif
   InitFromStorage();
 }
 
@@ -183,15 +167,10 @@ PrefService::~PrefService() {
 }
 
 void PrefService::InitFromStorage() {
-<<<<<<< HEAD
 #ifndef ANDROID
-  PrefStore::PrefReadError error = LoadPersistentPrefs();
-  if (error == PrefStore::PREF_READ_ERROR_NONE)
-=======
   const PersistentPrefStore::PrefReadError error =
       user_pref_store_->ReadPrefs();
   if (error == PersistentPrefStore::PREF_READ_ERROR_NONE)
->>>>>>> chromium.org at r10.0.621.0
     return;
 
   // Failing to load prefs on startup is a bad thing(TM). See bug 38352 for
@@ -384,7 +363,11 @@ bool PrefService::ReadOnly() const {
 }
 
 PrefNotifier* PrefService::pref_notifier() const {
+#ifdef ANDROID
+  return NULL;
+#else
   return pref_notifier_.get();
+#endif
 }
 
 bool PrefService::IsManagedPreference(const char* pref_name) const {
@@ -472,14 +455,9 @@ void PrefService::ClearPref(const char* path) {
     NOTREACHED() << "Trying to clear an unregistered pref: " << path;
     return;
   }
-<<<<<<< HEAD
 #ifndef ANDROID
-  if (pref_value_store_->RemoveUserPrefValue(path))
-    pref_notifier_->OnUserPreferenceSet(path);
-#endif
-=======
   user_pref_store_->RemoveValue(path);
->>>>>>> chromium.org at r10.0.621.0
+#endif
 }
 
 void PrefService::Set(const char* path, const Value& value) {
@@ -504,13 +482,6 @@ void PrefService::Set(const char* path, const Value& value) {
   } else {
     user_pref_store_->SetValue(path, value.DeepCopy());
   }
-<<<<<<< HEAD
-#ifndef ANDROID
-  if (value_changed)
-    pref_notifier_->OnUserPreferenceSet(path);
-#endif
-=======
->>>>>>> chromium.org at r10.0.621.0
 }
 
 void PrefService::SetBoolean(const char* path, bool value) {
@@ -639,14 +610,9 @@ void PrefService::SetUserPrefValue(const char* path, Value* new_value) {
     return;
   }
 
-<<<<<<< HEAD
 #ifndef ANDROID
-  if (pref_value_store_->SetUserPrefValue(path, new_value))
-    pref_notifier_->OnUserPreferenceSet(path);
-#endif
-=======
   user_pref_store_->SetValue(path, new_value);
->>>>>>> chromium.org at r10.0.621.0
+#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////
