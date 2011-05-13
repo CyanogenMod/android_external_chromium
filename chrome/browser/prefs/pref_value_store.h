@@ -17,11 +17,7 @@
 #include "base/values.h"
 #ifndef ANDROID
 #include "chrome/browser/browser_thread.h"
-<<<<<<< HEAD
 #endif
-#include "chrome/browser/prefs/pref_notifier.h"
-=======
->>>>>>> chromium.org at r10.0.621.0
 #include "chrome/common/pref_store.h"
 
 class FilePath;
@@ -38,24 +34,6 @@ class Profile;
 // be called on the UI thread.
 class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
  public:
-<<<<<<< HEAD
-  // Returns a new PrefValueStore with all applicable PrefStores. The
-  // |pref_filename| points to the user preference file. The |profile| is the
-  // one to which these preferences apply; it may be NULL if we're dealing
-  // with the local state. If |pref_filename| is empty, the user PrefStore will
-  // not be created. If |user_only| is true, no PrefStores will be created
-  // other than the user and default PrefStores. This should not normally be
-  // called directly: the usual way to create a PrefValueStore is by creating a
-  // PrefService.
-  static PrefValueStore* CreatePrefValueStore(const FilePath& pref_filename,
-                                              Profile* profile,
-                                              bool user_only);
-
-#ifdef ANDROID
-  virtual
-#endif
-  ~PrefValueStore();
-=======
   // In decreasing order of precedence:
   //   |managed_platform_prefs| contains all managed platform (non-cloud policy)
   //        preference values.
@@ -86,7 +64,6 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
                  PrefStore* default_prefs,
                  PrefNotifier* pref_notifier);
   virtual ~PrefValueStore();
->>>>>>> chromium.org at r10.0.621.0
 
   // Gets the value for the given preference name that has a valid value type;
   // that is, the same type the preference was registered with, or NULL for
@@ -128,73 +105,6 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
   // there is no higher-priority source controlling it.
   bool PrefValueUserModifiable(const char* name) const;
 
-<<<<<<< HEAD
-  // Returns the pref store type identifying the source that controls the
-  // Preference identified by |name|. If none of the sources has a value,
-  // PrefNotifier::INVALID_STORE is returned. In practice, the default PrefStore
-  // should always have a value for any registered preferencem, so INVALID_STORE
-  // indicates an error.
-  PrefNotifier::PrefStoreType ControllingPrefStoreForPref(
-      const char* name) const;
-
-  // Signature of callback triggered after policy refresh. Parameter is not
-  // passed as reference to prevent passing along a pointer to a set whose
-  // lifecycle is managed in another thread.
-  typedef Callback1<std::vector<std::string> >::Type AfterRefreshCallback;
-
-#ifndef ANDROID
-  // Called as a result of a notification of policy change. Triggers a reload of
-  // managed platform, device management and recommended preferences from policy
-  // from a Task on the FILE thread. The Task will take ownership of the
-  // |callback|. |callback| is called with the set of preferences changed by the
-  // policy refresh. |callback| is called on the caller's thread as a Task
-  // after RefreshPolicyPrefs has returned.
-  void RefreshPolicyPrefs(AfterRefreshCallback* callback);
-#endif
-
-  // Returns true if there are proxy preferences in user-modifiable
-  // preference stores (e.g. CommandLinePrefStore, ExtensionPrefStore)
-  // that conflict with proxy settings specified by proxy policy.
-  bool HasPolicyConflictingUserProxySettings();
-
- protected:
-  // In decreasing order of precedence:
-  //   |managed_platform_prefs| contains all managed platform (non-cloud policy)
-  //        preference values.
-  //   |device_management_prefs| contains all device management (cloud policy)
-  //        preference values.
-  //   |extension_prefs| contains preference values set by extensions.
-  //   |command_line_prefs| contains preference values set by command-line
-  //        switches.
-  //   |user_prefs| contains all user-set preference values.
-  //   |recommended_prefs| contains all recommended (policy) preference values.
-  //   |default_prefs| contains application-default preference values. It must
-  //        be non-null if any preferences are to be registered.
-  //
-  // The |profile| parameter is used to construct a replacement device
-  // management pref store. This is done after policy refresh when we swap out
-  // the policy pref stores for new ones, so the |profile| pointer needs to be
-  // kept around for then. It is safe to pass a NULL pointer for local state
-  // preferences.
-  //
-  // TODO(mnissler, danno): Refactor the pref store interface and refresh logic
-  // so refreshes can be handled by the pref store itself without swapping
-  // stores. This way we can get rid of the profile pointer here.
-  //
-  // This constructor should only be used internally, or by subclasses in
-  // testing. The usual way to create a PrefValueStore is by creating a
-  // PrefService.
-  PrefValueStore(PrefStore* managed_platform_prefs,
-                 PrefStore* device_management_prefs,
-                 PrefStore* extension_prefs,
-                 PrefStore* command_line_prefs,
-                 PrefStore* user_prefs,
-                 PrefStore* recommended_prefs,
-                 PrefStore* default_prefs,
-                 Profile* profile);
-
-=======
->>>>>>> chromium.org at r10.0.621.0
  private:
   // PrefStores must be listed here in order from highest to lowest priority.
   //   MANAGED_PLATFORM contains all managed preference values that are
@@ -295,29 +205,6 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
                          PrefStoreType store,
                          Value** out_value) const;
 
-<<<<<<< HEAD
-#ifndef ANDROID
-  // Called during policy refresh after ReadPrefs completes on the thread
-  // that initiated the policy refresh. RefreshPolicyPrefsCompletion takes
-  // ownership of the |callback| object.
-  void RefreshPolicyPrefsCompletion(
-      PrefStore* new_managed_platform_pref_store,
-      PrefStore* new_device_management_pref_store,
-      PrefStore* new_recommended_pref_store,
-      AfterRefreshCallback* callback);
-
-  // Called during policy refresh to do the ReadPrefs on the FILE thread.
-  // RefreshPolicyPrefsOnFileThread takes ownership of the |callback| object.
-  void RefreshPolicyPrefsOnFileThread(
-      BrowserThread::ID calling_thread_id,
-      PrefStore* new_managed_platform_pref_store,
-      PrefStore* new_device_management_pref_store,
-      PrefStore* new_recommended_pref_store,
-      AfterRefreshCallback* callback);
-#endif
-
-  scoped_ptr<PrefStore> pref_stores_[PrefNotifier::PREF_STORE_TYPE_MAX + 1];
-=======
   // Called upon changes in individual pref stores in order to determine whether
   // the user-visible pref value has changed. Triggers the change notification
   // if the effective value of the preference has changed, or if the store
@@ -355,7 +242,6 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
   // notifications. This is a weak reference, since the notifier is owned by the
   // corresponding PrefService.
   PrefNotifier* pref_notifier_;
->>>>>>> chromium.org at r10.0.621.0
 
   // A mapping of preference names to their registered types.
   PrefTypeMap pref_types_;

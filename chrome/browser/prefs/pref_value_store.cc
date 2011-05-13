@@ -4,21 +4,10 @@
 
 #include "chrome/browser/prefs/pref_value_store.h"
 
-<<<<<<< HEAD
-#ifndef ANDROID
-#include "chrome/browser/browser_thread.h"
-#include "chrome/browser/extensions/extension_pref_store.h"
-#include "chrome/browser/policy/configuration_policy_pref_store.h"
-#include "chrome/browser/prefs/command_line_pref_store.h"
+#ifdef ANDROID
+#include "base/logging.h"
 #endif
-#include "chrome/browser/prefs/default_pref_store.h"
-#ifndef ANDROID
-#include "chrome/common/json_pref_store.h"
-#include "chrome/common/notification_service.h"
-#endif
-=======
 #include "chrome/browser/prefs/pref_notifier.h"
->>>>>>> chromium.org at r10.0.621.0
 
 PrefValueStore::PrefStoreKeeper::PrefStoreKeeper()
     : pref_value_store_(NULL),
@@ -43,46 +32,6 @@ void PrefValueStore::PrefStoreKeeper::Initialize(
     pref_store_->AddObserver(this);
 }
 
-<<<<<<< HEAD
-}  // namespace
-
-// static
-PrefValueStore* PrefValueStore::CreatePrefValueStore(
-    const FilePath& pref_filename,
-    Profile* profile,
-    bool user_only) {
-#ifdef ANDROID
-  return new PrefValueStore(NULL, NULL, NULL, NULL, NULL, NULL, new DefaultPrefStore(), profile);
-#else
-  using policy::ConfigurationPolicyPrefStore;
-  ConfigurationPolicyPrefStore* managed = NULL;
-  ConfigurationPolicyPrefStore* device_management = NULL;
-  ExtensionPrefStore* extension = NULL;
-  CommandLinePrefStore* command_line = NULL;
-  ConfigurationPolicyPrefStore* recommended = NULL;
-
-  JsonPrefStore* user = new JsonPrefStore(
-      pref_filename,
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE));
-  DefaultPrefStore* default_store = new DefaultPrefStore();
-
-  if (!user_only) {
-    managed =
-        ConfigurationPolicyPrefStore::CreateManagedPlatformPolicyPrefStore();
-    device_management =
-        ConfigurationPolicyPrefStore::CreateDeviceManagementPolicyPrefStore(
-            profile);
-    extension = new ExtensionPrefStore(profile, PrefNotifier::EXTENSION_STORE);
-    command_line = new CommandLinePrefStore(CommandLine::ForCurrentProcess());
-    recommended =
-        ConfigurationPolicyPrefStore::CreateRecommendedPolicyPrefStore();
-  }
-
-  return new PrefValueStore(managed, device_management, extension,
-                            command_line, user, recommended, default_store,
-                            profile);
-#endif
-=======
 void PrefValueStore::PrefStoreKeeper::OnPrefValueChanged(
     const std::string& key) {
   pref_value_store_->OnPrefValueChanged(type_, key);
@@ -110,7 +59,6 @@ PrefValueStore::PrefValueStore(PrefStore* managed_platform_prefs,
   InitPrefStore(DEFAULT_STORE, default_prefs);
 
   CheckInitializationCompleted();
->>>>>>> chromium.org at r10.0.621.0
 }
 
 PrefValueStore::~PrefValueStore() {}
@@ -254,42 +202,11 @@ bool PrefValueStore::PrefValueInStoreRange(
   return false;
 }
 
-<<<<<<< HEAD
-#ifndef ANDROID
-void PrefValueStore::RefreshPolicyPrefsOnFileThread(
-    BrowserThread::ID calling_thread_id,
-    PrefStore* new_managed_platform_pref_store,
-    PrefStore* new_device_management_pref_store,
-    PrefStore* new_recommended_pref_store,
-    AfterRefreshCallback* callback_pointer) {
-  scoped_ptr<AfterRefreshCallback> callback(callback_pointer);
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
-  scoped_ptr<PrefStore> managed_platform_pref_store(
-      new_managed_platform_pref_store);
-  scoped_ptr<PrefStore> device_management_pref_store(
-      new_device_management_pref_store);
-  scoped_ptr<PrefStore> recommended_pref_store(new_recommended_pref_store);
-
-  PrefStore::PrefReadError read_error =
-      new_managed_platform_pref_store->ReadPrefs();
-  if (read_error != PrefStore::PREF_READ_ERROR_NONE) {
-    LOG(ERROR) << "refresh of managed policy failed: PrefReadError = "
-               << read_error;
-    return;
-  }
-
-  read_error = new_device_management_pref_store->ReadPrefs();
-  if (read_error != PrefStore::PREF_READ_ERROR_NONE) {
-    LOG(ERROR) << "refresh of device management policy failed: "
-               << "PrefReadError = " << read_error;
-    return;
-=======
 PrefValueStore::PrefStoreType PrefValueStore::ControllingPrefStoreForPref(
     const char* name) const {
   for (size_t i = 0; i <= PREF_STORE_TYPE_MAX; ++i) {
     if (PrefValueInStore(name, static_cast<PrefStoreType>(i)))
       return static_cast<PrefStoreType>(i);
->>>>>>> chromium.org at r10.0.621.0
   }
   return INVALID_STORE;
 }
@@ -335,30 +252,10 @@ void PrefValueStore::OnInitializationCompleted(
     PrefValueStore::PrefStoreType type) {
   CheckInitializationCompleted();
 }
-#endif // ANDROID
 
-<<<<<<< HEAD
-bool PrefValueStore::HasPolicyConflictingUserProxySettings() {
-#if !defined(ANDROID)
-  using policy::ConfigurationPolicyPrefStore;
-  ConfigurationPolicyPrefStore::ProxyPreferenceSet proxy_prefs;
-  ConfigurationPolicyPrefStore::GetProxyPreferenceSet(&proxy_prefs);
-  ConfigurationPolicyPrefStore::ProxyPreferenceSet::const_iterator i;
-  for (i = proxy_prefs.begin(); i != proxy_prefs.end(); ++i) {
-    if ((PrefValueInManagedPlatformStore(*i) ||
-         PrefValueInDeviceManagementStore(*i)) &&
-        PrefValueInStoreRange(*i,
-                              PrefNotifier::COMMAND_LINE_STORE,
-                              PrefNotifier::USER_STORE))
-      return true;
-  }
-#endif
-  return false;
-=======
 void PrefValueStore::InitPrefStore(PrefValueStore::PrefStoreType type,
                                    PrefStore* pref_store) {
   pref_stores_[type].Initialize(this, pref_store, type);
->>>>>>> chromium.org at r10.0.621.0
 }
 
 void PrefValueStore::CheckInitializationCompleted() {
