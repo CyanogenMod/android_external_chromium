@@ -27,6 +27,16 @@
 
 #include "chrome/browser/autofill/personal_data_manager.h"
 
+// We only need the Profile constructor (but that is needed since
+// ProfileImplAndroid is a subclass of Profile). To avoid compiling the file,
+// the constructor is included below.
+//
+// Taken from chrome/browser/profiles/profile.cc
+Profile::Profile()
+    : restored_last_session_(false),
+      accessibility_pause_level_(0) {
+}
+
 ProfileImplAndroid::ProfileImplAndroid(const FilePath& path)
   : path_(path)
 {

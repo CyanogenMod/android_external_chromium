@@ -70,6 +70,9 @@ void CleanupRequestContext(ChromeURLRequestContextGetter* context) {
 
 } // namespace
 
+#ifdef ANDROID
+// Android moved this to profile_android.cc to avoid compiling this file.
+#endif
 Profile::Profile()
     : restored_last_session_(false),
       accessibility_pause_level_(0) {
