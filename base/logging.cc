@@ -53,10 +53,7 @@ typedef pthread_mutex_t* MutexHandle;
 #include "base/lock_impl.h"
 #include "base/string_piece.h"
 #include "base/utf_string_conversions.h"
-#ifndef ANDROID
 #include "base/vlog.h"
-#endif
-
 #if defined(OS_POSIX)
 #include "base/safe_strerror_posix.h"
 #endif
@@ -68,9 +65,7 @@ typedef pthread_mutex_t* MutexHandle;
 namespace logging {
 
 bool g_enable_dcheck = false;
-#ifndef ANDROID
 VlogInfo* g_vlog_info = NULL;
-#endif
 
 const char* const log_severity_names[LOG_NUM_SEVERITIES] = {
   "INFO", "WARNING", "ERROR", "ERROR_REPORT", "FATAL" };
@@ -360,7 +355,9 @@ bool BaseInitLoggingImpl(const PathChar* new_log_file,
                          LogLockingState lock_log,
                          OldFileDeletionState delete_old) {
 #ifdef ANDROID
+  // ifdef is here because we don't support parsing command line parameters
   g_enable_dcheck = false;
+  g_vlog_info = NULL;
 #else
   CommandLine* command_line = CommandLine::ForCurrentProcess();
   g_enable_dcheck =
@@ -418,14 +415,10 @@ int GetVlogVerbosity() {
 }
 
 int GetVlogLevelHelper(const char* file, size_t N) {
-#ifdef ANDROID
-  return 0;
-#else
   DCHECK_GT(N, 0U);
   return g_vlog_info ?
       g_vlog_info->GetVlogLevel(base::StringPiece(file, N - 1)) :
       GetVlogVerbosity();
-#endif
 }
 
 void SetLogItems(bool enable_process_id, bool enable_thread_id,

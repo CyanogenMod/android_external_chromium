@@ -104,6 +104,7 @@ LOCAL_SRC_FILES := \
     base/utf_string_conversions.cc \
     base/utf_string_conversion_utils.cc \
     base/values.cc \
+    base/vlog.cc \
     base/weak_ptr.cc \
     base/worker_pool_posix.cc \
     \
