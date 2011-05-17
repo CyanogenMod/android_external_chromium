@@ -29,9 +29,7 @@
 #include "chrome/common/guid.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
-#ifndef ANDROID
 #include "grit/generated_resources.h"
-#endif
 #include "webkit/glue/form_data.h"
 #ifdef ANDROID
 #include <WebCoreSupport/autofill/FormFieldAndroid.h>

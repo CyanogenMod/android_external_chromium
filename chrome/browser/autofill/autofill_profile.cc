@@ -17,9 +17,7 @@
 #include "chrome/browser/autofill/home_address.h"
 #include "chrome/browser/autofill/home_phone_number.h"
 #include "chrome/common/guid.h"
-#ifndef ANDROID
 #include "grit/generated_resources.h"
-#endif
 
 namespace {
 

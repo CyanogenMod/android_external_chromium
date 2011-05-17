@@ -6,11 +6,7 @@
 
 #include <string>
 
-#ifndef ANDROID
-// FIXME: Need l10n on Android?
 #include "app/l10n_util.h"
-#endif
-
 #include "base/basictypes.h"
 #include "base/string_util.h"
 #include "base/string_number_conversions.h"
@@ -19,9 +15,7 @@
 #include "chrome/browser/autofill/autofill_type.h"
 #include "chrome/browser/autofill/field_types.h"
 #include "chrome/common/guid.h"
-#ifndef ANDROID
 #include "grit/generated_resources.h"
-#endif
 
 namespace {
 
