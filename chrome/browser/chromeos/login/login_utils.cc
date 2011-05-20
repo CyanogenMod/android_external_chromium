@@ -31,14 +31,14 @@
 #include "chrome/browser/chromeos/login/user_image_downloader.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/chromeos/proxy_config_service.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/net/gaia/token_service.h"
 #include "chrome/browser/net/preconnect.h"
 #include "chrome/browser/net/pref_proxy_config_service.h"
 #include "chrome/browser/prefs/pref_member.h"
-#include "chrome/browser/profile.h"
-#include "chrome/browser/profile_manager.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/ui/browser_init.h"
 #include "chrome/common/chrome_paths.h"
@@ -107,11 +107,16 @@ class LoginUtilsImpl : public LoginUtils {
   virtual void CompleteLogin(
       const std::string& username,
       const std::string& password,
-      const GaiaAuthConsumer::ClientLoginResult& credentials);
+      const GaiaAuthConsumer::ClientLoginResult& credentials,
+      bool pending_requests);
 
   // Invoked after the tmpfs is successfully mounted.
   // Launches a browser in the off the record (incognito) mode.
   virtual void CompleteOffTheRecordLogin(const GURL& start_url);
+
+  // Invoked when the user is logging in for the first time, or is logging in as
+  // a guest user.
+  virtual void SetFirstLoginPrefs(PrefService* prefs);
 
   // Creates and returns the authenticator to use. The caller owns the returned
   // Authenticator and must delete it when done.
@@ -127,6 +132,17 @@ class LoginUtilsImpl : public LoginUtils {
   // Warms the url used by authentication.
   virtual void PrewarmAuthentication();
 
+  // Given the credentials try to exchange them for
+  // full-fledged Google authentication cookies.
+  virtual void FetchCookies(
+      Profile* profile,
+      const GaiaAuthConsumer::ClientLoginResult& credentials);
+
+  // Supply credentials for sync and others to use.
+  virtual void FetchTokens(
+      Profile* profile,
+      const GaiaAuthConsumer::ClientLoginResult& credentials);
+
  private:
   // Check user's profile for kApplicationLocale setting.
   void RespectLocalePreference(PrefService* pref);
@@ -139,7 +155,9 @@ class LoginUtilsImpl : public LoginUtils {
 
 class LoginUtilsWrapper {
  public:
-  LoginUtilsWrapper() {}
+  static LoginUtilsWrapper* GetInstance() {
+    return Singleton<LoginUtilsWrapper>::get();
+  }
 
   LoginUtils* get() {
     AutoLock create(create_lock_);
@@ -153,6 +171,10 @@ class LoginUtilsWrapper {
   }
 
  private:
+  friend struct DefaultSingletonTraits<LoginUtilsWrapper>;
+
+  LoginUtilsWrapper() {}
+
   Lock create_lock_;
   scoped_ptr<LoginUtils> ptr_;
 
@@ -162,7 +184,8 @@ class LoginUtilsWrapper {
 void LoginUtilsImpl::CompleteLogin(
     const std::string& username,
     const std::string& password,
-    const GaiaAuthConsumer::ClientLoginResult& credentials) {
+    const GaiaAuthConsumer::ClientLoginResult& credentials,
+    bool pending_requests) {
   BootTimesLoader* btl = BootTimesLoader::Get();
 
   VLOG(1) << "Completing login for " << username;
@@ -213,22 +236,20 @@ void LoginUtilsImpl::CompleteLogin(
                           new ResetDefaultProxyConfigServiceTask(
                               proxy_config_service));
 
-  // Take the credentials passed in and try to exchange them for
-  // full-fledged Google authentication cookies.  This is
-  // best-effort; it's possible that we'll fail due to network
-  // troubles or some such.  Either way, |cf| will call
-  // DoBrowserLaunch on the UI thread when it's done, and then
-  // delete itself.
-  CookieFetcher* cf = new CookieFetcher(profile);
-  cf->AttemptFetch(credentials.data);
-  btl->AddLoginTimeMarker("CookieFetchStarted", false);
+  // Since we're doing parallel authentication, only new user sign in
+  // would perform online auth before calling CompleteLogin.
+  // For existing users there's usually a pending online auth request.
+  // Cookies will be fetched after it's is succeeded.
+  if (!pending_requests) {
+    FetchCookies(profile, credentials);
+  }
 
   // Init extension event routers; this normally happens in browser_main
   // but on Chrome OS it has to be deferred until the user finishes
   // logging in and the profile is not OTR.
-  if (profile->GetExtensionsService() &&
-      profile->GetExtensionsService()->extensions_enabled()) {
-    profile->GetExtensionsService()->InitEventRouters();
+  if (profile->GetExtensionService() &&
+      profile->GetExtensionService()->extensions_enabled()) {
+    profile->GetExtensionService()->InitEventRouters();
   }
   btl->AddLoginTimeMarker("ExtensionsServiceStarted", false);
 
@@ -237,9 +258,11 @@ void LoginUtilsImpl::CompleteLogin(
   token_service->Initialize(GaiaConstants::kChromeOSSource,
                             profile);
   token_service->LoadTokensFromDB();
-  token_service->UpdateCredentials(credentials);
-  if (token_service->AreCredentialsValid()) {
-    token_service->StartFetchingTokens();
+
+  // For existing users there's usually a pending online auth request.
+  // Tokens will be fetched after it's is succeeded.
+  if (!pending_requests) {
+    FetchTokens(profile, credentials);
   }
   btl->AddLoginTimeMarker("TokensGotten", false);
 
@@ -267,39 +290,8 @@ void LoginUtilsImpl::CompleteLogin(
 
   RespectLocalePreference(profile->GetPrefs());
 
-  static const char kFallbackInputMethodLocale[] = "en-US";
   if (first_login) {
-    std::string locale(g_browser_process->GetApplicationLocale());
-    // Add input methods based on the application locale when the user first
-    // logs in. For instance, if the user chooses Japanese as the UI
-    // language at the first login, we'll add input methods associated with
-    // Japanese, such as mozc.
-    if (locale != kFallbackInputMethodLocale) {
-      StringPrefMember language_preload_engines;
-      language_preload_engines.Init(prefs::kLanguagePreloadEngines,
-                                    profile->GetPrefs(), NULL);
-      StringPrefMember language_preferred_languages;
-      language_preferred_languages.Init(prefs::kLanguagePreferredLanguages,
-                                        profile->GetPrefs(), NULL);
-
-      std::string preload_engines(language_preload_engines.GetValue());
-      std::vector<std::string> input_method_ids;
-      input_method::GetInputMethodIdsFromLanguageCode(
-          locale, input_method::kAllInputMethods, &input_method_ids);
-      if (!input_method_ids.empty()) {
-        if (!preload_engines.empty())
-          preload_engines += ',';
-        preload_engines += input_method_ids[0];
-      }
-      language_preload_engines.SetValue(preload_engines);
-
-      // Add the UI language to the preferred languages the user first logs in.
-      std::string preferred_languages(locale);
-      preferred_languages += ",";
-      preferred_languages += kFallbackInputMethodLocale;
-      language_preferred_languages.SetValue(preferred_languages);
-      btl->AddLoginTimeMarker("IMESTarted", false);
-    }
+    SetFirstLoginPrefs(profile->GetPrefs());
   }
 
   // We suck. This is a hack since we do not have the enterprise feature
@@ -314,17 +306,49 @@ void LoginUtilsImpl::CompleteLogin(
   DoBrowserLaunch(profile);
 }
 
+void LoginUtilsImpl::FetchCookies(
+    Profile* profile,
+    const GaiaAuthConsumer::ClientLoginResult& credentials) {
+  // Take the credentials passed in and try to exchange them for
+  // full-fledged Google authentication cookies.  This is
+  // best-effort; it's possible that we'll fail due to network
+  // troubles or some such.
+  // CookieFetcher will delete itself once done.
+  CookieFetcher* cf = new CookieFetcher(profile);
+  cf->AttemptFetch(credentials.data);
+  BootTimesLoader::Get()->AddLoginTimeMarker("CookieFetchStarted", false);
+}
+
+void LoginUtilsImpl::FetchTokens(
+    Profile* profile,
+    const GaiaAuthConsumer::ClientLoginResult& credentials) {
+  TokenService* token_service = profile->GetTokenService();
+  token_service->UpdateCredentials(credentials);
+  if (token_service->AreCredentialsValid()) {
+    token_service->StartFetchingTokens();
+  }
+}
+
 void LoginUtilsImpl::RespectLocalePreference(PrefService* pref) {
   std::string pref_locale = pref->GetString(prefs::kApplicationLocale);
   if (pref_locale.empty()) {
-    // TODO(dilmah): current code will clobber existing setting in case
-    // language preference was set via another device
-    // but still not synced yet.  Profile is not synced at this point yet.
-    pref->SetString(prefs::kApplicationLocale,
-                    g_browser_process->GetApplicationLocale());
-  } else {
-    LanguageSwitchMenu::SwitchLanguage(pref_locale);
+    // Profile synchronization takes time and is not completed at that moment
+    // at first login.  So we initialize locale preference in steps:
+    // (1) first save it to temporary backup;
+    // (2) on next login we assume that synchronization is already completed
+    //     and we may finalize initialization.
+    std::string pref_locale_backup =
+        pref->GetString(prefs::kApplicationLocaleBackup);
+    if (pref_locale_backup.empty()) {
+      pref->SetString(prefs::kApplicationLocaleBackup,
+                      g_browser_process->GetApplicationLocale());
+      return;
+    } else {
+      pref_locale.swap(pref_locale_backup);
+      pref->SetString(prefs::kApplicationLocale, pref_locale);
+    }
   }
+  LanguageSwitchMenu::SwitchLanguage(pref_locale);
 }
 
 void LoginUtilsImpl::CompleteOffTheRecordLogin(const GURL& start_url) {
@@ -344,8 +368,9 @@ void LoginUtilsImpl::CompleteOffTheRecordLogin(const GURL& start_url) {
         switches::kLoginProfile,
         switches::kEnableTabbedOptions,
         switches::kCompressSystemFeedback,
-#if defined(USE_SECCOMP_SANDBOX)
         switches::kDisableSeccompSandbox,
+#if defined(HAVE_XINPUT2)
+        switches::kTouchDevices,
 #endif
     };
     const CommandLine& browser_command_line =
@@ -384,6 +409,44 @@ void LoginUtilsImpl::CompleteOffTheRecordLogin(const GURL& start_url) {
     }
 
     CrosLibrary::Get()->GetLoginLibrary()->RestartJob(getpid(), cmd_line_str);
+  }
+}
+
+void LoginUtilsImpl::SetFirstLoginPrefs(PrefService* prefs) {
+  VLOG(1) << "Setting first login prefs";
+  BootTimesLoader* btl = BootTimesLoader::Get();
+
+  static const char kFallbackInputMethodLocale[] = "en-US";
+  std::string locale(g_browser_process->GetApplicationLocale());
+  // Add input methods based on the application locale when the user first
+  // logs in. For instance, if the user chooses Japanese as the UI
+  // language at the first login, we'll add input methods associated with
+  // Japanese, such as mozc.
+  if (locale != kFallbackInputMethodLocale) {
+    StringPrefMember language_preload_engines;
+    language_preload_engines.Init(prefs::kLanguagePreloadEngines,
+                                  prefs, NULL);
+    StringPrefMember language_preferred_languages;
+    language_preferred_languages.Init(prefs::kLanguagePreferredLanguages,
+                                      prefs, NULL);
+
+    std::string preload_engines(language_preload_engines.GetValue());
+    std::vector<std::string> input_method_ids;
+    input_method::GetInputMethodIdsFromLanguageCode(
+        locale, input_method::kAllInputMethods, &input_method_ids);
+    if (!input_method_ids.empty()) {
+      if (!preload_engines.empty())
+        preload_engines += ',';
+      preload_engines += input_method_ids[0];
+    }
+    language_preload_engines.SetValue(preload_engines);
+
+    // Add the UI language to the preferred languages the user first logs in.
+    std::string preferred_languages(locale);
+    preferred_languages += ",";
+    preferred_languages += kFallbackInputMethodLocale;
+    language_preferred_languages.SetValue(preferred_languages);
+    btl->AddLoginTimeMarker("IMEStarted", false);
   }
 }
 
@@ -443,11 +506,11 @@ void LoginUtilsImpl::PrewarmAuthentication() {
 }
 
 LoginUtils* LoginUtils::Get() {
-  return Singleton<LoginUtilsWrapper>::get()->get();
+  return LoginUtilsWrapper::GetInstance()->get();
 }
 
 void LoginUtils::Set(LoginUtils* mock) {
-  Singleton<LoginUtilsWrapper>::get()->reset(mock);
+  LoginUtilsWrapper::GetInstance()->reset(mock);
 }
 
 void LoginUtils::DoBrowserLaunch(Profile* profile) {

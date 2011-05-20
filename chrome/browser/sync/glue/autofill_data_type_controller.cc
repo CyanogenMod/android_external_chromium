@@ -9,11 +9,11 @@
 #include "base/task.h"
 #include "base/time.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/glue/autofill_change_processor.h"
 #include "chrome/browser/sync/glue/autofill_model_associator.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_factory.h"
+#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/webdata/web_data_service.h"
 #include "chrome/common/notification_service.h"
 
@@ -148,6 +148,41 @@ void AutofillDataTypeController::Stop() {
   }
 }
 
+bool AutofillDataTypeController::enabled() {
+  return true;
+}
+
+syncable::ModelType AutofillDataTypeController::type() {
+  return syncable::AUTOFILL;
+}
+
+browser_sync::ModelSafeGroup AutofillDataTypeController::model_safe_group() {
+  return browser_sync::GROUP_DB;
+}
+
+const char* AutofillDataTypeController::name() const {
+  // For logging only.
+  return "autofill";
+}
+
+DataTypeController::State AutofillDataTypeController::state() {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  return state_;
+}
+
+ProfileSyncFactory::SyncComponents
+  AutofillDataTypeController::CreateSyncComponents(
+      ProfileSyncService* profile_sync_service,
+      WebDatabase* web_database,
+      PersonalDataManager* personal_data,
+      browser_sync::UnrecoverableErrorHandler* error_handler) {
+  return profile_sync_factory_->CreateAutofillSyncComponents(
+      profile_sync_service,
+      web_database,
+      personal_data,
+      this);
+}
+
 void AutofillDataTypeController::StartImpl() {
   VLOG(1) << "Autofill data type controller StartImpl called.";
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
@@ -160,7 +195,7 @@ void AutofillDataTypeController::StartImpl() {
       return;
     }
     ProfileSyncFactory::SyncComponents sync_components =
-        profile_sync_factory_->CreateAutofillSyncComponents(
+        CreateSyncComponents(
             sync_service_,
             web_data_service_->GetDatabase(),
             profile_->GetPersonalDataManager(),

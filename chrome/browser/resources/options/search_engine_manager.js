@@ -31,6 +31,7 @@ cr.define('options', function() {
       options.search_engines.SearchEngineList.decorate(this.list_);
       var selectionModel = new ListSingleSelectionModel
       this.list_.selectionModel = selectionModel;
+      this.list_.autoExpands = true;
 
       selectionModel.addEventListener('change',
           this.selectionChanged_.bind(this));
@@ -39,9 +40,6 @@ cr.define('options', function() {
       $('addSearchEngineButton').onclick = function(event) {
         chrome.send('editSearchEngine', ["-1"]);
         OptionsPage.showOverlay('editSearchEngineOverlay');
-      };
-      $('removeSearchEngineButton').onclick = function(event) {
-        chrome.send('removeSearchEngine', [self.selectedModelIndex_]);
       };
       $('editSearchEngineButton').onclick = function(event) {
         chrome.send('editSearchEngine', [self.selectedModelIndex_]);
@@ -56,12 +54,6 @@ cr.define('options', function() {
       // TODO(stuartmorgan): Remove this once the strings are updated.
       $('addSearchEngineButton').textContent =
           localStrings.getStringWithoutAccelerator('addSearchEngineButton');
-      $('removeSearchEngineButton').textContent =
-          localStrings.getStringWithoutAccelerator('removeSearchEngineButton');
-
-      this.addEventListener('visibleChange', function(event) {
-          $('searchEngineList').redraw();
-      });
     },
 
     /**
@@ -92,8 +84,6 @@ cr.define('options', function() {
       var engine = selectedIndex != -1 ?
           this.list_.dataModel.item(selectedIndex) : null;
 
-      $('removeSearchEngineButton').disabled =
-          !(engine && engine['canBeRemoved']);
       $('editSearchEngineButton').disabled = engine == null;
       $('makeDefaultSearchEngineButton').disabled =
           !(engine && engine['canBeDefault']);

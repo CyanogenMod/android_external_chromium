@@ -13,10 +13,10 @@
 #include "chrome/browser/gtk/tabs/tab_strip_gtk.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
+#include "chrome/common/notification_source.h"
 
 namespace {
 
@@ -409,6 +409,7 @@ void DraggedTabControllerGtk::Attach(TabStripGtk* attached_tabstrip,
   }
   DCHECK(tab);  // We should now have a tab.
   tab->SetVisible(false);
+  tab->set_dragging(true);
 
   // TODO(jhawkins): Move the corresponding window to the front.
 }
@@ -654,6 +655,7 @@ void DraggedTabControllerGtk::RevertDrag() {
     ShowWindow();
 
   source_tab_->SetVisible(true);
+  source_tab_->set_dragging(false);
 }
 
 bool DraggedTabControllerGtk::CompleteDrag() {
@@ -759,6 +761,7 @@ void DraggedTabControllerGtk::OnAnimateToBoundsComplete() {
     TabGtk* tab = GetTabMatchingDraggedContents(attached_tabstrip_);
     if (tab) {
       tab->SetVisible(true);
+      tab->set_dragging(false);
       // Paint the tab now, otherwise there may be slight flicker between the
       // time the dragged tab window is destroyed and we paint.
       tab->SchedulePaint();

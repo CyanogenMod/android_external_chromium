@@ -8,16 +8,18 @@
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/net/gaia/token_service.h"
 #include "chrome/browser/policy/configuration_policy_pref_store.h"
+#include "chrome/browser/policy/configuration_policy_provider.h"
 #include "chrome/browser/policy/device_management_policy_cache.h"
 #include "chrome/browser/policy/device_management_policy_provider.h"
 #include "chrome/browser/policy/mock_configuration_policy_store.h"
 #include "chrome/browser/policy/mock_device_management_backend.h"
 #include "chrome/common/net/gaia/gaia_constants.h"
+#include "chrome/common/notification_observer_mock.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/policy_constants.h"
-#include "chrome/test/mock_notification_observer.h"
 #include "chrome/test/testing_device_token_fetcher.h"
 #include "chrome/test/testing_profile.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 const char kTestToken[] = "device_policy_provider_test_auth_token";
@@ -27,6 +29,12 @@ namespace policy {
 using ::testing::_;
 using ::testing::InSequence;
 using ::testing::Mock;
+
+class MockConfigurationPolicyObserver
+    : public ConfigurationPolicyProvider::Observer {
+ public:
+  MOCK_METHOD0(OnUpdatePolicy, void());
+};
 
 class DeviceManagementPolicyProviderTest : public testing::Test {
  public:
@@ -39,7 +47,7 @@ class DeviceManagementPolicyProviderTest : public testing::Test {
   virtual void SetUp() {
     profile_.reset(new TestingProfile);
     CreateNewProvider();
-    EXPECT_TRUE(provider_->waiting_for_initial_policies());
+    EXPECT_TRUE(waiting_for_initial_policies());
     loop_.RunAllPending();
   }
 
@@ -99,7 +107,7 @@ class DeviceManagementPolicyProviderTest : public testing::Test {
         MockDeviceManagementBackendSucceedBooleanPolicy(
             key::kDisableSpdy, true));
     SimulateSuccessfulLoginAndRunPending();
-    EXPECT_FALSE(provider_->waiting_for_initial_policies());
+    EXPECT_FALSE(waiting_for_initial_policies());
     EXPECT_CALL(store, Apply(kPolicyDisableSpdy, _)).Times(1);
     provider_->Provide(&store);
     ASSERT_EQ(1U, store.policy_map().size());
@@ -109,6 +117,10 @@ class DeviceManagementPolicyProviderTest : public testing::Test {
 
   virtual void TearDown() {
     loop_.RunAllPending();
+  }
+
+  bool waiting_for_initial_policies() const {
+    return provider_->waiting_for_initial_policies_;
   }
 
   MockDeviceManagementBackend* backend_;  // weak
@@ -136,14 +148,14 @@ TEST_F(DeviceManagementPolicyProviderTest, InitialProvideNoLogin) {
   EXPECT_CALL(store, Apply(_, _)).Times(0);
   provider_->Provide(&store);
   EXPECT_TRUE(store.policy_map().empty());
-  EXPECT_TRUE(provider_->waiting_for_initial_policies());
+  EXPECT_TRUE(waiting_for_initial_policies());
 }
 
 // If the login is successful and there's no previously-fetched policy, the
 // policy should be fetched from the server and should be available the first
 // time the Provide method is called.
 TEST_F(DeviceManagementPolicyProviderTest, InitialProvideWithLogin) {
-  EXPECT_TRUE(provider_->waiting_for_initial_policies());
+  EXPECT_TRUE(waiting_for_initial_policies());
   SimulateSuccessfulInitialPolicyFetch();
 }
 
@@ -193,12 +205,11 @@ TEST_F(DeviceManagementPolicyProviderTest, SecondProvide) {
 // When policy is successfully fetched from the device management server, it
 // should force a policy refresh.
 TEST_F(DeviceManagementPolicyProviderTest, FetchTriggersRefresh) {
-  MockNotificationObserver observer;
-  NotificationRegistrar registrar;
-  registrar.Add(&observer,
-                NotificationType::POLICY_CHANGED,
-                NotificationService::AllSources());
-  EXPECT_CALL(observer, Observe(_, _, _)).Times(1);
+  MockConfigurationPolicyObserver observer;
+  ConfigurationPolicyObserverRegistrar registrar;
+  registrar.Init(provider_.get());
+  registrar.AddObserver(&observer);
+  EXPECT_CALL(observer, OnUpdatePolicy()).Times(1);
   SimulateSuccessfulInitialPolicyFetch();
 }
 
@@ -305,7 +316,7 @@ TEST_F(DeviceManagementPolicyProviderTest, UnmanagedDevice) {
   // (2) On restart, the provider should detect that this is not the first
   // login.
   CreateNewProvider(1000*1000, 0, 0, 0, 0);
-  EXPECT_FALSE(provider_->waiting_for_initial_policies());
+  EXPECT_FALSE(waiting_for_initial_policies());
   EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
       MockDeviceManagementBackendSucceedRegister());
   EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(

@@ -12,7 +12,7 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_profile.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/glue/autofill_change_processor.h"
 #include "chrome/browser/sync/profile_sync_service.h"
@@ -421,13 +421,13 @@ AutofillModelAssociator2::GetChromeNodeFromSyncId(int64 sync_id) {
 }
 
 bool AutofillModelAssociator2::InitSyncNodeFromChromeId(
-    std::string node_id,
+    const std::string& node_id,
     sync_api::BaseNode* sync_node) {
   return false;
 }
 
 int64 AutofillModelAssociator2::GetSyncIdFromChromeId(
-    const std::string autofill) {
+    const std::string& autofill) {
   AutofillToSyncIdMap::const_iterator iter = id_map_.find(autofill);
   return iter == id_map_.end() ? sync_api::kInvalidId : iter->second;
 }

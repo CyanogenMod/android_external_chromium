@@ -9,9 +9,9 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -115,7 +115,8 @@ void BackgroundContentsService::Observe(NotificationType type,
       break;
     case NotificationType::EXTENSION_UNLOADED:
       ShutdownAssociatedBackgroundContents(
-          ASCIIToUTF16(Details<const Extension>(details)->id()));
+          ASCIIToUTF16(
+              Details<UnloadedExtensionInfo>(details)->extension->id()));
       break;
     default:
       NOTREACHED();
@@ -132,7 +133,7 @@ void BackgroundContentsService::LoadBackgroundContentsFromPrefs(
       prefs_->GetDictionary(prefs::kRegisteredBackgroundContents);
   if (!contents)
     return;
-  ExtensionsService* extensions_service = profile->GetExtensionsService();
+  ExtensionService* extensions_service = profile->GetExtensionService();
   DCHECK(extensions_service);
   for (DictionaryValue::key_iterator it = contents->begin_keys();
        it != contents->end_keys(); ++it) {

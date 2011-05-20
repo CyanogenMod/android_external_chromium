@@ -648,12 +648,8 @@ class AutomationProviderBookmarkModelObserver : BookmarkModelObserver {
                                           BookmarkModel* model);
   virtual ~AutomationProviderBookmarkModelObserver();
 
-  virtual void Loaded(BookmarkModel* model) {
-    ReplyAndDelete(true);
-  }
-  virtual void BookmarkModelBeingDeleted(BookmarkModel* model) {
-    ReplyAndDelete(false);
-  }
+  virtual void Loaded(BookmarkModel* model);
+  virtual void BookmarkModelBeingDeleted(BookmarkModel* model);
   virtual void BookmarkNodeMoved(BookmarkModel* model,
                                  const BookmarkNode* old_parent,
                                  int old_index,
@@ -770,7 +766,7 @@ class AutomationProviderSearchEngineObserver
     : provider_(provider),
       reply_message_(reply_message) {}
 
-  void OnTemplateURLModelChanged();
+  virtual void OnTemplateURLModelChanged();
 
  private:
   AutomationProvider* provider_;
@@ -806,10 +802,10 @@ class AutomationProviderImportSettingsObserver
       IPC::Message* reply_message)
     : provider_(provider),
       reply_message_(reply_message) {}
-  void ImportStarted() {}
-  void ImportItemStarted(importer::ImportItem item) {}
-  void ImportItemEnded(importer::ImportItem item) {}
-  void ImportEnded();
+  virtual void ImportStarted() {}
+  virtual void ImportItemStarted(importer::ImportItem item) {}
+  virtual void ImportItemEnded(importer::ImportItem item) {}
+  virtual void ImportEnded();
  private:
   AutomationProvider* provider_;
   IPC::Message* reply_message_;
@@ -825,7 +821,7 @@ class AutomationProviderGetPasswordsObserver
     : provider_(provider),
       reply_message_(reply_message) {}
 
-  void OnPasswordStoreRequestDone(
+  virtual void OnPasswordStoreRequestDone(
       int handle, const std::vector<webkit_glue::PasswordForm*>& result);
 
  private:
@@ -842,7 +838,7 @@ class AutomationProviderBrowsingDataObserver
       IPC::Message* reply_message)
     : provider_(provider),
       reply_message_(reply_message) {}
-  void OnBrowsingDataRemoverDone();
+  virtual void OnBrowsingDataRemoverDone();
 
  private:
   AutomationProvider* provider_;
@@ -932,6 +928,7 @@ class NTPInfoObserver : public NotificationObserver {
   NTPInfoObserver(AutomationProvider* automation,
                   IPC::Message* reply_message,
                   CancelableRequestConsumer* consumer);
+  virtual ~NTPInfoObserver();
 
   virtual void Observe(NotificationType type,
                        const NotificationSource& source,
@@ -973,6 +970,26 @@ class AutocompleteEditFocusedObserver : public NotificationObserver {
   DISALLOW_COPY_AND_ASSIGN(AutocompleteEditFocusedObserver);
 };
 
+// Allows the automation provider to wait until all the notification
+// processes are ready.
+class GetActiveNotificationsObserver : public NotificationObserver {
+ public:
+  GetActiveNotificationsObserver(AutomationProvider* automation,
+                                 IPC::Message* reply_message);
+
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
+
+ private:
+  void SendMessage();
+
+  AutomationJSONReply reply_;
+  NotificationRegistrar registrar_;
+
+  DISALLOW_COPY_AND_ASSIGN(GetActiveNotificationsObserver);
+};
+
 // Allows the automation provider to wait for a given number of
 // notification balloons.
 class OnNotificationBalloonCountObserver {
@@ -990,6 +1007,25 @@ class OnNotificationBalloonCountObserver {
   int count_;
 
   DISALLOW_COPY_AND_ASSIGN(OnNotificationBalloonCountObserver);
+};
+
+// Allows the automation provider to wait for a RENDERER_PROCESS_CLOSED
+// notification.
+class RendererProcessClosedObserver : public NotificationObserver {
+ public:
+  RendererProcessClosedObserver(AutomationProvider* automation,
+                                IPC::Message* reply_message);
+
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
+
+ private:
+  NotificationRegistrar registrar_;
+  AutomationProvider* automation_;
+  IPC::Message* reply_message_;
+
+  DISALLOW_COPY_AND_ASSIGN(RendererProcessClosedObserver);
 };
 
 

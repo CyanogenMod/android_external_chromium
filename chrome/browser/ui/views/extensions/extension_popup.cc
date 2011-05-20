@@ -4,18 +4,20 @@
 
 #include "chrome/browser/views/extensions/extension_popup.h"
 
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_window.h"
+#include <vector>
+
 #include "chrome/browser/debugger/devtools_manager.h"
 #include "chrome/browser/debugger/devtools_toggle_action.h"
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_process_manager.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/views/frame/browser_view.h"
-#include "chrome/browser/window_sizer.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/window_sizer.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_source.h"
@@ -24,16 +26,16 @@
 #include "views/widget/root_view.h"
 #include "views/window/window.h"
 
-
 #if defined(OS_LINUX)
 #include "views/widget/widget_gtk.h"
 #endif
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/wm_ipc.h"
-#include "cros/chromeos_wm_ipc_enums.h"
+#include "third_party/cros/chromeos_wm_ipc_enums.h"
 #endif
 
+using std::vector;
 using views::Widget;
 
 // The minimum, and default maximum dimensions of the popup.
@@ -120,10 +122,14 @@ ExtensionPopup::ExtensionPopup(ExtensionHost* host,
 #endif
     border_widget_->Init(native_window, bounds());
 #if defined(OS_CHROMEOS)
-    chromeos::WmIpc::instance()->SetWindowType(
-        border_widget_->GetNativeView(),
-        chromeos::WM_IPC_WINDOW_CHROME_INFO_BUBBLE,
-        NULL);
+    {
+      vector<int> params;
+      params.push_back(0);  // don't show while screen is locked
+      chromeos::WmIpc::instance()->SetWindowType(
+          border_widget_->GetNativeView(),
+          chromeos::WM_IPC_WINDOW_CHROME_INFO_BUBBLE,
+          &params);
+    }
 #endif
     border_ = new BubbleBorder(arrow_location);
     border_view_ = new views::View;

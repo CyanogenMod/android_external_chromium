@@ -47,6 +47,7 @@ extern const char kAboutCrashURL[];
 extern const char kAboutCreditsURL[];
 extern const char kAboutDNSURL[];
 extern const char kAboutFlagsURL[];
+extern const char kAboutGpuURL[];
 extern const char kAboutGpuCrashURL[];
 extern const char kAboutGpuHangURL[];
 extern const char kAboutHangURL[];
@@ -105,9 +106,11 @@ extern const char kChromeUIDownloadsHost[];
 extern const char kChromeUIExtensionsHost[];
 extern const char kChromeUIFavIconHost[];
 extern const char kChromeUIFlagsHost[];
+extern const char kChromeUIGpuInternalsHost[];
 extern const char kChromeUIHistory2Host[];
 extern const char kChromeUIHistoryHost[];
 extern const char kChromeUIKeyboardHost[];
+extern const char kChromeUILoginHost[];
 extern const char kChromeUINetInternalsHost[];
 extern const char kChromeUINewTabHost[];
 extern const char kChromeUIPluginsHost[];
@@ -153,6 +156,9 @@ extern const char kCloudPrintSetupHost[];
 // Network related URLs.
 extern const char kNetworkViewCacheURL[];
 extern const char kNetworkViewInternalsURL[];
+
+// GPU related URLs
+extern const char kGpuInternalsURL[];
 
 // Options sub-pages.
 extern const char kAdvancedOptionsSubPage[];

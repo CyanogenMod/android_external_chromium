@@ -13,6 +13,7 @@
 #include "gfx/rect.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/upload_data.h"
+#include "printing/backend/print_backend.h"
 #include "printing/native_metafile.h"
 #include "printing/page_range.h"
 
@@ -232,25 +233,36 @@ void ParamTraits<WebApplicationInfo>::Write(Message* m,
   WriteParam(m, p.title);
   WriteParam(m, p.description);
   WriteParam(m, p.app_url);
+  WriteParam(m, p.launch_container);
   WriteParam(m, p.icons.size());
+  WriteParam(m, p.permissions.size());
+
   for (size_t i = 0; i < p.icons.size(); ++i) {
     WriteParam(m, p.icons[i].url);
     WriteParam(m, p.icons[i].width);
     WriteParam(m, p.icons[i].height);
     WriteParam(m, p.icons[i].data);
   }
+
+  for (size_t i = 0; i < p.permissions.size(); ++i)
+    WriteParam(m, p.permissions[i]);
 }
 
 bool ParamTraits<WebApplicationInfo>::Read(
     const Message* m, void** iter, WebApplicationInfo* r) {
-  size_t icon_count;
+  size_t icon_count = 0;
+  size_t permissions_count = 0;
+
   bool result =
     ReadParam(m, iter, &r->title) &&
     ReadParam(m, iter, &r->description) &&
     ReadParam(m, iter, &r->app_url) &&
-    ReadParam(m, iter, &icon_count);
+    ReadParam(m, iter, &r->launch_container) &&
+    ReadParam(m, iter, &icon_count) &&
+    ReadParam(m, iter, &permissions_count);
   if (!result)
     return false;
+
   for (size_t i = 0; i < icon_count; ++i) {
     param_type::IconInfo icon_info;
     result =
@@ -262,6 +274,14 @@ bool ParamTraits<WebApplicationInfo>::Read(
       return false;
     r->icons.push_back(icon_info);
   }
+
+  for (size_t i = 0; i < permissions_count; ++i) {
+    std::string permission;
+    if (!ReadParam(m, iter, &permission))
+      return false;
+    r->permissions.push_back(permission);
+  }
+
   return true;
 }
 
@@ -624,6 +644,36 @@ void ParamTraits<base::PlatformFileInfo>::Log(
   LogParam(p.last_accessed.ToDoubleT(), l);
   l->append(",");
   LogParam(p.creation_time.ToDoubleT(), l);
+  l->append(")");
+}
+
+void ParamTraits<printing::PrinterCapsAndDefaults>::Write(
+    Message* m, const param_type& p) {
+  WriteParam(m, p.printer_capabilities);
+  WriteParam(m, p.caps_mime_type);
+  WriteParam(m, p.printer_defaults);
+  WriteParam(m, p.defaults_mime_type);
+}
+
+bool ParamTraits<printing::PrinterCapsAndDefaults>::Read(
+    const Message* m, void** iter, param_type* p) {
+  return
+      ReadParam(m, iter, &p->printer_capabilities) &&
+      ReadParam(m, iter, &p->caps_mime_type) &&
+      ReadParam(m, iter, &p->printer_defaults) &&
+      ReadParam(m, iter, &p->defaults_mime_type);
+}
+
+void ParamTraits<printing::PrinterCapsAndDefaults>::Log(
+    const param_type& p, std::string* l) {
+  l->append("(");
+  LogParam(p.printer_capabilities, l);
+  l->append(",");
+  LogParam(p.caps_mime_type, l);
+  l->append(",");
+  LogParam(p.printer_defaults, l);
+  l->append(",");
+  LogParam(p.defaults_mime_type, l);
   l->append(")");
 }
 

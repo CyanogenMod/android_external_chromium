@@ -10,6 +10,8 @@
 #include "base/hash_tables.h"
 #include "net/url_request/url_request.h"
 
+template <typename T> struct DefaultSingletonTraits;
+
 namespace chromeos {
 
 // This class integrates the Google Document Viewer into ChromeOS,
@@ -18,24 +20,26 @@ namespace chromeos {
 // document types (such as PDF) and redirect the request to the Google
 // Document Viewer, including the document's original URL as a
 // parameter.
-class GViewRequestInterceptor : public URLRequest::Interceptor {
+class GViewRequestInterceptor : public net::URLRequest::Interceptor {
  public:
-  GViewRequestInterceptor();
-  virtual ~GViewRequestInterceptor();
-
   // Always returns NULL because we don't want to attempt a redirect
   // before seeing the detected mime type of the request.
   virtual net::URLRequestJob* MaybeIntercept(net::URLRequest* request);
 
   // Determines if the requested document can be viewed by the Google
-  // Document Viewer.  If it can, returns a URLRequestJob that
+  // Document Viewer.  If it can, returns a net::URLRequestJob that
   // redirects the browser to the view URL.
   virtual net::URLRequestJob* MaybeInterceptResponse(net::URLRequest* request);
 
   // Singleton accessor.
-  static URLRequest::Interceptor* GetGViewRequestInterceptor();
+  static GViewRequestInterceptor* GetInstance();
 
  private:
+  friend struct DefaultSingletonTraits<GViewRequestInterceptor>;
+
+  GViewRequestInterceptor();
+  virtual ~GViewRequestInterceptor();
+
   // The list of supported mime types.
   base::hash_set<std::string> supported_mime_types_;
 };

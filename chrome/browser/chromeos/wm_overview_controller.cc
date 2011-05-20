@@ -19,9 +19,9 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tab_contents/thumbnail_generator.h"
-#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/browser/views/frame/browser_view.h"
 #include "chrome/common/notification_service.h"
 #include "views/widget/root_view.h"
@@ -453,7 +453,7 @@ void BrowserListener::RenumberSnapshots(int start_index) {
 // WmOverviewController methods
 
 // static
-WmOverviewController* WmOverviewController::instance() {
+WmOverviewController* WmOverviewController::GetInstance() {
   static WmOverviewController* instance = NULL;
   if (!instance) {
     instance = Singleton<WmOverviewController>::get();
@@ -483,11 +483,11 @@ WmOverviewController::WmOverviewController()
   }
 
   BrowserList::AddObserver(this);
-  WmMessageListener::instance()->AddObserver(this);
+  WmMessageListener::GetInstance()->AddObserver(this);
 }
 
 WmOverviewController::~WmOverviewController() {
-  WmMessageListener::instance()->RemoveObserver(this);
+  WmMessageListener::GetInstance()->RemoveObserver(this);
   BrowserList::RemoveObserver(this);
   listeners_.clear();
 }
@@ -687,7 +687,7 @@ void WmOverviewController::UpdateSnapshots() {
     }
 
     // Found next one;
-    browser_listener_index ++;
+    browser_listener_index++;
     browser_listener_index = browser_listener_index % listeners_.size();
     tab_contents_index = -1;
 
@@ -715,8 +715,7 @@ void WmOverviewController::AddAllBrowsers() {
     // Don't add a browser to the list if that type of browser doesn't
     // have snapshots in overview mode.
     if ((*iterator)->type() != Browser::TYPE_NORMAL &&
-        (*iterator)->type() != Browser::TYPE_APP &&
-        (*iterator)->type() != Browser::TYPE_EXTENSION_APP) {
+        (*iterator)->type() != Browser::TYPE_APP) {
       ++iterator;
       continue;
     }

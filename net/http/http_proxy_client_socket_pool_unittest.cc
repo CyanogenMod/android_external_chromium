@@ -62,9 +62,11 @@ class HttpProxyClientSocketPoolTest : public TestWithHttpParam {
         ssl_histograms_("MockSSL"),
         ssl_config_service_(new SSLConfigServiceDefaults),
         host_resolver_(new MockHostResolver),
+        cert_verifier_(new CertVerifier),
         ssl_socket_pool_(kMaxSockets, kMaxSocketsPerGroup,
                          &ssl_histograms_,
                          host_resolver_.get(),
+                         cert_verifier_.get(),
                          NULL /* dnsrr_resolver */,
                          NULL /* dns_cert_checker */,
                          NULL /* ssl_host_info_factory */,
@@ -77,6 +79,7 @@ class HttpProxyClientSocketPoolTest : public TestWithHttpParam {
         http_auth_handler_factory_(
             HttpAuthHandlerFactory::CreateDefault(host_resolver_.get())),
         session_(new HttpNetworkSession(host_resolver_.get(),
+                                        cert_verifier_.get(),
                                         NULL /* dnsrr_resolver */,
                                         NULL /* dns_cert_checker */,
                                         NULL /* ssl_host_info_factory */,
@@ -192,6 +195,7 @@ class HttpProxyClientSocketPoolTest : public TestWithHttpParam {
   ClientSocketPoolHistograms ssl_histograms_;
   scoped_refptr<SSLConfigService> ssl_config_service_;
   scoped_ptr<HostResolver> host_resolver_;
+  scoped_ptr<CertVerifier> cert_verifier_;
   SSLClientSocketPool ssl_socket_pool_;
 
   scoped_ptr<HttpAuthHandlerFactory> http_auth_handler_factory_;
@@ -498,9 +502,18 @@ TEST_P(HttpProxyClientSocketPoolTest, TunnelSetupError) {
 
   data_->RunFor(2);
 
-  EXPECT_EQ(ERR_TUNNEL_CONNECTION_FAILED, callback_.WaitForResult());
-  EXPECT_FALSE(handle_.is_initialized());
-  EXPECT_FALSE(handle_.socket());
+  rv = callback_.WaitForResult();
+  if (GetParam() == HTTP) {
+    // HTTP Proxy CONNECT responses are not trustworthy
+    EXPECT_EQ(ERR_TUNNEL_CONNECTION_FAILED, rv);
+    EXPECT_FALSE(handle_.is_initialized());
+    EXPECT_FALSE(handle_.socket());
+  } else {
+    // HTTPS or SPDY Proxy CONNECT responses are trustworthy
+    EXPECT_EQ(ERR_HTTPS_PROXY_TUNNEL_RESPONSE, rv);
+    EXPECT_TRUE(handle_.is_initialized());
+    EXPECT_TRUE(handle_.socket());
+  }
 }
 
 // It would be nice to also test the timeouts in HttpProxyClientSocketPool.

@@ -9,6 +9,7 @@
 #include <list>
 #include <set>
 #include <string>
+#include <utility>
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
@@ -17,12 +18,10 @@
 #include "base/ref_counted_memory.h"
 #include "base/time.h"
 #include "base/timer.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/cancelable_request.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/history/page_usage_data.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/thumbnail_score.h"
 #include "googleurl/src/gurl.h"
 

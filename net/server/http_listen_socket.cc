@@ -310,6 +310,14 @@ bool HttpListenSocket::ParseHeaders(HttpServerRequestInfo* info) {
   return false;
 }
 
+void HttpListenSocket::Close() {
+  ListenSocket::Close();
+}
+
+void HttpListenSocket::Listen() {
+  ListenSocket::Listen();
+}
+
 void HttpListenSocket::DidAccept(ListenSocket* server,
                                  ListenSocket* connection) {
   connection->AddRef();
@@ -344,6 +352,6 @@ void HttpListenSocket::DidRead(ListenSocket*,
 }
 
 void HttpListenSocket::DidClose(ListenSocket* sock) {
-  sock->Release();
   delegate_->OnClose(this);
+  sock->Release();
 }

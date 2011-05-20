@@ -30,7 +30,6 @@
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/url_constants.h"
 #include "gfx/rect.h"
-#include "views/window/window.h"
 
 #include "grit/browser_resources.h"
 #include "grit/chromium_strings.h"
@@ -43,6 +42,10 @@
 #include "base/mac_util.h"
 #elif defined(OS_WIN)
 #include "app/win_util.h"
+#endif
+
+#if defined(TOOLKIT_VIEWS)
+#include "views/window/window.h"
 #endif
 
 #if defined(OS_CHROMEOS)
@@ -196,7 +199,6 @@ void ShowHtmlBugReportView(NSWindow* window, Browser* browser) {
   if (feedback_tab_index >=0) {
     // Do not refresh screenshot, do not create a new tab
     browser->SelectTabContentsAt(feedback_tab_index, true);
-    return;
   }
 
   // now for refreshing the last screenshot
@@ -513,7 +515,7 @@ void BugReportHandler::ClobberScreenshotsSource() {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
-          Singleton<ChromeURLDataManager>::get(),
+          ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(new DOMUIScreenshotSource(NULL))));
 
@@ -532,7 +534,7 @@ void BugReportHandler::SetupScreenshotsSource() {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
-          Singleton<ChromeURLDataManager>::get(),
+          ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(screenshot_source_)));
 }
@@ -572,7 +574,7 @@ base::StringPiece BugReportHandler::Init() {
   TabContents* target_tab = browser->GetTabContentsAt(index);
   if (target_tab) {
     target_tab_title_ = target_tab->GetTitle();
-    target_tab_url_ = target_tab->controller().GetActiveEntry()->url().spec();
+    target_tab_url_ = target_tab->GetURL().spec();
   }
 
   // Setup the screenshot source after we've verified input is legit.
@@ -805,7 +807,7 @@ BugReportUI::BugReportUI(TabContents* tab) : HtmlDialogUI(tab) {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
-          Singleton<ChromeURLDataManager>::get(),
+          ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(html_source)));
 }

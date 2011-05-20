@@ -54,6 +54,9 @@ class TabStripGtk : public TabStripModelObserver,
   // Returns true if there is an active drag session.
   bool IsDragSessionActive() const { return drag_controller_.get() != NULL; }
 
+  // Returns true if a tab is being dragged into this tabstrip.
+  bool IsActiveDropTarget() const;
+
   // Sets the bounds of the tabs.
   void Layout();
 
@@ -363,7 +366,7 @@ class TabStripGtk : public TabStripModelObserver,
   // Determines whether the data is acceptable by the tabstrip and opens a new
   // tab with the data as URL if it is.  Returns true if the drop was
   // successful.
-  bool CompleteDrop(guchar* data);
+  bool CompleteDrop(guchar* data, bool is_plain_text);
 
   // Returns the image to use for indicating a drop on a tab. If is_down is
   // true, this returns an arrow pointing down.

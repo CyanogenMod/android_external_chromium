@@ -6,6 +6,8 @@
 #define NET_SOCKET_SSL_CLIENT_SOCKET_OPENSSL_H_
 #pragma once
 
+#include <string>
+
 #include "base/scoped_ptr.h"
 #include "net/base/cert_verify_result.h"
 #include "net/base/completion_callback.h"
@@ -15,11 +17,14 @@
 #include "net/socket/client_socket_handle.h"
 
 typedef struct bio_st BIO;
+typedef struct evp_pkey_st EVP_PKEY;
 typedef struct ssl_st SSL;
+typedef struct x509_st X509;
 
 namespace net {
 
 class CertVerifier;
+class SingleRequestCertVerifier;
 class SSLCertRequestInfo;
 class SSLConfig;
 class SSLInfo;
@@ -33,16 +38,19 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
   // settings.
   SSLClientSocketOpenSSL(ClientSocketHandle* transport_socket,
                          const HostPortPair& host_and_port,
-                         const SSLConfig& ssl_config);
+                         const SSLConfig& ssl_config,
+                         CertVerifier* cert_verifier);
   ~SSLClientSocketOpenSSL();
 
   const HostPortPair& host_and_port() const { return host_and_port_; }
 
-#ifdef ANDROID
+  // Callback from the SSL layer that indicates the remote server is requesting
+  // a certificate for this client.
+  int ClientCertRequestCallback(SSL* ssl, X509** x509, EVP_PKEY** pkey);
+
   // Callback from the SSL layer to check which NPN protocol we are supporting
   int SelectNextProtoCallback(unsigned char** out, unsigned char* outlen,
                               const unsigned char* in, unsigned int inlen);
-#endif
 
   // SSLClientSocket methods:
   virtual void GetSSLInfo(SSLInfo* ssl_info);
@@ -58,7 +66,7 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
   virtual void Disconnect();
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;
-  virtual int GetPeerAddress(AddressList*) const;
+  virtual int GetPeerAddress(AddressList* address) const;
   virtual const BoundNetLog& NetLog() const;
   virtual void SetSubresourceSpeculation();
   virtual void SetOmniboxSpeculation();
@@ -81,7 +89,6 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
   int DoVerifyCert(int result);
   int DoVerifyCertComplete(int result);
   void DoConnectCallback(int result);
-  void InvalidateSessionIfBadCertificate();
   X509Certificate* UpdateServerCert();
 
   void OnHandshakeIOComplete(int result);
@@ -130,7 +137,8 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
   std::vector<scoped_refptr<X509Certificate> > client_certs_;
   bool client_auth_cert_needed_;
 
-  scoped_ptr<CertVerifier> verifier_;
+  CertVerifier* const cert_verifier_;
+  scoped_ptr<SingleRequestCertVerifier> verifier_;
   CompletionCallbackImpl<SSLClientSocketOpenSSL> handshake_io_callback_;
 
   // OpenSSL stuff
@@ -151,14 +159,12 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
     STATE_VERIFY_CERT_COMPLETE,
   };
   State next_handshake_state_;
-#ifdef ANDROID
   NextProtoStatus npn_status_;
   std::string npn_proto_;
-#endif
   BoundNetLog net_log_;
 };
 
 }  // namespace net
 
-#endif // NET_SOCKET_SSL_CLIENT_SOCKET_OPENSSL_H_
+#endif  // NET_SOCKET_SSL_CLIENT_SOCKET_OPENSSL_H_
 

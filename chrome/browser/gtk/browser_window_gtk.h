@@ -84,6 +84,7 @@ class BrowserWindowGtk : public BrowserWindow,
   virtual void RotatePaneFocus(bool forwards);
   virtual bool IsBookmarkBarVisible() const;
   virtual bool IsBookmarkBarAnimating() const;
+  virtual bool IsTabStripEditable() const;
   virtual bool IsToolbarVisible() const;
   virtual void ConfirmAddSearchProvider(const TemplateURL* template_url,
                                         Profile* profile);
@@ -356,10 +357,6 @@ class BrowserWindowGtk : public BrowserWindow,
                        GdkEventFocus*);
   CHROMEGTK_CALLBACK_1(BrowserWindowGtk, gboolean, OnFocusOut,
                        GdkEventFocus*);
-
-  // A small shim for browser_->ExecuteCommand.
-  // Returns true if the command was executed.
-  bool ExecuteBrowserCommand(int id);
 
   // Callback for the loading animation(s) associated with this window.
   void LoadingAnimationCallback();

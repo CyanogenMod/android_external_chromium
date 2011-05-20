@@ -14,11 +14,9 @@
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/net/url_request_mock_http_job.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
@@ -122,7 +120,7 @@ class DownloadsObserver : public DownloadManager::Observer,
 
       std::set<DownloadItem*>::const_iterator
           finished_it(finished_downloads_.find(*it));
-      std::set<DownloadItem*>::const_iterator
+      std::set<DownloadItem*>::iterator
           observed_it(downloads_observed_.find(*it));
 
       // If it isn't finished and we're aren't observing it, start.

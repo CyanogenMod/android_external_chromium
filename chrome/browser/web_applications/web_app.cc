@@ -24,13 +24,12 @@
 #include "base/win/windows_version.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/download/download_util.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_plugin_util.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/web_apps.h"
 
@@ -40,6 +39,8 @@
 
 #if defined(OS_WIN)
 #include "base/win_util.h"
+#include "chrome/common/notification_details.h"
+#include "chrome/common/notification_source.h"
 #include "gfx/icon_util.h"
 #endif  // defined(OS_WIN)
 

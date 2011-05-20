@@ -121,7 +121,6 @@ GtkWidget* MenuGtk::Delegate::GetDefaultImageForCommandId(int command_id) {
     case IDC_CONTENT_CONTEXT_OPENIMAGENEWTAB:
     case IDC_CONTENT_CONTEXT_OPENLINKNEWTAB:
     case IDC_CONTENT_CONTEXT_OPENAVNEWTAB:
-    case IDC_CONTENT_CONTEXT_OPENFRAMENEWTAB:
       stock = GTK_STOCK_NEW;
       break;
 
@@ -132,6 +131,9 @@ GtkWidget* MenuGtk::Delegate::GetDefaultImageForCommandId(int command_id) {
     case IDC_CONTENT_CONTEXT_SAVEIMAGEAS:
     case IDC_CONTENT_CONTEXT_SAVEAVAS:
     case IDC_CONTENT_CONTEXT_SAVELINKAS:
+      stock = GTK_STOCK_SAVE_AS;
+      break;
+
     case IDC_SAVE_PAGE:
       stock = GTK_STOCK_SAVE;
       break;
@@ -157,6 +159,7 @@ GtkWidget* MenuGtk::Delegate::GetDefaultImageForCommandId(int command_id) {
       break;
 
     case IDC_CONTENT_CONTEXT_DELETE:
+    case IDC_BOOKMARK_BAR_REMOVE:
       stock = GTK_STOCK_DELETE;
       break;
 
@@ -241,6 +244,23 @@ GtkWidget* MenuGtk::Delegate::GetDefaultImageForCommandId(int command_id) {
     case IDC_DEV_TOOLS_INSPECT:
     case IDC_CONTENT_CONTEXT_INSPECTELEMENT:
       stock = GTK_STOCK_PROPERTIES;
+      break;
+
+    case IDC_BOOKMARK_BAR_ADD_NEW_BOOKMARK:
+      stock = GTK_STOCK_ADD;
+      break;
+
+    case IDC_BOOKMARK_BAR_RENAME_FOLDER:
+    case IDC_BOOKMARK_BAR_EDIT:
+      stock = GTK_STOCK_EDIT;
+      break;
+
+    case IDC_BOOKMARK_BAR_NEW_FOLDER:
+      stock = GTK_STOCK_DIRECTORY;
+      break;
+
+    case IDC_BOOKMARK_BAR_OPEN_ALL:
+      stock = GTK_STOCK_OPEN;
       break;
 
     default:
@@ -724,7 +744,7 @@ void MenuGtk::SetButtonItemInfo(GtkWidget* button, gpointer userdata) {
   int index = GPOINTER_TO_INT(g_object_get_data(
       G_OBJECT(button), "button-model-id"));
 
-  if (model->IsLabelDynamicAt(index)) {
+  if (model->IsItemDynamicAt(index)) {
     std::string label =
         gfx::ConvertAcceleratorsFromWindowsStyle(
             UTF16ToUTF8(model->GetLabelAt(index)));
@@ -783,7 +803,8 @@ void MenuGtk::SetMenuItemInfo(GtkWidget* widget, gpointer userdata) {
 
     if (model->IsVisibleAt(id)) {
       // Update the menu item label if it is dynamic.
-      if (model->IsLabelDynamicAt(id)) {
+      // TODO(atwilson): Update the icon as well (http://crbug.com/66508).
+      if (model->IsItemDynamicAt(id)) {
         std::string label =
             gfx::ConvertAcceleratorsFromWindowsStyle(
                 UTF16ToUTF8(model->GetLabelAt(id)));

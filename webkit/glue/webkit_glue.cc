@@ -11,9 +11,9 @@
 #include <sys/utsname.h>
 #endif
 
+#include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/scoped_ptr.h"
-#include "base/singleton.h"
 #include "base/string_piece.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
@@ -84,29 +84,29 @@ void EnableWebCoreNotImplementedLogging() {
   WebKit::enableLogChannel("NotYetImplemented");
 }
 
-std::wstring DumpDocumentText(WebFrame* web_frame) {
+string16 DumpDocumentText(WebFrame* web_frame) {
   // We use the document element's text instead of the body text here because
   // not all documents have a body, such as XML documents.
   WebElement document_element = web_frame->document().documentElement();
   if (document_element.isNull())
-    return std::wstring();
+    return string16();
 
-  return UTF16ToWideHack(document_element.innerText());
+  return document_element.innerText();
 }
 
-std::wstring DumpFramesAsText(WebFrame* web_frame, bool recursive) {
-  std::wstring result;
+string16 DumpFramesAsText(WebFrame* web_frame, bool recursive) {
+  string16 result;
 
   // Add header for all but the main frame. Skip empty frames.
   if (web_frame->parent() &&
       !web_frame->document().documentElement().isNull()) {
-    result.append(L"\n--------\nFrame: '");
-    result.append(UTF16ToWideHack(web_frame->name()));
-    result.append(L"'\n--------\n");
+    result.append(ASCIIToUTF16("\n--------\nFrame: '"));
+    result.append(web_frame->name());
+    result.append(ASCIIToUTF16("'\n--------\n"));
   }
 
   result.append(DumpDocumentText(web_frame));
-  result.append(L"\n");
+  result.append(ASCIIToUTF16("\n"));
 
   if (recursive) {
     WebFrame* child = web_frame->firstChild();
@@ -117,18 +117,18 @@ std::wstring DumpFramesAsText(WebFrame* web_frame, bool recursive) {
   return result;
 }
 
-std::wstring DumpRenderer(WebFrame* web_frame) {
-  return UTF16ToWideHack(web_frame->renderTreeAsText());
+string16 DumpRenderer(WebFrame* web_frame) {
+  return web_frame->renderTreeAsText();
 }
 
 bool CounterValueForElementById(WebFrame* web_frame, const std::string& id,
-                                std::wstring* counter_value) {
+                                string16* counter_value) {
   WebString result =
       web_frame->counterValueForElementById(WebString::fromUTF8(id));
   if (result.isNull())
     return false;
 
-  *counter_value = UTF16ToWideHack(result);
+  *counter_value = result;
   return true;
 }
 
@@ -151,18 +151,20 @@ int NumberOfPages(WebFrame* web_frame,
   return number_of_pages;
 }
 
-std::wstring DumpFrameScrollPosition(WebFrame* web_frame, bool recursive) {
+string16 DumpFrameScrollPosition(WebFrame* web_frame, bool recursive) {
   gfx::Size offset = web_frame->scrollOffset();
-  std::wstring result;
+  std::string result_utf8;
 
   if (offset.width() > 0 || offset.height() > 0) {
     if (web_frame->parent()) {
-      base::StringAppendF(&result, L"frame '%ls' ", UTF16ToWide(
-          web_frame->name()).c_str());
+      base::StringAppendF(&result_utf8, "frame '%s' ",
+                          UTF16ToUTF8(web_frame->name()).c_str());
     }
-    base::StringAppendF(&result, L"scrolled to %d,%d\n",
+    base::StringAppendF(&result_utf8, "scrolled to %d,%d\n",
                         offset.width(), offset.height());
   }
+
+  string16 result = UTF8ToUTF16(result_utf8);
 
   if (recursive) {
     WebFrame* child = web_frame->firstChild();
@@ -183,16 +185,16 @@ static bool HistoryItemCompareLess(const WebHistoryItem& item1,
   return target1 < target2;
 }
 
-// Writes out a HistoryItem into a string in a readable format.
-static std::wstring DumpHistoryItem(const WebHistoryItem& item,
-                                    int indent, bool is_current) {
-  std::wstring result;
+// Writes out a HistoryItem into a UTF-8 string in a readable format.
+static std::string DumpHistoryItem(const WebHistoryItem& item,
+                                   int indent, bool is_current) {
+  std::string result;
 
   if (is_current) {
-    result.append(L"curr->");
-    result.append(indent - 6, L' ');  // 6 == L"curr->".length()
+    result.append("curr->");
+    result.append(indent - 6, ' ');  // 6 == "curr->".length()
   } else {
-    result.append(indent, L' ');
+    result.append(indent, ' ');
   }
 
   std::string url = item.urlString().utf8();
@@ -207,12 +209,12 @@ static std::wstring DumpHistoryItem(const WebHistoryItem& item,
     url.replace(kDataUrlPatternSize, url.length(), path);
   }
 
-  result.append(UTF8ToWide(url));
+  result.append(url);
   if (!item.target().isEmpty())
-    result.append(L" (in frame \"" + UTF16ToWide(item.target()) + L"\")");
+    result.append(" (in frame \"" + UTF16ToUTF8(item.target()) + "\")");
   if (item.isTargetItem())
-    result.append(L"  **nav target**");
-  result.append(L"\n");
+    result.append("  **nav target**");
+  result.append("\n");
 
   const WebVector<WebHistoryItem>& children = item.children();
   if (!children.isEmpty()) {
@@ -231,10 +233,11 @@ static std::wstring DumpHistoryItem(const WebHistoryItem& item,
   return result;
 }
 
-std::wstring DumpHistoryState(const std::string& history_state, int indent,
-                              bool is_current) {
-  return DumpHistoryItem(HistoryItemFromString(history_state), indent,
-                         is_current);
+string16 DumpHistoryState(const std::string& history_state, int indent,
+                          bool is_current) {
+  return UTF8ToUTF16(
+      DumpHistoryItem(HistoryItemFromString(history_state), indent,
+                      is_current));
 }
 
 void ResetBeforeTestRun(WebView* view) {
@@ -356,10 +359,11 @@ struct UserAgentState {
   bool user_agent_is_overridden;
 };
 
-Singleton<UserAgentState> g_user_agent;
+static base::LazyInstance<UserAgentState> g_user_agent(
+    base::LINKER_INITIALIZED);
 
 void SetUserAgentToDefault() {
-  BuildUserAgent(false, &g_user_agent->user_agent);
+  BuildUserAgent(false, &g_user_agent.Get().user_agent);
 }
 
 }  // namespace
@@ -367,31 +371,31 @@ void SetUserAgentToDefault() {
 void SetUserAgent(const std::string& new_user_agent) {
   // If you combine this with the previous line, the function only works the
   // first time.
-  DCHECK(!g_user_agent->user_agent_requested) <<
+  DCHECK(!g_user_agent.Get().user_agent_requested) <<
       "Setting the user agent after someone has "
       "already requested it can result in unexpected behavior.";
-  g_user_agent->user_agent_is_overridden = true;
-  g_user_agent->user_agent = new_user_agent;
+  g_user_agent.Get().user_agent_is_overridden = true;
+  g_user_agent.Get().user_agent = new_user_agent;
 }
 
 const std::string& GetUserAgent(const GURL& url) {
-  if (g_user_agent->user_agent.empty())
+  if (g_user_agent.Get().user_agent.empty())
     SetUserAgentToDefault();
-  g_user_agent->user_agent_requested = true;
-  if (!g_user_agent->user_agent_is_overridden) {
+  g_user_agent.Get().user_agent_requested = true;
+  if (!g_user_agent.Get().user_agent_is_overridden) {
     // Workarounds for sites that use misguided UA sniffing.
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
     if (MatchPattern(url.host(), "*.mail.yahoo.com")) {
       // mail.yahoo.com is ok with Windows Chrome but not Linux Chrome.
       // http://bugs.chromium.org/11136
       // TODO(evanm): remove this if Yahoo fixes their sniffing.
-      if (g_user_agent->mimic_windows_user_agent.empty())
-        BuildUserAgent(true, &g_user_agent->mimic_windows_user_agent);
-      return g_user_agent->mimic_windows_user_agent;
+      if (g_user_agent.Get().mimic_windows_user_agent.empty())
+        BuildUserAgent(true, &g_user_agent.Get().mimic_windows_user_agent);
+      return g_user_agent.Get().mimic_windows_user_agent;
     }
 #endif
   }
-  return g_user_agent->user_agent;
+  return g_user_agent.Get().user_agent;
 }
 
 void SetForcefullyTerminatePluginProcess(bool value) {

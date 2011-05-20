@@ -10,7 +10,7 @@
 #include "base/time.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/password_manager/password_store.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/glue/password_change_processor.h"
 #include "chrome/browser/sync/glue/password_model_associator.h"
 #include "chrome/browser/sync/profile_sync_service.h"
@@ -71,6 +71,27 @@ void PasswordDataTypeController::Stop() {
   DCHECK(password_store_.get());
   password_store_->ScheduleTask(
       NewRunnableMethod(this, &PasswordDataTypeController::StopImpl));
+}
+
+bool PasswordDataTypeController::enabled() {
+  return true;
+}
+
+syncable::ModelType PasswordDataTypeController::type() {
+  return syncable::PASSWORDS;
+}
+
+browser_sync::ModelSafeGroup PasswordDataTypeController::model_safe_group() {
+  return browser_sync::GROUP_PASSWORD;
+}
+
+const char* PasswordDataTypeController::name() const {
+  // For logging only.
+  return "password";
+}
+
+DataTypeController::State PasswordDataTypeController::state() {
+  return state_;
 }
 
 void PasswordDataTypeController::StartImpl() {

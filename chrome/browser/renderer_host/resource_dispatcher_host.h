@@ -35,9 +35,9 @@ class LoginHandler;
 class PluginService;
 class ResourceDispatcherHostRequestInfo;
 class ResourceHandler;
+class ResourceMessageFilter;
 class SafeBrowsingService;
 class SaveFileManager;
-class SocketStreamDispatcherHost;
 class SSLClientAuthHandler;
 class UserScriptListener;
 class URLRequestContext;
@@ -51,44 +51,18 @@ namespace webkit_blob {
 class DeletableFileReference;
 }
 
-class ResourceDispatcherHost : public URLRequest::Delegate {
+class ResourceDispatcherHost : public net::URLRequest::Delegate {
  public:
-  // Implemented by the client of ResourceDispatcherHost to receive messages in
-  // response to a resource load.  The messages are intended to be forwarded to
-  // the ResourceDispatcher in the child process via an IPC channel that the
-  // client manages.
-  //
-  // NOTE: This class unfortunately cannot be named 'Delegate' because that
-  // conflicts with the name of ResourceDispatcherHost's base class.
-  //
-  // If the receiver is unable to send a given message (i.e., if Send returns
-  // false), then the ResourceDispatcherHost assumes the receiver has failed,
-  // and the given request will be dropped. (This happens, for example, when a
-  // renderer crashes and the channel dies).
-  class Receiver : public IPC::Message::Sender,
-                   public ChildProcessInfo {
-   public:
-    // Returns the URLRequestContext for the given request.
-    // If NULL is returned, the default context for the profile is used.
-    virtual URLRequestContext* GetRequestContext(
-        uint32 request_id,
-        const ViewHostMsg_Resource_Request& request_data) = 0;
-
-   protected:
-    explicit Receiver(ChildProcessInfo::ProcessType type, int child_id);
-    virtual ~Receiver();
-  };
-
   class Observer {
    public:
     virtual ~Observer() {}
     virtual void OnRequestStarted(ResourceDispatcherHost* resource_dispatcher,
-                                  URLRequest* request) = 0;
+                                  net::URLRequest* request) = 0;
     virtual void OnResponseCompleted(
         ResourceDispatcherHost* resource_dispatcher,
-        URLRequest* request) = 0;
+        net::URLRequest* request) = 0;
     virtual void OnReceivedRedirect(ResourceDispatcherHost* resource_dispatcher,
-                                    URLRequest* request,
+                                    net::URLRequest* request,
                                     const GURL& new_url) = 0;
   };
 
@@ -104,7 +78,7 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
   // Returns true if the message was a resource message that was processed.
   // If it was, message_was_ok will be false iff the message was corrupt.
   bool OnMessageReceived(const IPC::Message& message,
-                         Receiver* receiver,
+                         ResourceMessageFilter* filter,
                          bool* message_was_ok);
 
   // Initiates a download from the browser process (as opposed to a resource
@@ -202,37 +176,40 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
   // acts like CancelRequestsForProcess when route_id is -1.
   void CancelRequestsForRoute(int process_unique_id, int route_id);
 
-  // URLRequest::Delegate
-  virtual void OnReceivedRedirect(URLRequest* request,
+  // net::URLRequest::Delegate
+  virtual void OnReceivedRedirect(net::URLRequest* request,
                                   const GURL& new_url,
                                   bool* defer_redirect);
-  virtual void OnAuthRequired(URLRequest* request,
+  virtual void OnAuthRequired(net::URLRequest* request,
                               net::AuthChallengeInfo* auth_info);
   virtual void OnCertificateRequested(
-      URLRequest* request,
+      net::URLRequest* request,
       net::SSLCertRequestInfo* cert_request_info);
-  virtual void OnSSLCertificateError(URLRequest* request,
+  virtual void OnSSLCertificateError(net::URLRequest* request,
                                      int cert_error,
                                      net::X509Certificate* cert);
-  virtual void OnSetCookie(URLRequest* request,
+  virtual void OnGetCookies(net::URLRequest* request,
+                            bool blocked_by_policy);
+  virtual void OnSetCookie(net::URLRequest* request,
                            const std::string& cookie_line,
                            const net::CookieOptions& options,
                            bool blocked_by_policy);
-  virtual void OnResponseStarted(URLRequest* request);
-  virtual void OnReadCompleted(URLRequest* request, int bytes_read);
-  void OnResponseCompleted(URLRequest* request);
+  virtual void OnResponseStarted(net::URLRequest* request);
+  virtual void OnReadCompleted(net::URLRequest* request, int bytes_read);
+  void OnResponseCompleted(net::URLRequest* request);
 
   // Helper functions to get our extra data out of a request. The given request
   // must have been one we created so that it has the proper extra data pointer.
-  static ResourceDispatcherHostRequestInfo* InfoForRequest(URLRequest* request);
+  static ResourceDispatcherHostRequestInfo* InfoForRequest(
+      net::URLRequest* request);
   static const ResourceDispatcherHostRequestInfo* InfoForRequest(
-      const URLRequest* request);
+      const net::URLRequest* request);
 
   // Extracts the render view/process host's identifiers from the given request
   // and places them in the given out params (both required). If there are no
   // such IDs associated with the request (such as non-page-related requests),
   // this function will return false and both out params will be -1.
-  static bool RenderViewForRequest(const URLRequest* request,
+  static bool RenderViewForRequest(const net::URLRequest* request,
                                    int* render_process_host_id,
                                    int* render_view_host_id);
 
@@ -244,11 +221,11 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
   // Removes an observer.
   void RemoveObserver(Observer* obs);
 
-  // Retrieves a URLRequest.  Must be called from the IO thread.
-  URLRequest* GetURLRequest(const GlobalRequestID& request_id) const;
+  // Retrieves a net::URLRequest.  Must be called from the IO thread.
+  net::URLRequest* GetURLRequest(const GlobalRequestID& request_id) const;
 
   // Notifies our observers that a request has been cancelled.
-  void NotifyResponseCompleted(URLRequest* request, int process_unique_id);
+  void NotifyResponseCompleted(net::URLRequest* request, int process_unique_id);
 
   void RemovePendingRequest(int process_unique_id, int request_id);
 
@@ -274,9 +251,9 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
   // child process and to defer deletion of the file until it's
   // no longer needed.
   void RegisterDownloadedTempFile(
-      int receiver_id, int request_id,
+      int child_id, int request_id,
       webkit_blob::DeletableFileReference* reference);
-  void UnregisterDownloadedTempFile(int receiver_id, int request_id);
+  void UnregisterDownloadedTempFile(int child_id, int request_id);
 
   // Needed for the sync IPC message dispatcher macros.
   bool Send(IPC::Message* message);
@@ -304,7 +281,7 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
 
   // Associates the given info with the given request. The info will then be
   // owned by the request.
-  void SetRequestInfo(URLRequest* request,
+  void SetRequestInfo(net::URLRequest* request,
                       ResourceDispatcherHostRequestInfo* info);
 
   // A shutdown helper that runs on the IO thread.
@@ -317,36 +294,36 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
   void ResumeRequest(const GlobalRequestID& request_id);
 
   // Internal function to start reading for the first time.
-  void StartReading(URLRequest* request);
+  void StartReading(net::URLRequest* request);
 
   // Reads data from the response using our internal buffer as async IO.
   // Returns true if data is available immediately, false otherwise.  If the
   // return value is false, we will receive a OnReadComplete() callback later.
-  bool Read(URLRequest* request, int* bytes_read);
+  bool Read(net::URLRequest* request, int* bytes_read);
 
   // Internal function to finish an async IO which has completed.  Returns
   // true if there is more data to read (e.g. we haven't read EOF yet and
   // no errors have occurred).
-  bool CompleteRead(URLRequest*, int* bytes_read);
+  bool CompleteRead(net::URLRequest*, int* bytes_read);
 
   // Internal function to finish handling the ResponseStarted message.  Returns
   // true on success.
-  bool CompleteResponseStarted(URLRequest* request);
+  bool CompleteResponseStarted(net::URLRequest* request);
 
   // Helper function for regular and download requests.
-  void BeginRequestInternal(URLRequest* request);
+  void BeginRequestInternal(net::URLRequest* request);
 
   // Helper function that cancels |request|.
-  void CancelRequestInternal(URLRequest* request, bool from_renderer);
+  void CancelRequestInternal(net::URLRequest* request, bool from_renderer);
 
   // Helper function that inserts |request| into the resource queue.
   void InsertIntoResourceQueue(
-      URLRequest* request,
+      net::URLRequest* request,
       const ResourceDispatcherHostRequestInfo& request_info);
 
   // Updates the "cost" of outstanding requests for |process_unique_id|.
   // The "cost" approximates how many bytes are consumed by all the in-memory
-  // data structures supporting this request (URLRequest object,
+  // data structures supporting this request (net::URLRequest object,
   // HttpNetworkTransaction, etc...).
   // The value of |cost| is added to the running total, and the resulting
   // sum is returned.
@@ -354,7 +331,7 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
                                              int process_unique_id);
 
   // Estimate how much heap space |request| will consume to run.
-  static int CalculateApproximateMemoryCost(URLRequest* request);
+  static int CalculateApproximateMemoryCost(net::URLRequest* request);
 
   // The list of all requests that we have pending. This list is not really
   // optimized, and assumes that we have relatively few requests pending at once
@@ -363,7 +340,7 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
   // It may be enhanced in the future to provide some kind of prioritization
   // mechanism. We should also consider a hashtable or binary tree if it turns
   // out we have a lot of things here.
-  typedef std::map<GlobalRequestID, URLRequest*> PendingRequestList;
+  typedef std::map<GlobalRequestID, net::URLRequest*> PendingRequestList;
 
   // Deletes the pending request identified by the iterator passed in.
   // This function will invalidate the iterator passed in. Callers should
@@ -371,10 +348,10 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
   void RemovePendingRequest(const PendingRequestList::iterator& iter);
 
   // Notify our observers that we started receiving a response for a request.
-  void NotifyResponseStarted(URLRequest* request, int process_unique_id);
+  void NotifyResponseStarted(net::URLRequest* request, int process_unique_id);
 
   // Notify our observers that a request has been redirected.
-  void NotifyReceivedRedirect(URLRequest* request,
+  void NotifyReceivedRedirect(net::URLRequest* request,
                               int process_unique_id,
                               const GURL& new_url);
 
@@ -393,7 +370,7 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
 
   // Checks the upload state and sends an update if one is necessary.
   bool MaybeUpdateUploadProgress(ResourceDispatcherHostRequestInfo *info,
-                                 URLRequest *request);
+                                 net::URLRequest *request);
 
   // Resumes or cancels (if |cancel_requests| is true) any blocked requests.
   void ProcessBlockedRequestsForRoute(int process_unique_id,
@@ -430,10 +407,7 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
       ResourceHandler* handler, int child_id, int route_id, bool download);
 
   // Returns true if |request| is in |pending_requests_|.
-  bool IsValidRequest(URLRequest* request);
-
-  // Returns true if the message passed in is a resource related message.
-  static bool IsResourceDispatcherHostMessage(const IPC::Message&);
+  bool IsValidRequest(net::URLRequest* request);
 
   // Sets replace_extension_localization_templates on all text/css requests that
   // have "chrome-extension://" scheme.
@@ -477,8 +451,6 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
 
   scoped_refptr<SafeBrowsingService> safe_browsing_;
 
-  scoped_ptr<SocketStreamDispatcherHost> socket_stream_dispatcher_host_;
-
   // We own the WebKit thread and see to its destruction.
   scoped_ptr<WebKitThread> webkit_thread_;
 
@@ -500,7 +472,7 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
   // True if the resource dispatcher host has been shut down.
   bool is_shutdown_;
 
-  typedef std::vector<URLRequest*> BlockedRequestsList;
+  typedef std::vector<net::URLRequest*> BlockedRequestsList;
   typedef std::pair<int, int> ProcessRouteIDs;
   typedef std::map<ProcessRouteIDs, BlockedRequestsList*> BlockedRequestMap;
   BlockedRequestMap blocked_requests_map_;
@@ -521,7 +493,7 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
 
   // Used during IPC message dispatching so that the handlers can get a pointer
   // to the source of the message.
-  Receiver* receiver_;
+  ResourceMessageFilter* filter_;
 
   static bool is_prefetch_enabled_;
 

@@ -10,8 +10,8 @@
 #import "base/sys_string_conversions.h"
 #import "chrome/app/breakpad_mac.h"
 #import "chrome/browser/app_controller_mac.h"
-#import "chrome/browser/cocoa/objc_method_swizzle.h"
-#import "chrome/browser/cocoa/objc_zombie.h"
+#import "chrome/browser/ui/cocoa/objc_method_swizzle.h"
+#import "chrome/browser/ui/cocoa/objc_zombie.h"
 
 // The implementation of NSExceptions break various assumptions in the
 // Chrome code.  This category defines a replacement for
@@ -64,7 +64,8 @@ static IMP gOriginalInitIMP = NULL;
     BOOL fatal = NO;
     if (aName == NSInternalInconsistencyException) {
       NSString* const kNSMenuItemArrayBoundsCheck =
-          @"Invalid parameter not satisfying: (index >= 0) && (index < [_itemArray count])";
+          @"Invalid parameter not satisfying: (index >= 0) && "
+          @"(index < [_itemArray count])";
       if ([aReason isEqualToString:kNSMenuItemArrayBoundsCheck]) {
         fatal = YES;
       }
@@ -141,6 +142,10 @@ void RecordExceptionWithUma(NSException* exception) {
       BinForException(exception), kUnknownNSException);
 }
 
+void RegisterBrowserCrApp() {
+  [BrowserCrApplication sharedApplication];
+};
+
 void Terminate() {
   [NSApp terminate:nil];
 }
@@ -188,8 +193,6 @@ BOOL SwizzleNSExceptionInit() {
 + (void)initialize {
   // Turn all deallocated Objective-C objects into zombies, keeping
   // the most recent 10,000 of them on the treadmill.
-  // TODO(shess): Convert to a DCHECK() before the next beta channel.
-  // http://crbug.com/45676
   ObjcEvilDoers::ZombieEnable(YES, 10000);
 }
 

@@ -7,7 +7,7 @@
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_process_manager.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
@@ -84,7 +84,8 @@ IN_PROC_BROWSER_TEST_F(AppApiTest, MAYBE_AppProcess) {
   // The app under test acts on URLs whose host is "localhost",
   // so the URLs we navigate to must have host "localhost".
   GURL::Replacements replace_host;
-  replace_host.SetHostStr("localhost");
+  std::string host_str("localhost");  // must stay in scope with replace_host
+  replace_host.SetHostStr(host_str);
   base_url = base_url.ReplaceComponents(replace_host);
 
   browser()->NewTab();

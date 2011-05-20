@@ -45,6 +45,9 @@ TestRenderViewHost::TestRenderViewHost(SiteInstance* instance,
                      kInvalidSessionStorageNamespaceId),
       render_view_created_(false),
       delete_counter_(NULL) {
+  // For normal RenderViewHosts, this is freed when |Shutdown()| is called.
+  // For TestRenderViewHost, the view is explicitly deleted in the destructor
+  // below, because TestRenderWidgetHostView::Destroy() doesn't |delete this|.
   set_view(new TestRenderWidgetHostView(this));
 }
 
@@ -67,8 +70,8 @@ bool TestRenderViewHost::IsRenderViewLive() const {
   return render_view_created_;
 }
 
-void TestRenderViewHost::TestOnMessageReceived(const IPC::Message& msg) {
-  OnMessageReceived(msg);
+bool TestRenderViewHost::TestOnMessageReceived(const IPC::Message& msg) {
+  return OnMessageReceived(msg);
 }
 
 void TestRenderViewHost::SendNavigate(int page_id, const GURL& url) {
@@ -103,6 +106,9 @@ void TestRenderViewHost::SendNavigateWithTransition(
 TestRenderWidgetHostView::TestRenderWidgetHostView(RenderWidgetHost* rwh)
     : rwh_(rwh),
       is_showing_(false) {
+}
+
+TestRenderWidgetHostView::~TestRenderWidgetHostView() {
 }
 
 gfx::Rect TestRenderWidgetHostView::GetViewBounds() const {

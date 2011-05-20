@@ -7,6 +7,7 @@
 #include "base/json/json_reader.h"
 #include "base/logging.h"
 #include "base/string_number_conversions.h"
+#include "base/string_util.h"
 #include "base/stringprintf.h"
 #include "base/sys_info.h"
 #include "base/values.h"
@@ -101,6 +102,8 @@ GpuBlacklist::OsInfo::OsInfo(const std::string& os,
         new VersionInfo(version_op, version_string, version_string2));
   }
 }
+
+GpuBlacklist::OsInfo::~OsInfo() {}
 
 bool GpuBlacklist::OsInfo::Contains(OsType type,
                                     const Version& version) const {
@@ -213,6 +216,8 @@ GpuBlacklist::GpuBlacklistEntry::GetGpuBlacklistEntryFromValue(
 
   return entry;
 }
+
+GpuBlacklist::GpuBlacklistEntry::~GpuBlacklistEntry() {}
 
 GpuBlacklist::GpuBlacklistEntry::GpuBlacklistEntry()
     : vendor_id_(0),
@@ -365,7 +370,7 @@ GpuFeatureFlags GpuBlacklist::DetermineGpuFeatureFlags(
   if (gpu_info.progress() == GPUInfo::kUninitialized)
     return flags;
   scoped_ptr<Version> driver_version(
-      Version::GetVersionFromString(gpu_info.driver_version()));
+      Version::GetVersionFromString(WideToASCII(gpu_info.driver_version())));
   if (driver_version.get() == NULL)
     return flags;
 

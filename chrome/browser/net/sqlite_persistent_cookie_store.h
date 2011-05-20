@@ -11,50 +11,39 @@
 #include <string>
 #include <vector>
 
-#include "app/sql/meta_table.h"
-#include "base/file_path.h"
 #include "base/ref_counted.h"
 #include "net/base/cookie_monster.h"
 
-namespace sql {
-class Connection;
-}
-
 class FilePath;
 
+// Implements the PersistentCookieStore interface in terms of a SQLite database.
+// For documentation about the actual member functions consult the documentation
+// of the parent class |net::CookieMonster::PersistentCookieStore|.
 class SQLitePersistentCookieStore
     : public net::CookieMonster::PersistentCookieStore {
  public:
   explicit SQLitePersistentCookieStore(const FilePath& path);
   virtual ~SQLitePersistentCookieStore();
 
-  virtual bool Load(std::vector<net::CookieMonster::CanonicalCookie*>*);
+  virtual bool Load(std::vector<net::CookieMonster::CanonicalCookie*>* cookies);
 
-  virtual void AddCookie(const net::CookieMonster::CanonicalCookie&);
+  virtual void AddCookie(const net::CookieMonster::CanonicalCookie& cc);
   virtual void UpdateCookieAccessTime(
-      const net::CookieMonster::CanonicalCookie&);
-  virtual void DeleteCookie(const net::CookieMonster::CanonicalCookie&);
+      const net::CookieMonster::CanonicalCookie& cc);
+  virtual void DeleteCookie(const net::CookieMonster::CanonicalCookie& cc);
 
-#if defined(ANDROID)
+  virtual void SetClearLocalStateOnExit(bool clear_local_state);
+
   virtual void Flush(Task* completion_task);
-#endif
 
 #if defined(ANDROID)
   int GetCookieCount();
 #endif
 
-  static void ClearLocalState(const FilePath& path);
-
  private:
   class Backend;
 
-  // Database upgrade statements.
-  bool EnsureDatabaseVersion(sql::Connection* db);
-
-  FilePath path_;
   scoped_refptr<Backend> backend_;
-
-  sql::MetaTable meta_table_;
 
   DISALLOW_COPY_AND_ASSIGN(SQLitePersistentCookieStore);
 };

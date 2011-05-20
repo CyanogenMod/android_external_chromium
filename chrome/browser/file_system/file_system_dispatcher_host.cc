@@ -4,61 +4,102 @@
 
 #include "chrome/browser/file_system/file_system_dispatcher_host.h"
 
+#include <string>
+#include <vector>
+
 #include "base/file_path.h"
 #include "base/thread.h"
 #include "base/time.h"
-#include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_thread.h"
-#include "chrome/browser/file_system/browser_file_system_callback_dispatcher.h"
-#include "chrome/browser/file_system/browser_file_system_context.h"
-#include "chrome/browser/host_content_settings_map.h"
+#include "chrome/browser/content_settings/host_content_settings_map.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/browser_render_process_host.h"
 #include "chrome/common/net/url_request_context_getter.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/render_messages_params.h"
 #include "googleurl/src/gurl.h"
 #include "net/url_request/url_request_context.h"
+#include "webkit/fileapi/file_system_callback_dispatcher.h"
 #include "webkit/fileapi/file_system_operation.h"
 #include "webkit/fileapi/file_system_path_manager.h"
 #include "webkit/fileapi/file_system_quota_manager.h"
+#include "webkit/fileapi/sandboxed_file_system_context.h"
 #include "webkit/fileapi/sandboxed_file_system_operation.h"
 
+using fileapi::FileSystemCallbackDispatcher;
 using fileapi::FileSystemQuotaManager;
 using fileapi::SandboxedFileSystemOperation;
 
-FileSystemDispatcherHost::FileSystemDispatcherHost(
-    IPC::Message::Sender* sender, Profile* profile)
-    : message_sender_(sender),
-      process_handle_(0),
-      shutdown_(false),
-      context_(profile->GetFileSystemContext()),
+class BrowserFileSystemCallbackDispatcher
+    : public FileSystemCallbackDispatcher {
+ public:
+  BrowserFileSystemCallbackDispatcher(
+      FileSystemDispatcherHost* dispatcher_host, int request_id)
+      : dispatcher_host_(dispatcher_host),
+        request_id_(request_id) {
+    DCHECK(dispatcher_host_);
+  }
+
+  virtual ~BrowserFileSystemCallbackDispatcher() {
+    dispatcher_host_->UnregisterOperation(request_id_);
+  }
+
+  virtual void DidSucceed() {
+    dispatcher_host_->Send(new ViewMsg_FileSystem_DidSucceed(request_id_));
+  }
+
+  virtual void DidReadMetadata(const base::PlatformFileInfo& info) {
+    dispatcher_host_->Send(new ViewMsg_FileSystem_DidReadMetadata(
+        request_id_, info));
+  }
+
+  virtual void DidReadDirectory(
+      const std::vector<base::FileUtilProxy::Entry>& entries, bool has_more) {
+    dispatcher_host_->Send(new ViewMsg_FileSystem_DidReadDirectory(
+        request_id_, entries, has_more));
+  }
+
+  virtual void DidOpenFileSystem(const std::string& name,
+                                 const FilePath& path) {
+    dispatcher_host_->Send(
+        new ViewMsg_OpenFileSystemRequest_Complete(
+            request_id_, !path.empty(), name, path));
+  }
+
+  virtual void DidFail(base::PlatformFileError error_code) {
+    dispatcher_host_->Send(new ViewMsg_FileSystem_DidFail(
+        request_id_, error_code));
+  }
+
+  virtual void DidWrite(int64 bytes, bool complete) {
+    dispatcher_host_->Send(new ViewMsg_FileSystem_DidWrite(
+        request_id_, bytes, complete));
+  }
+
+ private:
+  scoped_refptr<FileSystemDispatcherHost> dispatcher_host_;
+  int request_id_;
+};
+
+FileSystemDispatcherHost::FileSystemDispatcherHost(Profile* profile)
+    : context_(profile->GetFileSystemContext()),
       host_content_settings_map_(profile->GetHostContentSettingsMap()),
       request_context_getter_(profile->GetRequestContext()) {
-  DCHECK(message_sender_);
 }
 
 FileSystemDispatcherHost::FileSystemDispatcherHost(
-    IPC::Message::Sender* sender, ChromeURLRequestContext* context)
-    : message_sender_(sender),
-      process_handle_(0),
-      shutdown_(false),
-      context_(context->browser_file_system_context()),
+    ChromeURLRequestContext* context)
+    : context_(context->file_system_context()),
       host_content_settings_map_(context->host_content_settings_map()),
       request_context_(context) {
-  DCHECK(message_sender_);
 }
 
 FileSystemDispatcherHost::~FileSystemDispatcherHost() {
 }
 
-void FileSystemDispatcherHost::Init(base::ProcessHandle process_handle) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
-  DCHECK(!shutdown_);
-  DCHECK(!process_handle_);
-  DCHECK(process_handle);
-  process_handle_ = process_handle;
+void FileSystemDispatcherHost::OnChannelConnected(int32 peer_pid) {
+  BrowserMessageFilter::OnChannelConnected(peer_pid);
+
   if (request_context_getter_.get()) {
     DCHECK(!request_context_.get());
     request_context_ = request_context_getter_->GetURLRequestContext();
@@ -66,14 +107,8 @@ void FileSystemDispatcherHost::Init(base::ProcessHandle process_handle) {
   DCHECK(request_context_.get());
 }
 
-void FileSystemDispatcherHost::Shutdown() {
-  message_sender_ = NULL;
-  shutdown_ = true;
-}
-
 bool FileSystemDispatcherHost::OnMessageReceived(
     const IPC::Message& message, bool* message_was_ok) {
-  DCHECK(!shutdown_);
   *message_was_ok = true;
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP_EX(FileSystemDispatcherHost, message, *message_was_ok)
@@ -197,14 +232,6 @@ void FileSystemDispatcherHost::OnCancel(
   }
 }
 
-void FileSystemDispatcherHost::Send(IPC::Message* message) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
-  if (!shutdown_ && message_sender_)
-    message_sender_->Send(message);
-  else
-    delete message;
-}
-
 SandboxedFileSystemOperation* FileSystemDispatcherHost::GetNewOperation(
     int request_id) {
   BrowserFileSystemCallbackDispatcher* dispatcher =
@@ -212,12 +239,12 @@ SandboxedFileSystemOperation* FileSystemDispatcherHost::GetNewOperation(
   SandboxedFileSystemOperation* operation = new SandboxedFileSystemOperation(
       dispatcher,
       BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE),
-      context_.get());
+      context_);
   operations_.AddWithID(operation, request_id);
   return operation;
 }
 
-void FileSystemDispatcherHost::RemoveCompletedOperation(int request_id) {
+void FileSystemDispatcherHost::UnregisterOperation(int request_id) {
   DCHECK(operations_.Lookup(request_id));
   operations_.Remove(request_id);
 }

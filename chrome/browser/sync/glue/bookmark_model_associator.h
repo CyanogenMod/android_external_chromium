@@ -61,7 +61,7 @@ class BookmarkModelAssociator
   // Returns sync id for the given bookmark node id.
   // Returns sync_api::kInvalidId if the sync node is not found for the given
   // bookmark node id.
-  virtual int64 GetSyncIdFromChromeId(int64 node_id);
+  virtual int64 GetSyncIdFromChromeId(const int64& node_id);
 
   // Returns the bookmark node for the given sync id.
   // Returns NULL if no bookmark node is found for the given sync id.
@@ -70,7 +70,7 @@ class BookmarkModelAssociator
   // Initializes the given sync node from the given bookmark node id.
   // Returns false if no sync node was found for the given bookmark node id or
   // if the initialization of sync node fails.
-  virtual bool InitSyncNodeFromChromeId(int64 node_id,
+  virtual bool InitSyncNodeFromChromeId(const int64& node_id,
                                         sync_api::BaseNode* sync_node);
 
   // Associates the given bookmark node with the given sync id.
@@ -134,6 +134,8 @@ class BookmarkModelAssociator
   // guarantees no invocations can occur if |this| has been deleted. (This
   // allows this class to be non-refcounted).
   ScopedRunnableMethodFactory<BookmarkModelAssociator> persist_associations_;
+
+  int number_of_new_sync_nodes_created_at_association_;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkModelAssociator);
 };

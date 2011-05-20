@@ -18,7 +18,6 @@
 #include "base/win/windows_version.h"
 #endif
 #include "chrome/browser/appcache/view_appcache_internals_job_factory.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/shared_resources_data_source.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
@@ -35,15 +34,15 @@
 #include "net/url_request/url_request_file_job.h"
 #include "net/url_request/url_request_job.h"
 
-// URLRequestChromeJob is a URLRequestJob that manages running chrome-internal
-// resource requests asynchronously.
+// URLRequestChromeJob is a net::URLRequestJob that manages running
+// chrome-internal resource requests asynchronously.
 // It hands off URL requests to ChromeURLDataManager, which asynchronously
 // calls back once the data is available.
 class URLRequestChromeJob : public net::URLRequestJob {
  public:
-  explicit URLRequestChromeJob(URLRequest* request);
+  explicit URLRequestChromeJob(net::URLRequest* request);
 
-  // URLRequestJob implementation.
+  // net::URLRequestJob implementation.
   virtual void Start();
   virtual void Kill();
   virtual bool ReadRawData(net::IOBuffer* buf, int buf_size, int *bytes_read);
@@ -61,7 +60,7 @@ class URLRequestChromeJob : public net::URLRequestJob {
   virtual ~URLRequestChromeJob();
 
   // Helper for Start(), to let us start asynchronously.
-  // (This pattern is shared by most URLRequestJob implementations.)
+  // (This pattern is shared by most net::URLRequestJob implementations.)
   void StartAsync();
 
   // Do the actual copy from data_ (the data we're serving) into |buf|.
@@ -83,10 +82,10 @@ class URLRequestChromeJob : public net::URLRequestJob {
   DISALLOW_COPY_AND_ASSIGN(URLRequestChromeJob);
 };
 
-// URLRequestChromeFileJob is a URLRequestJob that acts like a file:// URL
-class URLRequestChromeFileJob : public URLRequestFileJob {
+// URLRequestChromeFileJob is a net::URLRequestJob that acts like a file:// URL
+class URLRequestChromeFileJob : public net::URLRequestFileJob {
  public:
-  URLRequestChromeFileJob(URLRequest* request, const FilePath& path);
+  URLRequestChromeFileJob(net::URLRequest* request, const FilePath& path);
 
  private:
   virtual ~URLRequestChromeFileJob();
@@ -97,21 +96,21 @@ class URLRequestChromeFileJob : public URLRequestFileJob {
 void RegisterURLRequestChromeJob() {
   FilePath inspector_dir;
   if (PathService::Get(chrome::DIR_INSPECTOR, &inspector_dir)) {
-    Singleton<ChromeURLDataManager>()->AddFileSource(
+    ChromeURLDataManager::GetInstance()->AddFileSource(
         chrome::kChromeUIDevToolsHost, inspector_dir);
   }
 
   SharedResourcesDataSource::Register();
-  URLRequest::RegisterProtocolFactory(chrome::kChromeDevToolsScheme,
-                                      &ChromeURLDataManager::Factory);
-  URLRequest::RegisterProtocolFactory(chrome::kChromeUIScheme,
-                                      &ChromeURLDataManager::Factory);
+  net::URLRequest::RegisterProtocolFactory(chrome::kChromeDevToolsScheme,
+                                           &ChromeURLDataManager::Factory);
+  net::URLRequest::RegisterProtocolFactory(chrome::kChromeUIScheme,
+                                           &ChromeURLDataManager::Factory);
 }
 
 void UnregisterURLRequestChromeJob() {
   FilePath inspector_dir;
   if (PathService::Get(chrome::DIR_INSPECTOR, &inspector_dir)) {
-    Singleton<ChromeURLDataManager>()->RemoveFileSource(
+    ChromeURLDataManager::GetInstance()->RemoveFileSource(
         chrome::kChromeUIDevToolsHost);
   }
 }
@@ -159,8 +158,8 @@ bool ChromeURLDataManager::URLToFilePath(const GURL& url,
   URLToRequest(stripped_url, &source_name, &relative_path);
 
   FileSourceMap::const_iterator i(
-      Singleton<ChromeURLDataManager>()->file_sources_.find(source_name));
-  if (i == Singleton<ChromeURLDataManager>()->file_sources_.end())
+      ChromeURLDataManager::GetInstance()->file_sources_.find(source_name));
+  if (i == ChromeURLDataManager::GetInstance()->file_sources_.end())
     return false;
 
   // Check that |relative_path| is not an absolute path (otherwise AppendASCII()
@@ -178,6 +177,11 @@ bool ChromeURLDataManager::URLToFilePath(const GURL& url,
 ChromeURLDataManager::ChromeURLDataManager() : next_request_id_(0) { }
 
 ChromeURLDataManager::~ChromeURLDataManager() { }
+
+// static
+ChromeURLDataManager* ChromeURLDataManager::GetInstance() {
+  return Singleton<ChromeURLDataManager>::get();
+}
 
 void ChromeURLDataManager::AddDataSource(scoped_refptr<DataSource> source) {
   // TODO(jackson): A new data source with same name should not clobber the
@@ -264,7 +268,7 @@ void ChromeURLDataManager::RemoveRequest(URLRequestChromeJob* job) {
 void ChromeURLDataManager::DataAvailable(
     RequestID request_id,
     scoped_refptr<RefCountedMemory> bytes) {
-  // Forward this data on to the pending URLRequest, if it exists.
+  // Forward this data on to the pending net::URLRequest, if it exists.
   PendingRequestMap::iterator i = pending_requests_.find(request_id);
   if (i != pending_requests_.end()) {
     // We acquire a reference to the job so that it doesn't disappear under the
@@ -288,7 +292,7 @@ void ChromeURLDataManager::DataSource::SendResponse(
     RefCountedMemory* bytes) {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(Singleton<ChromeURLDataManager>::get(),
+      NewRunnableMethod(ChromeURLDataManager::GetInstance(),
                         &ChromeURLDataManager::DataAvailable,
                         request_id, scoped_refptr<RefCountedMemory>(bytes)));
 }
@@ -318,8 +322,8 @@ void ChromeURLDataManager::DataSource::SetFontAndTextDirection(
       base::i18n::IsRTL() ? "rtl" : "ltr");
 }
 
-URLRequestJob* ChromeURLDataManager::Factory(URLRequest* request,
-                                             const std::string& scheme) {
+net::URLRequestJob* ChromeURLDataManager::Factory(net::URLRequest* request,
+                                                  const std::string& scheme) {
   // Try first with a file handler
   FilePath path;
   if (ChromeURLDataManager::URLToFilePath(request->url(), &path))
@@ -341,14 +345,14 @@ URLRequestJob* ChromeURLDataManager::Factory(URLRequest* request,
   return new URLRequestChromeJob(request);
 }
 
-URLRequestChromeJob::URLRequestChromeJob(URLRequest* request)
-    : URLRequestJob(request),
+URLRequestChromeJob::URLRequestChromeJob(net::URLRequest* request)
+    : net::URLRequestJob(request),
       data_offset_(0),
       pending_buf_size_(0) {
 }
 
 URLRequestChromeJob::~URLRequestChromeJob() {
-  CHECK(!Singleton<ChromeURLDataManager>()->HasPendingJob(this));
+  CHECK(!ChromeURLDataManager::GetInstance()->HasPendingJob(this));
 }
 
 void URLRequestChromeJob::Start() {
@@ -359,7 +363,7 @@ void URLRequestChromeJob::Start() {
 }
 
 void URLRequestChromeJob::Kill() {
-  Singleton<ChromeURLDataManager>()->RemoveRequest(this);
+  ChromeURLDataManager::GetInstance()->RemoveRequest(this);
 }
 
 bool URLRequestChromeJob::GetMimeType(std::string* mime_type) const {
@@ -419,7 +423,8 @@ void URLRequestChromeJob::StartAsync() {
   if (!request_)
     return;
 
-  if (Singleton<ChromeURLDataManager>()->StartRequest(request_->url(), this)) {
+  if (ChromeURLDataManager::GetInstance()->StartRequest(request_->url(),
+                                                        this)) {
     NotifyHeadersComplete();
   } else {
     NotifyStartError(URLRequestStatus(URLRequestStatus::FAILED,
@@ -427,9 +432,9 @@ void URLRequestChromeJob::StartAsync() {
   }
 }
 
-URLRequestChromeFileJob::URLRequestChromeFileJob(URLRequest* request,
+URLRequestChromeFileJob::URLRequestChromeFileJob(net::URLRequest* request,
                                                  const FilePath& path)
-    : URLRequestFileJob(request, path) {
+    : net::URLRequestFileJob(request, path) {
 }
 
 URLRequestChromeFileJob::~URLRequestChromeFileJob() { }

@@ -5,6 +5,7 @@
 #include "chrome/browser/chromeos/status/input_method_menu.h"
 
 #include <string>
+#include <vector>
 
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
@@ -19,7 +20,7 @@
 #include "chrome/browser/chromeos/language_preferences.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -85,6 +86,7 @@ const struct {
   { "xkb:us:altgr-intl:eng", "EXTD" },
   { "xkb:us:dvorak:eng", "DV" },
   { "xkb:us:intl:eng", "INTL" },
+  { "xkb:us:colemak:eng", "CO" },
   // To distinguish from "xkb:jp::jpn"
   { "mozc", "\xe3\x81\x82" },  // U+3042, Japanese Hiragana letter A in UTF-8.
   { "mozc-dv", "\xe3\x81\x82" },
@@ -181,7 +183,7 @@ int InputMethodMenu::GetCommandIdAt(int index) const {
   return 0;  // dummy
 }
 
-bool InputMethodMenu::IsLabelDynamicAt(int index) const {
+bool InputMethodMenu::IsItemDynamicAt(int index) const {
   // Menu content for the language button could change time by time.
   return true;
 }
@@ -378,16 +380,20 @@ void InputMethodMenu::RunMenu(
 ////////////////////////////////////////////////////////////////////////////////
 // InputMethodLibrary::Observer implementation:
 
-void InputMethodMenu::InputMethodChanged(InputMethodLibrary* obj) {
+void InputMethodMenu::InputMethodChanged(
+    InputMethodLibrary* obj,
+    const InputMethodDescriptor& previous_input_method,
+    const InputMethodDescriptor& current_input_method,
+    size_t num_active_input_methods) {
   UserMetrics::RecordAction(
       UserMetricsAction("LanguageMenuButton_InputMethodChanged"));
+  UpdateUIFromInputMethod(current_input_method, num_active_input_methods);
+}
 
-  const InputMethodDescriptor& previous_input_method =
-      obj->previous_input_method();
-  const InputMethodDescriptor& current_input_method =
-      obj->current_input_method();
-  UpdateUIFromInputMethod(current_input_method);
-  // Update Chrome prefs as well.
+void InputMethodMenu::PreferenceUpdateNeeded(
+    InputMethodLibrary* obj,
+    const InputMethodDescriptor& previous_input_method,
+    const InputMethodDescriptor& current_input_method) {
   if (is_browser_mode_) {
     if (pref_service_) {  // make sure we're not in unit tests.
       // Sometimes (e.g. initial boot) |previous_input_method.id| is empty.
@@ -418,20 +424,21 @@ void InputMethodMenu::PrepareForMenuOpen() {
   }
 }
 
-void InputMethodMenu::ActiveInputMethodsChanged(InputMethodLibrary* obj) {
+void InputMethodMenu::ActiveInputMethodsChanged(
+    InputMethodLibrary* obj,
+    const InputMethodDescriptor& current_input_method,
+    size_t num_active_input_methods) {
   // Update the icon if active input methods are changed. See also
-  // comments in UpdateUI()
-  UpdateUIFromInputMethod(obj->current_input_method());
-}
-
-void InputMethodMenu::ImePropertiesChanged(InputMethodLibrary* obj) {
+  // comments in UpdateUI() in input_method_menu_button.cc.
+  UpdateUIFromInputMethod(current_input_method, num_active_input_methods);
 }
 
 void InputMethodMenu::UpdateUIFromInputMethod(
-    const InputMethodDescriptor& input_method) {
+    const InputMethodDescriptor& input_method,
+    size_t num_active_input_methods) {
   const std::wstring name = GetTextForIndicator(input_method);
   const std::wstring tooltip = GetTextForMenu(input_method);
-  UpdateUI(name, tooltip);
+  UpdateUI(input_method.id, name, tooltip, num_active_input_methods);
 }
 
 void InputMethodMenu::RebuildModel() {

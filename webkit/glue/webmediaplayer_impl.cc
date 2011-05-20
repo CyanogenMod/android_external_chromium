@@ -8,6 +8,7 @@
 
 #include "base/callback.h"
 #include "base/command_line.h"
+#include "media/base/filter_collection.h"
 #include "media/base/limits.h"
 #include "media/base/media_format.h"
 #include "media/base/media_switches.h"
@@ -23,7 +24,6 @@
 #include "third_party/WebKit/WebKit/chromium/public/WebURL.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebVideoFrame.h"
 #include "webkit/glue/media/buffered_data_source.h"
-#include "webkit/glue/media/media_resource_loader_bridge_factory.h"
 #include "webkit/glue/media/simple_data_source.h"
 #include "webkit/glue/media/video_renderer_impl.h"
 #include "webkit/glue/media/web_video_renderer.h"
@@ -225,7 +225,7 @@ void WebMediaPlayerImpl::Proxy::PutCurrentFrame(
 
 WebMediaPlayerImpl::WebMediaPlayerImpl(
     WebKit::WebMediaPlayerClient* client,
-    media::MediaFilterCollection* collection)
+    media::FilterCollection* collection)
     : network_state_(WebKit::WebMediaPlayer::Empty),
       ready_state_(WebKit::WebMediaPlayer::HaveNothing),
       main_loop_(NULL),
@@ -233,6 +233,7 @@ WebMediaPlayerImpl::WebMediaPlayerImpl(
       pipeline_(NULL),
       pipeline_thread_("PipelineThread"),
       paused_(true),
+      seeking_(false),
       playback_rate_(0.0f),
       client_(client),
       proxy_(NULL),
@@ -243,8 +244,7 @@ WebMediaPlayerImpl::WebMediaPlayerImpl(
 }
 
 bool WebMediaPlayerImpl::Initialize(
-    MediaResourceLoaderBridgeFactory* bridge_factory_simple,
-    MediaResourceLoaderBridgeFactory* bridge_factory_buffered,
+    WebKit::WebFrame* frame,
     bool use_simple_data_source,
     scoped_refptr<WebVideoRenderer> web_video_renderer) {
   // Create the pipeline and its thread.
@@ -274,11 +274,11 @@ bool WebMediaPlayerImpl::Initialize(
 
   // A simple data source that keeps all data in memory.
   scoped_refptr<SimpleDataSource> simple_data_source(
-      new SimpleDataSource(MessageLoop::current(), bridge_factory_simple));
+    new SimpleDataSource(MessageLoop::current(), frame));
 
   // A sophisticated data source that does memory caching.
   scoped_refptr<BufferedDataSource> buffered_data_source(
-      new BufferedDataSource(MessageLoop::current(), bridge_factory_buffered));
+      new BufferedDataSource(MessageLoop::current(), frame));
   proxy_->SetDataSource(buffered_data_source);
 
   if (use_simple_data_source) {
@@ -369,11 +369,6 @@ void WebMediaPlayerImpl::seek(float seconds) {
     return;
   }
 
-  // Drop our ready state if the media file isn't fully loaded.
-  if (!pipeline_->IsLoaded()) {
-    SetReadyState(WebKit::WebMediaPlayer::HaveMetadata);
-  }
-
   // Try to preserve as much accuracy as possible.
   float microseconds = seconds * base::Time::kMicrosecondsPerSecond;
   base::TimeDelta seek_time =
@@ -383,6 +378,8 @@ void WebMediaPlayerImpl::seek(float seconds) {
   if (paused_) {
     paused_time_ = seek_time;
   }
+
+  seeking_ = true;
 
   // Kick off the asynchronous seek!
   pipeline_->Seek(
@@ -477,7 +474,7 @@ bool WebMediaPlayerImpl::seeking() const {
   if (ready_state_ == WebKit::WebMediaPlayer::HaveNothing)
     return false;
 
-  return ready_state_ == WebKit::WebMediaPlayer::HaveMetadata;
+  return seeking_;
 }
 
 float WebMediaPlayerImpl::duration() const {
@@ -503,6 +500,14 @@ int WebMediaPlayerImpl::dataRate() const {
 
   // TODO(hclam): Add this method call if pipeline has it in the interface.
   return 0;
+}
+
+WebKit::WebMediaPlayer::NetworkState WebMediaPlayerImpl::networkState() const {
+  return network_state_;
+}
+
+WebKit::WebMediaPlayer::ReadyState WebMediaPlayerImpl::readyState() const {
+  return ready_state_;
 }
 
 const WebKit::WebTimeRanges& WebMediaPlayerImpl::buffered() {
@@ -698,6 +703,7 @@ void WebMediaPlayerImpl::OnPipelineSeek() {
     }
 
     SetReadyState(WebKit::WebMediaPlayer::HaveEnoughData);
+    seeking_ = false;
     GetClient()->timeChanged();
   }
 }

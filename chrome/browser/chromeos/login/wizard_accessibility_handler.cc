@@ -12,15 +12,14 @@
 #include "base/scoped_ptr.h"
 #include "base/string_number_conversions.h"
 #include "chrome/browser/accessibility_events.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/speech_synthesis_library.h"
 #include "chrome/browser/extensions/extension_accessibility_api.h"
 #include "chrome/browser/extensions/extension_accessibility_api_constants.h"
-#include "chrome/browser/profile.h"
-#include "chrome/browser/profile_manager.h"
+#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/common/notification_details.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/notification_source.h"
 #include "grit/generated_resources.h"
 
 namespace keys = extension_accessibility_api_constants;

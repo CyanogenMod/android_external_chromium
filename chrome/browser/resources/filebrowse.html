@@ -14,7 +14,6 @@ div.header {
   top: 0;
   height: 32px;
   position: absolute;
-  -webkit-box-sizing: border-box;
   box-sizing: border-box;
   background-image: -webkit-gradient(linear,
                                      left top,
@@ -407,21 +406,6 @@ div.scanningcontainer {
   height: 100%;
 }
 
-div.filebutton {
-  height: 18px;
-  cursor: pointer;
-  padding: 5px 15px 2px;
-  border: 1px solid #abb6ce;
-  background-image: -webkit-gradient(linear,
-                                     left top,
-                                     left bottom,
-                                     color-stop(0.80, #fcfcfc),
-                                     color-stop(0.97, #e3e3e3));
-  border-radius: 3px;
-  text-align: center;
-  font-size: .8em;
-}
-
 .filenameprompt {
   top: 8px;
   left: 13px;
@@ -438,18 +422,21 @@ div.filebutton {
   position: absolute;
 }
 
-div.openbutton {
-  bottom: 3px;
-  right: 100px;
+div.buttonscontainer {
+  display: -webkit-box;
+  bottom: 0;
+  right: 10px;
   position: absolute;
-  width: 50px;
+}
+
+div.openbutton {
+  min-width: 50px;
+  margin: 3px;
 }
 
 div.cancelbutton {
-  bottom: 3px;
-  right: 10px;
-  position: absolute;
-  width: 50px;
+  min-width: 50px;
+  margin: 3px;
 }
 
 div.newfolderbutton {
@@ -698,16 +685,21 @@ function enabledResult(info) {
         var savemenu = document.createElement('div');
         savemenu.className = 'savecontainer';
 
-        var savebutton = document.createElement('div');
+        // The container is used for placing buttons horizontally.
+        var buttonsContainer = document.createElement('div');
+        buttonsContainer.className = 'buttonscontainer';
+        savemenu.appendChild(buttonsContainer);
+
+        var savebutton = document.createElement('button');
         savebutton.id = 'savebutton';
-        savebutton.className = 'filebutton openbutton disabled';
+        savebutton.className = 'openbutton disabled';
         savebutton.onclick = dialogSaveClick;
         savebutton.textContent = localStrings.getString('save');
-        savemenu.appendChild(savebutton);
+        buttonsContainer.appendChild(savebutton);
 
-        var cancelbutton = document.createElement('div');
-        cancelbutton.className = 'filebutton cancelbutton';
-        savemenu.appendChild(cancelbutton);
+        var cancelbutton = document.createElement('button');
+        cancelbutton.className = 'cancelbutton';
+        buttonsContainer.appendChild(cancelbutton);
         cancelbutton.textContent = localStrings.getString('confirmcancel');
         cancelbutton.onclick = dialogCancelClick;
 
@@ -727,25 +719,28 @@ function enabledResult(info) {
         filename.value = args.current_file;
         savemenu.appendChild(filename);
         if (advancedEnabled) {
-          var newfolderbutton = document.createElement('div');
+          var newfolderbutton = document.createElement('button');
           newfolderbutton.id = 'newfolderbutton';
-          newfolderbutton.className = 'filebutton newfolderbutton disabled';
+          newfolderbutton.className = 'newfolderbutton disabled';
           newfolderbutton.textContent = localStrings.getString('newfolder');
           newfolderbutton.onclick = dialogNewFolderClick;
           savemenu.appendChild(newfolderbutton);
         }
         document.body.appendChild(savemenu);
+        // Give focus to the save button. This has to be done after the
+        // parent node is added to document.body.
+        savebutton.focus();
 
       } else {
         var main = mainColumn;
         main.className = 'containerwithopenbuttons';
         var openmenu = document.createElement('div');
         openmenu.className = 'opencontainer';
-        var openbutton = document.createElement('div');
+        var openbutton = document.createElement('button');
         openbutton.id = 'openbutton';
-        openbutton.className = 'filebutton openbutton disabled';
-        var cancelbutton = document.createElement('div');
-        cancelbutton.className = 'filebutton cancelbutton';
+        openbutton.className = 'openbutton disabled';
+        var cancelbutton = document.createElement('button');
+        cancelbutton.className = 'cancelbutton';
         openmenu.appendChild(openbutton);
         openbutton.onclick = dialogOkClick;
         openmenu.appendChild(cancelbutton);
@@ -943,26 +938,26 @@ function getDataForPath(path) {
     if (inSaveMode) {
       if (advancedEnabled) {
         var newfolderbutton = $('newfolderbutton');
-        newfolderbutton.className = 'filebutton newfolderbutton disabled';
+        newfolderbutton.className = 'newfolderbutton disabled';
       }
       var savebutton = $('savebutton');
-      savebutton.className = 'filebutton openbutton disabled';
+      savebutton.className = 'openbutton disabled';
     } else if (inSelectMode) {
       var openbutton = $('openbutton');
-      openbutton.className = 'filebutton openbutton disabled';
+      openbutton.className = 'openbutton disabled';
     }
     chrome.send('getRoots', []);
   } else {
     if (inSaveMode) {
       if (advancedEnabled) {
         var newfolderbutton = $('newfolderbutton');
-        newfolderbutton.className = 'filebutton newfolderbutton';
+        newfolderbutton.className = 'newfolderbutton';
       }
       var savebutton = $('savebutton');
-      savebutton.className = 'filebutton openbutton';
+      savebutton.className = 'openbutton';
     } else if (inSelectMode) {
       var openbutton = $('openbutton');
-      openbutton.className = 'filebutton openbutton';
+      openbutton.className = 'openbutton';
     }
     chrome.send('getChildren', [path]);
   }

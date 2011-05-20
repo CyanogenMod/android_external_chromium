@@ -5,13 +5,13 @@
 #include "chrome/browser/extensions/extension_omnibox_api.h"
 
 #include "base/json/json_writer.h"
-#include "base/singleton.h"
+#include "base/lazy_instance.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_event_router.h"
-#include "chrome/browser/extensions/extensions_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/common/notification_service.h"
 
@@ -36,8 +36,11 @@ const char kDescriptionStylesType[] = "type";
 const char kDescriptionStylesOffset[] = "offset";
 const char kDescriptionStylesLength[] = "length";
 
+static base::LazyInstance<PropertyAccessor<ExtensionOmniboxSuggestion> >
+    g_extension_omnibox_suggestion_property_accessor(base::LINKER_INITIALIZED);
+
 PropertyAccessor<ExtensionOmniboxSuggestion>& GetPropertyAccessor() {
-  return *Singleton< PropertyAccessor<ExtensionOmniboxSuggestion> >::get();
+  return g_extension_omnibox_suggestion_property_accessor.Get();
 }
 
 // Returns the suggestion object set by the extension via the
@@ -45,11 +48,11 @@ PropertyAccessor<ExtensionOmniboxSuggestion>& GetPropertyAccessor() {
 const ExtensionOmniboxSuggestion* GetDefaultSuggestionForExtension(
     Profile* profile, const std::string& extension_id) {
   const Extension* extension =
-      profile->GetExtensionsService()->GetExtensionById(extension_id, false);
+      profile->GetExtensionService()->GetExtensionById(extension_id, false);
   if (!extension)
     return NULL;
   return GetPropertyAccessor().GetProperty(
-      profile->GetExtensionsService()->GetPropertyBag(extension));
+      profile->GetExtensionService()->GetPropertyBag(extension));
 }
 
 };  // namespace
@@ -161,7 +164,7 @@ bool OmniboxSetDefaultSuggestionFunction::RunImpl() {
 
   // Store the suggestion in the extension's runtime data.
   GetPropertyAccessor().SetProperty(
-      profile_->GetExtensionsService()->GetPropertyBag(GetExtension()),
+      profile_->GetExtensionService()->GetPropertyBag(GetExtension()),
       suggestion);
 
   NotificationService::current()->Notify(

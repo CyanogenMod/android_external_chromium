@@ -12,15 +12,13 @@
 #include "app/win_util.h"
 #include "base/win_util.h"
 #include "chrome/browser/accessibility/browser_accessibility_state.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
-#include "chrome/browser/views/frame/app_panel_browser_frame_view.h"
 #include "chrome/browser/views/frame/browser_non_client_frame_view.h"
 #include "chrome/browser/views/frame/browser_root_view.h"
 #include "chrome/browser/views/frame/browser_view.h"
 #include "chrome/browser/views/frame/glass_browser_frame_view.h"
-#include "chrome/browser/views/frame/opaque_browser_frame_view.h"
 #include "grit/theme_resources.h"
 #include "views/screen.h"
 #include "views/window/window_delegate.h"
@@ -105,9 +103,6 @@ ThemeProvider* BrowserFrameWin::GetThemeProviderForFrame() const {
 bool BrowserFrameWin::AlwaysUseNativeFrame() const {
   // App panel windows draw their own frame.
   if (browser_view_->IsBrowserTypePanel())
-    return false;
-
-  if (browser_view_->browser()->type() == Browser::TYPE_EXTENSION_APP)
     return false;
 
   // We don't theme popup or app windows, so regardless of whether or not a
@@ -240,7 +235,7 @@ ThemeProvider* BrowserFrameWin::GetDefaultThemeProvider() const {
 }
 
 void BrowserFrameWin::OnScreenReaderDetected() {
-  Singleton<BrowserAccessibilityState>()->OnScreenReaderDetected();
+  BrowserAccessibilityState::GetInstance()->OnScreenReaderDetected();
   WindowWin::OnScreenReaderDetected();
 }
 
@@ -266,10 +261,9 @@ void BrowserFrameWin::Activate() {
 views::NonClientFrameView* BrowserFrameWin::CreateFrameViewForWindow() {
   if (AlwaysUseNativeFrame())
     browser_frame_view_ = new GlassBrowserFrameView(this, browser_view_);
-  else if (browser_view_->IsBrowserTypePanel())
-    browser_frame_view_ = new AppPanelBrowserFrameView(this, browser_view_);
   else
-    browser_frame_view_ = new OpaqueBrowserFrameView(this, browser_view_);
+    browser_frame_view_ =
+        browser::CreateBrowserNonClientFrameView(this, browser_view_);
   return browser_frame_view_;
 }
 

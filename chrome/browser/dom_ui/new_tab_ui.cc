@@ -31,7 +31,7 @@
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/sessions/session_types.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
@@ -376,8 +376,8 @@ NewTabUI::NewTabUI(TabContents* contents)
     AddMessageHandler((new MetricsHandler())->Attach(this));
     if (GetProfile()->IsSyncAccessible())
       AddMessageHandler((new NewTabPageSyncHandler())->Attach(this));
-    ExtensionsService* service = GetProfile()->GetExtensionsService();
-    // We might not have an ExtensionsService (on ChromeOS when not logged in
+    ExtensionService* service = GetProfile()->GetExtensionService();
+    // We might not have an ExtensionService (on ChromeOS when not logged in
     // for example).
     if (service)
       AddMessageHandler((new AppLauncherHandler(service))->Attach(this));
@@ -395,7 +395,7 @@ NewTabUI::NewTabUI(TabContents* contents)
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
-          Singleton<ChromeURLDataManager>::get(),
+          ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(html_source)));
 
@@ -442,7 +442,7 @@ void NewTabUI::InitializeCSSCaches() {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
-          Singleton<ChromeURLDataManager>::get(),
+          ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(theme)));
 }
@@ -605,7 +605,7 @@ void NewTabUI::NewTabHTMLSource::StartDataRequest(const std::string& path,
                                                   int request_id) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
-  if (AppLauncherHandler::HandlePing(profile_, path)) {
+  if (AppLauncherHandler::HandlePing(path)) {
     return;
   } else if (!path.empty() && path[0] != '#') {
     // A path under new-tab was requested; it's likely a bad relative

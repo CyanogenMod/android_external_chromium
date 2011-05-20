@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "base/lazy_instance.h"
 #include "base/string_tokenizer.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/net_errors.h"
@@ -39,12 +40,15 @@ net::SocketStreamJob* WebSocketJobFactory(
 
 class WebSocketJobInitSingleton {
  private:
-  friend struct DefaultSingletonTraits<WebSocketJobInitSingleton>;
+  friend struct base::DefaultLazyInstanceTraits<WebSocketJobInitSingleton>;
   WebSocketJobInitSingleton() {
     net::SocketStreamJob::RegisterProtocolFactory("ws", WebSocketJobFactory);
     net::SocketStreamJob::RegisterProtocolFactory("wss", WebSocketJobFactory);
   }
 };
+
+static base::LazyInstance<WebSocketJobInitSingleton> g_websocket_job_init(
+    base::LINKER_INITIALIZED);
 
 }  // anonymous namespace
 
@@ -52,7 +56,7 @@ namespace net {
 
 // static
 void WebSocketJob::EnsureInit() {
-  Singleton<WebSocketJobInitSingleton>::get();
+  g_websocket_job_init.Get();
 }
 
 WebSocketJob::WebSocketJob(SocketStream::Delegate* delegate)
@@ -144,8 +148,8 @@ void WebSocketJob::RestartWithAuth(
 
 void WebSocketJob::DetachDelegate() {
   state_ = CLOSED;
-  Singleton<WebSocketThrottle>::get()->RemoveFromQueue(this);
-  Singleton<WebSocketThrottle>::get()->WakeupSocketIfNecessary();
+  WebSocketThrottle::GetInstance()->RemoveFromQueue(this);
+  WebSocketThrottle::GetInstance()->WakeupSocketIfNecessary();
 
   scoped_refptr<WebSocketJob> protect(this);
 
@@ -165,7 +169,7 @@ int WebSocketJob::OnStartOpenConnection(
   DCHECK(!callback_);
   state_ = CONNECTING;
   addresses_.Copy(socket->address_list().head(), true);
-  Singleton<WebSocketThrottle>::get()->PutInQueue(this);
+  WebSocketThrottle::GetInstance()->PutInQueue(this);
   if (!waiting_)
     return OK;
   callback_ = callback;
@@ -237,8 +241,8 @@ void WebSocketJob::OnReceivedData(
 
 void WebSocketJob::OnClose(SocketStream* socket) {
   state_ = CLOSED;
-  Singleton<WebSocketThrottle>::get()->RemoveFromQueue(this);
-  Singleton<WebSocketThrottle>::get()->WakeupSocketIfNecessary();
+  WebSocketThrottle::GetInstance()->RemoveFromQueue(this);
+  WebSocketThrottle::GetInstance()->WakeupSocketIfNecessary();
 
   scoped_refptr<WebSocketJob> protect(this);
 
@@ -405,8 +409,8 @@ void WebSocketJob::SaveNextCookie() {
 
     handshake_response_.reset();
 
-    Singleton<WebSocketThrottle>::get()->RemoveFromQueue(this);
-    Singleton<WebSocketThrottle>::get()->WakeupSocketIfNecessary();
+    WebSocketThrottle::GetInstance()->RemoveFromQueue(this);
+    WebSocketThrottle::GetInstance()->WakeupSocketIfNecessary();
     return;
   }
 

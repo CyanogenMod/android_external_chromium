@@ -11,7 +11,9 @@
 // portion of this class, the GpuProcessHost, is responsible for
 // shuttling messages between the browser and GPU processes.
 
+#include "base/callback.h"
 #include "base/non_thread_safe.h"
+#include "base/scoped_ptr.h"
 #include "base/singleton.h"
 #include "chrome/common/gpu_info.h"
 #include "chrome/common/message_router.h"
@@ -23,7 +25,7 @@ class GpuProcessHostUIShim : public IPC::Channel::Sender,
                              public NonThreadSafe {
  public:
   // Getter for the singleton. This will return NULL on failure.
-  static GpuProcessHostUIShim* Get();
+  static GpuProcessHostUIShim* GetInstance();
 
   int32 GetNextRoutingId();
 
@@ -34,7 +36,7 @@ class GpuProcessHostUIShim : public IPC::Channel::Sender,
   // The GpuProcessHost causes this to be called on the UI thread to
   // dispatch the incoming messages from the GPU process, which are
   // actually received on the IO thread.
-  virtual void OnMessageReceived(const IPC::Message& message);
+  virtual bool OnMessageReceived(const IPC::Message& message);
 
   // See documentation on MessageRouter for AddRoute and RemoveRoute
   void AddRoute(int32 routing_id, IPC::Channel::Listener* listener);
@@ -54,6 +56,13 @@ class GpuProcessHostUIShim : public IPC::Channel::Sender,
   // Return all known information about the GPU.
   const GPUInfo& gpu_info() const;
 
+  // Used only in testing. Sets a callback to invoke when GPU info is collected,
+  // regardless of whether it has been collected already or if it is partial
+  // or complete info. Set to NULL when the callback should no longer be called.
+  void set_gpu_info_collected_callback(Callback0::Type* callback) {
+    gpu_info_collected_callback_.reset(callback);
+  }
+
  private:
   friend struct DefaultSingletonTraits<GpuProcessHostUIShim>;
 
@@ -63,13 +72,17 @@ class GpuProcessHostUIShim : public IPC::Channel::Sender,
   // Message handlers.
   void OnGraphicsInfoCollected(const GPUInfo& gpu_info);
   void OnScheduleComposite(int32 renderer_id, int32 render_view_id);
-  void OnControlMessageReceived(const IPC::Message& message);
+  bool OnControlMessageReceived(const IPC::Message& message);
 
   int last_routing_id_;
 
   GPUInfo gpu_info_;
 
   MessageRouter router_;
+
+  // Used only in testing. If set, the callback is invoked when the GPU info
+  // has been collected.
+  scoped_ptr<Callback0::Type> gpu_info_collected_callback_;
 };
 
 #endif  // CHROME_BROWSER_GPU_PROCESS_HOST_UI_SHIM_H_

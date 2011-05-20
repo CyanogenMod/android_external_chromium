@@ -24,6 +24,7 @@
 class AutoFillCCInfoBarDelegate;
 #endif
 class AutoFillProfile;
+class AutoFillMetrics;
 class CreditCard;
 class FormStructure;
 class PrefService;
@@ -68,13 +69,11 @@ class AutoFillManager :
                                     const webkit_glue::FormField& field,
                                     int unique_id);
   virtual void ShowAutoFillDialog();
+  virtual void Reset();
 
   // Called by the AutoFillCCInfoBarDelegate when the user interacts with the
   // infobar.
   virtual void OnInfoBarClosed(bool should_save);
-
-  // Resets the stored form data.
-  virtual void Reset();
 
   // AutoFillDownloadManager::Observer implementation:
   virtual void OnLoadedAutoFillHeuristics(const std::string& heuristic_xml);
@@ -86,10 +85,6 @@ class AutoFillManager :
 
   // Returns the value of the AutoFillEnabled pref.
   virtual bool IsAutoFillEnabled() const;
-
-  // Uses heuristics and existing personal data to determine the possible field
-  // types.
-  void DeterminePossibleFieldTypes(FormStructure* form_structure);
 
   // Handles the form data submitted by the user.
   void HandleSubmit();
@@ -106,6 +101,11 @@ class AutoFillManager :
   void set_personal_data_manager(PersonalDataManager* personal_data) {
     personal_data_ = personal_data;
   }
+
+  const AutoFillMetrics* metric_logger() const {
+    return metric_logger_.get();
+  }
+  void set_metric_logger(const AutoFillMetrics* metric_logger);
 
   // Maps GUIDs to and from IDs that are used to identify profiles and credit
   // cards sent to and from the renderer process.
@@ -177,10 +177,9 @@ class AutoFillManager :
   // Parses the forms using heuristic matching and querying the AutoFill server.
   void ParseForms(const std::vector<webkit_glue::FormData>& forms);
 
-  // The following function is meant to be called from unit-test only.
-  void set_disable_download_manager_requests(bool value) {
-    disable_download_manager_requests_ = value;
-  }
+  // Uses existing personal data to determine possible field types for the
+  // |upload_form_structure_|.
+  void DeterminePossibleFieldTypesForUpload();
 
   // The TabContents hosting this AutoFillManager.
   // Weak reference.
@@ -199,8 +198,12 @@ class AutoFillManager :
 
   // Should be set to true in AutoFillManagerTest and other tests, false in
   // AutoFillDownloadManagerTest and in non-test environment. Is false by
-  // default.
+  // default for the public constructor, and true by default for the test-only
+  // constructors.
   bool disable_download_manager_requests_;
+
+  // For logging UMA metrics. Overridden by metrics tests.
+  scoped_ptr<const AutoFillMetrics> metric_logger_;
 
   // Our copy of the form data.
   ScopedVector<FormStructure> form_structures_;
@@ -222,7 +225,6 @@ class AutoFillManager :
   std::map<int, std::string> id_guid_map_;
 
   friend class FormStructureBrowserTest;
-  friend class TestAutoFillManager;
   FRIEND_TEST_ALL_PREFIXES(AutoFillManagerTest, FillCreditCardForm);
   FRIEND_TEST_ALL_PREFIXES(AutoFillManagerTest, FillAddressForm);
   FRIEND_TEST_ALL_PREFIXES(AutoFillManagerTest, FillAddressAndCreditCardForm);

@@ -11,13 +11,13 @@
 
 #include "base/basictypes.h"
 #include "base/observer_list.h"
-#include "chrome/browser/profile.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 
-class ExtensionsService;
+class ExtensionService;
 class PrefService;
+class Profile;
 
 // Model for list of Background Applications, that is, Extensions with
 // kBackgroundPermission set, associated with a Profile.
@@ -119,8 +119,8 @@ class BackgroundApplicationListModel : public NotificationObserver {
   // Invoked by Observe for EXTENSION_LOADED notifications.
   void OnExtensionLoaded(Extension* extension);
 
-  // Invoked by Observe for EXTENSION_UNLOADED* notifications.
-  void OnExtensionUnloaded(Extension* extension);
+  // Invoked by Observe for EXTENSION_UNLOADED notifications.
+  void OnExtensionUnloaded(const Extension* extension);
 
   // Refresh the list of background applications and generates ApplicationAdded
   // and ApplicationRemoved events.

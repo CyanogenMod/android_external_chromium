@@ -6,9 +6,6 @@
 #define CHROME_BROWSER_EXTENSIONS_STATEFUL_EXTERNAL_EXTENSION_PROVIDER_H_
 #pragma once
 
-#include <set>
-#include <string>
-
 #include "chrome/browser/extensions/external_extension_provider.h"
 
 class DictionaryValue;
@@ -23,6 +20,8 @@ class Version;
 // This provider can provide external extensions from two sources: crx files
 // and udpate URLs. The locations that the provider will report for these
 // are specified at the constructor.
+// Instances of this class are expected to be created and destroyed on the UI
+// thread and they are expecting public method calls from the FILE thread.
 class StatefulExternalExtensionProvider : public ExternalExtensionProvider {
  public:
   // Initialize the location for external extensions originating from crx
@@ -35,8 +34,7 @@ class StatefulExternalExtensionProvider : public ExternalExtensionProvider {
   virtual ~StatefulExternalExtensionProvider();
 
   // ExternalExtensionProvider implementation:
-  virtual void VisitRegisteredExtension(
-      Visitor* visitor, const std::set<std::string>& ids_to_ignore) const;
+  virtual void VisitRegisteredExtension(Visitor* visitor) const;
 
   virtual bool HasExtension(const std::string& id) const;
 
@@ -50,6 +48,12 @@ class StatefulExternalExtensionProvider : public ExternalExtensionProvider {
   // Location for external extensions that are provided by this provider from
   // update URLs.
   const Extension::Location download_location_;
+
+  // Stores the dictionary of external extensions internally. Takes ownership
+  // of |prefs|.
+  void set_prefs(DictionaryValue* prefs);
+
+ private:
   // Dictionary of the external extensions that are provided by this provider.
   scoped_ptr<DictionaryValue> prefs_;
 };

@@ -8,8 +8,8 @@
 
 #include "app/clipboard/clipboard.h"
 #include "app/clipboard/scoped_clipboard_writer.h"
+#include "app/mac/nsimage_cache.h"
 #include "app/resource_bundle.h"
-#include "base/nsimage_cache_mac.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
@@ -18,9 +18,9 @@
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_view_mac.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/cocoa/event_utils.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/toolbar_model.h"
+#include "chrome/browser/ui/cocoa/event_utils.h"
+#include "chrome/browser/ui/toolbar/toolbar_model.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "net/base/escape.h"
@@ -149,7 +149,7 @@ NSImage* AutocompleteEditViewMac::ImageForResource(int resource_id) {
   }
 
   if (image_name) {
-    if (NSImage* image = nsimage_cache::ImageNamed(image_name)) {
+    if (NSImage* image = app::mac::GetCachedImageWithName(image_name)) {
       return image;
     } else {
       NOTREACHED()
@@ -627,6 +627,11 @@ void AutocompleteEditViewMac::OnTemporaryTextMaybeChanged(
   [field_ clearUndoChain];
 }
 
+void AutocompleteEditViewMac::OnStartingIME() {
+  if (model_->is_keyword_hint() && !model_->keyword().empty())
+    model_->AcceptKeyword();
+}
+
 bool AutocompleteEditViewMac::OnInlineAutocompleteTextMaybeChanged(
     const std::wstring& display_text, size_t user_text_length) {
   // TODO(shess): Make sure that this actually works.  The round trip
@@ -805,6 +810,9 @@ bool AutocompleteEditViewMac::OnDoCommandBySelector(SEL cmd) {
       controller_->OnCommitSuggestedText(GetText());
       return true;
     }
+
+    if (controller_->AcceptCurrentInstantPreview())
+      return true;
   }
 
   // |-noop:| is sent when the user presses Cmd+Return. Override the no-op

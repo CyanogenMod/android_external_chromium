@@ -6,10 +6,11 @@
 
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
+#include "base/i18n/rtl.h"
 #include "base/message_loop.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_window.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/views/browser_actions_container.h"
 #include "chrome/browser/views/frame/browser_view.h"
@@ -17,7 +18,8 @@
 #include "chrome/browser/views/toolbar_view.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_action.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/notification_details.h"
+#include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -82,9 +84,11 @@ class InstalledBubbleContent : public views::View,
     icon_->SetImage(*icon);
     AddChildView(icon_);
 
+    std::wstring extension_name = UTF8ToWide(extension->name());
+    base::i18n::AdjustStringForLocaleDirection(&extension_name);
     heading_ = new views::Label(
         l10n_util::GetStringF(IDS_EXTENSION_INSTALLED_HEADING,
-                              UTF8ToWide(extension->name())));
+                              extension_name));
     heading_->SetFont(rb.GetFont(ResourceBundle::MediumFont));
     heading_->SetMultiLine(true);
     heading_->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
@@ -264,7 +268,8 @@ void ExtensionInstalledBubble::Observe(NotificationType type,
           &ExtensionInstalledBubble::ShowInternal));
     }
   } else if (type == NotificationType::EXTENSION_UNLOADED) {
-    const Extension* extension = Details<const Extension>(details).ptr();
+    const Extension* extension =
+        Details<UnloadedExtensionInfo>(details)->extension;
     if (extension == extension_)
       extension_ = NULL;
   } else {

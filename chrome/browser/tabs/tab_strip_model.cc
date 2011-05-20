@@ -14,18 +14,18 @@
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/defaults.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/tabs/tab_strip_model_delegate.h"
 #include "chrome/browser/tabs/tab_strip_model_order_controller.h"
-#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/notification_service.h"
@@ -168,10 +168,10 @@ void TabStripModel::InsertTabContentsAt(int index,
 TabContentsWrapper* TabStripModel::ReplaceTabContentsAt(
     int index,
     TabContentsWrapper* new_contents) {
+  // TODO: this should reset group/opener of any tabs that point at
+  // old_contents.
   DCHECK(ContainsIndex(index));
   TabContentsWrapper* old_contents = GetContentsAt(index);
-
-  ForgetOpenersAndGroupsReferencing(&(old_contents->controller()));
 
   contents_data_[index]->contents = new_contents;
 
@@ -212,7 +212,6 @@ TabContentsWrapper* TabStripModel::DetachTabContentsAt(int index) {
   int next_selected_index = order_controller_->DetermineNewSelectedIndex(index);
   delete contents_data_.at(index);
   contents_data_.erase(contents_data_.begin() + index);
-  ForgetOpenersAndGroupsReferencing(&(removed_contents->controller()));
   if (empty())
     closing_all_ = true;
   FOR_EACH_OBSERVER(TabStripModelObserver, observers_,
@@ -779,7 +778,8 @@ void TabStripModel::Observe(NotificationType type,
     }
 
     case NotificationType::EXTENSION_UNLOADED: {
-      const Extension* extension = Details<const Extension>(details).ptr();
+      const Extension* extension =
+          Details<UnloadedExtensionInfo>(details)->extension;
       // Iterate backwards as we may remove items while iterating.
       for (int i = count() - 1; i >= 0; i--) {
         TabContentsWrapper* contents = GetTabContentsAt(i);
@@ -1010,15 +1010,4 @@ bool TabStripModel::OpenerMatches(const TabContentsData* data,
                                   const NavigationController* opener,
                                   bool use_group) {
   return data->opener == opener || (use_group && data->group == opener);
-}
-
-void TabStripModel::ForgetOpenersAndGroupsReferencing(
-    const NavigationController* tab) {
-  for (TabContentsDataVector::const_iterator i = contents_data_.begin();
-       i != contents_data_.end(); ++i) {
-    if ((*i)->group == tab)
-      (*i)->group = NULL;
-    if ((*i)->opener == tab)
-      (*i)->opener = NULL;
-  }
 }

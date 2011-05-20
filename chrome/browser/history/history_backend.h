@@ -121,6 +121,7 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
 
   void AddPage(scoped_refptr<HistoryAddPageArgs> request);
   virtual void SetPageTitle(const GURL& url, const string16& title);
+  void AddPageNoVisitForBookmark(const GURL& url);
 
   // Indexing ------------------------------------------------------------------
 
@@ -453,8 +454,8 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
   // Schedules a broadcast of the given notification on the main thread. The
   // details argument will have ownership taken by this function (it will be
   // sent to the main thread and deleted there).
-  void BroadcastNotifications(NotificationType type,
-                              HistoryDetails* details_deleted);
+  virtual void BroadcastNotifications(NotificationType type,
+                                      HistoryDetails* details_deleted);
 
   // Deleting all history ------------------------------------------------------
 

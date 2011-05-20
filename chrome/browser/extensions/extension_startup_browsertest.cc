@@ -8,9 +8,9 @@
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/path_service.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/user_script_master.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_paths.h"
@@ -18,7 +18,6 @@
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
@@ -85,7 +84,7 @@ class ExtensionStartupTestBase : public InProcessBrowserTest {
 
   void WaitForServicesToStart(int num_expected_extensions,
                               bool expect_extensions_enabled) {
-    ExtensionsService* service = browser()->profile()->GetExtensionsService();
+    ExtensionService* service = browser()->profile()->GetExtensionService();
 
     // Count the number of non-component extensions.
     int found_extensions = 0;
@@ -168,7 +167,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionsStartupTest, Test) {
 IN_PROC_BROWSER_TEST_F(ExtensionsStartupTest, MAYBE_NoFileAccess) {
   WaitForServicesToStart(num_expected_extensions_, true);
 
-  ExtensionsService* service = browser()->profile()->GetExtensionsService();
+  ExtensionService* service = browser()->profile()->GetExtensionService();
   for (size_t i = 0; i < service->extensions()->size(); ++i) {
     if (service->extensions()->at(i)->location() == Extension::COMPONENT)
       continue;

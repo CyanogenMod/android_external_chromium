@@ -15,8 +15,8 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/views/tabs/tab_controller.h"
-#include "chrome/browser/view_ids.h"
+#include "chrome/browser/ui/view_ids.h"
+#include "chrome/browser/ui/views/tabs/tab_controller.h"
 #include "chrome/common/chrome_switches.h"
 #include "gfx/canvas_skia.h"
 #include "gfx/favicon_size.h"
@@ -34,7 +34,7 @@
 static const int kPulseDurationMs = 200;
 
 // How long the hover state takes.
-static const int kHoverDurationMs = 90;
+static const int kHoverDurationMs = 400;
 
 namespace {
 

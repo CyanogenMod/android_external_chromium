@@ -12,9 +12,9 @@
 #include "base/sys_string_conversions.h"
 #include "chrome/browser/automation/automation_browser_tracker.h"
 #include "chrome/browser/automation/automation_window_tracker.h"
-#import "chrome/browser/cocoa/browser_window_controller.h"
-#include "chrome/browser/cocoa/tab_window_controller.h"
-#include "chrome/browser/view_ids.h"
+#import "chrome/browser/ui/cocoa/browser_window_controller.h"
+#include "chrome/browser/ui/cocoa/tab_window_controller.h"
+#include "chrome/browser/ui/view_ids.h"
 #include "grit/generated_resources.h"
 
 void TestingAutomationProvider::ActivateWindow(int handle) {

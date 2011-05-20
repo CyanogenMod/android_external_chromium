@@ -4,6 +4,10 @@
 
 #include "chrome/browser/views/about_chrome_view.h"
 
+#if defined(OS_WIN)
+#include <commdlg.h>
+#endif  // defined(OS_WIN)
+
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -16,7 +20,6 @@
 #include "base/utf_string_conversions.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -26,6 +29,7 @@
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/installer/util/browser_distribution.h"
 #include "gfx/canvas.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -40,12 +44,14 @@
 #include "webkit/glue/webkit_glue.h"
 
 #if defined(OS_WIN)
-#include <commdlg.h>
-
 #include "base/win_util.h"
 #include "chrome/browser/views/restart_message_box.h"
 #include "chrome/installer/util/install_util.h"
-#endif
+#endif  // defined(OS_WIN)
+
+#if defined(OS_WIN) || defined(OS_CHROMEOS)
+#include "chrome/browser/browser_process.h"
+#endif  // defined(OS_WIN) || defined(OS_CHROMEOS)
 
 namespace {
 // The pixel width of the version text field. Ideally, we'd like to have the
@@ -150,16 +156,16 @@ void AboutChromeView::Init() {
     return;
   }
 
-  current_version_ = ASCIIToWide(version_info.Version());
+  current_version_ = version_info.Version();
 
   std::string version_modifier = platform_util::GetVersionStringModifier();
   if (!version_modifier.empty())
-    version_details_ += L" " + ASCIIToWide(version_modifier);
+    version_details_ += " " + version_modifier;
 
 #if !defined(GOOGLE_CHROME_BUILD)
-  version_details_ += L" (";
-  version_details_ += ASCIIToWide(version_info.LastChange());
-  version_details_ += L")";
+  version_details_ += " (";
+  version_details_ += version_info.LastChange();
+  version_details_ += ")";
 #endif
 
   // Views we will add to the *parent* of this dialog, since it will display
@@ -204,7 +210,7 @@ void AboutChromeView::Init() {
 
   // This is a text field so people can copy the version number from the dialog.
   version_label_ = new views::Textfield();
-  version_label_->SetText(WideToUTF16Hack(current_version_ + version_details_));
+  version_label_->SetText(ASCIIToUTF16(current_version_ + version_details_));
   version_label_->SetReadOnly(true);
   version_label_->RemoveBorder();
   version_label_->SetTextColor(SK_ColorBLACK);
@@ -739,12 +745,13 @@ void AboutChromeView::UpdateStatus(GoogleUpdateUpgradeResult result,
       // Google Update reported that Chrome is up-to-date. Now make sure that we
       // are running the latest version and if not, notify the user by falling
       // into the next case of UPGRADE_SUCCESSFUL.
-      scoped_ptr<installer::Version> installed_version(
-          InstallUtil::GetChromeVersion(false));
-      scoped_ptr<installer::Version> running_version(
-          installer::Version::GetVersionFromString(current_version_));
+      BrowserDistribution* dist = BrowserDistribution::GetDistribution();
+      scoped_ptr<Version> installed_version(
+          InstallUtil::GetChromeVersion(dist, false));
+      scoped_ptr<Version> running_version(
+          Version::GetVersionFromString(current_version_));
       if (!installed_version.get() ||
-          !installed_version->IsHigherThan(running_version.get())) {
+          (installed_version->CompareTo(*running_version) < 0)) {
 #endif
         UserMetrics::RecordAction(
             UserMetricsAction("UpgradeCheck_AlreadyUpToDate"), profile_);
@@ -756,7 +763,7 @@ void AboutChromeView::UpdateStatus(GoogleUpdateUpgradeResult result,
         std::wstring update_label_text =
             l10n_util::GetStringF(IDS_UPGRADE_ALREADY_UP_TO_DATE,
                                   l10n_util::GetString(IDS_PRODUCT_NAME),
-                                  current_version_);
+                                  ASCIIToUTF16(current_version_));
 #endif
         if (base::i18n::IsRTL()) {
           update_label_text.push_back(

@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "app/surface/transport_dib.h"
+#include "base/process_util.h"
 #include "gfx/native_widget_types.h"
 #include "gfx/rect.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -38,7 +39,12 @@ struct ViewHostMsg_AccessibilityNotification_Params;
 
 namespace webkit_glue {
 struct WebAccessibility;
+}
+
+namespace webkit {
+namespace npapi {
 struct WebPluginGeometry;
+}
 }
 
 // RenderWidgetHostView is an interface implemented by an object that acts as
@@ -50,7 +56,7 @@ struct WebPluginGeometry;
 // changes.
 class RenderWidgetHostView {
  public:
-  virtual ~RenderWidgetHostView() {}
+  virtual ~RenderWidgetHostView();
 
   // Platform-specific creator. Use this to construct new RenderWidgetHostViews
   // rather than using RenderWidgetHostViewWin & friends.
@@ -96,7 +102,7 @@ class RenderWidgetHostView {
 
   // Moves all plugin windows as described in the given list.
   virtual void MovePluginWindows(
-      const std::vector<webkit_glue::WebPluginGeometry>& moves) = 0;
+      const std::vector<webkit::npapi::WebPluginGeometry>& moves) = 0;
 
   // Actually set/take focus to/from the associated View component.
   virtual void Focus() = 0;
@@ -152,7 +158,8 @@ class RenderWidgetHostView {
       const std::vector<gfx::Rect>& copy_rects) = 0;
 
   // Notifies the View that the renderer has ceased to exist.
-  virtual void RenderViewGone() = 0;
+  virtual void RenderViewGone(base::TerminationStatus status,
+                              int error_code) = 0;
 
   // Notifies the View that the renderer will be delete soon.
   virtual void WillDestroyRenderWidget(RenderWidgetHost* rwh) = 0;
@@ -266,11 +273,9 @@ class RenderWidgetHostView {
   }
   WebKit::WebPopupType popup_type() const { return popup_type_; }
 
-  // Subclasses should override this method to do  is appropriate to set
+  // Subclasses should override this method to do what is appropriate to set
   // the custom background for their platform.
-  virtual void SetBackground(const SkBitmap& background) {
-    background_ = background;
-  }
+  virtual void SetBackground(const SkBitmap& background);
   const SkBitmap& background() const { return background_; }
 
   // Returns true if the native view, |native_view|, is contained within in the

@@ -105,7 +105,7 @@ LOCAL_SRC_FILES := \
     base/utf_string_conversion_utils.cc \
     base/values.cc \
     base/weak_ptr.cc \
-    base/worker_pool_linux.cc \
+    base/worker_pool_posix.cc \
     \
     base/debug/debugger_posix.cc \
     base/debug/stack_trace.cc \
@@ -134,6 +134,7 @@ LOCAL_SRC_FILES := \
     net/base/address_list_net_log_param.cc \
     net/base/android_network_library.cc \
     net/base/auth.cc \
+    net/base/bandwidth_metrics.cc \
     net/base/capturing_net_log.cc \
     net/base/cert_status_flags.cc \
     net/base/cert_verifier.cc \
@@ -147,7 +148,6 @@ LOCAL_SRC_FILES := \
     net/base/escape.cc \
     net/base/file_stream_posix.cc \
     net/base/filter.cc \
-    net/base/forwarding_net_log.cc \
     net/base/gzip_filter.cc \
     net/base/gzip_header.cc \
     net/base/host_cache.cc \
@@ -166,6 +166,7 @@ LOCAL_SRC_FILES := \
     net/base/network_change_notifier.cc \
     net/base/network_change_notifier_linux.cc \
     net/base/network_change_notifier_netlink_linux.cc \
+    net/base/openssl_memory_private_key_store.cc \
     net/base/pem_tokenizer.cc \
     net/base/platform_mime_util_android.cc \
     net/base/registry_controlled_domain.cc \
@@ -252,12 +253,13 @@ LOCAL_SRC_FILES := \
     net/http/partial_data.cc \
     \
     net/proxy/init_proxy_resolver.cc \
+    net/proxy/multi_threaded_proxy_resolver.cc \
     net/proxy/proxy_bypass_rules.cc \
     net/proxy/proxy_config.cc \
     net/proxy/proxy_config_service_android.cc \
+    net/proxy/proxy_config_service_fixed.cc \
     net/proxy/proxy_info.cc \
     net/proxy/proxy_list.cc \
-    net/proxy/multi_threaded_proxy_resolver.cc \
     net/proxy/proxy_resolver_js_bindings.cc \
     net/proxy/proxy_resolver_script_data.cc \
     net/proxy/proxy_resolver_v8.cc \
@@ -275,8 +277,10 @@ LOCAL_SRC_FILES := \
     net/socket/socks_client_socket.cc \
     net/socket/socks_client_socket_pool.cc \
     net/socket/socks5_client_socket.cc \
+    net/socket/ssl_client_socket.cc \
     net/socket/ssl_client_socket_openssl.cc \
     net/socket/ssl_client_socket_pool.cc \
+    net/socket/ssl_error_params.cc \
     net/socket/ssl_host_info.cc \
     net/socket/tcp_client_socket.cc \
     net/socket/tcp_client_socket_libevent.cc \
@@ -333,9 +337,6 @@ LOCAL_SRC_FILES += \
     base/base_paths_linux.cc \
     base/path_service.cc \
     \
-    chrome/browser/guid.cc \
-    chrome/browser/guid_posix.cc \
-    \
     chrome/browser/autofill/address.cc \
     chrome/browser/autofill/address_field.cc \
     chrome/browser/autofill/autofill_download.cc \
@@ -349,19 +350,25 @@ LOCAL_SRC_FILES += \
     chrome/browser/autofill/credit_card.cc \
     chrome/browser/autofill/credit_card_field.cc \
     chrome/browser/autofill/fax_field.cc \
+    chrome/browser/autofill/fax_number.cc \
     chrome/browser/autofill/form_field.cc \
     chrome/browser/autofill/form_group.cc \
     chrome/browser/autofill/form_structure.cc \
+    chrome/browser/autofill/home_address.cc \
     chrome/browser/autofill/name_field.cc \
+    chrome/browser/autofill/home_phone_number.cc \
     chrome/browser/autofill/personal_data_manager.cc \
     chrome/browser/autofill/phone_field.cc \
     chrome/browser/autofill/phone_number.cc \
     chrome/browser/autofill/select_control_handler.cc \
     \
-    chrome/browser/prefs/default_pref_store.cc \
     chrome/browser/prefs/pref_service.cc \
+    chrome/browser/prefs/pref_value_map.cc \
     chrome/browser/prefs/pref_value_store.cc \
+    chrome/browser/prefs/value_map_pref_store.cc \
     \
+    chrome/common/guid.cc \
+    chrome/common/guid_posix.cc \
     chrome/common/json_value_serializer.cc \
     chrome/common/pref_names.cc \
     chrome/common/pref_store.cc \
@@ -380,9 +387,6 @@ LOCAL_SRC_FILES += \
     third_party/libjingle/source/talk/xmllite/xmlprinter.cc \
     \
     webkit/glue/form_data.cc
-
-# the proto files.
-LOCAL_SRC_FILES +=  net/socket/ssl_host_info.proto
 
 LOCAL_C_INCLUDES := \
     $(LOCAL_PATH) \

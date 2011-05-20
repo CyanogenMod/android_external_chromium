@@ -11,6 +11,7 @@
 URLRequestContext::URLRequestContext()
     : net_log_(NULL),
       host_resolver_(NULL),
+      cert_verifier_(NULL),
       dnsrr_resolver_(NULL),
       dns_cert_checker_(NULL),
       http_transaction_factory_(NULL),
@@ -27,4 +28,8 @@ const std::string& URLRequestContext::GetUserAgent(const GURL& url) const {
 }
 
 URLRequestContext::~URLRequestContext() {
+}
+
+void URLRequestContext::set_cookie_store(net::CookieStore* cookie_store) {
+  cookie_store_ = cookie_store;
 }

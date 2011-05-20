@@ -5,13 +5,12 @@
 #include "app/table_model_observer.h"
 #include "base/string16.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/keyword_editor_controller.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/search_engines/template_url_table_model.h"
 #include "chrome/common/notification_details.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/testing_pref_service.h"
@@ -68,19 +67,19 @@ class KeywordEditorControllerTest : public testing::Test,
   void SimulateDefaultSearchIsManaged(const std::string& url) {
     ASSERT_FALSE(url.empty());
     TestingPrefService* service = profile_->GetTestingPrefService();
-    service->SetManagedPrefWithoutNotification(
+    service->SetManagedPref(
         prefs::kDefaultSearchProviderEnabled,
         Value::CreateBooleanValue(true));
-    service->SetManagedPrefWithoutNotification(
+    service->SetManagedPref(
         prefs::kDefaultSearchProviderSearchURL,
         Value::CreateStringValue(url));
-    service->SetManagedPrefWithoutNotification(
+    service->SetManagedPref(
         prefs::kDefaultSearchProviderName,
         Value::CreateStringValue("managed"));
     // Clear the IDs that are not specified via policy.
-    service->SetManagedPrefWithoutNotification(
+    service->SetManagedPref(
         prefs::kDefaultSearchProviderID, new StringValue(""));
-    service->SetManagedPrefWithoutNotification(
+    service->SetManagedPref(
         prefs::kDefaultSearchProviderPrepopulateID, new StringValue(""));
     model_->Observe(
         NotificationType::PREF_CHANGED,

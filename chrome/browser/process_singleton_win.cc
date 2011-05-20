@@ -16,14 +16,13 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/extensions_startup.h"
 #include "chrome/browser/platform_util.h"
-#include "chrome/browser/profile.h"
-#include "chrome/browser/profile_manager.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser_init.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/result_codes.h"
-#include "chrome/installer/util/browser_distribution.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 
@@ -53,8 +52,7 @@ ProcessSingleton::ProcessSingleton(const FilePath& user_data_dir)
     // access. As documented, it's clearer to NOT request ownership on creation
     // since it isn't guaranteed we will get it. It is better to create it
     // without ownership and explicitly get the ownership afterward.
-    std::wstring mutex_name(L"Local\\ProcessSingletonStartup!");
-    mutex_name += BrowserDistribution::GetDistribution()->GetAppGuid();
+    std::wstring mutex_name(L"Local\\ChromeProcessSingletonStartup!");
     ScopedHandle only_me(CreateMutex(NULL, FALSE, mutex_name.c_str()));
     DCHECK(only_me.Get() != NULL) << "GetLastError = " << GetLastError();
 
@@ -91,10 +89,10 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcess() {
   // Found another window, send our command line to it
   // format is "START\0<<<current directory>>>\0<<<commandline>>>".
   std::wstring to_send(L"START\0", 6);  // want the NULL in the string.
-  std::wstring cur_dir;
+  FilePath cur_dir;
   if (!PathService::Get(base::DIR_CURRENT, &cur_dir))
     return PROCESS_NONE;
-  to_send.append(cur_dir);
+  to_send.append(cur_dir.value());
   to_send.append(L"\0", 1);  // Null separator.
   to_send.append(GetCommandLineW());
   to_send.append(L"\0", 1);  // Null separator.
@@ -285,8 +283,8 @@ LRESULT ProcessSingleton::OnCopyData(HWND hwnd, const COPYDATASTRUCT* cds) {
     // in the process that is running with the target profile, otherwise the
     // uninstall will fail to unload and remove all components.
     if (parsed_command_line.HasSwitch(switches::kUninstallExtension)) {
-      extensions_startup::HandleUninstallExtension(parsed_command_line,
-                                                   profile);
+      ExtensionsStartupUtil ext_startup_util;
+      ext_startup_util.UninstallExtension(parsed_command_line, profile);
       return TRUE;
     }
 

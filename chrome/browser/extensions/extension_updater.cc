@@ -21,9 +21,9 @@
 #include "base/version.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/extension_error_reporter.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/utility_process_host.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/chrome_version_info.h"
@@ -190,8 +190,7 @@ void ManifestFetchesBuilder::AddExtension(const Extension& extension) {
   AddExtensionData(extension.location(),
                    extension.id(),
                    *extension.version(),
-                   (extension.is_theme() ? PendingExtensionInfo::THEME
-                                         : PendingExtensionInfo::EXTENSION),
+                   extension.GetType(),
                    extension.update_url(), update_url_data);
 }
 
@@ -204,17 +203,20 @@ void ManifestFetchesBuilder::AddPendingExtension(
   scoped_ptr<Version> version(
       Version::GetVersionFromString("0.0.0.0"));
 
-  AddExtensionData(info.install_source, id, *version,
-                   info.expected_crx_type, info.update_url, "");
+  AddExtensionData(
+      info.install_source, id, *version,
+      Extension::TYPE_UNKNOWN, info.update_url, "");
 }
 
 void ManifestFetchesBuilder::ReportStats() const {
-  UMA_HISTOGRAM_COUNTS_100("Extensions.UpdateCheckExtensions",
-                           url_stats_.google_url_count +
-                           url_stats_.other_url_count -
-                           url_stats_.theme_count);
+  UMA_HISTOGRAM_COUNTS_100("Extensions.UpdateCheckExtension",
+                           url_stats_.extension_count);
   UMA_HISTOGRAM_COUNTS_100("Extensions.UpdateCheckTheme",
                            url_stats_.theme_count);
+  UMA_HISTOGRAM_COUNTS_100("Extensions.UpdateCheckApp",
+                           url_stats_.app_count);
+  UMA_HISTOGRAM_COUNTS_100("Extensions.UpdateCheckPending",
+                           url_stats_.pending_count);
   UMA_HISTOGRAM_COUNTS_100("Extensions.UpdateCheckGoogleUrl",
                            url_stats_.google_url_count);
   UMA_HISTOGRAM_COUNTS_100("Extensions.UpdateCheckOtherUrl",
@@ -239,7 +241,7 @@ void ManifestFetchesBuilder::AddExtensionData(
     Extension::Location location,
     const std::string& id,
     const Version& version,
-    PendingExtensionInfo::ExpectedCrxType crx_type,
+    Extension::Type extension_type,
     GURL update_url,
     const std::string& update_url_data) {
 
@@ -272,8 +274,21 @@ void ManifestFetchesBuilder::AddExtensionData(
     url_stats_.other_url_count++;
   }
 
-  if (crx_type == PendingExtensionInfo::THEME) {
-    url_stats_.theme_count++;
+  switch (extension_type) {
+    case Extension::TYPE_THEME:
+      ++url_stats_.theme_count;
+      break;
+    case Extension::TYPE_EXTENSION:
+    case Extension::TYPE_USER_SCRIPT:
+      ++url_stats_.extension_count;
+      break;
+    case Extension::TYPE_HOSTED_APP:
+    case Extension::TYPE_PACKAGED_APP:
+      ++url_stats_.app_count;
+    case Extension::TYPE_UNKNOWN:
+    default:
+      ++url_stats_.pending_count;
+      break;
   }
 
   DCHECK(!update_url.is_empty());
@@ -637,7 +652,7 @@ void ExtensionUpdater::OnCRXFetchComplete(const GURL& url,
       ProcessBlacklist(data);
     } else {
       // Successfully fetched - now write crx to a file so we can have the
-      // ExtensionsService install it.
+      // ExtensionService install it.
       BrowserThread::PostTask(
           BrowserThread::FILE, FROM_HERE,
           NewRunnableMethod(
@@ -669,7 +684,7 @@ void ExtensionUpdater::OnCRXFileWritten(const std::string& id,
   // This can be called after we've been stopped.
   if (!alive_)
     return;
-  // The ExtensionsService is now responsible for cleaning up the temp file
+  // The ExtensionService is now responsible for cleaning up the temp file
   // at |path|.
   service_->UpdateExtension(id, path, download_url);
 }
@@ -701,7 +716,7 @@ void ExtensionUpdater::TimerFired() {
 
   // If the user has overridden the update frequency, don't bother reporting
   // this.
-  if (frequency_seconds_ == ExtensionsService::kDefaultUpdateFrequencySeconds) {
+  if (frequency_seconds_ == ExtensionService::kDefaultUpdateFrequencySeconds) {
     Time last = Time::FromInternalValue(prefs_->GetInt64(
         kLastExtensionsUpdateCheck));
     if (last.ToInternalValue() != 0) {
@@ -734,7 +749,10 @@ void ExtensionUpdater::CheckNow() {
       service_->pending_extensions();
   for (PendingExtensionMap::const_iterator iter = pending_extensions.begin();
        iter != pending_extensions.end(); ++iter) {
-    fetches_builder.AddPendingExtension(iter->first, iter->second);
+    Extension::Location location = iter->second.install_source;
+    if (location != Extension::EXTERNAL_PREF &&
+        location != Extension::EXTERNAL_REGISTRY)
+      fetches_builder.AddPendingExtension(iter->first, iter->second);
   }
 
   fetches_builder.ReportStats();

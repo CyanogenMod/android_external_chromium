@@ -38,9 +38,9 @@
 #include "chrome/common/native_web_keyboard_event.h"
 #include "gfx/gtk_preserve_window.h"
 #include "third_party/WebKit/WebKit/chromium/public/gtk/WebInputEventFactory.h"
-#include "webkit/glue/plugins/webplugin.h"
 #include "webkit/glue/webaccessibility.h"
 #include "webkit/glue/webcursor_gtk_data.h"
+#include "webkit/plugins/npapi/webplugin.h"
 
 #if defined(OS_CHROMEOS)
 #include "views/widget/tooltip_window_gtk.h"
@@ -531,6 +531,10 @@ void RenderWidgetHostViewGtk::InitAsFullscreen(
   DoInitAsPopup(parent_host_view, GTK_WINDOW_TOPLEVEL, gfx::Rect(), true);
 }
 
+RenderWidgetHost* RenderWidgetHostViewGtk::GetRenderWidgetHost() const {
+  return host_;
+}
+
 void RenderWidgetHostViewGtk::DidBecomeSelected() {
   if (!is_hidden_)
     return;
@@ -583,7 +587,7 @@ gfx::NativeView RenderWidgetHostViewGtk::GetNativeView() {
 }
 
 void RenderWidgetHostViewGtk::MovePluginWindows(
-    const std::vector<webkit_glue::WebPluginGeometry>& moves) {
+    const std::vector<webkit::npapi::WebPluginGeometry>& moves) {
   for (size_t i = 0; i < moves.size(); ++i) {
     plugin_container_manager_.MovePluginContainer(moves[i]);
   }
@@ -681,7 +685,8 @@ void RenderWidgetHostViewGtk::DidUpdateBackingStore(
   }
 }
 
-void RenderWidgetHostViewGtk::RenderViewGone() {
+void RenderWidgetHostViewGtk::RenderViewGone(base::TerminationStatus status,
+                                             int error_code) {
   Destroy();
   plugin_container_manager_.set_host_widget(NULL);
 }
@@ -718,16 +723,17 @@ void RenderWidgetHostViewGtk::SetTooltipText(const std::wstring& tooltip_text) {
   // accidentally DOS the user with a mega tooltip (since GTK doesn't do
   // this itself).
   // I filed https://bugzilla.gnome.org/show_bug.cgi?id=604641 upstream.
-  const std::wstring& clamped_tooltip =
-      l10n_util::TruncateString(tooltip_text, kMaxTooltipLength);
+  const string16 clamped_tooltip =
+      l10n_util::TruncateString(WideToUTF16Hack(tooltip_text),
+                                kMaxTooltipLength);
 
   if (clamped_tooltip.empty()) {
     gtk_widget_set_has_tooltip(view_.get(), FALSE);
   } else {
     gtk_widget_set_tooltip_text(view_.get(),
-                                WideToUTF8(clamped_tooltip).c_str());
+                                UTF16ToUTF8(clamped_tooltip).c_str());
 #if defined(OS_CHROMEOS)
-    tooltip_window_->SetTooltipText(clamped_tooltip);
+    tooltip_window_->SetTooltipText(UTF16ToWideHack(clamped_tooltip));
 #endif  // defined(OS_CHROMEOS)
   }
 }
@@ -1091,7 +1097,12 @@ void RenderWidgetHostViewGtk::ForwardKeyboardEvent(
   if (!event.skip_in_browser &&
       key_bindings_handler_->Match(event, &edit_commands)) {
     host_->ForwardEditCommandsForNextKeyEvent(edit_commands);
+    NativeWebKeyboardEvent copy_event(event);
+    copy_event.match_edit_command = true;
+    host_->ForwardKeyboardEvent(copy_event);
+    return;
   }
+
   host_->ForwardKeyboardEvent(event);
 }
 

@@ -111,6 +111,7 @@ IPCResourceLoaderBridge::IPCResourceLoaderBridge(
   request_.request_context = request_info.request_context;
   request_.appcache_host_id = request_info.appcache_host_id;
   request_.download_to_file = request_info.download_to_file;
+  request_.has_user_gesture = request_info.has_user_gesture;
   request_.host_renderer_id = host_renderer_id_;
   request_.host_render_view_id = host_render_view_id_;
 }
@@ -401,11 +402,6 @@ void ResourceDispatcher::OnReceivedRedirect(
   if (request_info->peer->OnReceivedRedirect(new_url, info,
                                             &has_new_first_party_for_cookies,
                                             &new_first_party_for_cookies)) {
-    // Double-check if the request is still around. The call above could
-    // potentially remove it.
-    request_info = GetPendingRequestInfo(request_id);
-    if (!request_info)
-      return;
     request_info->pending_redirect_message.reset(
         new ViewHostMsg_FollowRedirect(routing_id, request_id,
                                        has_new_first_party_for_cookies,

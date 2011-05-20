@@ -20,6 +20,7 @@
 #include "android/autofill/url_fetcher_proxy.h"
 #endif
 
+class AutoFillMetrics;
 class Profile;
 
 // Handles getting and updating AutoFill heuristics.
@@ -64,7 +65,8 @@ class AutoFillDownloadManager : public URLFetcher::Delegate {
   // Starts a query request to AutoFill servers. The observer is called with the
   // list of the fields of all requested forms.
   // |forms| - array of forms aggregated in this request.
-  bool StartQueryRequest(const ScopedVector<FormStructure>& forms);
+  bool StartQueryRequest(const ScopedVector<FormStructure>& forms,
+                         const AutoFillMetrics& metric_logger);
 
   // Start upload request if necessary. The probability of request going
   // over the wire are GetPositiveUploadRate() if it was matched by

@@ -8,7 +8,7 @@
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/profile_manager.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
@@ -21,7 +21,6 @@
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
 #include "chrome/browser/tab_contents/test_tab_contents.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/render_messages_params.h"
 #include "chrome/test/test_notification_tracker.h"
@@ -1863,6 +1862,92 @@ TEST_F(NavigationControllerTest, HistoryNavigate) {
   EXPECT_EQ(-1, controller().pending_entry_index());
   message = process()->sink().GetFirstMessageMatching(ViewMsg_Navigate::ID);
   EXPECT_TRUE(message == NULL);
+}
+
+// Test call to PruneAllButActive for the only entry.
+TEST_F(NavigationControllerTest, PruneAllButActiveForSingle) {
+  const GURL url1("http://foo1");
+  NavigateAndCommit(url1);
+  controller().PruneAllButActive();
+
+  EXPECT_EQ(-1, controller().pending_entry_index());
+  EXPECT_EQ(controller().GetEntryAtIndex(0)->url(), url1);
+}
+
+// Test call to PruneAllButActive for last entry.
+TEST_F(NavigationControllerTest, PruneAllButActiveForLast) {
+  const GURL url1("http://foo1");
+  const GURL url2("http://foo2");
+  const GURL url3("http://foo3");
+
+  NavigateAndCommit(url1);
+  NavigateAndCommit(url2);
+  NavigateAndCommit(url3);
+  controller().GoBack();
+  controller().GoBack();
+  contents()->CommitPendingNavigation();
+
+  controller().PruneAllButActive();
+
+  EXPECT_EQ(-1, controller().pending_entry_index());
+  EXPECT_EQ(controller().GetEntryAtIndex(0)->url(), url1);
+}
+
+// Test call to PruneAllButActive for intermediate entry.
+TEST_F(NavigationControllerTest, PruneAllButActiveForIntermediate) {
+  const GURL url1("http://foo1");
+  const GURL url2("http://foo2");
+  const GURL url3("http://foo3");
+
+  NavigateAndCommit(url1);
+  NavigateAndCommit(url2);
+  NavigateAndCommit(url3);
+  controller().GoBack();
+  contents()->CommitPendingNavigation();
+
+  controller().PruneAllButActive();
+
+  EXPECT_EQ(-1, controller().pending_entry_index());
+  EXPECT_EQ(controller().GetEntryAtIndex(0)->url(), url2);
+}
+
+// Test call to PruneAllButActive for intermediate entry.
+TEST_F(NavigationControllerTest, PruneAllButActiveForPending) {
+  const GURL url1("http://foo1");
+  const GURL url2("http://foo2");
+  const GURL url3("http://foo3");
+
+  NavigateAndCommit(url1);
+  NavigateAndCommit(url2);
+  NavigateAndCommit(url3);
+  controller().GoBack();
+
+  controller().PruneAllButActive();
+
+  EXPECT_EQ(0, controller().pending_entry_index());
+}
+
+// Test call to PruneAllButActive for transient entry.
+TEST_F(NavigationControllerTest, PruneAllButActiveForTransient) {
+  const GURL url0("http://foo0");
+  const GURL url1("http://foo1");
+  const GURL transient_url("http://transient");
+
+  controller().LoadURL(url0, GURL(), PageTransition::TYPED);
+  rvh()->SendNavigate(0, url0);
+  controller().LoadURL(url1, GURL(), PageTransition::TYPED);
+  rvh()->SendNavigate(1, url1);
+
+  // Adding a transient with no pending entry.
+  NavigationEntry* transient_entry = new NavigationEntry;
+  transient_entry->set_url(transient_url);
+  controller().AddTransientEntry(transient_entry);
+
+  controller().PruneAllButActive();
+
+  EXPECT_EQ(-1, controller().pending_entry_index());
+  EXPECT_EQ(-1, controller().pending_entry_index());
+  EXPECT_EQ(controller().GetTransientEntry()->url(), transient_url);
 }
 
 /* TODO(brettw) These test pass on my local machine but fail on the XP buildbot

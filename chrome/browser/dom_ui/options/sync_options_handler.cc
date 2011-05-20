@@ -11,6 +11,7 @@
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_setup_flow.h"
 #include "chrome/common/notification_service.h"
@@ -66,7 +67,8 @@ void SyncOptionsHandler::Initialize() {
   DictionaryValue args;
   SyncSetupFlow::GetArgsForConfigure(service, &args);
 
-  dom_ui_->CallJavascriptFunction(L"SyncOptions.setRegisteredDataTypes", args);
+  dom_ui_->CallJavascriptFunction(
+      L"PersonalOptions.setRegisteredDataTypes", args);
 }
 
 void SyncOptionsHandler::RegisterMessages() {

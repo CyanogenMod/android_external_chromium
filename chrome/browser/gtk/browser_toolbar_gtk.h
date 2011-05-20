@@ -20,7 +20,7 @@
 #include "chrome/browser/gtk/menu_gtk.h"
 #include "chrome/browser/gtk/owned_widget_gtk.h"
 #include "chrome/browser/prefs/pref_member.h"
-#include "chrome/browser/wrench_menu_model.h"
+#include "chrome/browser/ui/toolbar/wrench_menu_model.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 
@@ -98,9 +98,9 @@ class BrowserToolbarGtk : public CommandUpdater::CommandObserver,
                                           menus::Accelerator* accelerator);
 
   // NotificationObserver implementation.
-  void Observe(NotificationType type,
-               const NotificationSource& source,
-               const NotificationDetails& details);
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
 
   Profile* profile() { return profile_; }
   void SetProfile(Profile* profile);

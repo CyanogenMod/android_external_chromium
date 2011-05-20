@@ -8,48 +8,44 @@
 
 #include <string>
 
-#include "base/process.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/renderer_host/resource_handler.h"
 
+class ResourceDispatcherHost;
+class ResourceMessageFilter;
 class SharedIOBuffer;
 
 // Used to complete an asynchronous resource request in response to resource
 // load events from the resource dispatcher host.
 class AsyncResourceHandler : public ResourceHandler {
  public:
-  AsyncResourceHandler(ResourceDispatcherHost::Receiver* receiver,
-                       int process_id,
+  AsyncResourceHandler(ResourceMessageFilter* filter,
                        int routing_id,
-                       base::ProcessHandle process_handle,
                        const GURL& url,
                        ResourceDispatcherHost* resource_dispatcher_host);
 
   // ResourceHandler implementation:
-  bool OnUploadProgress(int request_id, uint64 position, uint64 size);
-  bool OnRequestRedirected(int request_id, const GURL& new_url,
-                           ResourceResponse* response, bool* defer);
-  bool OnResponseStarted(int request_id, ResourceResponse* response);
-  bool OnWillStart(int request_id, const GURL& url, bool* defer);
-  bool OnWillRead(int request_id, net::IOBuffer** buf, int* buf_size,
-                  int min_size);
-  bool OnReadCompleted(int request_id, int* bytes_read);
-  bool OnResponseCompleted(int request_id,
-                           const URLRequestStatus& status,
-                           const std::string& security_info);
-  void OnRequestClosed();
-  void OnDataDownloaded(int request_id, int bytes_downloaded);
+  virtual bool OnUploadProgress(int request_id, uint64 position, uint64 size);
+  virtual bool OnRequestRedirected(int request_id, const GURL& new_url,
+                                   ResourceResponse* response, bool* defer);
+  virtual bool OnResponseStarted(int request_id, ResourceResponse* response);
+  virtual bool OnWillStart(int request_id, const GURL& url, bool* defer);
+  virtual bool OnWillRead(int request_id, net::IOBuffer** buf, int* buf_size,
+                          int min_size);
+  virtual bool OnReadCompleted(int request_id, int* bytes_read);
+  virtual bool OnResponseCompleted(int request_id,
+                                   const URLRequestStatus& status,
+                                   const std::string& security_info);
+  virtual void OnRequestClosed();
+  virtual void OnDataDownloaded(int request_id, int bytes_downloaded);
 
   static void GlobalCleanup();
 
  private:
-  ~AsyncResourceHandler();
+  virtual ~AsyncResourceHandler();
 
   scoped_refptr<SharedIOBuffer> read_buffer_;
-  ResourceDispatcherHost::Receiver* receiver_;
-  int process_id_;
+  ResourceMessageFilter* filter_;
   int routing_id_;
-  base::ProcessHandle process_handle_;
   ResourceDispatcherHost* rdh_;
 
   // |next_buffer_size_| is the size of the buffer to be allocated on the next

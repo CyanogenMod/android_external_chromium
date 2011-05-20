@@ -5,14 +5,14 @@
 #include "chrome/browser/autocomplete/history_quick_provider.h"
 
 #include "base/basictypes.h"
-#include "base/i18n/word_iterator.h"
+#include "base/i18n/break_iterator.h"
 #include "base/string_util.h"
 #include "base/logging.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/history/in_memory_url_index.h"
 #include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/browser/plugin_service.h"
@@ -69,6 +69,10 @@ void HistoryQuickProvider::Start(const AutocompleteInput& input,
     UpdateStarredStateOfMatches();
   }
 }
+
+// HistoryQuickProvider matches are currently not deletable.
+// TODO(mrossetti): Determine when a match should be deletable.
+void HistoryQuickProvider::DeleteMatch(const AutocompleteMatch& match) {}
 
 void HistoryQuickProvider::DoAutocomplete() {
   // Get the matching URLs from the DB.
@@ -167,11 +171,11 @@ void HistoryQuickProvider::SetIndexForTesting(
 history::InMemoryURLIndex::String16Vector
     HistoryQuickProvider::WordVectorFromString16(const string16& uni_string) {
   history::InMemoryURLIndex::String16Vector words;
-  WordIterator iter(&uni_string, WordIterator::BREAK_WORD);
+  base::BreakIterator iter(&uni_string, base::BreakIterator::BREAK_WORD);
   if (iter.Init()) {
     while (iter.Advance()) {
       if (iter.IsWord())
-        words.push_back(iter.GetWord());
+        words.push_back(iter.GetString());
     }
   }
   return words;

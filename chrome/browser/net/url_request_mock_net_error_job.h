@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// A URLRequestJob class that simulates network errors (including https
+// A net::URLRequestJob class that simulates network errors (including https
 // related).
 // It is based on URLRequestMockHttpJob.
 
@@ -14,7 +14,7 @@
 
 class URLRequestMockNetErrorJob : public URLRequestMockHTTPJob {
  public:
-  URLRequestMockNetErrorJob(URLRequest* request,
+  URLRequestMockNetErrorJob(net::URLRequest* request,
                             const std::vector<int>& errors,
                             net::X509Certificate* ssl_cert,
                             const FilePath& file_path);
@@ -39,7 +39,7 @@ class URLRequestMockNetErrorJob : public URLRequestMockHTTPJob {
  private:
   ~URLRequestMockNetErrorJob();
 
-  static URLRequest::ProtocolFactory Factory;
+  static net::URLRequest::ProtocolFactory Factory;
 
   void StartAsync();
 

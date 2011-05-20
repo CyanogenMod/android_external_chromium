@@ -102,15 +102,27 @@
           'gtest/include',  # So that gtest headers can find themselves.
         ],
         'target_conditions': [
-          ['_type=="executable"', {'test': 1}],
+          ['_type=="executable"', {
+            'test': 1,
+            'conditions': [
+              ['OS=="mac"', {
+                'run_as': {
+                  'action????': ['${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}'],
+                },
+              }],
+              ['OS=="win"', {
+                'run_as': {
+                  'action????': ['$(TargetPath)', '--gtest_print_time'],
+                },
+              }],
+            ],
+          }],
         ],
         'msvs_disabled_warnings': [4800],
       },
     },
     {
-      # Note that calling this "gtest_main" confuses the scons build,
-      # which uses "_main" on scons files to produce special behavior.
-      'target_name': 'gtestmain',
+      'target_name': 'gtest_main',
       'type': '<(library)',
       'dependencies': [
         'gtest',

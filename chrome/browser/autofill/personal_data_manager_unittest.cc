@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <string>
+
 #include "base/basictypes.h"
 #include "base/message_loop.h"
 #include "base/ref_counted.h"
@@ -12,13 +14,13 @@
 #include "chrome/browser/autofill/form_structure.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/guid.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/password_manager/encryptor.h"
+#include "chrome/common/guid.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_observer_mock.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/testing_profile.h"
@@ -543,7 +545,8 @@ TEST_F(PersonalDataManagerTest, ImportFormData) {
   EXPECT_EQ(0, expected.Compare(*results[0]));
 }
 
-TEST_F(PersonalDataManagerTest, ImportFormDataNotEnoughFilledFields) {
+// Crashy, http://crbug.com/67423.
+TEST_F(PersonalDataManagerTest, DISABLED_ImportFormDataNotEnoughFilledFields) {
   FormData form;
   webkit_glue::FormField field;
   autofill_test::CreateTestFormField(
@@ -1385,4 +1388,3 @@ TEST_F(PersonalDataManagerTest, AggregateCreditCardWithMissingInfoInOld) {
   ASSERT_EQ(1U, results2.size());
   EXPECT_EQ(0, expected2.Compare(*results2[0]));
 }
-

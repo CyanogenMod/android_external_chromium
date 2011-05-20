@@ -12,9 +12,8 @@
 #include "base/file_path.h"
 #include "chrome/browser/appcache/chrome_appcache_service.h"
 #include "chrome/browser/chrome_blob_storage_context.h"
+#include "chrome/browser/content_settings/host_content_settings_map.h"
 #include "chrome/browser/extensions/extension_info_map.h"
-#include "chrome/browser/file_system/browser_file_system_context.h"
-#include "chrome/browser/host_content_settings_map.h"
 #include "chrome/browser/host_zoom_map.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/net/chrome_cookie_policy.h"
@@ -27,6 +26,7 @@
 #include "net/base/cookie_policy.h"
 #include "net/url_request/url_request_context.h"
 #include "webkit/database/database_tracker.h"
+#include "webkit/fileapi/sandboxed_file_system_context.h"
 
 class CommandLine;
 class PrefService;
@@ -35,7 +35,6 @@ class Profile;
 namespace net {
 class DnsCertProvenanceChecker;
 class NetworkDelegate;
-class ProxyConfig;
 }
 
 class ChromeURLRequestContext;
@@ -72,8 +71,8 @@ class ChromeURLRequestContext : public URLRequestContext {
   }
 
   // Gets the file system host context with this context's profile.
-  BrowserFileSystemContext* browser_file_system_context() const {
-    return browser_file_system_context_.get();
+  fileapi::SandboxedFileSystemContext* file_system_context() const {
+    return file_system_context_.get();
   }
 
   bool is_off_the_record() const {
@@ -100,10 +99,6 @@ class ChromeURLRequestContext : public URLRequestContext {
   virtual bool IsExternal() const;
 
  protected:
-  // Copies the dependencies from |other| into |this|. If you use this
-  // constructor, then you should hold a reference to |other|, as we
-  // depend on |other| being alive.
-  explicit ChromeURLRequestContext(ChromeURLRequestContext* other);
   virtual ~ChromeURLRequestContext();
 
  public:
@@ -125,33 +120,15 @@ class ChromeURLRequestContext : public URLRequestContext {
   void set_ssl_config_service(net::SSLConfigService* service) {
     ssl_config_service_ = service;
   }
-  void set_host_resolver(net::HostResolver* resolver) {
-    host_resolver_ = resolver;
-  }
-  void set_dnsrr_resolver(net::DnsRRResolver* dnsrr_resolver) {
-    dnsrr_resolver_ = dnsrr_resolver;
-  }
   void set_dns_cert_checker(net::DnsCertProvenanceChecker* ctx) {
     dns_cert_checker_.reset(ctx);
-  }
-  void set_http_transaction_factory(net::HttpTransactionFactory* factory) {
-    http_transaction_factory_ = factory;
   }
   void set_ftp_transaction_factory(net::FtpTransactionFactory* factory) {
     ftp_transaction_factory_ = factory;
   }
-  void set_http_auth_handler_factory(net::HttpAuthHandlerFactory* factory) {
-    http_auth_handler_factory_ = factory;
-  }
-  void set_cookie_store(net::CookieStore* cookie_store) {
-    cookie_store_ = cookie_store;
-  }
   void set_cookie_policy(ChromeCookiePolicy* cookie_policy) {
     chrome_cookie_policy_ = cookie_policy;  // Take a strong reference.
     cookie_policy_ = cookie_policy;
-  }
-  void set_proxy_service(net::ProxyService* service) {
-    proxy_service_ = service;
   }
   void set_user_script_dir_path(const FilePath& path) {
     user_script_dir_path_ = path;
@@ -178,14 +155,11 @@ class ChromeURLRequestContext : public URLRequestContext {
   void set_blob_storage_context(ChromeBlobStorageContext* context) {
     blob_storage_context_ = context;
   }
-  void set_browser_file_system_context(BrowserFileSystemContext* context) {
-    browser_file_system_context_ = context;
+  void set_file_system_context(fileapi::SandboxedFileSystemContext* context) {
+    file_system_context_ = context;
   }
   void set_extension_info_map(ExtensionInfoMap* map) {
     extension_info_map_ = map;
-  }
-  void set_net_log(net::NetLog* net_log) {
-    net_log_ = net_log;
   }
   void set_network_delegate(
       net::HttpNetworkDelegate* network_delegate) {
@@ -208,7 +182,7 @@ class ChromeURLRequestContext : public URLRequestContext {
   scoped_refptr<HostContentSettingsMap> host_content_settings_map_;
   scoped_refptr<HostZoomMap> host_zoom_map_;
   scoped_refptr<ChromeBlobStorageContext> blob_storage_context_;
-  scoped_refptr<BrowserFileSystemContext> browser_file_system_context_;
+  scoped_refptr<fileapi::SandboxedFileSystemContext> file_system_context_;
   scoped_refptr<ExtensionInfoMap> extension_info_map_;
 
   bool is_media_;
@@ -308,6 +282,7 @@ class ChromeURLRequestContextGetter : public URLRequestContextGetter,
   // ChromeURLRequestContext.
   void OnAcceptLanguageChange(const std::string& accept_language);
   void OnDefaultCharsetChange(const std::string& default_charset);
+  void OnClearSiteDataOnExitChange(bool clear_site_data);
 
   // Saves the cookie store to |result| and signals |completion|.
   void GetCookieStoreAsyncHelper(base::WaitableEvent* completion,
@@ -360,6 +335,7 @@ class ChromeURLRequestContextFactory {
   // ApplyProfileParametersToContext().
   bool is_media_;
   bool is_off_the_record_;
+  bool clear_local_state_on_exit_;
   std::string accept_language_;
   std::string accept_charset_;
   std::string referrer_charset_;
@@ -375,7 +351,7 @@ class ChromeURLRequestContextFactory {
   scoped_refptr<net::SSLConfigService> ssl_config_service_;
   scoped_refptr<net::CookieMonster::Delegate> cookie_monster_delegate_;
   scoped_refptr<ChromeBlobStorageContext> blob_storage_context_;
-  scoped_refptr<BrowserFileSystemContext> browser_file_system_context_;
+  scoped_refptr<fileapi::SandboxedFileSystemContext> file_system_context_;
   scoped_refptr<ExtensionInfoMap> extension_info_map_;
 
   FilePath profile_dir_path_;

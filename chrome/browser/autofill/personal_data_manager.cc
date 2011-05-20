@@ -11,10 +11,11 @@
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_field.h"
+#include "chrome/browser/autofill/autofill-inl.h"
 #include "chrome/browser/autofill/form_structure.h"
 #include "chrome/browser/autofill/phone_number.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/webdata/web_data_service.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/pref_names.h"
@@ -28,17 +29,31 @@ const int kMinProfileImportSize = 3;
 const int kMinCreditCardImportSize = 2;
 
 template<typename T>
-class FormGroupGUIDMatchesFunctor {
+class FormGroupMatchesByGUIDFunctor {
  public:
-  explicit FormGroupGUIDMatchesFunctor(const std::string& guid) : guid_(guid) {}
+  explicit FormGroupMatchesByGUIDFunctor(const std::string& guid)
+      : guid_(guid) {
+  }
 
   bool operator()(const T& form_group) {
     return form_group.guid() == guid_;
   }
 
+  bool operator()(const T* form_group) {
+    return form_group->guid() == guid_;
+  }
+
  private:
   std::string guid_;
 };
+
+template<typename T, typename C>
+bool FindByGUID(const C& container, const std::string& guid) {
+  return std::find_if(
+      container.begin(),
+      container.end(),
+      FormGroupMatchesByGUIDFunctor<T>(guid)) != container.end();
+}
 
 template<typename T>
 class DereferenceFunctor {
@@ -52,51 +67,6 @@ class DereferenceFunctor {
 template<typename T>
 T* address_of(T& v) {
   return &v;
-}
-
-bool FindInProfilesByGUID(const std::vector<AutoFillProfile>& profiles,
-                          const std::string& guid) {
-  for (std::vector<AutoFillProfile>::const_iterator iter = profiles.begin();
-       iter != profiles.end();
-       ++iter) {
-    if (iter->guid() == guid)
-      return true;
-  }
-  return false;
-}
-
-bool FindInScopedProfilesByGUID(const ScopedVector<AutoFillProfile>& profiles,
-                                const std::string& guid) {
-  for (std::vector<AutoFillProfile*>::const_iterator iter = profiles.begin();
-       iter != profiles.end();
-       ++iter) {
-    if ((*iter)->guid() == guid)
-      return true;
-  }
-  return false;
-}
-
-bool FindInCreditCardsByGUID(const std::vector<CreditCard>& credit_cards,
-                             const std::string& guid) {
-  for (std::vector<CreditCard>::const_iterator iter = credit_cards.begin();
-       iter != credit_cards.end();
-       ++iter) {
-    if (iter->guid() == guid)
-      return true;
-  }
-  return false;
-}
-
-bool FindInScopedCreditCardsByGUID(
-    const ScopedVector<CreditCard>& credit_cards, const std::string& guid) {
-  for (std::vector<CreditCard*>::const_iterator iter =
-          credit_cards.begin();
-       iter != credit_cards.end();
-       ++iter) {
-    if ((*iter)->guid() == guid)
-      return true;
-  }
-  return false;
 }
 
 }  // namespace
@@ -335,21 +305,22 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
   for (std::vector<AutoFillProfile*>::const_iterator iter =
            web_profiles_.begin();
        iter != web_profiles_.end(); ++iter) {
-    if (!FindInProfilesByGUID(*profiles, (*iter)->guid()))
+    if (!FindByGUID<AutoFillProfile>(*profiles, (*iter)->guid()))
       wds->RemoveAutoFillProfileGUID((*iter)->guid());
   }
 
   // Update the web database with the existing profiles.
   for (std::vector<AutoFillProfile>::iterator iter = profiles->begin();
        iter != profiles->end(); ++iter) {
-    if (FindInScopedProfilesByGUID(web_profiles_, iter->guid()))
+    if (FindByGUID<AutoFillProfile>(web_profiles_, iter->guid()))
       wds->UpdateAutoFillProfileGUID(*iter);
   }
 
-  // Add the new profiles to the web database.
+  // Add the new profiles to the web database.  Don't add a duplicate.
   for (std::vector<AutoFillProfile>::iterator iter = profiles->begin();
        iter != profiles->end(); ++iter) {
-    if (!FindInScopedProfilesByGUID(web_profiles_, iter->guid()))
+    if (!FindByGUID<AutoFillProfile>(web_profiles_, iter->guid()) &&
+        !FindByContents(web_profiles_, *iter))
       wds->AddAutoFillProfileGUID(*iter);
   }
 #endif
@@ -391,21 +362,22 @@ void PersonalDataManager::SetCreditCards(
   // removed.
   for (std::vector<CreditCard*>::const_iterator iter = credit_cards_.begin();
        iter != credit_cards_.end(); ++iter) {
-    if (!FindInCreditCardsByGUID(*credit_cards, (*iter)->guid()))
+    if (!FindByGUID<CreditCard>(*credit_cards, (*iter)->guid()))
       wds->RemoveCreditCardGUID((*iter)->guid());
   }
 
   // Update the web database with the existing credit cards.
   for (std::vector<CreditCard>::iterator iter = credit_cards->begin();
        iter != credit_cards->end(); ++iter) {
-    if (FindInScopedCreditCardsByGUID(credit_cards_, iter->guid()))
+    if (FindByGUID<CreditCard>(credit_cards_, iter->guid()))
       wds->UpdateCreditCardGUID(*iter);
   }
 
-  // Add the new credit cards to the web database.
+  // Add the new credit cards to the web database.  Don't add a duplicate.
   for (std::vector<CreditCard>::iterator iter = credit_cards->begin();
        iter != credit_cards->end(); ++iter) {
-    if (!FindInScopedCreditCardsByGUID(credit_cards_, iter->guid()))
+    if (!FindByGUID<CreditCard>(credit_cards_, iter->guid()) &&
+        !FindByContents(credit_cards_, *iter))
       wds->AddCreditCardGUID(*iter);
   }
 
@@ -518,7 +490,7 @@ void PersonalDataManager::RemoveProfile(const std::string& guid) {
   // Remove the profile that matches |guid|.
   profiles.erase(
       std::remove_if(profiles.begin(), profiles.end(),
-                     FormGroupGUIDMatchesFunctor<AutoFillProfile>(guid)),
+                     FormGroupMatchesByGUIDFunctor<AutoFillProfile>(guid)),
       profiles.end());
 
   SetProfiles(&profiles);
@@ -576,7 +548,7 @@ void PersonalDataManager::RemoveCreditCard(const std::string& guid) {
   // Remove the credit card that matches |guid|.
   credit_cards.erase(
       std::remove_if(credit_cards.begin(), credit_cards.end(),
-                     FormGroupGUIDMatchesFunctor<CreditCard>(guid)),
+                     FormGroupMatchesByGUIDFunctor<CreditCard>(guid)),
       credit_cards.end());
 
   SetCreditCards(&credit_cards);
@@ -599,8 +571,9 @@ void PersonalDataManager::GetPossibleFieldTypes(const string16& text,
     return;
   }
 
-  for (ScopedVector<AutoFillProfile>::iterator iter = web_profiles_.begin();
-       iter != web_profiles_.end(); ++iter) {
+  const std::vector<AutoFillProfile*>& profiles = this->profiles();
+  for (std::vector<AutoFillProfile*>::const_iterator iter = profiles.begin();
+       iter != profiles.end(); ++iter) {
     const FormGroup* profile = *iter;
     if (!profile) {
       DLOG(ERROR) << "NULL information in profiles list";
@@ -621,12 +594,16 @@ void PersonalDataManager::GetPossibleFieldTypes(const string16& text,
     credit_card->GetPossibleFieldTypes(clean_info, possible_types);
   }
 
-  if (possible_types->size() == 0)
+  if (possible_types->empty())
     possible_types->insert(UNKNOWN_TYPE);
 }
 
 bool PersonalDataManager::HasPassword() {
   return !password_hash_.empty();
+}
+
+bool PersonalDataManager::IsDataLoaded() const {
+  return is_data_loaded_;
 }
 
 const std::vector<AutoFillProfile*>& PersonalDataManager::profiles() {
@@ -649,6 +626,14 @@ const std::vector<AutoFillProfile*>& PersonalDataManager::profiles() {
   profiles_.insert(profiles_.end(),
       auxiliary_profiles_.begin(), auxiliary_profiles_.end());
   return profiles_;
+}
+
+const std::vector<AutoFillProfile*>& PersonalDataManager::web_profiles() {
+  return web_profiles_.get();
+}
+
+const std::vector<CreditCard*>& PersonalDataManager::credit_cards() {
+  return credit_cards_.get();
 }
 
 AutoFillProfile* PersonalDataManager::CreateNewEmptyAutoFillProfileForDBThread(

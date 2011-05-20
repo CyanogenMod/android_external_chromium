@@ -28,7 +28,8 @@ class ProvisionalLoadDetails {
                          const GURL& url,
                          const std::string& security_info,
                          bool is_filtered,
-                         long long frame_id);
+                         bool is_error_page,
+                         int64 frame_id);
   virtual ~ProvisionalLoadDetails() { }
 
   void set_error_code(int error_code) { error_code_ = error_code; }
@@ -57,7 +58,9 @@ class ProvisionalLoadDetails {
 
   bool is_content_filtered() const { return is_content_filtered_; }
 
-  long long frame_id() const { return frame_id_; }
+  bool is_error_page() const { return is_error_page_; }
+
+  int64 frame_id() const { return frame_id_; }
 
  private:
   int error_code_;
@@ -70,7 +73,8 @@ class ProvisionalLoadDetails {
   int ssl_security_bits_;
   int ssl_connection_status_;
   bool is_content_filtered_;
-  long long frame_id_;
+  bool is_error_page_;
+  int64 frame_id_;
 
   DISALLOW_COPY_AND_ASSIGN(ProvisionalLoadDetails);
 };

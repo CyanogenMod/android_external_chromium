@@ -42,7 +42,7 @@
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/extensions/extension_protocols.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extensions_startup.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/jankometer.h"
@@ -61,8 +61,8 @@
 #include "chrome/browser/prefs/pref_value_store.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_proxy_service.h"
 #include "chrome/browser/process_singleton.h"
-#include "chrome/browser/profile.h"
-#include "chrome/browser/profile_manager.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/search_engines/search_engine_type.h"
 #include "chrome/browser/search_engines/template_url.h"
@@ -86,7 +86,6 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/common/result_codes.h"
 #include "chrome/installer/util/google_update_settings.h"
-#include "chrome/installer/util/master_preferences.h"
 #include "grit/app_locale_settings.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -101,6 +100,7 @@
 #include "net/spdy/spdy_session.h"
 #include "net/spdy/spdy_session_pool.h"
 #include "net/url_request/url_request.h"
+#include "net/url_request/url_request_throttler_manager.h"
 
 #if defined(USE_LINUX_BREAKPAD)
 #include "base/linux_util.h"
@@ -139,7 +139,6 @@
 #include "chrome/installer/util/helper.h"
 #include "chrome/installer/util/install_util.h"
 #include "chrome/installer/util/shell_util.h"
-#include "chrome/installer/util/version.h"
 #include "gfx/platform_font_win.h"
 #include "net/base/net_util.h"
 #include "net/base/sdch_manager.h"
@@ -149,7 +148,7 @@
 
 #if defined(OS_MACOSX)
 #include <Security/Security.h>
-#include "chrome/browser/cocoa/install_from_dmg.h"
+#include "chrome/browser/ui/cocoa/install_from_dmg.h"
 #endif
 
 #if defined(TOOLKIT_VIEWS)
@@ -188,6 +187,9 @@ BrowserMainParts::~BrowserMainParts() {
 
 void BrowserMainParts::EarlyInitialization() {
   PreEarlyInitialization();
+
+  if (parsed_command_line().HasSwitch(switches::kEnableBenchmarking))
+    base::FieldTrial::EnableBenchmarking();
 
   // Note: make sure to call ConnectionFieldTrial() before
   // ProxyConnectionsFieldTrial().
@@ -379,6 +381,22 @@ void BrowserMainParts::SpdyFieldTrial() {
       CHECK(!is_spdy_trial);
     }
   }
+
+  // Setup SPDY CWND Field trial.
+  const base::FieldTrial::Probability kSpdyCwndDivisor = 100;
+  const base::FieldTrial::Probability kSpdyCwnd32 = 20;     // fixed at 32
+  const base::FieldTrial::Probability kSpdyCwnd16 = 20;     // fixed at 16
+  const base::FieldTrial::Probability kSpdyCwndMin16 = 20;  // no less than 16
+  const base::FieldTrial::Probability kSpdyCwndMin10 = 20;  // no less than 10
+  scoped_refptr<base::FieldTrial> trial(
+      new base::FieldTrial("SpdyCwnd", kSpdyCwndDivisor));
+  trial->AppendGroup("cwnd32", kSpdyCwnd32);
+  trial->AppendGroup("cwnd16", kSpdyCwnd16);
+  trial->AppendGroup("cwndMin16", kSpdyCwndMin16);
+  trial->AppendGroup("cwndMin10", kSpdyCwndMin10);
+  trial->AppendGroup("cwndDynamic",
+                     base::FieldTrial::kAllRemainingProbability);
+
   if (parsed_command_line().HasSwitch(switches::kMaxSpdyConcurrentStreams)) {
     int value = 0;
     base::StringToInt(parsed_command_line().GetSwitchValueASCII(
@@ -389,16 +407,19 @@ void BrowserMainParts::SpdyFieldTrial() {
   }
 }
 
-// If neither --enable-content-prefetch or --disable-content-prefetch
-// is set, users will not be in an A/B test for prefetching.
+// If any of --enable-prerender, --enable-content-prefetch or
+// --disable-content-prefetch are set, use those to determine if
+// prefetch is enabled. Otherwise, randomly assign users to an A/B test for
+// prefetching.
 void BrowserMainParts::PrefetchFieldTrial() {
-  if (parsed_command_line().HasSwitch(switches::kEnableContentPrefetch))
+  if (parsed_command_line().HasSwitch(switches::kEnableContentPrefetch) ||
+      parsed_command_line().HasSwitch(switches::kEnablePagePrerender))
     ResourceDispatcherHost::set_is_prefetch_enabled(true);
   else if (parsed_command_line().HasSwitch(switches::kDisableContentPrefetch)) {
     ResourceDispatcherHost::set_is_prefetch_enabled(false);
   } else {
     const base::FieldTrial::Probability kPrefetchDivisor = 1000;
-    const base::FieldTrial::Probability no_prefetch_probability = 970;
+    const base::FieldTrial::Probability no_prefetch_probability = 500;
     scoped_refptr<base::FieldTrial> trial(
         new base::FieldTrial("Prefetch", kPrefetchDivisor));
     trial->AppendGroup("ContentPrefetchDisabled", no_prefetch_probability);
@@ -566,6 +587,11 @@ void InitializeNetworkOptions(const CommandLine& parsed_command_line) {
     net::SpdySessionPool::set_max_sessions_per_domain(value);
   }
 
+  if (parsed_command_line.HasSwitch(switches::kDisableEnforcedThrottling)) {
+    net::URLRequestThrottlerManager::GetInstance()->
+        set_enforce_throttling(false);
+  }
+
   SetDnsCertProvenanceCheckerFactory(CreateChromeDnsCertProvenanceChecker);
 }
 
@@ -629,7 +655,7 @@ PrefService* InitializeLocalState(const CommandLine& parsed_command_line,
     FilePath parent_profile =
         parsed_command_line.GetSwitchValuePath(switches::kParentProfile);
     scoped_ptr<PrefService> parent_local_state(
-        PrefService::CreatePrefService(parent_profile, NULL));
+        PrefService::CreatePrefService(parent_profile, NULL, NULL));
     parent_local_state->RegisterStringPref(prefs::kApplicationLocale,
                                            std::string());
     // Right now, we only inherit the locale setting from the parent profile.
@@ -668,7 +694,7 @@ void InitializeBrokerServices(const MainFunctionParams& parameters,
 MetricsService* InitializeMetrics(const CommandLine& parsed_command_line,
                                   const PrefService* local_state) {
 #if defined(OS_WIN)
-  if (InstallUtil::IsChromeFrameProcess())
+  if (parsed_command_line.HasSwitch(switches::kChromeFrame))
     MetricsLog::set_version_extension("-F");
 #elif defined(ARCH_CPU_64_BITS)
   MetricsLog::set_version_extension("-64");
@@ -676,7 +702,8 @@ MetricsService* InitializeMetrics(const CommandLine& parsed_command_line,
 
   MetricsService* metrics = g_browser_process->metrics_service();
 
-  if (parsed_command_line.HasSwitch(switches::kMetricsRecordingOnly)) {
+  if (parsed_command_line.HasSwitch(switches::kMetricsRecordingOnly) ||
+      parsed_command_line.HasSwitch(switches::kEnableBenchmarking)) {
     // If we're testing then we don't care what the user preference is, we turn
     // on recording, but not reporting, otherwise tests fail.
     metrics->StartRecordingOnly();
@@ -913,7 +940,10 @@ class StubLogin : public chromeos::LoginStatusConsumer {
                       const std::string& password,
                       const GaiaAuthConsumer::ClientLoginResult& credentials,
                       bool pending_requests) {
-    chromeos::LoginUtils::Get()->CompleteLogin(username, password, credentials);
+    chromeos::LoginUtils::Get()->CompleteLogin(username,
+                                               password,
+                                               credentials,
+                                               pending_requests);
     delete this;
   }
 
@@ -1077,8 +1107,8 @@ int BrowserMain(const MainFunctionParams& parameters) {
   if (parsed_command_line.HasSwitch(switches::kImport) ||
       parsed_command_line.HasSwitch(switches::kImportFromFile)) {
     // We use different BrowserProcess when importing so no GoogleURLTracker is
-    // instantiated (as it makes a URLRequest and we don't have an IO thread,
-    // see bug #1292702).
+    // instantiated (as it makes a net::URLRequest and we don't have an IO
+    // thread, see bug #1292702).
     browser_process.reset(new FirstRunBrowserProcess(parsed_command_line));
     is_first_run = false;
   } else {
@@ -1258,8 +1288,12 @@ int BrowserMain(const MainFunctionParams& parameters) {
   // If the command line specifies --pack-extension, attempt the pack extension
   // startup action and exit.
   if (parsed_command_line.HasSwitch(switches::kPackExtension)) {
-    extensions_startup::HandlePackExtension(parsed_command_line);
-    return ResultCodes::NORMAL_EXIT;
+    ExtensionsStartupUtil extension_startup_util;
+    if (extension_startup_util.PackExtension(parsed_command_line)) {
+      return ResultCodes::NORMAL_EXIT;
+    } else {
+      return ResultCodes::PACK_EXTENSION_ERROR;
+    }
   }
 
 #if !defined(OS_MACOSX)
@@ -1325,7 +1359,7 @@ int BrowserMain(const MainFunctionParams& parameters) {
 
   // Allow access to file:// on ChromeOS for tests.
   if (parsed_command_line.HasSwitch(switches::kAllowFileAccess)) {
-    URLRequest::AllowFileAccess();
+    net::URLRequest::AllowFileAccess();
   }
 
   // There are two use cases for kLoginUser:
@@ -1390,7 +1424,7 @@ int BrowserMain(const MainFunctionParams& parameters) {
     return ResultCodes::MACHINE_LEVEL_INSTALL_EXISTS;
 
   // Create the TranslateManager singleton.
-  Singleton<TranslateManager>::get();
+  TranslateManager::GetInstance();
 
 #if defined(OS_MACOSX)
   if (!parsed_command_line.HasSwitch(switches::kNoFirstRun)) {
@@ -1544,18 +1578,18 @@ int BrowserMain(const MainFunctionParams& parameters) {
   // Initialize extension event routers. Note that on Chrome OS, this will
   // not succeed if the user has not logged in yet, in which case the
   // event routers are initialized in LoginUtilsImpl::CompleteLogin instead.
-  if (profile->GetExtensionsService()) {
+  if (profile->GetExtensionService()) {
     // This will initialize bookmarks. Call it after bookmark import is done.
     // See issue 40144.
-    profile->GetExtensionsService()->InitEventRouters();
+    profile->GetExtensionService()->InitEventRouters();
   }
 
   // The extension service may be available at this point. If the command line
   // specifies --uninstall-extension, attempt the uninstall extension startup
   // action.
   if (parsed_command_line.HasSwitch(switches::kUninstallExtension)) {
-    if (extensions_startup::HandleUninstallExtension(parsed_command_line,
-                                                     profile)) {
+    ExtensionsStartupUtil ext_startup_util;
+    if (ext_startup_util.UninstallExtension(parsed_command_line, profile)) {
       return ResultCodes::NORMAL_EXIT;
     } else {
       return ResultCodes::UNINSTALL_EXTENSION_ERROR;
@@ -1582,8 +1616,9 @@ int BrowserMain(const MainFunctionParams& parameters) {
   // TODO(hclam): Need to check for cloud print proxy too.
   if (parsed_command_line.HasSwitch(switches::kEnableRemoting)) {
     if (user_prefs->GetBoolean(prefs::kRemotingHasSetupCompleted)) {
-      ServiceProcessControl* control = ServiceProcessControlManager::instance()
-          ->GetProcessControl(profile);
+      ServiceProcessControl* control =
+          ServiceProcessControlManager::GetInstance()->GetProcessControl(
+              profile);
        control->Launch(NULL, NULL);
     }
   }

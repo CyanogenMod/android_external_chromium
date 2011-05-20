@@ -14,6 +14,7 @@
 
 #include "app/surface/transport_dib.h"
 #include "base/file_util.h"
+#include "base/platform_file.h"
 #include "base/ref_counted.h"
 #include "chrome/common/content_settings.h"
 #include "chrome/common/page_zoom.h"
@@ -55,6 +56,7 @@ class UploadData;
 
 namespace printing {
 struct PageRange;
+struct PrinterCapsAndDefaults;
 }  // namespace printing
 
 namespace webkit_glue {
@@ -322,6 +324,20 @@ struct ParamTraits<printing::NativeMetafile> {
 template <>
 struct ParamTraits<base::PlatformFileInfo> {
   typedef base::PlatformFileInfo param_type;
+  static void Write(Message* m, const param_type& p);
+  static bool Read(const Message* m, void** iter, param_type* r);
+  static void Log(const param_type& p, std::string* l);
+};
+
+// Traits for base::PlatformFileError
+template <>
+struct SimilarTypeTraits<base::PlatformFileError> {
+  typedef int Type;
+};
+
+template <>
+struct ParamTraits<printing::PrinterCapsAndDefaults> {
+  typedef printing::PrinterCapsAndDefaults param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, void** iter, param_type* r);
   static void Log(const param_type& p, std::string* l);

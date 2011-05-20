@@ -5,9 +5,9 @@
 #include "chrome/browser/views/tabs/base_tab_strip.h"
 
 #include "base/logging.h"
-#include "chrome/browser/view_ids.h"
-#include "chrome/browser/views/tabs/dragged_tab_controller.h"
-#include "chrome/browser/views/tabs/tab_strip_controller.h"
+#include "chrome/browser/ui/view_ids.h"
+#include "chrome/browser/ui/views/tabs/dragged_tab_controller.h"
+#include "chrome/browser/ui/views/tabs/tab_strip_controller.h"
 #include "views/widget/root_view.h"
 #include "views/window/window.h"
 
@@ -224,6 +224,15 @@ int BaseTabStrip::ModelIndexToTabIndex(int model_index) const {
 
 bool BaseTabStrip::IsDragSessionActive() const {
   return drag_controller_.get() != NULL;
+}
+
+bool BaseTabStrip::IsActiveDropTarget() const {
+  for (int i = 0; i < tab_count(); ++i) {
+    BaseTab* tab = base_tab_at_tab_index(i);
+    if (tab->dragging())
+      return true;
+  }
+  return false;
 }
 
 void BaseTabStrip::SelectTab(BaseTab* tab) {

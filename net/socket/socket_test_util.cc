@@ -15,7 +15,6 @@
 #include "net/base/address_family.h"
 #include "net/base/auth.h"
 #include "net/base/host_resolver_proc.h"
-#include "net/base/ssl_cert_request_info.h"
 #include "net/base/ssl_info.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_request_headers.h"
@@ -403,7 +402,7 @@ int DeterministicMockTCPClientSocket::Read(
   return CompleteRead();
 }
 
-void DeterministicMockTCPClientSocket::CompleteWrite(){
+void DeterministicMockTCPClientSocket::CompleteWrite() {
   was_used_to_convey_data_ = true;
   write_pending_ = false;
   write_callback_->Run(write_result_);
@@ -530,18 +529,6 @@ int MockSSLClientSocket::Write(net::IOBuffer* buf, int buf_len,
 
 void MockSSLClientSocket::GetSSLInfo(net::SSLInfo* ssl_info) {
   ssl_info->Reset();
-}
-
-void MockSSLClientSocket::GetSSLCertRequestInfo(
-    net::SSLCertRequestInfo* cert_request_info) {
-  DCHECK(cert_request_info);
-  if (data_->cert_request_info) {
-    cert_request_info->host_and_port =
-        data_->cert_request_info->host_and_port;
-    cert_request_info->client_certs = data_->cert_request_info->client_certs;
-  } else {
-    cert_request_info->Reset();
-  }
 }
 
 SSLClientSocket::NextProtoStatus MockSSLClientSocket::GetNextProto(
@@ -1029,6 +1016,7 @@ SSLClientSocket* MockClientSocketFactory::CreateSSLClientSocket(
     const HostPortPair& host_and_port,
     const SSLConfig& ssl_config,
     SSLHostInfo* ssl_host_info,
+    CertVerifier* cert_verifier,
     DnsCertProvenanceChecker* dns_cert_checker) {
   MockSSLClientSocket* socket =
       new MockSSLClientSocket(transport_socket, host_and_port, ssl_config,
@@ -1079,6 +1067,7 @@ SSLClientSocket* DeterministicMockClientSocketFactory::CreateSSLClientSocket(
     const HostPortPair& host_and_port,
     const SSLConfig& ssl_config,
     SSLHostInfo* ssl_host_info,
+    CertVerifier* cert_verifier,
     DnsCertProvenanceChecker* dns_cert_checker) {
   MockSSLClientSocket* socket =
       new MockSSLClientSocket(transport_socket, host_and_port, ssl_config,

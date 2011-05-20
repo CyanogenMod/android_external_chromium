@@ -10,7 +10,7 @@
 #include "base/message_loop.h"
 #include "base/metrics/histogram.h"
 #include "chrome/browser/accessibility/browser_accessibility_state.h"
-#include "chrome/browser/browser_thread.h"
+#include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/renderer_host/backing_store.h"
 #include "chrome/browser/renderer_host/backing_store_manager.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
@@ -18,13 +18,14 @@
 #include "chrome/browser/renderer_host/render_widget_host_painting_observer.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/result_codes.h"
 #include "chrome/common/native_web_keyboard_event.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/render_messages_params.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebCompositionUnderline.h"
-#include "webkit/glue/plugins/webplugin.h"
 #include "webkit/glue/webcursor.h"
+#include "webkit/plugins/npapi/webplugin.h"
 
 #if defined(TOOLKIT_VIEWS)
 #include "views/view.h"
@@ -101,7 +102,7 @@ RenderWidgetHost::RenderWidgetHost(RenderProcessHost* process,
 
   if (CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kForceRendererAccessibility) ||
-      Singleton<BrowserAccessibilityState>()->IsAccessibleBrowser()) {
+          BrowserAccessibilityState::GetInstance()->IsAccessibleBrowser()) {
     EnableRendererAccessibility();
   }
 }
@@ -117,6 +118,12 @@ gfx::NativeViewId RenderWidgetHost::GetNativeViewId() {
   if (view_)
     return gfx::IdFromNativeView(view_->GetNativeView());
   return 0;
+}
+
+bool RenderWidgetHost::PreHandleKeyboardEvent(
+    const NativeWebKeyboardEvent& event,
+    bool* is_keyboard_shortcut) {
+  return false;
 }
 
 void RenderWidgetHost::Init() {
@@ -140,7 +147,12 @@ void RenderWidgetHost::Shutdown() {
   Destroy();
 }
 
-void RenderWidgetHost::OnMessageReceived(const IPC::Message &msg) {
+bool RenderWidgetHost::IsRenderView() const {
+  return false;
+}
+
+bool RenderWidgetHost::OnMessageReceived(const IPC::Message &msg) {
+  bool handled = true;
   bool msg_is_ok = true;
   IPC_BEGIN_MESSAGE_MAP_EX(RenderWidgetHost, msg, msg_is_ok)
     IPC_MESSAGE_HANDLER(ViewHostMsg_RenderViewReady, OnMsgRenderViewReady)
@@ -181,13 +193,15 @@ void RenderWidgetHost::OnMessageReceived(const IPC::Message &msg) {
     IPC_MESSAGE_HANDLER(ViewHostMsg_DestroyPluginContainer,
                         OnMsgDestroyPluginContainer)
 #endif
-    IPC_MESSAGE_UNHANDLED_ERROR()
+    IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP_EX()
 
   if (!msg_is_ok) {
     // The message de-serialization failed. Kill the renderer process.
-    process()->ReceivedBadMessage(msg.type());
+    UserMetrics::RecordAction(UserMetricsAction("BadMessageTerminate_RWH"));
+    process()->ReceivedBadMessage();
   }
+  return handled;
 }
 
 bool RenderWidgetHost::Send(IPC::Message* msg) {
@@ -382,8 +396,7 @@ BackingStore* RenderWidgetHost::GetBackingStore(bool force_create) {
     IPC::Message msg;
     TimeDelta max_delay = TimeDelta::FromMilliseconds(kPaintMsgTimeoutMS);
     if (process_->WaitForUpdateMsg(routing_id_, max_delay, &msg)) {
-      ViewHostMsg_UpdateRect::Dispatch(
-          &msg, this, &RenderWidgetHost::OnMsgUpdateRect);
+      OnMessageReceived(msg);
       backing_store = BackingStoreManager::GetBackingStore(this, current_size_);
     }
   }
@@ -418,10 +431,8 @@ void RenderWidgetHost::ScheduleComposite() {
   // We always block on response because we do not have a backing store.
   IPC::Message msg;
   TimeDelta max_delay = TimeDelta::FromMilliseconds(kPaintMsgTimeoutMS);
-  if (process_->WaitForUpdateMsg(routing_id_, max_delay, &msg)) {
-    ViewHostMsg_UpdateRect::Dispatch(
-        &msg, this, &RenderWidgetHost::OnMsgUpdateRect);
-  }
+  if (process_->WaitForUpdateMsg(routing_id_, max_delay, &msg))
+    OnMessageReceived(msg);
 }
 
 void RenderWidgetHost::StartHangMonitorTimeout(TimeDelta delay) {
@@ -634,7 +645,8 @@ void RenderWidgetHost::ForwardTouchEvent(
 }
 #endif
 
-void RenderWidgetHost::RendererExited() {
+void RenderWidgetHost::RendererExited(base::TerminationStatus status,
+                                      int exit_code) {
   // Clearing this flag causes us to re-create the renderer when recovering
   // from a crashed renderer.
   renderer_initialized_ = false;
@@ -662,7 +674,7 @@ void RenderWidgetHost::RendererExited() {
   is_accelerated_compositing_active_ = false;
 
   if (view_) {
-    view_->RenderViewGone();
+    view_->RenderViewGone(status, exit_code);
     view_ = NULL;  // The View should be deleted by RenderViewGone.
   }
 
@@ -768,7 +780,7 @@ void RenderWidgetHost::OnMsgRenderViewReady() {
   WasResized();
 }
 
-void RenderWidgetHost::OnMsgRenderViewGone() {
+void RenderWidgetHost::OnMsgRenderViewGone(int status, int exit_code) {
   // TODO(evanm): This synchronously ends up calling "delete this".
   // Is that really what we want in response to this message?  I'm matching
   // previous behavior of the code here.
@@ -843,7 +855,9 @@ void RenderWidgetHost::OnMsgUpdateRect(
     if (dib) {
       if (dib->size() < size) {
         DLOG(WARNING) << "Transport DIB too small for given rectangle";
-        process()->ReceivedBadMessage(ViewHostMsg_UpdateRect__ID);
+        UserMetrics::RecordAction(UserMetricsAction(
+            "BadMessageTerminate_RWH1"));
+        process()->ReceivedBadMessage();
       } else {
         // Scroll the backing store.
         if (!params.scroll_rect.IsEmpty()) {
@@ -917,7 +931,8 @@ void RenderWidgetHost::OnMsgInputEventAck(const IPC::Message& message) {
   void* iter = NULL;
   int type = 0;
   if (!message.ReadInt(&iter, &type) || (type < WebInputEvent::Undefined)) {
-    process()->ReceivedBadMessage(message.type());
+    UserMetrics::RecordAction(UserMetricsAction("BadMessageTerminate_RWH2"));
+    process()->ReceivedBadMessage();
   } else if (type == WebInputEvent::MouseMove) {
     mouse_move_pending_ = false;
 
@@ -930,8 +945,10 @@ void RenderWidgetHost::OnMsgInputEventAck(const IPC::Message& message) {
     ProcessWheelAck();
   } else if (WebInputEvent::isKeyboardEventType(type)) {
     bool processed = false;
-    if (!message.ReadBool(&iter, &processed))
-      process()->ReceivedBadMessage(message.type());
+    if (!message.ReadBool(&iter, &processed)) {
+      UserMetrics::RecordAction(UserMetricsAction("BadMessageTerminate_RWH3"));
+      process()->ReceivedBadMessage();
+    }
 
     ProcessKeyboardEventAck(type, processed);
   }
@@ -951,12 +968,14 @@ void RenderWidgetHost::ProcessWheelAck() {
 
 void RenderWidgetHost::OnMsgFocus() {
   // Only RenderViewHost can deal with that message.
-  process()->ReceivedBadMessage(ViewHostMsg_Focus__ID);
+  UserMetrics::RecordAction(UserMetricsAction("BadMessageTerminate_RWH4"));
+  process()->ReceivedBadMessage();
 }
 
 void RenderWidgetHost::OnMsgBlur() {
   // Only RenderViewHost can deal with that message.
-  process()->ReceivedBadMessage(ViewHostMsg_Blur__ID);
+  UserMetrics::RecordAction(UserMetricsAction("BadMessageTerminate_RWH5"));
+  process()->ReceivedBadMessage();
 }
 
 void RenderWidgetHost::OnMsgSetCursor(const WebCursor& cursor) {
@@ -1083,7 +1102,7 @@ void RenderWidgetHost::OnMsgCreatePluginContainer(gfx::PluginWindowHandle id) {
   if (view_) {
     view_->CreatePluginContainer(id);
   } else {
-    NOTIMPLEMENTED();
+    deferred_plugin_handles_.push_back(id);
   }
 }
 
@@ -1091,7 +1110,14 @@ void RenderWidgetHost::OnMsgDestroyPluginContainer(gfx::PluginWindowHandle id) {
   if (view_) {
     view_->DestroyPluginContainer(id);
   } else {
-    NOTIMPLEMENTED();
+    for (int i = 0;
+         i < static_cast<int>(deferred_plugin_handles_.size());
+         i++) {
+      if (deferred_plugin_handles_[i] == id) {
+        deferred_plugin_handles_.erase(deferred_plugin_handles_.begin() + i);
+        i--;
+      }
+    }
   }
 }
 #endif
@@ -1217,4 +1243,17 @@ void RenderWidgetHost::ProcessKeyboardEventAck(int type, bool processed) {
       // UnhandledKeyboardEvent destroys this RenderWidgetHost).
     }
   }
+}
+
+void RenderWidgetHost::ActivateDeferredPluginHandles() {
+  if (view_ == NULL)
+    return;
+
+  for (int i = 0; i < static_cast<int>(deferred_plugin_handles_.size()); i++) {
+#if defined(TOOLKIT_USES_GTK)
+    view_->CreatePluginContainer(deferred_plugin_handles_[i]);
+#endif
+  }
+
+  deferred_plugin_handles_.clear();
 }

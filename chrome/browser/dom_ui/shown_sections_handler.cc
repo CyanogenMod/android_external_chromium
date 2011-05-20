@@ -10,7 +10,7 @@
 #include "base/values.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/notification_details.h"
@@ -45,15 +45,6 @@ void NotifySectionDisabled(int new_mode, int old_mode, Profile *profile) {
 // static
 int ShownSectionsHandler::GetShownSections(PrefService* prefs) {
   return prefs->GetInteger(prefs::kNTPShownSections);
-}
-
-// static
-void ShownSectionsHandler::SetShownSection(PrefService* prefs,
-                                           Section section) {
-  int shown_sections = GetShownSections(prefs);
-  shown_sections &= ~ALL_SECTIONS_MASK;
-  shown_sections |= section;
-  prefs->SetInteger(prefs::kNTPShownSections, shown_sections);
 }
 
 ShownSectionsHandler::ShownSectionsHandler(PrefService* pref_service)
@@ -115,6 +106,12 @@ void ShownSectionsHandler::RegisterUserPrefs(PrefService* pref_service) {
 void ShownSectionsHandler::MigrateUserPrefs(PrefService* pref_service,
                                             int old_pref_version,
                                             int new_pref_version) {
+  // Nothing to migrate for default kNTPShownSections value.
+  const PrefService::Preference* shown_sections_pref =
+      pref_service->FindPreference(prefs::kNTPShownSections);
+  if (shown_sections_pref->IsDefaultValue())
+    return;
+
   bool changed = false;
   int shown_sections = pref_service->GetInteger(prefs::kNTPShownSections);
 

@@ -4,6 +4,8 @@
 
 #include "chrome/browser/gtk/extension_installed_bubble_gtk.h"
 
+#include <string>
+
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/i18n/rtl.h"
@@ -18,7 +20,8 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_action.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/notification_details.h"
+#include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
 #include "gfx/gtk_util.h"
 #include "grit/generated_resources.h"
@@ -92,7 +95,8 @@ void ExtensionInstalledBubbleGtk::Observe(NotificationType type,
           &ExtensionInstalledBubbleGtk::ShowInternal));
     }
   } else if (type == NotificationType::EXTENSION_UNLOADED) {
-    const Extension* extension = Details<const Extension>(details).ptr();
+    const Extension* extension =
+        Details<UnloadedExtensionInfo>(details)->extension;
     if (extension == extension_)
       extension_ = NULL;
   } else {
@@ -197,8 +201,10 @@ void ExtensionInstalledBubbleGtk::ShowInternal() {
 
   // Heading label
   GtkWidget* heading_label = gtk_label_new(NULL);
+  string16 extension_name = UTF8ToUTF16(extension_->name());
+  base::i18n::AdjustStringForLocaleDirection(&extension_name);
   std::string heading_text = l10n_util::GetStringFUTF8(
-      IDS_EXTENSION_INSTALLED_HEADING, UTF8ToUTF16(extension_->name()));
+      IDS_EXTENSION_INSTALLED_HEADING, extension_name);
   char* markup = g_markup_printf_escaped("<span size=\"larger\">%s</span>",
       heading_text.c_str());
   gtk_label_set_markup(GTK_LABEL(heading_label), markup);
@@ -240,11 +246,6 @@ void ExtensionInstalledBubbleGtk::ShowInternal() {
   close_button_.reset(CustomDrawButton::CloseButton(theme_provider));
   g_signal_connect(close_button_->widget(), "clicked",
                    G_CALLBACK(OnButtonClick), this);
-  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  close_button_->SetBackground(
-      theme_provider->GetColor(BrowserThemeProvider::COLOR_TAB_TEXT),
-      rb.GetBitmapNamed(IDR_CLOSE_BAR),
-      rb.GetBitmapNamed(IDR_CLOSE_BAR_MASK));
   gtk_box_pack_start(GTK_BOX(close_column), close_button_->widget(),
       FALSE, FALSE, 0);
 

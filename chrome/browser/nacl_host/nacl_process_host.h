@@ -13,7 +13,7 @@
 #include "chrome/common/nacl_types.h"
 #include "native_client/src/shared/imc/nacl_imc.h"
 
-class ResourceMessageFilter;
+class RenderMessageFilter;
 
 // Represents the browser side of the browser <--> NaCl communication
 // channel. There will be one NaClProcessHost per NaCl process
@@ -28,16 +28,16 @@ class NaClProcessHost : public BrowserChildProcessHost {
   ~NaClProcessHost();
 
   // Initialize the new NaCl process, returning true on success.
-  bool Launch(ResourceMessageFilter* resource_message_filter,
+  bool Launch(RenderMessageFilter* render_message_filter,
               int socket_count,
               IPC::Message* reply_msg);
 
-  virtual void OnMessageReceived(const IPC::Message& msg);
+  virtual bool OnMessageReceived(const IPC::Message& msg);
 
   void OnProcessLaunchedByBroker(base::ProcessHandle handle);
 
  protected:
-  virtual bool DidChildCrash();
+  virtual base::TerminationStatus GetChildTerminationStatus(int* exit_code);
   virtual void OnChildDied();
 
  private:
@@ -47,12 +47,7 @@ class NaClProcessHost : public BrowserChildProcessHost {
 
   virtual void OnProcessLaunched();
 
-  // ResourceDispatcherHost::Receiver implementation:
-  virtual URLRequestContext* GetRequestContext(
-      uint32 request_id,
-      const ViewHostMsg_Resource_Request& request_data);
-
-  virtual bool CanShutdown() { return true; }
+  virtual bool CanShutdown();
 
 #if defined(OS_WIN)
   // Check whether the browser process is running on WOW64 - Windows only
@@ -62,9 +57,9 @@ class NaClProcessHost : public BrowserChildProcessHost {
  private:
   ResourceDispatcherHost* resource_dispatcher_host_;
 
-  // The ResourceMessageFilter that requested this NaCl process.  We use this
+  // The RenderMessageFilter that requested this NaCl process.  We use this
   // for sending the reply once the process has started.
-  scoped_refptr<ResourceMessageFilter> resource_message_filter_;
+  scoped_refptr<RenderMessageFilter> render_message_filter_;
 
   // The reply message to send.
   IPC::Message* reply_msg_;

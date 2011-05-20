@@ -19,7 +19,6 @@
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_observer_mock.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
@@ -121,8 +120,7 @@ class TranslateManagerTest : public RenderViewHostTestHarness,
   }
 
   void ExpireTranslateScriptImmediately() {
-    Singleton<TranslateManager>::get()->
-        set_translate_script_expiration_delay(0);
+    TranslateManager::GetInstance()->set_translate_script_expiration_delay(0);
   }
 
   // If there is 1 infobar and it is a translate infobar, deny translation and
@@ -155,8 +153,8 @@ class TranslateManagerTest : public RenderViewHostTestHarness,
     // Also clears the translate script so it is fetched everytime and sets the
     // expiration delay to a large value by default (in case it was zeroed in
     // a previous test).
-    Singleton<TranslateManager>::get()->ClearTranslateScript();
-    Singleton<TranslateManager>::get()->
+    TranslateManager::GetInstance()->ClearTranslateScript();
+    TranslateManager::GetInstance()->
         set_translate_script_expiration_delay(60 * 60 * 1000);
 
     RenderViewHostTestHarness::SetUp();

@@ -14,9 +14,11 @@ namespace chrome {
 
 extern const char kChromeVersion[];
 
-extern const wchar_t kBrowserProcessExecutableName[];
-extern const wchar_t kHelperProcessExecutableName[];
-extern const wchar_t kBrowserProcessExecutablePath[];
+extern const char kChromeVersionEnvVar[];
+
+extern const FilePath::CharType kBrowserProcessExecutableName[];
+extern const FilePath::CharType kHelperProcessExecutableName[];
+extern const FilePath::CharType kBrowserProcessExecutablePath[];
 extern const FilePath::CharType kHelperProcessExecutablePath[];
 #if defined(OS_MACOSX)
 extern const FilePath::CharType kFrameworkName[];
@@ -50,7 +52,8 @@ extern const FilePath::CharType kFaviconsFilename[];
 extern const FilePath::CharType kHistoryFilename[];
 extern const FilePath::CharType kLocalStateFilename[];
 extern const FilePath::CharType kPreferencesFilename[];
-extern const FilePath::CharType kSafeBrowsingFilename[];
+extern const FilePath::CharType kSafeBrowsingBaseFilename[];
+extern const FilePath::CharType kSafeBrowsingPhishingModelFilename[];
 extern const FilePath::CharType kSingletonCookieFilename[];
 extern const FilePath::CharType kSingletonSocketFilename[];
 extern const FilePath::CharType kSingletonLockFilename[];

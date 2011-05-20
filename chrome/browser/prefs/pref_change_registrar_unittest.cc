@@ -4,8 +4,9 @@
 
 #include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/common/notification_details.h"
-#include "chrome/common/notification_observer.h"
+#include "chrome/common/notification_observer_mock.h"
 #include "chrome/common/notification_source.h"
+#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/testing_pref_service.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -13,6 +14,8 @@
 
 using testing::Mock;
 using testing::Eq;
+
+namespace {
 
 // A mock provider that allows us to capture pref observer changes.
 class MockPrefService : public TestingPrefService {
@@ -24,12 +27,7 @@ class MockPrefService : public TestingPrefService {
   MOCK_METHOD2(RemovePrefObserver, void(const char*, NotificationObserver*));
 };
 
-// A mock observer used as a pref observer
-class MockObserver : public NotificationObserver {
- public:
-  MOCK_METHOD3(Observe, void(NotificationType, const NotificationSource& source,
-               const NotificationDetails& details));
-};
+}  // namespace
 
 class PrefChangeRegistrarTest : public testing::Test {
  public:
@@ -44,12 +42,12 @@ class PrefChangeRegistrarTest : public testing::Test {
 
  private:
   scoped_ptr<MockPrefService> service_;
-  scoped_ptr<MockObserver> observer_;
+  scoped_ptr<NotificationObserverMock> observer_;
 };
 
 void PrefChangeRegistrarTest::SetUp() {
   service_.reset(new MockPrefService());
-  observer_.reset(new MockObserver());
+  observer_.reset(new NotificationObserverMock());
 }
 
 TEST_F(PrefChangeRegistrarTest, AddAndRemove) {

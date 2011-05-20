@@ -10,14 +10,19 @@
 #include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/scoped_ptr.h"
-#include "base/singleton.h"
 #include "chrome/common/chrome_switches.h"
+
+namespace base {
+template <typename T> struct DefaultLazyInstanceTraits;
+}
+
 namespace chromeos {
 
+class BrightnessLibrary;
 class BurnLibrary;
 class CryptohomeLibrary;
-class KeyboardLibrary;
 class InputMethodLibrary;
+class KeyboardLibrary;
 class LibraryLoader;
 class LoginLibrary;
 class MountLibrary;
@@ -43,40 +48,29 @@ class CrosLibrary {
     // Use the stub implementations of the library. This is mainly for
     // running the chromeos build of chrome on the desktop.
     void SetUseStubImpl();
+
     // Reset the stub implementations of the library, called after
     // SetUseStubImp is called.
     void ResetUseStubImpl();
+
     // Passing true for own for these setters will cause them to be deleted
     // when the CrosLibrary is deleted (or other mocks are set).
     // Setter for LibraryLoader.
     void SetLibraryLoader(LibraryLoader* loader, bool own);
-    // Setter for BurnLibrary.
+    void SetBrightnessLibrary(BrightnessLibrary* library, bool own);
     void SetBurnLibrary(BurnLibrary* library, bool own);
-    // Setter for CryptohomeLibrary.
     void SetCryptohomeLibrary(CryptohomeLibrary* library, bool own);
-    // Setter for KeyboardLibrary
     void SetKeyboardLibrary(KeyboardLibrary* library, bool own);
-    // Setter for InputMethodLibrary
     void SetInputMethodLibrary(InputMethodLibrary* library, bool own);
-    // Setter for LoginLibrary.
     void SetLoginLibrary(LoginLibrary* library, bool own);
-    // Setter for MountLibrary.
     void SetMountLibrary(MountLibrary* library, bool own);
-    // Setter for NetworkLibrary.
     void SetNetworkLibrary(NetworkLibrary* library, bool own);
-    // Setter for PowerLibrary.
     void SetPowerLibrary(PowerLibrary* library, bool own);
-    // Setter for ScreenLockLibrary.
     void SetScreenLockLibrary(ScreenLockLibrary* library, bool own);
-    // Setter for SpeechSynthesisLibrary.
     void SetSpeechSynthesisLibrary(SpeechSynthesisLibrary* library, bool own);
-    // Setter for SyslogsLibrary.
     void SetSyslogsLibrary(SyslogsLibrary* library, bool own);
-    // Setter for SystemLibrary.
     void SetSystemLibrary(SystemLibrary* library, bool own);
-    // Setter for TouchpadLibrary.
     void SetTouchpadLibrary(TouchpadLibrary* library, bool own);
-    // Setter for UpdateLibrary.
     void SetUpdateLibrary(UpdateLibrary* library, bool own);
 
    private:
@@ -88,46 +82,20 @@ class CrosLibrary {
   // This gets the CrosLibrary.
   static CrosLibrary* Get();
 
-  // Getter for BurnLibrary.
+  BrightnessLibrary* GetBrightnessLibrary();
   BurnLibrary* GetBurnLibrary();
-
-  // Getter for CryptohomeLibrary.
   CryptohomeLibrary* GetCryptohomeLibrary();
-
-  // Getter for KeyboardLibrary
-  KeyboardLibrary* GetKeyboardLibrary();
-
-  // Getter for InputMethodLibrary
   InputMethodLibrary* GetInputMethodLibrary();
-
-  // Getter for LoginLibrary.
+  KeyboardLibrary* GetKeyboardLibrary();
   LoginLibrary* GetLoginLibrary();
-
-  // Getter for MountLibrary
   MountLibrary* GetMountLibrary();
-
-  // Getter for NetworkLibrary
   NetworkLibrary* GetNetworkLibrary();
-
-  // Getter for PowerLibrary
   PowerLibrary* GetPowerLibrary();
-
-  // Getter for ScreenLockLibrary
   ScreenLockLibrary* GetScreenLockLibrary();
-
-  // This gets the singleton SpeechSynthesisLibrary.
   SpeechSynthesisLibrary* GetSpeechSynthesisLibrary();
-
-  // This gets the singleton SyslogsLibrary.
   SyslogsLibrary* GetSyslogsLibrary();
-
-  // This gets the singleton SystemLibrary.
   SystemLibrary* GetSystemLibrary();
-
-  // This gets the singleton TouchpadLibrary.
   TouchpadLibrary* GetTouchpadLibrary();
-
-  // This gets the singleton UpdateLibrary.
   UpdateLibrary* GetUpdateLibrary();
 
   // Getter for Test API that gives access to internal members of this class.
@@ -143,7 +111,7 @@ class CrosLibrary {
   }
 
  private:
-  friend struct DefaultSingletonTraits<chromeos::CrosLibrary>;
+  friend struct base::DefaultLazyInstanceTraits<chromeos::CrosLibrary>;
   friend class CrosLibrary::TestApi;
 
   CrosLibrary();
@@ -190,6 +158,7 @@ class CrosLibrary {
     bool own_;
   };
 
+  Library<BrightnessLibrary> brightness_lib_;
   Library<BurnLibrary> burn_lib_;
   Library<CryptohomeLibrary> crypto_lib_;
   Library<KeyboardLibrary> keyboard_lib_;
@@ -216,6 +185,22 @@ class CrosLibrary {
   scoped_ptr<TestApi> test_api_;
 
   DISALLOW_COPY_AND_ASSIGN(CrosLibrary);
+};
+
+// The class is used for enabling the stub libcros, and cleaning it up at
+// the end of the object lifetime. Useful for testing.
+class ScopedStubCrosEnabler {
+ public:
+  ScopedStubCrosEnabler() {
+    chromeos::CrosLibrary::Get()->GetTestApi()->SetUseStubImpl();
+  }
+
+  ~ScopedStubCrosEnabler() {
+    chromeos::CrosLibrary::Get()->GetTestApi()->ResetUseStubImpl();
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(ScopedStubCrosEnabler);
 };
 
 }  // namespace chromeos

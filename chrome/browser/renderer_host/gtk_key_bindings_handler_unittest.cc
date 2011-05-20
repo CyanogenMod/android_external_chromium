@@ -10,6 +10,7 @@
 
 #include "base/basictypes.h"
 #include "base/file_util.h"
+#include "base/logging.h"
 #include "base/path_service.h"
 #include "base/string_util.h"
 #include "chrome/common/chrome_paths.h"
@@ -30,6 +31,7 @@ class GtkKeyBindingsHandlerTest : public testing::Test {
     FilePath gtkrc;
     PathService::Get(chrome::DIR_TEST_DATA, &gtkrc);
     gtkrc = gtkrc.AppendASCII("gtk_key_bindings_test_gtkrc");
+
     gtk_rc_parse(gtkrc.value().c_str());
 
     GtkWidget* fixed = gtk_fixed_new();
@@ -65,6 +67,7 @@ class GtkKeyBindingsHandlerTest : public testing::Test {
       g_free(keys);
       return NativeWebKeyboardEvent(&event);
     }
+    LOG(ERROR) << "Failed to create key event for keyval:" << keyval;
     return NativeWebKeyboardEvent();
   }
 
@@ -85,8 +88,7 @@ class GtkKeyBindingsHandlerTest : public testing::Test {
   GtkKeyBindingsHandler* handler_;
 };
 
-// Does not work in a chroot. See bug 60363.
-TEST_F(GtkKeyBindingsHandlerTest, FLAKY_MoveCursor) {
+TEST_F(GtkKeyBindingsHandlerTest, MoveCursor) {
   static const EditCommand kEditCommands[] = {
     // "move-cursor" (logical-positions, -2, 0)
     { "MoveBackward", "" },
@@ -128,8 +130,7 @@ TEST_F(GtkKeyBindingsHandlerTest, FLAKY_MoveCursor) {
                  kEditCommands, arraysize(kEditCommands));
 }
 
-// Does not work in a chroot. See bug 60363.
-TEST_F(GtkKeyBindingsHandlerTest, FLAKY_DeleteFromCursor) {
+TEST_F(GtkKeyBindingsHandlerTest, DeleteFromCursor) {
   static const EditCommand kEditCommands[] = {
     // "delete-from-cursor" (chars, -2)
     { "DeleteBackward", "" },
@@ -173,8 +174,7 @@ TEST_F(GtkKeyBindingsHandlerTest, FLAKY_DeleteFromCursor) {
                  kEditCommands, arraysize(kEditCommands));
 }
 
-// Does not work in a chroot. See bug 60363.
-TEST_F(GtkKeyBindingsHandlerTest, FLAKY_OtherActions) {
+TEST_F(GtkKeyBindingsHandlerTest, OtherActions) {
   static const EditCommand kBackspace[] = {
     { "DeleteBackward", "" }
   };

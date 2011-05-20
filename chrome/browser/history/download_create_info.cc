@@ -15,7 +15,8 @@ DownloadCreateInfo::DownloadCreateInfo(const FilePath& path,
                                        int64 received_bytes,
                                        int64 total_bytes,
                                        int32 state,
-                                       int32 download_id)
+                                       int32 download_id,
+                                       bool has_user_gesture)
     : path(path),
       url(url),
       path_uniquifier(0),
@@ -24,6 +25,7 @@ DownloadCreateInfo::DownloadCreateInfo(const FilePath& path,
       total_bytes(total_bytes),
       state(state),
       download_id(download_id),
+      has_user_gesture(has_user_gesture),
       child_id(-1),
       render_view_id(-1),
       request_id(-1),
@@ -39,6 +41,7 @@ DownloadCreateInfo::DownloadCreateInfo()
       total_bytes(0),
       state(-1),
       download_id(-1),
+      has_user_gesture(false),
       child_id(-1),
       render_view_id(-1),
       request_id(-1),
@@ -54,7 +57,7 @@ DownloadCreateInfo::~DownloadCreateInfo() {
 std::string DownloadCreateInfo::DebugString() const {
   return base::StringPrintf("{"
                             " url_ = \"%s\""
-                            " path = \"%s\""
+                            " path = \"%" PRFilePath "\""
                             " received_bytes = %" PRId64
                             " total_bytes = %" PRId64
                             " child_id = %d"

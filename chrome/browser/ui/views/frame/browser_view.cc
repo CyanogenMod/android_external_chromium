@@ -16,12 +16,10 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/app/chrome_dll_resource.h"
-#include "chrome/browser/app_modal_dialog_queue.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_view.h"
 #include "chrome/browser/automation/ui_controls.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/debugger/devtools_window.h"
 #include "chrome/browser/dom_ui/bug_report_ui.h"
@@ -30,36 +28,38 @@
 #include "chrome/browser/ntp_background_util.h"
 #include "chrome/browser/page_info_window.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/sidebar/sidebar_container.h"
 #include "chrome/browser/sidebar/sidebar_manager.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
-#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/ui/app_modal_dialogs/app_modal_dialog_queue.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/view_ids.h"
-#include "chrome/browser/views/accessible_view_helper.h"
-#include "chrome/browser/views/bookmark_bar_view.h"
-#include "chrome/browser/views/browser_dialogs.h"
-#include "chrome/browser/views/default_search_view.h"
-#include "chrome/browser/views/download_shelf_view.h"
-#include "chrome/browser/views/frame/browser_view_layout.h"
-#include "chrome/browser/views/frame/contents_container.h"
-#include "chrome/browser/views/fullscreen_exit_bubble.h"
-#include "chrome/browser/views/status_bubble_views.h"
-#include "chrome/browser/views/tab_contents/tab_contents_container.h"
-#include "chrome/browser/views/tabs/browser_tab_strip_controller.h"
-#include "chrome/browser/views/tabs/side_tab_strip.h"
-#include "chrome/browser/views/theme_install_bubble_view.h"
-#include "chrome/browser/views/toolbar_view.h"
-#include "chrome/browser/views/update_recommended_message_box.h"
-#include "chrome/browser/views/window.h"
-#include "chrome/browser/window_sizer.h"
-#include "chrome/browser/wrench_menu_model.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
+#include "chrome/browser/ui/toolbar/wrench_menu_model.h"
+#include "chrome/browser/ui/view_ids.h"
+#include "chrome/browser/ui/views/accessible_view_helper.h"
+#include "chrome/browser/ui/views/bookmark_bar_view.h"
+#include "chrome/browser/ui/views/browser_dialogs.h"
+#include "chrome/browser/ui/views/default_search_view.h"
+#include "chrome/browser/ui/views/download_shelf_view.h"
+#include "chrome/browser/ui/views/frame/browser_view_layout.h"
+#include "chrome/browser/ui/views/frame/contents_container.h"
+#include "chrome/browser/ui/views/fullscreen_exit_bubble.h"
+#include "chrome/browser/ui/views/status_bubble_views.h"
+#include "chrome/browser/ui/views/tab_contents/tab_contents_container.h"
+#include "chrome/browser/ui/views/tabs/browser_tab_strip_controller.h"
+#include "chrome/browser/ui/views/tabs/side_tab_strip.h"
+#include "chrome/browser/ui/views/theme_install_bubble_view.h"
+#include "chrome/browser/ui/views/toolbar_view.h"
+#include "chrome/browser/ui/views/update_recommended_message_box.h"
+#include "chrome/browser/ui/views/window.h"
+#include "chrome/browser/ui/window_sizer.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_resource.h"
 #include "chrome/common/native_window_notification_source.h"
@@ -90,6 +90,10 @@
 #include "chrome/browser/views/accelerator_table_gtk.h"
 #include "views/window/hit_test.h"
 #include "views/window/window_gtk.h"
+#endif
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/ui/views/keyboard_overlay_delegate.h"
 #endif
 
 using base::TimeDelta;
@@ -421,7 +425,7 @@ void BrowserView::SetShowState(int state) {
 BrowserView::BrowserView(Browser* browser)
     : views::ClientView(NULL, NULL),
       last_focused_view_storage_id_(
-          views::ViewStorage::GetSharedInstance()->CreateStorageID()),
+          views::ViewStorage::GetInstance()->CreateStorageID()),
       frame_(NULL),
       browser_(browser),
       active_bookmark_bar_(NULL),
@@ -604,12 +608,7 @@ bool BrowserView::AcceleratorPressed(const views::Accelerator& accelerator) {
   DCHECK(iter != accelerator_table_.end());
 
   int command_id = iter->second;
-  if (browser_->command_updater()->SupportsCommand(command_id) &&
-      browser_->command_updater()->IsCommandEnabled(command_id)) {
-    browser_->ExecuteCommand(command_id);
-    return true;
-  }
-  return false;
+  return browser_->ExecuteCommandIfEnabled(command_id);
 }
 
 bool BrowserView::GetAccelerator(int cmd_id, menus::Accelerator* accelerator) {
@@ -640,13 +639,13 @@ bool BrowserView::GetAccelerator(int cmd_id, menus::Accelerator* accelerator) {
 
 bool BrowserView::ActivateAppModalDialog() const {
   // If another browser is app modal, flash and activate the modal browser.
-  if (Singleton<AppModalDialogQueue>()->HasActiveDialog()) {
+  if (AppModalDialogQueue::GetInstance()->HasActiveDialog()) {
     Browser* active_browser = BrowserList::GetLastActive();
     if (active_browser && (browser_ != active_browser)) {
       active_browser->window()->FlashFrame();
       active_browser->window()->Activate();
     }
-    Singleton<AppModalDialogQueue>()->ActivateModalDialog();
+    AppModalDialogQueue::GetInstance()->ActivateModalDialog();
     return true;
   }
   return false;
@@ -979,7 +978,7 @@ void BrowserView::RotatePaneFocus(bool forwards) {
 }
 
 void BrowserView::SaveFocusedView() {
-  views::ViewStorage* view_storage = views::ViewStorage::GetSharedInstance();
+  views::ViewStorage* view_storage = views::ViewStorage::GetInstance();
   if (view_storage->RetrieveView(last_focused_view_storage_id_))
     view_storage->RemoveView(last_focused_view_storage_id_);
   views::View* focused_view = GetRootView()->GetFocusedView();
@@ -1003,6 +1002,10 @@ bool BrowserView::IsBookmarkBarVisible() const {
 
 bool BrowserView::IsBookmarkBarAnimating() const {
   return bookmark_bar_view_.get() && bookmark_bar_view_->is_animating();
+}
+
+bool BrowserView::IsTabStripEditable() const {
+  return !tabstrip_->IsDragSessionActive() && !tabstrip_->IsActiveDropTarget();
 }
 
 bool BrowserView::IsToolbarVisible() const {
@@ -1271,14 +1274,13 @@ bool BrowserView::PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
   if (id == -1)
     return false;
 
-  if (browser_->IsReservedCommand(id)) {
-    // TODO(suzhe): For Linux, should we send things like Ctrl+w, Ctrl+n
-    // to the renderer first, just like what
-    // BrowserWindowGtk::HandleKeyboardEvent() does?
-    // Executing the command may cause |this| object to be destroyed.
-    browser_->ExecuteCommand(id);
-    return true;
-  }
+  // Executing the command may cause |this| object to be destroyed.
+#if defined(OS_LINUX)
+  if (browser_->IsReservedCommand(id) && !event.match_edit_command)
+#else
+  if (browser_->IsReservedCommand(id))
+#endif
+    return browser_->ExecuteCommandIfEnabled(id);
 
   DCHECK(is_keyboard_shortcut != NULL);
   *is_keyboard_shortcut = true;
@@ -1384,6 +1386,12 @@ void BrowserView::HideInstant(bool instant_is_active) {
 gfx::Rect BrowserView::GetInstantBounds() {
   return contents_->GetPreviewBounds();
 }
+
+#if defined(OS_CHROMEOS)
+void BrowserView::ShowKeyboardOverlay(gfx::NativeWindow owning_window) {
+  KeyboardOverlayDelegate::ShowDialog(owning_window);
+}
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 // BrowserView, BrowserWindowTesting implementation:
@@ -1517,7 +1525,7 @@ bool BrowserView::GetAcceleratorForCommandId(int command_id,
   return toolbar_->GetAcceleratorForCommandId(command_id, accelerator);
 }
 
-bool BrowserView::IsLabelForCommandIdDynamic(int command_id) const {
+bool BrowserView::IsItemForCommandIdDynamic(int command_id) const {
   return command_id == IDC_RESTORE_TAB;
 }
 
@@ -1534,7 +1542,7 @@ string16 BrowserView::GetLabelForCommandId(int command_id) const {
 }
 
 void BrowserView::ExecuteCommand(int command_id) {
-  browser_->ExecuteCommand(command_id);
+  browser_->ExecuteCommandIfEnabled(command_id);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1603,12 +1611,7 @@ bool BrowserView::ExecuteWindowsCommand(int command_id) {
   if (command_id_from_app_command != -1)
     command_id = command_id_from_app_command;
 
-  if (browser_->command_updater()->SupportsCommand(command_id)) {
-    if (browser_->command_updater()->IsCommandEnabled(command_id))
-      browser_->ExecuteCommand(command_id);
-    return true;
-  }
-  return false;
+  return browser_->ExecuteCommandIfEnabled(command_id);
 }
 
 std::wstring BrowserView::GetWindowName() const {

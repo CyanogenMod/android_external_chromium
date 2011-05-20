@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,13 +18,13 @@ namespace net {
 // A collection of SSL-related configuration settings.
 struct SSLConfig {
   // Default to revocation checking.
-  // Default to SSL 2.0 off, SSL 3.0 on, and TLS 1.0 on.
+  // Default to SSL 3.0 on and TLS 1.0 on.
   SSLConfig();
   ~SSLConfig();
 
   bool rev_checking_enabled;  // True if server certificate revocation
                               // checking is enabled.
-  bool ssl2_enabled;  // True if SSL 2.0 is enabled.
+  // SSL 2.0 is not supported.
   bool ssl3_enabled;  // True if SSL 3.0 is enabled.
   bool tls1_enabled;  // True if TLS 1.0 is enabled.
   bool dnssec_enabled;  // True if we'll accept DNSSEC chains in certificates.
@@ -32,14 +32,22 @@ struct SSLConfig {
   // True if we'll do async checks for certificate provenance using DNS.
   bool dns_cert_provenance_checking_enabled;
 
-  // Cipher suites which should be explicitly prevented from being used. By
-  // default, all cipher suites supported by the underlying SSL implementation
-  // will be enabled, except for:
+  // TODO(hclam): This option is used to simplify the SSLServerSocketNSS
+  // implementation and should be removed when session caching is implemented.
+  // See http://crbug.com/67236 for more details.
+  bool session_resume_disabled;  // Don't allow session resume.
+
+  // Cipher suites which should be explicitly prevented from being used in
+  // addition to those disabled by the net built-in policy -- by default, all
+  // cipher suites supported by the underlying SSL implementation will be
+  // enabled except for:
   // - Null encryption cipher suites.
   // - Weak cipher suites: < 80 bits of security strength.
   // - FORTEZZA cipher suites (obsolete).
   // - IDEA cipher suites (RFC 5469 explains why).
   // - Anonymous cipher suites.
+  // The ciphers listed in |disabled_cipher_suites| will be removed in addition
+  // to the above statically defined disable list.
   //
   // Though cipher suites are sent in TLS as "uint8 CipherSuite[2]", in
   // big-endian form, they should be declared in host byte order, with the
@@ -47,7 +55,7 @@ struct SSLConfig {
   // Ex: To disable TLS_RSA_WITH_RC4_128_MD5, specify 0x0004, while to
   // disable TLS_ECDH_ECDSA_WITH_RC4_128_SHA, specify 0xC002.
   //
-  // TODO(rsleevi): Not implemented when using OpenSSL or Schannel.
+  // TODO(rsleevi): Not implemented when using Schannel.
   std::vector<uint16> disabled_cipher_suites;
 
   // True if we allow this connection to be MITM attacked. This sounds a little
@@ -112,7 +120,6 @@ class SSLConfigService : public base::RefCountedThreadSafe<SSLConfigService> {
     // data in SSLConfig, just those that qualify as a user config change.
     // The following settings are considered user changes:
     //     rev_checking_enabled
-    //     ssl2_enabled
     //     ssl3_enabled
     //     tls1_enabled
     virtual void OnSSLConfigChanged() = 0;
@@ -181,7 +188,7 @@ class SSLConfigService : public base::RefCountedThreadSafe<SSLConfigService> {
   virtual ~SSLConfigService();
 
   // SetFlags sets the values of several flags based on global configuration.
-  static void SetSSLConfigFlags(SSLConfig*);
+  static void SetSSLConfigFlags(SSLConfig* ssl_config);
 
   // Process before/after config update.
   void ProcessConfigUpdate(const SSLConfig& orig_config,

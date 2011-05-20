@@ -10,220 +10,18 @@
 #include "base/callback.h"
 #include "base/lock.h"
 #include "base/scoped_ptr.h"
-#include "base/timer.h"
-#include "base/condition_variable.h"
-#include "googleurl/src/gurl.h"
-#include "media/base/filters.h"
-#include "media/base/media_format.h"
-#include "media/base/pipeline.h"
-#include "media/base/seekable_buffer.h"
-#include "net/base/completion_callback.h"
-#include "net/base/file_stream.h"
-#include "webkit/glue/media/media_resource_loader_bridge_factory.h"
-#include "webkit/glue/media/web_data_source.h"
-#include "webkit/glue/webmediaplayer_impl.h"
+#include "webkit/glue/media/buffered_resource_loader.h"
 
 namespace webkit_glue {
-/////////////////////////////////////////////////////////////////////////////
-// BufferedResourceLoader
-// This class works inside demuxer thread and render thread. It contains a
-// resource loader bridge and does the actual resource loading. This object
-// does buffering internally, it defers the resource loading if buffer is
-// full and un-defers the resource loading if it is under buffered.
-class BufferedResourceLoader :
-    public base::RefCountedThreadSafe<BufferedResourceLoader>,
-    public webkit_glue::ResourceLoaderBridge::Peer {
- public:
-  typedef Callback0::Type NetworkEventCallback;
-
-  // |bridge_factory| - Factory to create a ResourceLoaderBridge.
-  // |url| - URL for the resource to be loaded.
-  // |first_byte_position| - First byte to start loading from, -1 for not
-  // specified.
-  // |last_byte_position| - Last byte to be loaded, -1 for not specified.
-  BufferedResourceLoader(
-      webkit_glue::MediaResourceLoaderBridgeFactory* bridge_factory,
-      const GURL& url,
-      int64 first_byte_position,
-      int64 last_byte_position);
-
-  // Start the resource loading with the specified URL and range.
-  // This method operates in asynchronous mode. Once there's a response from the
-  // server, success or fail |callback| is called with the result.
-  // |callback| is called with the following values:
-  // - net::OK
-  //   The request has started successfully.
-  // - net::ERR_FAILED
-  //   The request has failed because of an error with the network.
-  // - net::ERR_INVALID_RESPONSE
-  //   An invalid response is received from the server.
-  // - (Anything else)
-  //   An error code that indicates the request has failed.
-  // |event_callback| is called when the response is completed, data is
-  // received, the request is suspended or resumed.
-  virtual void Start(net::CompletionCallback* callback,
-                     NetworkEventCallback* event_callback);
-
-  // Stop this loader, cancels and request and release internal buffer.
-  virtual void Stop();
-
-  // Reads the specified |read_size| from |position| into |buffer| and when
-  // the operation is done invoke |callback| with number of bytes read or an
-  // error code.
-  // |callback| is called with the following values:
-  // - (Anything greater than or equal 0)
-  //   Read was successful with the indicated number of bytes read.
-  // - net::ERR_FAILED
-  //   The read has failed because of an error with the network.
-  // - net::ERR_CACHE_MISS
-  //   The read was made too far away from the current buffered position.
-  virtual void Read(int64 position, int read_size,
-                    uint8* buffer, net::CompletionCallback* callback);
-
-  // Returns the position of the first byte buffered. Returns -1 if such value
-  // is not available.
-  virtual int64 GetBufferedFirstBytePosition();
-
-  // Returns the position of the last byte buffered. Returns -1 if such value
-  // is not available.
-  virtual int64 GetBufferedLastBytePosition();
-
-  // Sets whether deferring data is allowed or disallowed.
-  virtual void SetAllowDefer(bool is_allowed);
-
-  // Gets the content length in bytes of the instance after this loader has been
-  // started. If this value is -1, then content length is unknown.
-  virtual int64 content_length() { return content_length_; }
-
-  // Gets the original size of the file requested. If this value is -1, then
-  // the size is unknown.
-  virtual int64 instance_size() { return instance_size_; }
-
-  // Returns true if the response for this loader is a partial response.
-  // It means a 206 response in HTTP/HTTPS protocol.
-  virtual bool partial_response() { return partial_response_; }
-
-  // Returns true if network is currently active.
-  virtual bool network_activity() { return !completed_ && !deferred_; }
-
-  // Returns resulting URL.
-  virtual const GURL& url() { return url_; }
-
-  /////////////////////////////////////////////////////////////////////////////
-  // webkit_glue::ResourceLoaderBridge::Peer implementations.
-  virtual void OnUploadProgress(uint64 position, uint64 size) {}
-  virtual bool OnReceivedRedirect(
-      const GURL& new_url,
-      const webkit_glue::ResourceResponseInfo& info,
-      bool* has_new_first_party_for_cookies,
-      GURL* new_first_party_for_cookies);
-  virtual void OnReceivedResponse(
-      const webkit_glue::ResourceResponseInfo& info,
-      bool content_filtered);
-  virtual void OnDownloadedData(int len) {}
-  virtual void OnReceivedData(const char* data, int len);
-  virtual void OnCompletedRequest(
-      const URLRequestStatus& status,
-      const std::string& security_info,
-      const base::Time& completion_time);
-
- protected:
-  friend class base::RefCountedThreadSafe<BufferedResourceLoader>;
-
-  virtual ~BufferedResourceLoader();
-
- private:
-  friend class BufferedResourceLoaderTest;
-
-  // Defer the resource loading if the buffer is full.
-  void EnableDeferIfNeeded();
-
-  // Disable defer loading if we are under-buffered.
-  void DisableDeferIfNeeded();
-
-  // Returns true if the current read request can be fulfilled by what is in
-  // the buffer.
-  bool CanFulfillRead();
-
-  // Returns true if the current read request will be fulfilled in the future.
-  bool WillFulfillRead();
-
-  // Method that does the actual read and calls the |read_callbac_|, assuming
-  // the request range is in |buffer_|.
-  void ReadInternal();
-
-  // If we have made a range request, verify the response from the server.
-  bool VerifyPartialResponse(const ResourceResponseInfo& info);
-
-  // Done with read. Invokes the read callback and reset parameters for the
-  // read request.
-  void DoneRead(int error);
-
-  // Done with start. Invokes the start callback and reset it.
-  void DoneStart(int error);
-
-  // Calls |event_callback_| in terms of a network event.
-  void NotifyNetworkEvent();
-
-  bool HasPendingRead() { return read_callback_.get() != NULL; }
-
-  // A sliding window of buffer.
-  scoped_ptr<media::SeekableBuffer> buffer_;
-
-  // True if resource loading was deferred.
-  bool deferred_;
-
-  // True if resource loader is allowed to defer, false otherwise.
-  bool defer_allowed_;
-
-  // True if resource loading has completed.
-  bool completed_;
-
-  // True if a range request was made.
-  bool range_requested_;
-
-  // True if response data received is a partial range.
-  bool partial_response_;
-
-  webkit_glue::MediaResourceLoaderBridgeFactory* bridge_factory_;
-  GURL url_;
-  int64 first_byte_position_;
-  int64 last_byte_position_;
-
-  // Callback method that listens to network events.
-  scoped_ptr<NetworkEventCallback> event_callback_;
-
-  // Members used during request start.
-  scoped_ptr<net::CompletionCallback> start_callback_;
-  scoped_ptr<webkit_glue::ResourceLoaderBridge> bridge_;
-  int64 offset_;
-  int64 content_length_;
-  int64 instance_size_;
-
-  // Members used during a read operation. They should be reset after each
-  // read has completed or failed.
-  scoped_ptr<net::CompletionCallback> read_callback_;
-  int64 read_position_;
-  int read_size_;
-  uint8* read_buffer_;
-
-  // Offsets of the requested first byte and last byte in |buffer_|. They are
-  // written by VerifyRead().
-  int first_offset_;
-  int last_offset_;
-
-  DISALLOW_COPY_AND_ASSIGN(BufferedResourceLoader);
-};
 
 class BufferedDataSource : public WebDataSource {
  public:
-  BufferedDataSource(
-      MessageLoop* render_loop,
-      webkit_glue::MediaResourceLoaderBridgeFactory* bridge_factory);
+  BufferedDataSource(MessageLoop* render_loop,
+                     WebKit::WebFrame* frame);
 
   virtual ~BufferedDataSource();
 
-  // media::MediaFilter implementation.
+  // media::Filter implementation.
   virtual void Initialize(const std::string& url,
                           media::FilterCallback* callback);
   virtual bool IsUrlSupported(const std::string& url);
@@ -247,7 +45,6 @@ class BufferedDataSource : public WebDataSource {
   virtual void Abort();
 
  protected:
-
   // A factory method to create a BufferedResourceLoader based on the read
   // parameters. We can override this file to object a mock
   // BufferedResourceLoader for testing.
@@ -338,11 +135,11 @@ class BufferedDataSource : public WebDataSource {
   // i.e. range request is not supported.
   bool streaming_;
 
+  // A webframe for loading.
+  WebKit::WebFrame* frame_;
+
   // True if the media resource has a single origin.
   bool single_origin_;
-
-  // A factory object to produce ResourceLoaderBridge.
-  scoped_ptr<webkit_glue::MediaResourceLoaderBridgeFactory> bridge_factory_;
 
   // A resource loader for the media resource.
   scoped_refptr<BufferedResourceLoader> loader_;
@@ -385,7 +182,7 @@ class BufferedDataSource : public WebDataSource {
   bool stop_signal_received_;
 
   // This variable is set by CleanupTask() that indicates this object is stopped
-  // on the render thread.
+  // on the render thread and work should no longer progress.
   bool stopped_on_render_loop_;
 
   // This variable is true when we are in a paused state and false when we

@@ -8,16 +8,16 @@
 
 #include "app/l10n_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extension_install_ui.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/common/extensions/extension_file_util.h"
 #include "chrome/common/extensions/extension_resource.h"
+#include "chrome/common/notification_details.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/notification_source.h"
 #include "grit/generated_resources.h"
 
 class ExtensionDisabledDialogDelegate
@@ -25,7 +25,7 @@ class ExtensionDisabledDialogDelegate
       public base::RefCountedThreadSafe<ExtensionDisabledDialogDelegate> {
  public:
   ExtensionDisabledDialogDelegate(Profile* profile,
-                                  ExtensionsService* service,
+                                  ExtensionService* service,
                                   const Extension* extension)
         : service_(service), extension_(extension) {
     AddRef();  // Balanced in Proceed or Abort.
@@ -52,7 +52,7 @@ class ExtensionDisabledDialogDelegate
   // The UI for showing the install dialog when enabling.
   scoped_ptr<ExtensionInstallUI> install_ui_;
 
-  ExtensionsService* service_;
+  ExtensionService* service_;
   const Extension* extension_;
 };
 
@@ -61,7 +61,7 @@ class ExtensionDisabledInfobarDelegate
       public NotificationObserver {
  public:
   ExtensionDisabledInfobarDelegate(TabContents* tab_contents,
-                                   ExtensionsService* service,
+                                   ExtensionService* service,
                                    const Extension* extension)
       : ConfirmInfoBarDelegate(tab_contents),
         tab_contents_(tab_contents),
@@ -70,7 +70,7 @@ class ExtensionDisabledInfobarDelegate
     // The user might re-enable the extension in other ways, so watch for that.
     registrar_.Add(this, NotificationType::EXTENSION_LOADED,
                    Source<Profile>(service->profile()));
-    registrar_.Add(this, NotificationType::EXTENSION_UNLOADED_DISABLED,
+    registrar_.Add(this, NotificationType::EXTENSION_UNLOADED,
                    Source<Profile>(service->profile()));
   }
   virtual ~ExtensionDisabledInfobarDelegate() {
@@ -106,27 +106,34 @@ class ExtensionDisabledInfobarDelegate
                        const NotificationDetails& details) {
     // TODO(mpcomplete): RemoveInfoBar doesn't seem to always result in us
     // getting deleted.
+    const Extension* extension = NULL;
     switch (type.value) {
       case NotificationType::EXTENSION_LOADED:
-      case NotificationType::EXTENSION_UNLOADED_DISABLED: {
-        const Extension* extension = Details<const Extension>(details).ptr();
-        if (extension == extension_)
-          tab_contents_->RemoveInfoBar(this);
+        extension = Details<const Extension>(details).ptr();
+        break;
+      case NotificationType::EXTENSION_UNLOADED: {
+        UnloadedExtensionInfo* info =
+            Details<UnloadedExtensionInfo>(details).ptr();
+        if (info->reason == UnloadedExtensionInfo::DISABLE)
+          extension = info->extension;
         break;
       }
       default:
         NOTREACHED();
+        return;
     }
+    if (extension == extension_)
+      tab_contents_->RemoveInfoBar(this);
   }
 
  private:
   NotificationRegistrar registrar_;
   TabContents* tab_contents_;
-  ExtensionsService* service_;
+  ExtensionService* service_;
   const Extension* extension_;
 };
 
-void ShowExtensionDisabledUI(ExtensionsService* service, Profile* profile,
+void ShowExtensionDisabledUI(ExtensionService* service, Profile* profile,
                              const Extension* extension) {
   Browser* browser = BrowserList::GetLastActiveWithProfile(profile);
   if (!browser)
@@ -140,7 +147,7 @@ void ShowExtensionDisabledUI(ExtensionsService* service, Profile* profile,
       tab_contents, service, extension));
 }
 
-void ShowExtensionDisabledDialog(ExtensionsService* service, Profile* profile,
+void ShowExtensionDisabledDialog(ExtensionService* service, Profile* profile,
                                  const Extension* extension) {
   // This object manages its own lifetime.
   new ExtensionDisabledDialogDelegate(profile, service, extension);

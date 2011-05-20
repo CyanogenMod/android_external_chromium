@@ -10,10 +10,10 @@
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_cookies_api_constants.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
-#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/url_constants.h"
 #include "googleurl/src/gurl.h"
@@ -30,7 +30,8 @@ Profile* ChooseProfileFromStoreId(const std::string& store_id,
                                   bool include_incognito) {
   DCHECK(profile);
   bool allow_original = !profile->IsOffTheRecord();
-  bool allow_incognito = profile->IsOffTheRecord() || include_incognito;
+  bool allow_incognito = profile->IsOffTheRecord() ||
+      (include_incognito && profile->HasOffTheRecordProfile());
   if (store_id == kOriginalProfileStoreId && allow_original)
     return profile->GetOriginalProfile();
   if (store_id == kOffTheRecordProfileStoreId && allow_incognito)
@@ -75,7 +76,7 @@ DictionaryValue* CreateCookieStoreValue(Profile* profile,
   return result;
 }
 
-net::CookieMonster::CookieList GetCookieListFromStore(
+net::CookieList GetCookieListFromStore(
     net::CookieStore* cookie_store, const GURL& url) {
   DCHECK(cookie_store);
   net::CookieMonster* monster = cookie_store->GetCookieMonster();
@@ -97,12 +98,12 @@ GURL GetURLFromCanonicalCookie(
 }
 
 void AppendMatchingCookiesToList(
-    const net::CookieMonster::CookieList& all_cookies,
+    const net::CookieList& all_cookies,
     const std::string& store_id,
     const GURL& url, const DictionaryValue* details,
     const Extension* extension,
     ListValue* match_list) {
-  net::CookieMonster::CookieList::const_iterator it;
+  net::CookieList::const_iterator it;
   for (it = all_cookies.begin(); it != all_cookies.end(); ++it) {
     // Ignore any cookie whose domain doesn't match the extension's
     // host permissions.

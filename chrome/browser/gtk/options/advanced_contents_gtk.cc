@@ -33,14 +33,14 @@
 #include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/gtk/options/content_settings_window_gtk.h"
 #include "chrome/browser/gtk/options/options_layout_gtk.h"
-#include "chrome/browser/options_page_base.h"
-#include "chrome/browser/options_util.h"
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/prefs/pref_set_observer.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
-#include "chrome/browser/show_options_url.h"
+#include "chrome/browser/ui/options/options_page_base.h"
+#include "chrome/browser/ui/options/options_util.h"
+#include "chrome/browser/ui/options/show_options_url.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -614,10 +614,6 @@ class PrivacySection : public OptionsPageBase {
   // permission match the |reporting_enabled_checkbox_|.
   void ResolveMetricsReportingEnabled();
 
-  // Inform the user that the browser must be restarted for changes to take
-  // effect.
-  void ShowRestartMessageBox() const;
-
   // The callback functions for the options widgets.
   static void OnContentSettingsClicked(GtkButton* button,
                                        PrivacySection* privacy_section);
@@ -871,8 +867,6 @@ void PrivacySection::OnLoggingChange(GtkWidget* widget,
                                   reinterpret_cast<gpointer>(OnLoggingChange),
                                   privacy_section);
   privacy_section->ResolveMetricsReportingEnabled();
-  if (enabled == gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget)))
-    privacy_section->ShowRestartMessageBox();
   g_signal_handlers_unblock_by_func(widget,
                                     reinterpret_cast<gpointer>(OnLoggingChange),
                                     privacy_section);
@@ -939,22 +933,6 @@ void PrivacySection::ResolveMetricsReportingEnabled() {
 #endif
 }
 
-void PrivacySection::ShowRestartMessageBox() const {
-  GtkWidget* dialog = gtk_message_dialog_new(
-      GTK_WINDOW(gtk_widget_get_toplevel(page_)),
-      static_cast<GtkDialogFlags>(GTK_DIALOG_MODAL),
-      GTK_MESSAGE_INFO,
-      GTK_BUTTONS_OK,
-      "%s",
-      l10n_util::GetStringUTF8(IDS_OPTIONS_RESTART_REQUIRED).c_str());
-  gtk_util::ApplyMessageDialogQuirks(dialog);
-  gtk_window_set_title(GTK_WINDOW(dialog),
-      l10n_util::GetStringUTF8(IDS_PRODUCT_NAME).c_str());
-  g_signal_connect_swapped(dialog, "response", G_CALLBACK(gtk_widget_destroy),
-                           dialog);
-  gtk_util::ShowDialog(dialog);
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 // SecuritySection
 
@@ -976,8 +954,6 @@ class SecuritySection : public OptionsPageBase {
                                           SecuritySection* section);
   static void OnRevCheckingEnabledToggled(GtkToggleButton* togglebutton,
                                           SecuritySection* section);
-  static void OnSSL2EnabledToggled(GtkToggleButton* togglebutton,
-                                   SecuritySection* section);
   static void OnSSL3EnabledToggled(GtkToggleButton* togglebutton,
                                    SecuritySection* section);
   static void OnTLS1EnabledToggled(GtkToggleButton* togglebutton,
@@ -986,13 +962,11 @@ class SecuritySection : public OptionsPageBase {
   // The widget containing the options for this section.
   GtkWidget* page_;
   GtkWidget* rev_checking_enabled_checkbox_;
-  GtkWidget* ssl2_enabled_checkbox_;
   GtkWidget* ssl3_enabled_checkbox_;
   GtkWidget* tls1_enabled_checkbox_;
 
   // SSLConfigService prefs.
   BooleanPrefMember rev_checking_enabled_;
-  BooleanPrefMember ssl2_enabled_;
   BooleanPrefMember ssl3_enabled_;
   BooleanPrefMember tls1_enabled_;
 
@@ -1041,10 +1015,6 @@ SecuritySection::SecuritySection(Profile* profile)
       G_CALLBACK(OnRevCheckingEnabledToggled), this);
   accessible_widget_helper_->SetWidgetName(
       rev_checking_enabled_checkbox_, IDS_OPTIONS_SSL_CHECKREVOCATION);
-  ssl2_enabled_checkbox_ = AddCheckButtonWithWrappedLabel(
-      IDS_OPTIONS_SSL_USESSL2, page_, G_CALLBACK(OnSSL2EnabledToggled), this);
-  accessible_widget_helper_->SetWidgetName(
-      ssl2_enabled_checkbox_, IDS_OPTIONS_SSL_USESSL2);
   ssl3_enabled_checkbox_ = AddCheckButtonWithWrappedLabel(
       IDS_OPTIONS_SSL_USESSL3, page_, G_CALLBACK(OnSSL3EnabledToggled), this);
   accessible_widget_helper_->SetWidgetName(
@@ -1056,7 +1026,6 @@ SecuritySection::SecuritySection(Profile* profile)
 
   rev_checking_enabled_.Init(prefs::kCertRevocationCheckingEnabled,
                              profile->GetPrefs(), this);
-  ssl2_enabled_.Init(prefs::kSSL2Enabled, profile->GetPrefs(), this);
   ssl3_enabled_.Init(prefs::kSSL3Enabled, profile->GetPrefs(), this);
   tls1_enabled_.Init(prefs::kTLS1Enabled, profile->GetPrefs(), this);
 
@@ -1069,10 +1038,6 @@ void SecuritySection::NotifyPrefChanged(const std::string* pref_name) {
     gtk_toggle_button_set_active(
         GTK_TOGGLE_BUTTON(rev_checking_enabled_checkbox_),
         rev_checking_enabled_.GetValue());
-  }
-  if (!pref_name || *pref_name == prefs::kSSL2Enabled) {
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(ssl2_enabled_checkbox_),
-                                 ssl2_enabled_.GetValue());
   }
   if (!pref_name || *pref_name == prefs::kSSL3Enabled) {
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(ssl3_enabled_checkbox_),
@@ -1110,23 +1075,6 @@ void SecuritySection::OnRevCheckingEnabledToggled(GtkToggleButton* togglebutton,
         NULL);
   }
   section->rev_checking_enabled_.SetValue(enabled);
-}
-
-// static
-void SecuritySection::OnSSL2EnabledToggled(GtkToggleButton* togglebutton,
-                                           SecuritySection* section) {
-  if (section->pref_changing_)
-    return;
-
-  bool enabled = gtk_toggle_button_get_active(togglebutton);
-  if (enabled) {
-    section->UserMetricsRecordAction(UserMetricsAction("Options_SSL2_Enable"),
-                                     NULL);
-  } else {
-    section->UserMetricsRecordAction(UserMetricsAction("Options_SSL2_Disable"),
-                                     NULL);
-  }
-  section->ssl2_enabled_.SetValue(enabled);
 }
 
 // static

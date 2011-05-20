@@ -44,7 +44,7 @@ class RenderWidgetHostViewViews : public RenderWidgetHostView,
   virtual void WasHidden();
   virtual void SetSize(const gfx::Size& size);
   virtual void MovePluginWindows(
-      const std::vector<webkit_glue::WebPluginGeometry>& moves);
+      const std::vector<webkit::npapi::WebPluginGeometry>& moves);
   virtual void Focus();
   virtual void Blur();
   virtual bool HasFocus();
@@ -60,7 +60,8 @@ class RenderWidgetHostViewViews : public RenderWidgetHostView,
   virtual void DidUpdateBackingStore(
       const gfx::Rect& scroll_rect, int scroll_dx, int scroll_dy,
       const std::vector<gfx::Rect>& copy_rects);
-  virtual void RenderViewGone();
+  virtual void RenderViewGone(base::TerminationStatus status,
+                              int error_code);
   virtual void Destroy();
   virtual void WillDestroyRenderWidget(RenderWidgetHost* rwh) {}
   virtual void SetTooltipText(const std::wstring& tooltip_text);
@@ -75,7 +76,7 @@ class RenderWidgetHostViewViews : public RenderWidgetHostView,
   virtual void AcceleratedCompositingActivated(bool activated);
 
   gfx::NativeView native_view() const;
-  virtual gfx::NativeView GetNativeView() { return native_view(); }
+  virtual gfx::NativeView GetNativeView();
 
   virtual void Paint(gfx::Canvas* canvas);
 

@@ -11,14 +11,14 @@
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/find_bar_controller.h"
-#include "chrome/browser/find_bar_state.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
-#include "chrome/browser/view_ids.h"
-#include "chrome/browser/views/find_bar_host.h"
-#include "chrome/browser/views/frame/browser_view.h"
+#include "chrome/browser/ui/find_bar/find_bar_controller.h"
+#include "chrome/browser/ui/find_bar/find_bar_state.h"
+#include "chrome/browser/ui/view_ids.h"
+#include "chrome/browser/ui/views/find_bar_host.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
 #include "gfx/canvas.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -97,7 +97,7 @@ FindBarView::FindBarView(FindBarHost* host)
   SetID(VIEW_ID_FIND_IN_PAGE);
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
 
-  find_text_ = new views::Textfield();
+  find_text_ = new SearchTextfieldView();
   find_text_->SetID(VIEW_ID_FIND_IN_PAGE_TEXT_FIELD);
   find_text_->SetFont(rb.GetFont(ResourceBundle::BaseFont));
   find_text_->set_default_width_in_chars(kDefaultCharWidth);
@@ -187,6 +187,14 @@ string16 FindBarView::GetFindText() const {
   return find_text_->text();
 }
 
+string16 FindBarView::GetFindSelectedText() const {
+  return find_text_->GetSelectedText();
+}
+
+string16 FindBarView::GetMatchCountText() const {
+  return WideToUTF16Hack(match_count_text_->GetText());
+}
+
 void FindBarView::UpdateForResult(const FindNotificationDetails& result,
                                   const string16& find_text) {
   bool have_valid_range =
@@ -219,6 +227,13 @@ void FindBarView::UpdateForResult(const FindNotificationDetails& result,
   // The match_count label may have increased/decreased in size so we need to
   // do a layout and repaint the dialog so that the find text field doesn't
   // partially overlap the match-count label when it increases on no matches.
+  Layout();
+  SchedulePaint();
+}
+
+void FindBarView::ClearMatchCount() {
+  match_count_text_->SetText(L"");
+  UpdateMatchCountAppearance(false);
   Layout();
   SchedulePaint();
 }
@@ -528,6 +543,17 @@ bool FindBarView::FocusForwarderView::OnMousePressed(
     view_to_focus_on_mousedown_->RequestFocus();
   }
   return true;
+}
+
+FindBarView::SearchTextfieldView::SearchTextfieldView() {
+}
+
+FindBarView::SearchTextfieldView::~SearchTextfieldView() {
+}
+
+void FindBarView::SearchTextfieldView::RequestFocus() {
+  views::View::RequestFocus();
+  SelectAll();
 }
 
 FindBarHost* FindBarView::find_bar_host() const {

@@ -16,8 +16,8 @@
 #include "base/file_util.h"
 #include "base/i18n/rtl.h"
 #include "base/i18n/time_formatting.h"
+#include "base/lazy_instance.h"
 #include "base/path_service.h"
-#include "base/singleton.h"
 #include "base/string16.h"
 #include "base/string_number_conversions.h"
 #include "base/stringprintf.h"
@@ -26,18 +26,17 @@
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/win/windows_version.h"
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
+#include "chrome/browser/download/download_extensions.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/extension_install_ui.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/history/download_create_info.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -109,12 +108,15 @@ class DefaultDownloadDirectory {
       }
     }
   }
-  friend struct DefaultSingletonTraits<DefaultDownloadDirectory>;
+  friend struct base::DefaultLazyInstanceTraits<DefaultDownloadDirectory>;
   FilePath path_;
 };
 
+static base::LazyInstance<DefaultDownloadDirectory>
+    g_default_download_directory(base::LINKER_INITIALIZED);
+
 const FilePath& GetDefaultDownloadDirectory() {
-  return Singleton<DefaultDownloadDirectory>::get()->path();
+  return g_default_download_directory.Get().path();
 }
 
 bool CreateTemporaryFileForDownload(FilePath* temp_file) {
@@ -230,7 +232,7 @@ void OpenChromeExtension(Profile* profile,
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(download_item.is_extension_install());
 
-  ExtensionsService* service = profile->GetExtensionsService();
+  ExtensionService* service = profile->GetExtensionService();
   CHECK(service);
   NotificationService* nservice = NotificationService::current();
   GURL nonconst_download_url = download_item.url();
@@ -437,7 +439,7 @@ void DragDownload(const DownloadItem* download,
 
   if (icon) {
     drag_utils::CreateDragImageForFile(
-        download->GetFileNameToReportUser().value(), icon, &data);
+        download->GetFileNameToReportUser(), icon, &data);
   }
 
   const FilePath full_path = download->full_path();
@@ -487,7 +489,7 @@ DictionaryValue* CreateDownloadItemValue(DownloadItem* download, int id) {
   file_value->SetString("since_string",
       TimeFormat::RelativeDate(download->start_time(), NULL));
   file_value->SetString("date_string",
-      WideToUTF16Hack(base::TimeFormatShortDate(download->start_time())));
+      base::TimeFormatShortDate(download->start_time()));
   file_value->SetInteger("id", id);
   file_value->SetString("file_path",
       WideToUTF16Hack(download->GetTargetFilePath().ToWStringHack()));
@@ -699,7 +701,7 @@ void DeleteUniqueDownloadFile(const FilePath& path, int index) {
   file_util::Delete(new_path, false);
 }
 
-}
+}  // namespace
 
 void EraseUniqueDownloadFiles(const FilePath& path) {
   FilePath cr_path = GetCrDownloadPath(path);
@@ -721,18 +723,22 @@ FilePath GetCrDownloadPath(const FilePath& suggested_path) {
 
 // TODO(erikkay,phajdan.jr): This is apparently not being exercised in tests.
 bool IsDangerous(DownloadCreateInfo* info, Profile* profile) {
-  // Downloads can be marked as dangerous for two reasons:
-  // a) They have a dangerous-looking filename
-  // b) They are an extension that is not from the gallery
-  if (IsExecutableFile(info->suggested_path.BaseName())) {
+  DownloadDangerLevel danger_level = GetFileDangerLevel(
+      info->suggested_path.BaseName());
+
+  if (danger_level == Dangerous) {
+    return true;
+  } else if (danger_level == AllowOnUserGesture && !info->has_user_gesture) {
     return true;
   } else if (info->is_extension_install) {
-    ExtensionsService* service = profile->GetExtensionsService();
+    ExtensionService* service = profile->GetExtensionService();
     if (!service ||
         !service->IsDownloadFromGallery(info->url, info->referrer_url)) {
+      // Extensions that are not from the gallery are considered dangerous.
       return true;
     }
   }
+
   return false;
 }
 

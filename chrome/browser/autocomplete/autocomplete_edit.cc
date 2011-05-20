@@ -24,7 +24,7 @@
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/net/url_fixer_upper.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/common/notification_service.h"
@@ -178,9 +178,16 @@ void AutocompleteEditModel::GetDataForURLExport(GURL* url,
 }
 
 bool AutocompleteEditModel::UseVerbatimInstant() {
+#if defined(OS_MACOSX)
+  // TODO(suzhe): Fix Mac port to display Instant suggest in a separated NSView,
+  // so that we can display instant suggest along with composition text.
   const AutocompleteInput& input = popup_->autocomplete_controller()->input();
-  if (input.initial_prevent_inline_autocomplete() ||
-      view_->DeleteAtEndPressed() || (popup_->selected_line() != 0))
+  if (input.initial_prevent_inline_autocomplete())
+    return true;
+#endif
+
+  if (view_->DeleteAtEndPressed() || (popup_->selected_line() != 0) ||
+      just_deleted_text_)
     return true;
 
   std::wstring::size_type start, end;
@@ -223,17 +230,6 @@ AutocompleteMatch::Type AutocompleteEditModel::CurrentTextType() const {
   AutocompleteMatch match;
   GetInfoForCurrentText(&match, NULL);
   return match.type;
-}
-
-bool AutocompleteEditModel::GetURLForText(const std::wstring& text,
-                                          GURL* url) const {
-  const AutocompleteInput::Type type = AutocompleteInput::Parse(
-      UserTextFromDisplayText(text), std::wstring(), NULL, NULL);
-  if (type != AutocompleteInput::URL)
-    return false;
-
-  *url = URLFixerUpper::FixupURL(WideToUTF8(text), std::string());
-  return true;
 }
 
 void AutocompleteEditModel::AdjustTextForCopy(int sel_min,
@@ -792,6 +788,18 @@ void AutocompleteEditModel::GetInfoForCurrentText(
         UserTextFromDisplayText(view_->GetText()), GetDesiredTLD(), true,
         match, alternate_nav_url);
   }
+}
+
+bool AutocompleteEditModel::GetURLForText(const std::wstring& text,
+                                          GURL* url) const {
+  GURL parsed_url;
+  const AutocompleteInput::Type type = AutocompleteInput::Parse(
+      UserTextFromDisplayText(text), std::wstring(), NULL, NULL, &parsed_url);
+  if (type != AutocompleteInput::URL)
+    return false;
+
+  *url = parsed_url;
+  return true;
 }
 
 // Returns true if suggested search text should be shown for the specified match

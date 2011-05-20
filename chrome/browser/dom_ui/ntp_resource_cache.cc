@@ -24,7 +24,7 @@
 #include "chrome/browser/dom_ui/shown_sections_handler.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/web_resource/web_resource_service.h"
 #include "chrome/common/chrome_switches.h"
@@ -45,7 +45,7 @@
 #if defined(OS_WIN) || defined(TOOLKIT_VIEWS)
 #include "chrome/browser/views/bookmark_bar_view.h"
 #elif defined(OS_MACOSX)
-#include "chrome/browser/cocoa/bookmarks/bookmark_bar_constants.h"
+#include "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_constants.h"
 #elif defined(OS_POSIX)
 #include "chrome/browser/gtk/bookmark_bar_gtk.h"
 #endif

@@ -10,17 +10,17 @@
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/accessibility/browser_accessibility_state.h"
 #include "chrome/browser/background_page_tracker.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/toolbar/wrench_menu_model.h"
+#include "chrome/browser/ui/view_ids.h"
+#include "chrome/browser/ui/views/browser_actions_container.h"
+#include "chrome/browser/ui/views/event_utils.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/upgrade_detector.h"
-#include "chrome/browser/view_ids.h"
-#include "chrome/browser/views/browser_actions_container.h"
-#include "chrome/browser/views/event_utils.h"
-#include "chrome/browser/views/frame/browser_view.h"
-#include "chrome/browser/wrench_menu_model.h"
 #include "chrome/common/badge_util.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
@@ -233,7 +233,7 @@ void ToolbarView::Init(Profile* profile) {
   SetProfile(profile);
 
   // Accessibility specific tooltip text.
-  if (Singleton<BrowserAccessibilityState>()->IsAccessibleBrowser()) {
+  if (BrowserAccessibilityState::GetInstance()->IsAccessibleBrowser()) {
     back_->SetTooltipText(l10n_util::GetString(IDS_ACCNAME_TOOLTIP_BACK));
     forward_->SetTooltipText(l10n_util::GetString(IDS_ACCNAME_TOOLTIP_FORWARD));
   }
@@ -355,7 +355,7 @@ cleanup:
   destroyed_flag_ = NULL;
 
   // Stop showing the background app badge also.
-  BackgroundPageTracker::GetSingleton()->AcknowledgeBackgroundPages();
+  BackgroundPageTracker::GetInstance()->AcknowledgeBackgroundPages();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -628,18 +628,18 @@ bool ToolbarView::IsUpgradeRecommended() {
   return (chromeos::CrosLibrary::Get()->GetUpdateLibrary()->status().status ==
           chromeos::UPDATE_STATUS_UPDATED_NEED_REBOOT);
 #else
-  return (Singleton<UpgradeDetector>::get()->notify_upgrade());
+  return (UpgradeDetector::GetInstance()->notify_upgrade());
 #endif
 }
 
 bool ToolbarView::ShouldShowBackgroundPageBadge() {
-  return BackgroundPageTracker::GetSingleton()->
+  return BackgroundPageTracker::GetInstance()->
       GetUnacknowledgedBackgroundPageCount() > 0;
 }
 
 bool ToolbarView::ShouldShowIncompatibilityWarning() {
 #if defined(OS_WIN)
-  EnumerateModulesModel* loaded_modules = EnumerateModulesModel::GetSingleton();
+  EnumerateModulesModel* loaded_modules = EnumerateModulesModel::GetInstance();
   return loaded_modules->confirmed_bad_modules_detected() > 0;
 #else
   return false;
@@ -761,7 +761,7 @@ SkBitmap ToolbarView::GetBackgroundPageBadge() {
   ThemeProvider* tp = GetThemeProvider();
   SkBitmap* badge = tp->GetBitmapNamed(IDR_BACKGROUND_BADGE);
   string16 badge_text = base::FormatNumber(
-      BackgroundPageTracker::GetSingleton()->GetBackgroundPageCount());
+      BackgroundPageTracker::GetInstance()->GetBackgroundPageCount());
   return badge_util::DrawBadgeIconOverlay(
       *badge,
       kBadgeTextFontSize,

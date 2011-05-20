@@ -25,6 +25,9 @@ extern const char kURLsToRestoreOnStartup[];
 // and user's profile.  Global property determines locale of login screen,
 // while user's profile determines his personal locale preference.
 extern const char kApplicationLocale[];
+#if defined(OS_CHROMEOS)
+extern const char kApplicationLocaleBackup[];
+#endif
 
 extern const char kDefaultCharset[];
 extern const char kAcceptLanguages[];
@@ -75,8 +78,10 @@ extern const char kSearchProviderOverridesVersion[];
 extern const char kPromptForDownload[];
 extern const char kAlternateErrorPagesEnabled[];
 extern const char kDnsPrefetchingEnabled[];
-extern const char kDnsStartupPrefetchList[];
-extern const char kDnsHostReferralList[];
+extern const char kDnsStartupPrefetchList[];  // OBSOLETE
+extern const char kDnsPrefetchingStartupList[];
+extern const char kDnsHostReferralList[];  // OBSOLETE
+extern const char kDnsPrefetchingHostReferralList[];
 extern const char kDisableSpdy[];
 extern const char kCookiePromptExpanded[];
 extern const char kInstantConfirmDialogShown[];
@@ -84,9 +89,9 @@ extern const char kInstantEnabled[];
 extern const char kInstantEnabledOnce[];
 extern const char kInstantEnabledTime[];
 extern const char kInstantPromo[];
+extern const char kMultipleProfilePrefMigration[];
 #if defined(USE_NSS) || defined(USE_OPENSSL)
 extern const char kCertRevocationCheckingEnabled[];
-extern const char kSSL2Enabled[];
 extern const char kSSL3Enabled[];
 extern const char kTLS1Enabled[];
 #endif
@@ -168,6 +173,8 @@ extern const char kDeleteCache[];
 extern const char kDeleteCookies[];
 extern const char kDeletePasswords[];
 extern const char kDeleteFormData[];
+extern const char kDeleteLSOData[];
+extern const char kClearPluginLSODataEnabled[];
 extern const char kEnableSpellCheck[];
 extern const char kEnabledLabsExperiments[];
 extern const char kEnableAutoSpellCorrect[];
@@ -211,6 +218,7 @@ extern const char kContentSettingsPatterns[];
 extern const char kBlockThirdPartyCookies[];
 extern const char kBlockNonsandboxedPlugins[];
 extern const char kClearSiteDataOnExit[];
+extern const char kClearPluginLSODataOnExit[];
 extern const char kDefaultZoomLevel[];
 extern const char kPerHostZoomLevels[];
 extern const char kAutoFillEnabled[];
@@ -274,8 +282,6 @@ extern const char kTaskManagerWindowPlacement[];
 extern const char kKeywordEditorWindowPlacement[];
 extern const char kPreferencesWindowPlacement[];
 extern const char kMemoryCacheSize[];
-
-extern const char kLaunchOnStartupResetAllowed[];
 
 extern const char kDownloadDefaultDirectory[];
 extern const char kDownloadExtensionsToOpen[];
@@ -370,6 +376,7 @@ extern const char kSyncPasswords[];
 extern const char kSyncPreferences[];
 extern const char kSyncApps[];
 extern const char kSyncAutofill[];
+extern const char kSyncAutofillProfile[];
 extern const char kSyncThemes[];
 extern const char kSyncTypedUrls[];
 extern const char kSyncExtensions[];
@@ -379,6 +386,7 @@ extern const char kGoogleServicesUsername[];
 extern const char kSyncCredentialsMigrated[];
 extern const char kSyncUsingSecondaryPassphrase[];
 extern const char kEncryptionBootstrapToken[];
+extern const char kAutofillProfileMigrated[];
 
 extern const char kWebAppCreateOnDesktop[];
 extern const char kWebAppCreateInAppsMenu[];
@@ -403,8 +411,7 @@ extern const char kCloudPrintPrintSystemSettings[];
 extern const char kRemotingHasSetupCompleted[];
 extern const char kRemotingHostEnabled[];
 
-extern const char kNoProxyServer[];
-extern const char kProxyAutoDetect[];
+extern const char kProxyMode[];
 extern const char kProxyServer[];
 extern const char kProxyPacUrl[];
 extern const char kProxyBypassList[];

@@ -8,13 +8,15 @@
 
 #include <gtk/gtk.h>
 
+#include <string>
 #include <vector>
 
 #include "app/gtk_signal.h"
 #include "chrome/browser/password_manager/password_store.h"
 #include "chrome/browser/prefs/pref_member.h"
-#include "chrome/browser/profile.h"
 #include "chrome/common/notification_observer.h"
+
+class Profile;
 
 class PasswordsPageGtk : public NotificationObserver {
  public:
@@ -38,9 +40,9 @@ class PasswordsPageGtk : public NotificationObserver {
   void HidePassword();
 
   // NotificationObserver implementation.
-  void Observe(NotificationType type,
-               const NotificationSource& source,
-               const NotificationDetails& details);
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
 
   // Handles changes to the observed preferences and updates the UI.
   void OnPrefChanged(const std::string& pref_name);

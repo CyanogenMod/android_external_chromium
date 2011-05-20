@@ -4,29 +4,26 @@
 
 #include "chrome/browser/speech/speech_input_manager.h"
 
+#include <map>
+#include <string>
+
 #include "app/l10n_util.h"
-#include "base/command_line.h"
 #include "base/lock.h"
 #include "base/ref_counted.h"
-#include "base/singleton.h"
-#include "base/thread_restrictions.h"
+#include "base/lazy_instance.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/common/chrome_switches.h"
-#include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/speech/speech_input_bubble_controller.h"
 #include "chrome/browser/speech/speech_recognizer.h"
 #include "chrome/browser/tab_contents/infobar_delegate.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
 #include "media/audio/audio_manager.h"
-#include <map>
 
 #if defined(OS_WIN)
+#include "chrome/browser/browser_process.h"
 #include "chrome/installer/util/wmi.h"
 #endif
 
@@ -75,15 +72,15 @@ class HardwareInfo : public base::RefCountedThreadSafe<HardwareInfo> {
   Lock lock_;
   std::string value_;
 
-#else // defined(OS_WIN)
+#else  // defined(OS_WIN)
   void Refresh() {}
   std::string value() { return std::string(); }
-#endif // defined(OS_WIN)
+#endif  // defined(OS_WIN)
 
   DISALLOW_COPY_AND_ASSIGN(HardwareInfo);
 };
 
-}
+}  // namespace
 
 namespace speech_input {
 
@@ -126,7 +123,7 @@ class SpeechInputManagerImpl : public SpeechInputManager,
   };
 
   // Private constructor to enforce singleton.
-  friend struct DefaultSingletonTraits<SpeechInputManagerImpl>;
+  friend struct base::DefaultLazyInstanceTraits<SpeechInputManagerImpl>;
   SpeechInputManagerImpl();
   virtual ~SpeechInputManagerImpl();
 
@@ -138,6 +135,7 @@ class SpeechInputManagerImpl : public SpeechInputManager,
   // Starts/restarts recognition for an existing request.
   void StartRecognitionForRequest(int caller_id);
 
+  SpeechInputManagerDelegate* delegate_;
   typedef std::map<int, SpeechInputRequest> SpeechRecognizerMap;
   SpeechRecognizerMap requests_;
   int recording_caller_id_;
@@ -145,28 +143,11 @@ class SpeechInputManagerImpl : public SpeechInputManager,
   scoped_refptr<HardwareInfo> hardware_info_;
 };
 
+static ::base::LazyInstance<SpeechInputManagerImpl> g_speech_input_manager_impl(
+    base::LINKER_INITIALIZED);
+
 SpeechInputManager* SpeechInputManager::Get() {
-  return Singleton<SpeechInputManagerImpl>::get();
-}
-
-bool SpeechInputManager::IsFeatureEnabled() {
-  bool enabled = true;
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
-
-  if (command_line.HasSwitch(switches::kDisableSpeechInput)) {
-    enabled = false;
-#if defined(GOOGLE_CHROME_BUILD)
-  } else if (!command_line.HasSwitch(switches::kEnableSpeechInput)) {
-    // We need to evaluate whether IO is OK here. http://crbug.com/63335.
-    base::ThreadRestrictions::ScopedAllowIO allow_io;
-    // Official Chrome builds have speech input enabled by default only in the
-    // dev channel.
-    std::string channel = platform_util::GetVersionStringModifier();
-    enabled = (channel == "dev");
-#endif
-  }
-
-  return enabled;
+  return g_speech_input_manager_impl.Pointer();
 }
 
 SpeechInputManagerImpl::SpeechInputManagerImpl()

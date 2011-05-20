@@ -9,8 +9,8 @@
 #include <vector>
 
 #include "base/id_map.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
-#include "ipc/ipc_message.h"
+#include "chrome/browser/browser_message_filter.h"
+#include "chrome/browser/renderer_host/resource_message_filter.h"
 #include "net/socket_stream/socket_stream.h"
 
 class GURL;
@@ -19,14 +19,16 @@ class SocketStreamHost;
 // Dispatches ViewHostMsg_SocketStream_* messages sent from renderer.
 // It also acts as SocketStream::Delegate so that it sends
 // ViewMsg_SocketStream_* messages back to renderer.
-class SocketStreamDispatcherHost : public net::SocketStream::Delegate {
+class SocketStreamDispatcherHost : public BrowserMessageFilter,
+                                   public net::SocketStream::Delegate {
  public:
   SocketStreamDispatcherHost();
   virtual ~SocketStreamDispatcherHost();
 
-  bool OnMessageReceived(const IPC::Message& msg,
-                         ResourceDispatcherHost::Receiver* receiver,
-                         bool* msg_ok);
+  // BrowserMessageFilter methods.
+  virtual bool OnMessageReceived(const IPC::Message& message,
+                                 bool* message_was_ok);
+
   // The object died, so cancel and detach all requests associated with it.
   void CancelRequestsForProcess(int host_id);
 
@@ -38,26 +40,25 @@ class SocketStreamDispatcherHost : public net::SocketStream::Delegate {
                               const char* data, int len);
   virtual void OnClose(net::SocketStream* socket);
 
+  void set_url_request_context_override(
+      ResourceMessageFilter::URLRequestContextOverride* u) {
+    url_request_context_override_ = u;
+  }
+
  private:
   // Message handlers called by OnMessageReceived.
   void OnConnect(const GURL& url, int socket_id);
   void OnSendData(int socket_id, const std::vector<char>& data);
   void OnCloseReq(int socket_id);
 
-  void DeleteSocketStreamHost(int host_id, int socket_id);
+  void DeleteSocketStreamHost(int socket_id);
 
-  void AddHostMap(int host_id, int socket_id,
-                  SocketStreamHost* socket_stream_host);
-  SocketStreamHost* LookupHostMap(int host_id, int socket_id);
+  // Returns the URLRequestContext.
+  URLRequestContext* GetURLRequestContext();
 
-  // Returns true if the message passed in is a SocketStream related message.
-  static bool IsSocketStreamDispatcherHostMessage(const IPC::Message& message);
-
-  // key: host_id -> { key: socket_id -> value: SocketStreamHost }
-  IDMap< IDMap<SocketStreamHost> > hostmap_;
-
-  // valid while OnMessageReceived processing.
-  ResourceDispatcherHost::Receiver* receiver_;
+  IDMap<SocketStreamHost> hosts_;
+  scoped_refptr<ResourceMessageFilter::URLRequestContextOverride>
+      url_request_context_override_;
 
   DISALLOW_COPY_AND_ASSIGN(SocketStreamDispatcherHost);
 };

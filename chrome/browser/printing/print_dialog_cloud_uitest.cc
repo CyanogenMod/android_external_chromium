@@ -31,7 +31,9 @@ namespace {
 
 class TestData {
  public:
-  TestData() {}
+  static TestData* GetInstance() {
+    return Singleton<TestData>::get();
+  }
 
   const char* GetTestData() {
     // Fetching this data blocks the IO thread, but we don't really care because
@@ -48,16 +50,20 @@ class TestData {
     return test_data_.c_str();
   }
  private:
+  TestData() {}
+
   std::string test_data_;
+
+  friend struct DefaultSingletonTraits<TestData>;
 };
 
-// A simple test URLRequestJob. We don't care what it does, only that
+// A simple test net::URLRequestJob. We don't care what it does, only that
 // whether it starts and finishes.
 class SimpleTestJob : public URLRequestTestJob {
  public:
-  explicit SimpleTestJob(URLRequest* request)
+  explicit SimpleTestJob(net::URLRequest* request)
       : URLRequestTestJob(request, test_headers(),
-                          Singleton<TestData>()->GetTestData(), true) {}
+                          TestData::GetInstance()->GetTestData(), true) {}
 
   virtual void GetResponseInfo(net::HttpResponseInfo* info) {
     URLRequestTestJob::GetResponseInfo(info);
@@ -84,10 +90,9 @@ class SimpleTestJob : public URLRequestTestJob {
 
 class TestController {
  public:
-  TestController()
-      : result_(false),
-        use_delegate_(false),
-        delegate_(NULL) {}
+  static TestController* GetInstance() {
+    return Singleton<TestController>::get();
+  }
   void set_result(bool value) {
     result_ = value;
   }
@@ -113,10 +118,17 @@ class TestController {
     return use_delegate_;
   }
  private:
+  TestController()
+      : result_(false),
+        use_delegate_(false),
+        delegate_(NULL) {}
+
   bool result_;
   bool use_delegate_;
   GURL expected_url_;
   TestDelegate* delegate_;
+
+  friend struct DefaultSingletonTraits<TestController>;
 };
 
 }  // namespace
@@ -128,20 +140,20 @@ class PrintDialogCloudTest : public InProcessBrowserTest {
   }
 
   // Must be static for handing into AddHostnameHandler.
-  static URLRequest::ProtocolFactory Factory;
+  static net::URLRequest::ProtocolFactory Factory;
 
   class AutoQuitDelegate : public TestDelegate {
    public:
     AutoQuitDelegate() {}
 
-    virtual void OnResponseCompleted(URLRequest* request) {
+    virtual void OnResponseCompleted(net::URLRequest* request) {
       BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
                               new MessageLoop::QuitTask());
     }
   };
 
   virtual void SetUp() {
-    Singleton<TestController>()->set_result(false);
+    TestController::GetInstance()->set_result(false);
     InProcessBrowserTest::SetUp();
   }
 
@@ -150,7 +162,7 @@ class PrintDialogCloudTest : public InProcessBrowserTest {
       URLRequestFilter* filter = URLRequestFilter::GetInstance();
       filter->RemoveHostnameHandler(scheme_, host_name_);
       handler_added_ = false;
-      Singleton<TestController>()->set_delegate(NULL);
+      TestController::GetInstance()->set_delegate(NULL);
     }
     InProcessBrowserTest::TearDown();
   }
@@ -174,8 +186,8 @@ class PrintDialogCloudTest : public InProcessBrowserTest {
       GURL cloud_print_dialog_url =
           CloudPrintURL(browser()->profile()).
           GetCloudPrintServiceDialogURL();
-      Singleton<TestController>()->set_expected_url(cloud_print_dialog_url);
-      Singleton<TestController>()->set_delegate(&delegate_);
+      TestController::GetInstance()->set_expected_url(cloud_print_dialog_url);
+      TestController::GetInstance()->set_delegate(&delegate_);
     }
 
     CreateDialogForTest();
@@ -196,13 +208,13 @@ class PrintDialogCloudTest : public InProcessBrowserTest {
   AutoQuitDelegate delegate_;
 };
 
-URLRequestJob* PrintDialogCloudTest::Factory(URLRequest* request,
-                                             const std::string& scheme) {
-  if (Singleton<TestController>()->use_delegate())
-    request->set_delegate(Singleton<TestController>()->delegate());
+net::URLRequestJob* PrintDialogCloudTest::Factory(net::URLRequest* request,
+                                                  const std::string& scheme) {
+  if (TestController::GetInstance()->use_delegate())
+    request->set_delegate(TestController::GetInstance()->delegate());
   if (request &&
-      (request->url() == Singleton<TestController>()->expected_url())) {
-    Singleton<TestController>()->set_result(true);
+      (request->url() == TestController::GetInstance()->expected_url())) {
+    TestController::GetInstance()->set_result(true);
   }
   return new SimpleTestJob(request);
 }
@@ -213,11 +225,11 @@ IN_PROC_BROWSER_TEST_F(PrintDialogCloudTest, HandlersRegistered) {
 
   AddTestHandlers();
 
-  Singleton<TestController>()->set_use_delegate(true);
+  TestController::GetInstance()->set_use_delegate(true);
 
   ui_test_utils::RunMessageLoop();
 
-  ASSERT_TRUE(Singleton<TestController>()->result());
+  ASSERT_TRUE(TestController::GetInstance()->result());
 }
 
 #if defined(OS_CHROMEOS)
@@ -240,6 +252,6 @@ IN_PROC_BROWSER_TEST_F(PrintDialogCloudTest, DISABLED_DialogGrabbed) {
 
   ui_test_utils::RunMessageLoop();
 
-  ASSERT_TRUE(Singleton<TestController>()->result());
+  ASSERT_TRUE(TestController::GetInstance()->result());
 }
 #endif

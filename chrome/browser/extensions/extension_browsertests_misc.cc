@@ -13,18 +13,17 @@
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_process_manager.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_updater.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension_action.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/ui_test_utils.h"
 #include "net/base/mock_host_resolver.h"
@@ -173,6 +172,23 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, TabContents) {
   EXPECT_TRUE(result);
 }
 
+// Tests that GPU-related WebKit preferences are set for extension background
+// pages. See http://crbug.com/64512.
+IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, WebKitPrefsBackgroundPage) {
+  ASSERT_TRUE(LoadExtension(
+      test_data_dir_.AppendASCII("good").AppendASCII("Extensions")
+                    .AppendASCII("behllobkkfkfnphdnhnkndlbkcpglgmj")
+                    .AppendASCII("1.0.0.0")));
+
+  ExtensionProcessManager* manager =
+        browser()->profile()->GetExtensionProcessManager();
+  ExtensionHost* host = FindHostWithPath(manager, "/backgroundpage.html", 1);
+  WebPreferences prefs = host->GetWebkitPrefs();
+  ASSERT_FALSE(prefs.experimental_webgl_enabled);
+  ASSERT_FALSE(prefs.accelerated_compositing_enabled);
+  ASSERT_FALSE(prefs.accelerated_2d_canvas_enabled);
+}
+
 // Tests that we can load page actions in the Omnibox.
 IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, PageAction) {
   ASSERT_TRUE(test_server()->Start());
@@ -252,7 +268,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, UnloadPageAction) {
 IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, PageActionRefreshCrash) {
   base::TimeTicks start_time = base::TimeTicks::Now();
 
-  ExtensionsService* service = browser()->profile()->GetExtensionsService();
+  ExtensionService* service = browser()->profile()->GetExtensionService();
 
   size_t size_before = service->extensions()->size();
 
@@ -321,7 +337,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, RSSMultiRelLink) {
 // Tests that tooltips of a browser action icon can be specified using UTF8.
 // See http://crbug.com/25349.
 IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, TitleLocalizationBrowserAction) {
-  ExtensionsService* service = browser()->profile()->GetExtensionsService();
+  ExtensionService* service = browser()->profile()->GetExtensionService();
   const size_t size_before = service->extensions()->size();
   FilePath extension_path(test_data_dir_.AppendASCII("browsertest")
                                         .AppendASCII("title_localized"));
@@ -344,7 +360,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, TitleLocalizationBrowserAction) {
 IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, TitleLocalizationPageAction) {
   ASSERT_TRUE(test_server()->Start());
 
-  ExtensionsService* service = browser()->profile()->GetExtensionsService();
+  ExtensionService* service = browser()->profile()->GetExtensionService();
   const size_t size_before = service->extensions()->size();
 
   FilePath extension_path(test_data_dir_.AppendASCII("browsertest")
@@ -443,7 +459,7 @@ void NavigateToFeedAndValidate(net::TestServer* server,
     // TODO(finnur): Implement this is a non-flaky way.
   }
 
-  ExtensionsService* service = browser->profile()->GetExtensionsService();
+  ExtensionService* service = browser->profile()->GetExtensionService();
   const Extension* extension = service->extensions()->back();
   std::string id = extension->id();
 
@@ -745,7 +761,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, MAYBE_PluginLoadUnload) {
       tab->render_view_host(), L"", L"testPluginWorks()", &result));
   EXPECT_FALSE(result);
 
-  ExtensionsService* service = browser()->profile()->GetExtensionsService();
+  ExtensionService* service = browser()->profile()->GetExtensionService();
   const size_t size_before = service->extensions()->size();
   ASSERT_TRUE(LoadExtension(extension_dir));
   EXPECT_EQ(size_before + 1, service->extensions()->size());
@@ -797,7 +813,7 @@ static const wchar_t* jscript_click_option_button =
 IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, DISABLED_OptionsPage) {
   // Install an extension with an options page.
   ASSERT_TRUE(InstallExtension(test_data_dir_.AppendASCII("options.crx"), 1));
-  ExtensionsService* service = browser()->profile()->GetExtensionsService();
+  ExtensionService* service = browser()->profile()->GetExtensionService();
   const ExtensionList* extensions = service->extensions();
   ASSERT_EQ(1u, extensions->size());
   const Extension* extension = extensions->at(0);

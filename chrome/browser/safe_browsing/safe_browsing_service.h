@@ -23,6 +23,7 @@
 #include "googleurl/src/gurl.h"
 #include "webkit/glue/resource_type.h"
 
+class MalwareDetails;
 class PrefService;
 class SafeBrowsingDatabase;
 class SafeBrowsingProtocolManager;
@@ -43,18 +44,36 @@ class SafeBrowsingService
     URL_SAFE,
     URL_PHISHING,
     URL_MALWARE,
+    BINARY_MALWARE,  // This binary is a malware.
   };
 
   class Client {
    public:
     virtual ~Client() {}
 
-    // Called when the result of checking a URL is known.
-    virtual void OnUrlCheckResult(const GURL& url, UrlCheckResult result) = 0;
+    void OnSafeBrowsingResult(const GURL& url, UrlCheckResult result) {
+      OnBrowseUrlCheckResult(url, result);
+      OnDownloadUrlCheckResult(url, result);
+      // TODO(lzheng): This is not implemented yet.
+      // OnDownloadHashCheckResult(url, result);
+    }
 
     // Called when the user has made a decision about how to handle the
     // SafeBrowsing interstitial page.
-    virtual void OnBlockingPageComplete(bool proceed) = 0;
+    virtual void OnBlockingPageComplete(bool proceed) {}
+
+   protected:
+    // Called when the result of checking a browse URL is known.
+    virtual void OnBrowseUrlCheckResult(const GURL& url,
+                                        UrlCheckResult result) {}
+
+    // Called when the result of checking a download URL is known.
+    virtual void OnDownloadUrlCheckResult(const GURL& url,
+                                          UrlCheckResult result) {}
+
+    // Called when the result of checking a download binary hash is known.
+    virtual void OnDownloadHashCheckResult(const GURL& url,
+                                           UrlCheckResult result) {}
   };
 
   // Structure used to pass parameters between the IO and UI thread when
@@ -111,7 +130,11 @@ class SafeBrowsingService
   // can synchronously determine that the url is safe, CheckUrl returns true.
   // Otherwise it returns false, and "client" is called asynchronously with the
   // result when it is ready.
-  virtual bool CheckUrl(const GURL& url, Client* client);
+  virtual bool CheckBrowseUrl(const GURL& url, Client* client);
+
+  // Check if the prefix for |url| is in safebrowsing download add lists.
+  // Result will be passed to callback in |client|.
+  bool CheckDownloadUrl(const GURL& url, Client* client);
 
   // Called on the IO thread to cancel a pending check if the result is no
   // longer needed.
@@ -180,6 +203,10 @@ class SafeBrowsingService
   // network, and ending when the SafeBrowsing check completes indicating that
   // the current page is 'safe'.
   void LogPauseDelay(base::TimeDelta time);
+
+  // When a safebrowsing blocking page goes away, it calls this method
+  // so the service can serialize and send MalwareDetails.
+  virtual void ReportMalwareDetails(scoped_refptr<MalwareDetails> details);
 
  protected:
   // Creates the safe browsing service.  Need to initialize before using.
@@ -286,13 +313,20 @@ class SafeBrowsingService
   // Invoked on the UI thread to show the blocking page.
   void DoDisplayBlockingPage(const UnsafeResource& resource);
 
-  // Report any pages that contain malware or phishing to the SafeBrowsing
-  // service.
+  // As soon as we create a blocking page, we schedule this method to
+  // report hits to the malware or phishing list to the server.
   void ReportSafeBrowsingHit(const GURL& malicious_url,
                              const GURL& page_url,
                              const GURL& referrer_url,
                              bool is_subresource,
                              UrlCheckResult threat_type);
+
+  // Invoked by CheckDownloadUrl. It checks the download URL on
+  // safe_browsing_thread_.
+  void CheckDownloadUrlOnSBThread(SafeBrowsingCheck* check);
+
+  // Call the Client's callback in IO thread after CheckDownloadUrl finishes.
+  void CheckDownloadUrlDone(SafeBrowsingCheck* check, UrlCheckResult result);
 
   // The factory used to instanciate a SafeBrowsingService object.
   // Useful for tests, so they can provide their own implementation of
@@ -319,6 +353,10 @@ class SafeBrowsingService
   // Whether the service is running. 'enabled_' is used by SafeBrowsingService
   // on the IO thread during normal operations.
   bool enabled_;
+
+  // Indicate if download_protection is enabled by command switch
+  // so we allow this feature to be exersized.
+  bool enable_download_protection_;
 
   // The SafeBrowsing thread that runs database operations.
   //

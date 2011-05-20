@@ -15,7 +15,6 @@
 #include "chrome/browser/browser_child_process_host.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/common/extensions/update_manifest.h"
-#include "ipc/ipc_channel.h"
 
 class DictionaryValue;
 class IndexedDBKey;
@@ -39,7 +38,7 @@ class UtilityProcessHost : public BrowserChildProcessHost {
     Client() {}
 
     // Called when the process has crashed.
-    virtual void OnProcessCrashed() {}
+    virtual void OnProcessCrashed(int exit_code) {}
 
     // Called when the extension has unpacked successfully.  |manifest| is the
     // parsed manifest.json file.  |catalogs| contains list of all parsed
@@ -98,7 +97,7 @@ class UtilityProcessHost : public BrowserChildProcessHost {
    private:
     friend class UtilityProcessHost;
 
-    void OnMessageReceived(const IPC::Message& message);
+    bool OnMessageReceived(const IPC::Message& message);
 
     DISALLOW_COPY_AND_ASSIGN(Client);
   };
@@ -150,16 +149,11 @@ class UtilityProcessHost : public BrowserChildProcessHost {
   bool StartProcess(const FilePath& exposed_dir);
 
   // IPC messages:
-  void OnMessageReceived(const IPC::Message& message);
+  virtual bool OnMessageReceived(const IPC::Message& message);
 
   // BrowserChildProcessHost:
-  virtual void OnProcessCrashed();
-  virtual bool CanShutdown() { return true; }
-  virtual URLRequestContext* GetRequestContext(
-      uint32 request_id,
-      const ViewHostMsg_Resource_Request& request_data) {
-    return NULL;
-  }
+  virtual void OnProcessCrashed(int exit_code);
+  virtual bool CanShutdown();
 
   // A pointer to our client interface, who will be informed of progress.
   scoped_refptr<Client> client_;

@@ -16,11 +16,9 @@
 #include "base/shared_memory.h"
 #include "base/time.h"
 #include "base/values.h"
-#include "chrome/common/dom_storage_common.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_extent.h"
 #include "chrome/common/extensions/url_pattern.h"
-#include "chrome/common/indexed_db_key.h"
 #include "chrome/common/navigation_gesture.h"
 #include "chrome/common/navigation_types.h"
 #include "chrome/common/page_transition_types.h"
@@ -34,11 +32,11 @@
 #include "media/audio/audio_parameters.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebTextDirection.h"
 #include "webkit/glue/password_form.h"
-#include "webkit/glue/plugins/webplugin.h"
 #include "webkit/glue/resource_type.h"
 #include "webkit/glue/webaccessibility.h"
 #include "webkit/glue/webmenuitem.h"
 #include "webkit/glue/webpreferences.h"
+#include "webkit/plugins/npapi/webplugin.h"
 
 // TODO(erg): Split this file into $1_db_params.h, $1_audio_params.h,
 // $1_print_params.h and $1_render_params.h.
@@ -249,7 +247,7 @@ struct ViewHostMsg_FrameNavigate_Params {
 
   // The frame ID for this navigation. The frame ID uniquely identifies the
   // frame the navigation happened in for a given renderer.
-  long long frame_id;
+  int64 frame_id;
 
   // URL of the page being loaded.
   GURL url;
@@ -358,7 +356,7 @@ struct ViewHostMsg_UpdateRect_Params {
   gfx::Rect resizer_rect;
 
   // New window locations for plugin child windows.
-  std::vector<webkit_glue::WebPluginGeometry> plugin_window_moves;
+  std::vector<webkit::npapi::WebPluginGeometry> plugin_window_moves;
 
   // The following describes the various bits that may be set in flags:
   //
@@ -449,7 +447,7 @@ struct ViewHostMsg_Resource_Request {
   // Additional HTTP request headers.
   std::string headers;
 
-  // URLRequest load flags (0 by default).
+  // net::URLRequest load flags (0 by default).
   int load_flags;
 
   // Unique ID of process that originated this request. For normal renderer
@@ -472,6 +470,9 @@ struct ViewHostMsg_Resource_Request {
   scoped_refptr<net::UploadData> upload_data;
 
   bool download_to_file;
+
+  // True if the request was user initiated.
+  bool has_user_gesture;
 
   // The following two members are specified if the request is initiated by
   // a plugin like Gears.
@@ -549,6 +550,21 @@ struct ViewMsg_PrintPages_Params {
 
   // If empty, this means a request to render all the printed pages.
   std::vector<int> pages;
+};
+
+//Parameters to describe a rendered document.
+struct ViewHostMsg_DidPreviewDocument_Params {
+  ViewHostMsg_DidPreviewDocument_Params();
+  ~ViewHostMsg_DidPreviewDocument_Params();
+
+  // A shared memory handle to metafile data.
+  base::SharedMemoryHandle metafile_data_handle;
+
+  // Size of metafile data.
+  uint32 data_size;
+
+  // Cookie for the document to ensure correctness.
+  int document_cookie;
 };
 
 // Parameters to describe a rendered page.
@@ -630,180 +646,6 @@ struct ViewHostMsg_ScriptedPrint_Params {
   int expected_pages_count;
   bool has_selection;
   bool use_overlays;
-};
-
-// Signals a storage event.
-struct ViewMsg_DOMStorageEvent_Params {
-  ViewMsg_DOMStorageEvent_Params();
-  ~ViewMsg_DOMStorageEvent_Params();
-
-  // The key that generated the storage event.  Null if clear() was called.
-  NullableString16 key_;
-
-  // The old value of this key.  Null on clear() or if it didn't have a value.
-  NullableString16 old_value_;
-
-  // The new value of this key.  Null on removeItem() or clear().
-  NullableString16 new_value_;
-
-  // The origin this is associated with.
-  string16 origin_;
-
-  // The URL of the page that caused the storage event.
-  GURL url_;
-
-  // The storage type of this event.
-  DOMStorageType storage_type_;
-};
-
-// Used to open an indexed database.
-struct ViewHostMsg_IDBFactoryOpen_Params {
-  ViewHostMsg_IDBFactoryOpen_Params();
-  ~ViewHostMsg_IDBFactoryOpen_Params();
-
-  // The routing ID of the view initiating the open.
-  int32 routing_id_;
-
-  // The response should have this id.
-  int32 response_id_;
-
-  // The origin doing the initiating.
-  string16 origin_;
-
-  // The name of the database.
-  string16 name_;
-
-  // The description of the database.
-  string16 description_;
-
-  // The maximum size of the database.
-  uint64 maximum_size_;
-};
-
-// Used to create an object store.
-struct ViewHostMsg_IDBDatabaseCreateObjectStore_Params {
-  ViewHostMsg_IDBDatabaseCreateObjectStore_Params();
-  ~ViewHostMsg_IDBDatabaseCreateObjectStore_Params();
-
-  // The name of the object store.
-  string16 name_;
-
-  // The keyPath of the object store.
-  NullableString16 key_path_;
-
-  // Whether the object store created should have a key generator.
-  bool auto_increment_;
-
-  // The transaction this is associated with.
-  int32 transaction_id_;
-
-  // The database the object store belongs to.
-  int32 idb_database_id_;
-};
-
-// Used to open both cursors and object cursors in IndexedDB.
-struct ViewHostMsg_IDBIndexOpenCursor_Params {
-  ViewHostMsg_IDBIndexOpenCursor_Params();
-  ~ViewHostMsg_IDBIndexOpenCursor_Params();
-
-  // The response should have this id.
-  int32 response_id_;
-
-  // The serialized lower key.
-  IndexedDBKey lower_key_;
-
-  // The serialized upper key.
-  IndexedDBKey upper_key_;
-
-  // Is the lower bound open?
-  bool lower_open_;
-
-  // Is the upper bound open?
-  bool upper_open_;
-
-  // The direction of this cursor.
-  int32 direction_;
-
-  // The index the index belongs to.
-  int32 idb_index_id_;
-
-  // The transaction this request belongs to.
-  int transaction_id_;
-};
-
-// Used to set a value in an object store.
-struct ViewHostMsg_IDBObjectStorePut_Params {
-  ViewHostMsg_IDBObjectStorePut_Params();
-  ~ViewHostMsg_IDBObjectStorePut_Params();
-
-  // The object store's id.
-  int32 idb_object_store_id_;
-
-  // The id any response should contain.
-  int32 response_id_;
-
-  // The value to set.
-  SerializedScriptValue serialized_value_;
-
-  // The key to set it on (may not be "valid"/set in some cases).
-  IndexedDBKey key_;
-
-  // If it already exists, don't update (just return an error).
-  bool add_only_;
-
-  // The transaction it's associated with.
-  int transaction_id_;
-};
-
-// Used to create an index.
-struct ViewHostMsg_IDBObjectStoreCreateIndex_Params {
-  ViewHostMsg_IDBObjectStoreCreateIndex_Params();
-  ~ViewHostMsg_IDBObjectStoreCreateIndex_Params();
-
-  // The name of the index.
-  string16 name_;
-
-  // The keyPath of the index.
-  NullableString16 key_path_;
-
-  // Whether the index created has unique keys.
-  bool unique_;
-
-  // The transaction this is associated with.
-  int32 transaction_id_;
-
-  // The object store the index belongs to.
-  int32 idb_object_store_id_;
-};
-
-// Used to open an IndexedDB cursor.
-struct ViewHostMsg_IDBObjectStoreOpenCursor_Params {
-  ViewHostMsg_IDBObjectStoreOpenCursor_Params();
-  ~ViewHostMsg_IDBObjectStoreOpenCursor_Params();
-
-  // The response should have this id.
-  int32 response_id_;
-
-  // The serialized lower key.
-  IndexedDBKey lower_key_;
-
-  // The serialized upper key.
-  IndexedDBKey upper_key_;
-
-  // Is the lower bound open?
-  bool lower_open_;
-
-  // Is the upper bound open?
-  bool upper_open_;
-
-  // The direction of this cursor.
-  int32 direction_;
-
-  // The object store the cursor belongs to.
-  int32 idb_object_store_id_;
-
-  // The transaction this request belongs to.
-  int transaction_id_;
 };
 
 // Allows an extension to execute code in a tab.
@@ -1159,6 +1001,14 @@ struct ParamTraits<ViewMsg_PrintPages_Params> {
 };
 
 template <>
+struct ParamTraits<ViewHostMsg_DidPreviewDocument_Params> {
+  typedef ViewHostMsg_DidPreviewDocument_Params param_type;
+  static void Write(Message* m, const param_type& p);
+  static bool Read(const Message* m, void** iter, param_type* p);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
 struct ParamTraits<ViewHostMsg_DidPrintPage_Params> {
   typedef ViewHostMsg_DidPrintPage_Params param_type;
   static void Write(Message* m, const param_type& p);
@@ -1191,62 +1041,6 @@ struct ParamTraits<ViewHostMsg_ScriptedPrint_Params> {
 };
 
 template <>
-struct ParamTraits<ViewMsg_DOMStorageEvent_Params> {
-  typedef ViewMsg_DOMStorageEvent_Params param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, void** iter, param_type* p);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template <>
-struct ParamTraits<ViewHostMsg_IDBFactoryOpen_Params> {
-  typedef ViewHostMsg_IDBFactoryOpen_Params param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, void** iter, param_type* p);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template <>
-struct ParamTraits<ViewHostMsg_IDBDatabaseCreateObjectStore_Params> {
-  typedef ViewHostMsg_IDBDatabaseCreateObjectStore_Params param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, void** iter, param_type* p);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template <>
-struct ParamTraits<ViewHostMsg_IDBIndexOpenCursor_Params> {
-  typedef ViewHostMsg_IDBIndexOpenCursor_Params param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, void** iter, param_type* p);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template <>
-struct ParamTraits<ViewHostMsg_IDBObjectStorePut_Params> {
-  typedef ViewHostMsg_IDBObjectStorePut_Params param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, void** iter, param_type* p);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template <>
-struct ParamTraits<ViewHostMsg_IDBObjectStoreCreateIndex_Params> {
-  typedef ViewHostMsg_IDBObjectStoreCreateIndex_Params param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, void** iter, param_type* p);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template <>
-struct ParamTraits<ViewHostMsg_IDBObjectStoreOpenCursor_Params> {
-  typedef ViewHostMsg_IDBObjectStoreOpenCursor_Params param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, void** iter, param_type* p);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template<>
 struct ParamTraits<ViewMsg_ExecuteCode_Params> {
   typedef ViewMsg_ExecuteCode_Params param_type;
   static void Write(Message* m, const param_type& p);

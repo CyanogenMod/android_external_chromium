@@ -8,9 +8,10 @@
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/tab_contents/interstitial_page.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/view_ids.h"
-#include "chrome/browser/views/tab_contents/native_tab_contents_container.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/browser/ui/view_ids.h"
+#include "chrome/browser/ui/views/tab_contents/native_tab_contents_container.h"
+#include "chrome/common/notification_details.h"
+#include "chrome/common/notification_source.h"
 
 #if defined(TOUCH_UI)
 #include "chrome/browser/ui/views/tab_contents/native_tab_contents_container_gtk.h"
@@ -38,6 +39,9 @@ void TabContentsContainer::ChangeTabContents(TabContents* contents) {
   if (tab_contents_) {
 #if !defined(TOUCH_UI)
     native_container_->DetachContents(tab_contents_);
+#else
+    views::View *v = static_cast<TabContentsViewViews*>(tab_contents_->view());
+    RemoveChildView(v);
 #endif
     tab_contents_->WasHidden();
     RemoveObservers();
@@ -152,7 +156,7 @@ void TabContentsContainer::RemoveObservers() {
 void TabContentsContainer::RenderViewHostChanged(RenderViewHost* old_host,
                                                  RenderViewHost* new_host) {
 #if defined(TOUCH_UI)
-  NOTIMPLEMENTED(); // TODO(anicolao)
+  NOTIMPLEMENTED();  // TODO(anicolao)
 #else
   if (new_host) {
     RenderWidgetHostViewChanged(

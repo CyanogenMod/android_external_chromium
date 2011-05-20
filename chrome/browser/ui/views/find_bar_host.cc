@@ -5,15 +5,14 @@
 #include "chrome/browser/views/find_bar_host.h"
 
 #include "app/keyboard_codes.h"
-#include "chrome/browser/browser_process.h"
-#include "chrome/browser/find_bar_controller.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/ui/browser.h"
-#include "chrome/browser/view_ids.h"
-#include "chrome/browser/views/find_bar_view.h"
-#include "chrome/browser/views/frame/browser_view.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/find_bar/find_bar_controller.h"
+#include "chrome/browser/ui/view_ids.h"
+#include "chrome/browser/ui/views/find_bar_view.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
 #include "views/focus/external_focus_tracker.h"
 #include "views/focus/view_storage.h"
 #include "views/widget/root_view.h"
@@ -126,7 +125,11 @@ void FindBarHost::SetFindText(const string16& find_text) {
 }
 
 void FindBarHost::UpdateUIForFindResult(const FindNotificationDetails& result,
-                                       const string16& find_text) {
+                                        const string16& find_text) {
+  // Make sure match count is clear. It may get set again in UpdateForResult
+  // if enough data is available.
+  find_bar_view()->ClearMatchCount();
+
   if (!find_text.empty())
     find_bar_view()->UpdateForResult(result, find_text);
 
@@ -209,6 +212,14 @@ bool FindBarHost::GetFindBarWindowInfo(gfx::Point* position,
 
 string16 FindBarHost::GetFindText() {
   return find_bar_view()->GetFindText();
+}
+
+string16 FindBarHost::GetFindSelectedText() {
+  return find_bar_view()->GetFindSelectedText();
+}
+
+string16 FindBarHost::GetMatchCountText() {
+  return find_bar_view()->GetMatchCountText();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

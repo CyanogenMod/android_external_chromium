@@ -10,7 +10,6 @@
 #include "base/string_piece.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
-#include "chrome/browser/profile.h"
 #include "chrome/common/url_constants.h"
 #include "grit/browser_resources.h"
 
@@ -23,7 +22,7 @@ KeyboardUI::KeyboardUI(TabContents* contents)
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
-          Singleton<ChromeURLDataManager>::get(),
+          ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(html_source)));
 }

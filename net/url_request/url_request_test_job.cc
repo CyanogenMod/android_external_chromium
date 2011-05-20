@@ -70,13 +70,13 @@ std::string URLRequestTestJob::test_error_headers() {
 }
 
 // static
-URLRequestJob* URLRequestTestJob::Factory(URLRequest* request,
-                                          const std::string& scheme) {
+net::URLRequestJob* URLRequestTestJob::Factory(net::URLRequest* request,
+                                               const std::string& scheme) {
   return new URLRequestTestJob(request);
 }
 
-URLRequestTestJob::URLRequestTestJob(URLRequest* request)
-    : URLRequestJob(request),
+URLRequestTestJob::URLRequestTestJob(net::URLRequest* request)
+    : net::URLRequestJob(request),
       auto_advance_(false),
       stage_(WAITING),
       offset_(0),
@@ -84,8 +84,9 @@ URLRequestTestJob::URLRequestTestJob(URLRequest* request)
       async_buf_size_(0) {
 }
 
-URLRequestTestJob::URLRequestTestJob(URLRequest* request, bool auto_advance)
-    : URLRequestJob(request),
+URLRequestTestJob::URLRequestTestJob(net::URLRequest* request,
+                                     bool auto_advance)
+    : net::URLRequestJob(request),
       auto_advance_(auto_advance),
       stage_(WAITING),
       offset_(0),
@@ -93,11 +94,11 @@ URLRequestTestJob::URLRequestTestJob(URLRequest* request, bool auto_advance)
       async_buf_size_(0) {
 }
 
-URLRequestTestJob::URLRequestTestJob(URLRequest* request,
+URLRequestTestJob::URLRequestTestJob(net::URLRequest* request,
                                      const std::string& response_headers,
                                      const std::string& response_data,
                                      bool auto_advance)
-    : URLRequestJob(request),
+    : net::URLRequestJob(request),
       auto_advance_(auto_advance),
       stage_(WAITING),
       response_headers_(new net::HttpResponseHeaders(response_headers)),
@@ -206,7 +207,7 @@ bool URLRequestTestJob::IsRedirectResponse(GURL* location,
 
 void URLRequestTestJob::Kill() {
   stage_ = DONE;
-  URLRequestJob::Kill();
+  net::URLRequestJob::Kill();
 }
 
 void URLRequestTestJob::ProcessNextOperation() {

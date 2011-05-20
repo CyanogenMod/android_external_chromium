@@ -26,6 +26,9 @@ const char kAllowFileAccessFromFiles[]      = "allow-file-access-from-files";
 // directories. This switch re-enables file:// for testing.
 const char kAllowFileAccess[]               = "allow-file-access";
 
+// Don't block outdated plugins.
+const char kAllowOutdatedPlugins[]          = "allow-outdated-plugins";
+
 // Disable checking of the renegotiation extension and any future checks over
 // and above what a "traditional" SSL stack might do. This has been requested
 // in order to support some web development tools that intercept SSL
@@ -59,6 +62,7 @@ const char kAppsGalleryReturnTokens[]       = "apps-gallery-return-tokens";
 // The URL to use for the gallery link in the app launcher.
 const char kAppsGalleryURL[]                = "apps-gallery-url";
 
+// The update url used by gallery/webstore extensions.
 const char kAppsGalleryUpdateURL[]          = "apps-gallery-update-url";
 
 // Disable throbber for extension apps.
@@ -82,9 +86,6 @@ const char kAuthServerWhitelist[] = "auth-server-whitelist";
 // The value of this switch tells the app to listen for and broadcast
 // automation-related messages on IPC channel with the given ID.
 const char kAutomationClientChannelID[]     = "automation-channel";
-
-// Block non-sandboxed plugins.
-const char kBlockNonSandboxedPlugins[]      = "block-nonsandboxed-plugins";
 
 // Causes the browser process to throw an assertion on startup.
 const char kBrowserAssertTest[]             = "assert-test";
@@ -203,6 +204,12 @@ const char kDisableDevTools[]               = "disable-dev-tools";
 // Disables device orientation events.
 const char kDisableDeviceOrientation[]      = "disable-device-orientation";
 
+// By default, if the URL request throttler finds that a server is overloaded or
+// encounters an error, it rejects requests to the server for a period of time,
+// which is determined by an exponential back-off algorithm. This switch
+// disables such behavior.
+const char kDisableEnforcedThrottling[]     = "disable-enforced-throttling";
+
 // Disable experimental WebGL support.
 const char kDisableExperimentalWebGL[]      = "disable-webgl";
 
@@ -216,6 +223,9 @@ const char kDisableExtensionsFileAccessCheck[] =
 
 // Disable FileSystem API.
 const char kDisableFileSystem[]             = "disable-file-system";
+
+// Disables the sandbox for the built-in flash player.
+const char kDisableFlashSandbox[]           = "disable-flash-sandbox";
 
 // Suppresses support for the Geolocation javascript API.
 const char kDisableGeolocation[]            = "disable-geolocation";
@@ -237,6 +247,9 @@ const char kDisableHistoryQuickProvider[]   = "disable-history-quick-provider";
 
 // Disable the use of the HistoryURLProvider for autocomplete results.
 const char kDisableHistoryURLProvider[]   = "disable-history-url-provider";
+
+// Disable the Indexed Database API.
+const char kDisableIndexedDatabase[]         = "disable-indexed-database";
 
 // Disable the internal Flash Player.
 const char kDisableInternalFlash[]          = "disable-internal-flash";
@@ -266,9 +279,6 @@ const char kDisableLogging[]                = "disable-logging";
 // Whether we should prevent the new tab page from showing the first run
 // notification.
 const char kDisableNewTabFirstRun[]         = "disable-new-tab-first-run";
-
-// Prevent outdated plugins from running.
-const char kDisableOutdatedPlugins[]        = "disable-outdated-plugins";
 
 // Prevent plugins from running.
 const char kDisablePlugins[]                = "disable-plugins";
@@ -316,6 +326,9 @@ const char kDisableSyncApps[]               = "disable-sync-apps";
 
 // Disable syncing of autofill.
 const char kDisableSyncAutofill[]           = "disable-sync-autofill";
+
+// Disable syncing of autofill Profile.
+const char kDisableSyncAutofillProfile[]     = "disable-sync-autofill-profile";
 
 // Disable syncing of bookmarks.
 const char kDisableSyncBookmarks[]          = "disable-sync-bookmarks";
@@ -412,7 +425,10 @@ const char kEnableBenchmarking[]            = "enable-benchmarking";
 // blocked pop-ups only.
 const char kEnableBlockContentAnimation[] = "enable-blocked-content-animation";
 
-// Enable experimental client-side detection of phishing pages.
+// In the browser process this switch is used to enable or disable the
+// client-side phishing detection.  In the renderer this switch is only enabled
+// if this switch is enabled in the browser and the user has opted in to UMA
+// stats and SafeBrowsing is enabled in the preferences.
 const char kEnableClientSidePhishingDetection[] =
     "enable-client-side-phishing-detection";
 
@@ -469,18 +485,11 @@ const char kEnableFastback[]                = "enable-fastback";
 // testing, for example page cycler and layout tests.  See bug 1157243.
 const char kEnableFileCookies[]             = "enable-file-cookies";
 
-// Enables the sandbox for the built-in flash player.
-const char kEnableFlashSandbox[]            = "enable-flash-sandbox";
-
-
 // Enable IPv6 support, even if probes suggest that it may not be fully
 // supported.  Some probes may require internet connections, and this flag will
 // allow support independent of application testing.
 // This flag overrides "disable-ipv6" which appears elswhere in this file.
 const char kEnableIPv6[]                    = "enable-ipv6";
-
-// Enable the Indexed Database API.
-const char kEnableIndexedDatabase[]         = "enable-indexed-database";
 
 // Enable the GPU plugin and Pepper 3D rendering.
 const char kEnableGPUPlugin[]               = "enable-gpu-plugin";
@@ -507,8 +516,12 @@ const char kEnableNaClDebug[]               = "enable-nacl-debug";
 // Enable Native Web Worker support.
 const char kEnableNativeWebWorkers[]        = "enable-native-web-workers";
 
-// Is the predictive varition of instant enabled?
+// Is InstantController::PREDICTIVE_TYPE enabled?
 const char kEnablePredictiveInstant[]       = "enable-predictive-instant";
+
+// Is InstantController::PREDICTIVE_NO_AUTO_COMPLETE_TYPE enabled?
+const char kEnablePredictiveNoAutoCompleteInstant[] =
+    "enable-predictive-no-auto-complete-instant";
 
 // This applies only when the process type is "service". Enables the
 // Chromoting Host Process within the service process.
@@ -706,9 +719,9 @@ const char kHomePage[]                      = "homepage";
 //    "MAP * baz, EXCLUDE www.google.com" --> Remaps everything to "baz",
 //                                            except for "www.google.com".
 //
-// These mappings apply to the endpoint host in a URLRequest (the TCP connect
-// and host resolver in a direct connection, and the CONNECT in an http proxy
-// connection, and the endpoint host in a SOCKS proxy connection).
+// These mappings apply to the endpoint host in a net::URLRequest (the TCP
+// connect and host resolver in a direct connection, and the CONNECT in an http
+// proxy connection, and the endpoint host in a SOCKS proxy connection).
 const char kHostRules[]                     = "host-rules";
 
 // The maximum number of concurrent host resolve requests (i.e. DNS) to allow.
@@ -828,6 +841,9 @@ const char kNoExperiments[]                 = "no-experiments";
 // you're for some reason tempted to pass them both.
 const char kNoFirstRun[]                    = "no-first-run";
 
+// Don't Sandbox the GPU process, does not affect other sandboxed processes.
+const char kNoGpuSandbox[]                  = "no-gpu-sandbox";
+
 // Support a separate switch that enables the v8 playback extension.
 // The extension causes javascript calls to Date.now() and Math.random()
 // to return consistent values, such that subsequent loads of the same
@@ -845,7 +861,7 @@ const char kNoProxyServer[]                 = "no-proxy-server";
 // Don't send HTTP-Referer headers.
 const char kNoReferrers[]                   = "no-referrers";
 
-// Runs the renderer outside the sandbox.
+// Disables the sandbox for all process types that are normally sandboxed.
 const char kNoSandbox[]                     = "no-sandbox";
 
 // Does not automatically open a browser window on startup (used when launching
@@ -1019,6 +1035,10 @@ const char kSbMacKeyURLPrefix[] = "safebrowsing-mackey-url-prefix";
 // SafeBrowsingProtocolManager::ForceScheduleNextUpdate() is explicitly called.
 // This is used for testing only.
 const char kSbDisableAutoUpdate[] = "safebrowsing-disable-auto-update";
+
+// If present, safebrowsing checks download url and download content's hash
+// to make sure the content are not malicious.
+const char kSbEnableDownloadProtection[] = "safebrowsing-download-protection";
 
 // Enable support for SDCH filtering (dictionary based expansion of content).
 // Optional argument is *the* only domain name that will have SDCH suppport.
@@ -1309,13 +1329,6 @@ const char kEnableExposeForTabs[] = "enable-expose-for-tabs";
 // Cause the OS X sandbox write to syslog every time an access to a resource
 // is denied by the sandbox.
 const char kEnableSandboxLogging[]          = "enable-sandbox-logging";
-
-
-// Temporary flag to revert to the old WorkerPool implementation.
-// This will be removed once we either fix the Mac WorkerPool
-// implementation, or completely switch to the shared (with Linux)
-// implementation.
-const char kDisableLinuxWorkerPool[]        = "disable-linux-worker-pool";
 #else
 // Enable Kiosk mode.
 const char kKioskMode[]                     = "kiosk";
@@ -1343,25 +1356,19 @@ const char kTouchDevices[]                  = "touch-devices";
 #endif
 
 
-// USE_SECCOMP_SANDBOX controls whether the seccomp sandbox is opt-in or -out.
+// SeccompSandboxEnabled() controls whether we are using Seccomp.
+// It is currently off by default on all platforms.
 // TODO(evan): unify all of these once we turn the seccomp sandbox always
 // on.  Also remove the #include of command_line.h above.
-#if defined(USE_SECCOMP_SANDBOX)
+
 // Disable the seccomp sandbox (Linux only)
 const char kDisableSeccompSandbox[]         = "disable-seccomp-sandbox";
-#else
 // Enable the seccomp sandbox (Linux only)
 const char kEnableSeccompSandbox[]          = "enable-seccomp-sandbox";
-#endif
 
 bool SeccompSandboxEnabled() {
-#if defined(USE_SECCOMP_SANDBOX)
-  return !CommandLine::ForCurrentProcess()->HasSwitch(
-             switches::kDisableSeccompSandbox);
-#else
   return CommandLine::ForCurrentProcess()->HasSwitch(
              switches::kEnableSeccompSandbox);
-#endif
 }
 
 // -----------------------------------------------------------------------------

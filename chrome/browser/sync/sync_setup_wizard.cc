@@ -11,7 +11,7 @@
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_setup_flow.h"
 #include "chrome/common/jstemplate_builder.h"
@@ -215,7 +215,7 @@ SyncSetupWizard::SyncSetupWizard(ProfileSyncService* service)
   SyncResourcesSource* sync_source = new SyncResourcesSource();
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(Singleton<ChromeURLDataManager>::get(),
+      NewRunnableMethod(ChromeURLDataManager::GetInstance(),
                         &ChromeURLDataManager::AddDataSource,
                         make_scoped_refptr(sync_source)));
 }

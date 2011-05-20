@@ -15,13 +15,12 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/keyword_provider.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/instant/instant_controller.h"
 #include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/history/in_memory_database.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/common/json_value_serializer.h"
@@ -60,6 +59,7 @@ void SearchProvider::Providers::Set(const TemplateURL* default_provider,
 SearchProvider::SearchProvider(ACProviderListener* listener, Profile* profile)
     : AutocompleteProvider(listener, profile, "Search"),
       suggest_results_pending_(0),
+      have_suggest_results_(false),
       instant_finalized_(false) {
 }
 

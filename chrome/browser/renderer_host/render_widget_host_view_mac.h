@@ -15,9 +15,9 @@
 #include "base/time.h"
 #include "chrome/browser/accessibility/browser_accessibility_delegate_mac.h"
 #include "chrome/browser/accessibility/browser_accessibility_manager.h"
-#include "chrome/browser/cocoa/base_view.h"
 #include "chrome/browser/renderer_host/accelerated_surface_container_manager_mac.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
+#include "chrome/browser/ui/cocoa/base_view.h"
 #include "chrome/common/edit_command.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebCompositionUnderline.h"
 #include "webkit/glue/webcursor.h"
@@ -184,7 +184,7 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   virtual void SetSize(const gfx::Size& size);
   virtual gfx::NativeView GetNativeView();
   virtual void MovePluginWindows(
-      const std::vector<webkit_glue::WebPluginGeometry>& moves);
+      const std::vector<webkit::npapi::WebPluginGeometry>& moves);
   virtual void Focus();
   virtual void Blur();
   virtual bool HasFocus();
@@ -200,7 +200,8 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   virtual void DidUpdateBackingStore(
       const gfx::Rect& scroll_rect, int scroll_dx, int scroll_dy,
       const std::vector<gfx::Rect>& copy_rects);
-  virtual void RenderViewGone();
+  virtual void RenderViewGone(base::TerminationStatus status,
+                              int error_code);
   virtual void WillDestroyRenderWidget(RenderWidgetHost* rwh) {};
   virtual void Destroy();
   virtual void SetTooltipText(const std::wstring& tooltip_text);

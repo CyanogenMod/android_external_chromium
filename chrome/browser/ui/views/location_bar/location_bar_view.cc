@@ -19,24 +19,24 @@
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/extensions/extension_browser_event_router.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/instant/instant_controller.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
-#include "chrome/browser/tab_contents_wrapper.h"
-#include "chrome/browser/ui/views/location_bar/suggested_text_view.h"
-#include "chrome/browser/view_ids.h"
-#include "chrome/browser/views/browser_dialogs.h"
-#include "chrome/browser/views/location_bar/content_setting_image_view.h"
-#include "chrome/browser/views/location_bar/ev_bubble_view.h"
-#include "chrome/browser/views/location_bar/keyword_hint_view.h"
-#include "chrome/browser/views/location_bar/location_icon_view.h"
-#include "chrome/browser/views/location_bar/page_action_image_view.h"
-#include "chrome/browser/views/location_bar/page_action_with_badge_view.h"
-#include "chrome/browser/views/location_bar/selected_keyword_view.h"
-#include "chrome/browser/views/location_bar/star_view.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
+#include "chrome/browser/ui/view_ids.h"
+#include "chrome/browser/ui/views/browser_dialogs.h"
+#include "chrome/browser/ui/views/location_bar/content_setting_image_view.h"
+#include "chrome/browser/ui/views/location_bar/ev_bubble_view.h"
+#include "chrome/browser/ui/views/location_bar/keyword_hint_view.h"
+#include "chrome/browser/ui/views/location_bar/location_icon_view.h"
+#include "chrome/browser/ui/views/location_bar/page_action_image_view.h"
+#include "chrome/browser/ui/views/location_bar/page_action_with_badge_view.h"
+#include "chrome/browser/ui/views/location_bar/selected_keyword_view.h"
+#include "chrome/browser/ui/views/location_bar/star_view.h"
+#include "chrome/common/notification_service.h"
 #include "gfx/canvas_skia.h"
 #include "gfx/color_utils.h"
 #include "gfx/skia_util.h"
@@ -46,6 +46,7 @@
 #include "views/drag_utils.h"
 
 #if defined(OS_WIN)
+#include "chrome/browser/ui/views/location_bar/suggested_text_view.h"
 #include "chrome/browser/views/first_run_bubble.h"
 #endif
 
@@ -103,7 +104,9 @@ LocationBarView::LocationBarView(Profile* profile,
       ev_bubble_view_(NULL),
       location_entry_view_(NULL),
       selected_keyword_view_(NULL),
+#if defined(OS_WIN)
       suggested_text_view_(NULL),
+#endif
       keyword_hint_view_(NULL),
       star_view_(NULL),
       mode_(mode),
@@ -408,12 +411,14 @@ gfx::Point LocationBarView::GetLocationEntryOrigin() const {
   return origin;
 }
 
+#if defined(OS_WIN)
 void LocationBarView::OnCommitSuggestedText() {
   InstantController* instant = delegate_->GetInstant();
   DCHECK(instant);
   DCHECK(suggested_text_view_);
   OnCommitSuggestedText(location_entry_->GetText());
 }
+#endif
 
 gfx::Size LocationBarView::GetPreferredSize() {
   return gfx::Size(0, GetThemeProvider()->GetBitmapNamed(mode_ == POPUP ?
@@ -525,7 +530,7 @@ void LocationBarView::Layout() {
       const TemplateURL* template_url =
           profile_->GetTemplateURLModel()->GetTemplateURLForKeyword(keyword);
       if (template_url && template_url->IsExtensionKeyword()) {
-        const SkBitmap& bitmap = profile_->GetExtensionsService()->
+        const SkBitmap& bitmap = profile_->GetExtensionService()->
             GetOmniboxIcon(template_url->GetExtensionId());
         selected_keyword_view_->SetImage(bitmap);
         selected_keyword_view_->SetItemPadding(kExtensionItemPadding);
@@ -613,6 +618,7 @@ void LocationBarView::Layout() {
     }
   }
 
+#if defined(OS_WIN)
   // Layout out the suggested text view right aligned to the location
   // entry. Only show the suggested text if we can fit the text from one
   // character before the end of the selection to the end of the text and the
@@ -642,6 +648,7 @@ void LocationBarView::Layout() {
                                       location_bounds.height());
     }
   }
+#endif
 
   location_entry_view_->SetBounds(location_bounds);
 }
@@ -775,13 +782,23 @@ void LocationBarView::OnAutocompleteWillAccept() {
 
 bool LocationBarView::OnCommitSuggestedText(const std::wstring& typed_text) {
   InstantController* instant = delegate_->GetInstant();
-  if (!instant || !HasValidSuggestText()) {
+  if (!instant)
     return false;
-  }
+
+#if defined(OS_WIN)
+  if (!HasValidSuggestText())
+    return false;
   location_entry_->model()->FinalizeInstantQuery(
       typed_text,
       suggested_text_view_->GetText());
   return true;
+#else
+  return location_entry_->CommitInstantSuggestion();
+#endif
+}
+
+bool LocationBarView::AcceptCurrentInstantPreview() {
+  return InstantController::CommitIfCurrent(delegate_->GetInstant());
 }
 
 void LocationBarView::OnSetSuggestedSearchText(const string16& suggested_text) {
@@ -868,8 +885,12 @@ void LocationBarView::OnChanged() {
 }
 
 void LocationBarView::OnSelectionBoundsChanged() {
+#if defined(OS_WIN)
   if (suggested_text_view_)
     suggested_text_view_->StopAnimation();
+#else
+  NOTREACHED();
+#endif
 }
 
 void LocationBarView::OnInputInProgress(bool in_progress) {
@@ -922,8 +943,8 @@ void LocationBarView::LayoutView(views::View* view,
 void LocationBarView::RefreshContentSettingViews() {
   for (ContentSettingViews::const_iterator i(content_setting_views_.begin());
        i != content_setting_views_.end(); ++i) {
-    (*i)->UpdateFromTabContents(
-        model_->input_in_progress() ? NULL : GetTabContentsFromDelegate(delegate_));
+    (*i)->UpdateFromTabContents(model_->input_in_progress() ? NULL :
+                                GetTabContentsFromDelegate(delegate_));
   }
 }
 
@@ -938,7 +959,7 @@ void LocationBarView::RefreshPageActionViews() {
   if (mode_ != NORMAL)
     return;
 
-  ExtensionsService* service = profile_->GetExtensionsService();
+  ExtensionService* service = profile_->GetExtensionService();
   if (!service)
     return;
 
@@ -1045,6 +1066,7 @@ std::string LocationBarView::GetClassName() const {
 }
 
 bool LocationBarView::SkipDefaultKeyEventProcessing(const views::KeyEvent& e) {
+#if defined(OS_WIN)
   if (views::FocusManager::IsTabTraversalKeyEvent(e)) {
     if (HasValidSuggestText()) {
       // Return true so that the edit sees the tab and commits the suggestion.
@@ -1054,27 +1076,18 @@ bool LocationBarView::SkipDefaultKeyEventProcessing(const views::KeyEvent& e) {
       // Return true so the edit gets the tab event and enters keyword mode.
       return true;
     }
-    InstantController* instant = delegate_->GetInstant();
-    if (instant && instant->IsCurrent()) {
-      // Tab while showing instant commits instant immediately.
-      instant->CommitCurrentPreview(INSTANT_COMMIT_PRESSED_ENTER);
-      // Return true so that focus traversal isn't attempted. The edit ends
-      // up doing nothing in this case.
+
+    // Tab while showing instant commits instant immediately.
+    // Return true so that focus traversal isn't attempted. The edit ends
+    // up doing nothing in this case.
+    if (AcceptCurrentInstantPreview())
       return true;
-    }
   }
 
-#if defined(OS_WIN)
   return location_entry_->SkipDefaultKeyEventProcessing(e);
 #else
-  // TODO(jcampan): We need to refactor the code of
-  // AutocompleteEditViewWin::SkipDefaultKeyEventProcessing into this class so
-  // it can be shared between Windows and Linux.
-  // For now, we just override back-space and tab keys, as back-space is the
-  // accelerator for back navigation and tab key is used by some input methods.
-  if (e.GetKeyCode() == app::VKEY_BACK ||
-      views::FocusManager::IsTabTraversalKeyEvent(e))
-    return true;
+  // This method is not used for Linux ports. See FocusManager::OnKeyEvent() in
+  // src/views/focus/focus_manager.cc for details.
   return false;
 #endif
 }
@@ -1127,6 +1140,7 @@ void LocationBarView::ShowFirstRunBubble(FirstRun::BubbleType bubble_type) {
 }
 
 void LocationBarView::SetSuggestedText(const string16& input) {
+#if defined(OS_WIN)
   // Don't show the suggested text if inline autocomplete is prevented.
   string16 text = location_entry_->model()->UseVerbatimInstant() ?
       string16() : input;
@@ -1143,7 +1157,8 @@ void LocationBarView::SetSuggestedText(const string16& input) {
     } else if (suggested_text_view_->GetText() != UTF16ToWide(text)) {
       suggested_text_view_->SetText(UTF16ToWide(text));
     }
-    suggested_text_view_->StartAnimation();
+    if (!location_entry_->IsImeComposing())
+      suggested_text_view_->StartAnimation();
   } else if (suggested_text_view_) {
     delete suggested_text_view_;
     suggested_text_view_ = NULL;
@@ -1153,6 +1168,9 @@ void LocationBarView::SetSuggestedText(const string16& input) {
 
   Layout();
   SchedulePaint();
+#else
+  location_entry_->SetInstantSuggestion(UTF16ToUTF8(input));
+#endif
 }
 
 std::wstring LocationBarView::GetInputString() const {
@@ -1245,7 +1263,9 @@ void LocationBarView::OnTemplateURLModelChanged() {
   ShowFirstRunBubble(bubble_type_);
 }
 
+#if defined(OS_WIN)
 bool LocationBarView::HasValidSuggestText() {
   return suggested_text_view_ && !suggested_text_view_->size().IsEmpty() &&
       !suggested_text_view_->GetText().empty();
 }
+#endif

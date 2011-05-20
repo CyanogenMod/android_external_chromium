@@ -279,6 +279,34 @@
       "zip_path": "examples/api/pageAction/set_icon.zip"
     }, 
     {
+      "api_calls": [
+        "chrome.extension.getURL", 
+        "chrome.management.get", 
+        "chrome.management.getAll", 
+        "chrome.management.launchApp", 
+        "chrome.tabs.create"
+      ], 
+      "description": "", 
+      "features": [
+        "browser_action", 
+        "management"
+      ], 
+      "icon": null, 
+      "id": "a1f7cf79dd555b04fa8d603247a040e644996293", 
+      "name": "App Launcher", 
+      "path": "examples/extensions/app_launcher/", 
+      "protocols": [], 
+      "search_string": "APP LAUNCHER  BROWSER_ACTION MANAGEMENT CHROME.EXTENSION.GETURL CHROME.MANAGEMENT.GET CHROME.MANAGEMENT.GETALL CHROME.MANAGEMENT.LAUNCHAPP CHROME.TABS.CREATE", 
+      "source_files": [
+        "manifest.json", 
+        "popup.css", 
+        "popup.html", 
+        "popup.js"
+      ], 
+      "source_hash": "4cb1348cfca9c990117d52290f93eb5fc5081bc2", 
+      "zip_path": "examples/extensions/app_launcher.zip"
+    }, 
+    {
       "api_calls": [], 
       "description": "", 
       "features": [
@@ -373,7 +401,7 @@
         "options.html", 
         "popup.html"
       ], 
-      "source_hash": "bbd36a3d1d5580b477929d081f5a3a467ad32c63", 
+      "source_hash": "a6ad5cd2a77ef54c0d96b4c5da014cfac34487db", 
       "zip_path": "examples/extensions/buildbot.zip"
     }, 
     {
@@ -404,7 +432,7 @@
         "background.html", 
         "manifest.json"
       ], 
-      "source_hash": "37dd43080094bbe459b0429f1a2b995c33bab7c3", 
+      "source_hash": "027409688a677867e3f2fcbc530ceac904ccedea", 
       "zip_path": "examples/extensions/chrome_search.zip"
     }, 
     {
@@ -913,7 +941,7 @@
         "info.html", 
         "manifest.json"
       ], 
-      "source_hash": "672f49ed8edbe0829c7ba5a1d890b4440b157991", 
+      "source_hash": "c746d9114348f4b414c1ec05e988e2807feb963a", 
       "zip_path": "examples/extensions/imageinfo.zip"
     }, 
     {
@@ -1286,7 +1314,7 @@
         "util/sorttable.js", 
         "util/table2CSV.js"
       ], 
-      "source_hash": "7b6fde63c8dd0e626d176e8ce34ad43649746436", 
+      "source_hash": "7e592dbd3446353f7d98d1760f7cd773035aaaad", 
       "zip_path": "examples/extensions/benchmark.zip"
     }, 
     {

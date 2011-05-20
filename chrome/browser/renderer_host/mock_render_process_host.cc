@@ -46,7 +46,7 @@ bool MockRenderProcessHost::WaitForUpdateMsg(int render_widget_id,
   return false;
 }
 
-void MockRenderProcessHost::ReceivedBadMessage(uint32 msg_type) {
+void MockRenderProcessHost::ReceivedBadMessage() {
   ++bad_msg_count_;
 }
 
@@ -117,7 +117,8 @@ TransportDIB* MockRenderProcessHost::GetTransportDIB(TransportDIB::Id dib_id) {
   return transport_dib_;
 }
 
-void MockRenderProcessHost::OnMessageReceived(const IPC::Message& msg) {
+bool MockRenderProcessHost::OnMessageReceived(const IPC::Message& msg) {
+  return false;
 }
 
 void MockRenderProcessHost::OnChannelConnected(int32 peer_pid) {

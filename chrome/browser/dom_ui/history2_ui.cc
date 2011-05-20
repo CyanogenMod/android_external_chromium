@@ -4,6 +4,9 @@
 
 #include "chrome/browser/dom_ui/history2_ui.h"
 
+#include <algorithm>
+#include <set>
+
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/callback.h"
@@ -22,13 +25,13 @@
 #include "chrome/browser/dom_ui/dom_ui_favicon_source.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/history/history_types.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/jstemplate_builder.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/notification_source.h"
 #include "chrome/common/time_format.h"
 #include "chrome/common/url_constants.h"
 #include "net/base/escape.h"
@@ -107,6 +110,10 @@ void HistoryUIHTMLSource2::StartDataRequest(const std::string& path,
   SendResponse(request_id, html_bytes);
 }
 
+std::string HistoryUIHTMLSource2::GetMimeType(const std::string&) const {
+  return "text/html";
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //
 // HistoryHandler
@@ -126,7 +133,7 @@ DOMMessageHandler* BrowsingHistoryHandler2::Attach(DOMUI* dom_ui) {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
-          Singleton<ChromeURLDataManager>::get(),
+          ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(new DOMUIFavIconSource(dom_ui->GetProfile()))));
 
@@ -269,20 +276,19 @@ void BrowsingHistoryHandler2::QueryComplete(
       string16 date_str = TimeFormat::RelativeDate(page.visit_time(),
                                                    &midnight_today);
       if (date_str.empty()) {
-        date_str =
-            WideToUTF16Hack(base::TimeFormatFriendlyDate(page.visit_time()));
+        date_str = base::TimeFormatFriendlyDate(page.visit_time());
       } else {
         date_str = l10n_util::GetStringFUTF16(
             IDS_HISTORY_DATE_WITH_RELATIVE_TIME,
             date_str,
-            WideToUTF16Hack(base::TimeFormatFriendlyDate(page.visit_time())));
+            base::TimeFormatFriendlyDate(page.visit_time()));
       }
       page_value->SetString("dateRelativeDay", date_str);
       page_value->SetString("dateTimeOfDay",
-          WideToUTF16Hack(base::TimeFormatTimeOfDay(page.visit_time())));
+          base::TimeFormatTimeOfDay(page.visit_time()));
     } else {
       page_value->SetString("dateShort",
-          WideToUTF16Hack(base::TimeFormatShortDate(page.visit_time())));
+          base::TimeFormatShortDate(page.visit_time()));
       page_value->SetString("snippet", page.snippet().text());
     }
     page_value->SetBoolean("starred",
@@ -398,7 +404,7 @@ HistoryUI2::HistoryUI2(TabContents* contents) : DOMUI(contents) {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
-          Singleton<ChromeURLDataManager>::get(),
+          ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(html_source)));
 }

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/process_util.h"
 #include "base/ref_counted.h"
 #include "base/string16.h"
 #include "chrome/common/content_settings_types.h"
@@ -71,6 +72,7 @@ class Message;
 }
 
 namespace net {
+class CookieList;
 class CookieOptions;
 }
 
@@ -281,8 +283,8 @@ class RenderViewHostDelegate {
     // Notification that a worker process has crashed.
     virtual void OnCrashedWorker() = 0;
 
-    virtual void OnDisabledOutdatedPlugin(const string16& name,
-                                          const GURL& update_url) = 0;
+    virtual void OnBlockedOutdatedPlugin(const string16& name,
+                                         const GURL& update_url) = 0;
 
     // Notification that a user's request to install an application has
     // completed.
@@ -328,8 +330,9 @@ class RenderViewHostDelegate {
     // The RenderView is starting a provisional load.
     virtual void DidStartProvisionalLoadForFrame(
         RenderViewHost* render_view_host,
-        long long frame_id,
+        int64 frame_id,
         bool is_main_frame,
+        bool is_error_page,
         const GURL& url) = 0;
 
     // Notification by the resource loading system (not the renderer) that it
@@ -368,17 +371,17 @@ class RenderViewHostDelegate {
     // The RenderView failed a provisional load with an error.
     virtual void DidFailProvisionalLoadWithError(
         RenderViewHost* render_view_host,
-        long long frame_id,
+        int64 frame_id,
         bool is_main_frame,
         int error_code,
         const GURL& url,
         bool showing_repost_interstitial) = 0;
 
     // Notification that a document has been loaded in a frame.
-    virtual void DocumentLoadedInFrame(long long frame_id) = 0;
+    virtual void DocumentLoadedInFrame(int64 frame_id) = 0;
 
     // Notification that a frame finished loading.
-    virtual void DidFinishLoad(long long frame_id) = 0;
+    virtual void DidFinishLoad(int64 frame_id) = 0;
 
    protected:
     virtual ~Resource() {}
@@ -394,14 +397,23 @@ class RenderViewHostDelegate {
     virtual void OnContentBlocked(ContentSettingsType type,
                                   const std::string& resource_identifier) = 0;
 
-    // Called when a specific cookie in the current page was accessed.
+    // Called when cookies for the given URL were read either from within the
+    // current page or while loading it. |blocked_by_policy| should be true, if
+    // reading cookies was blocked due to the user's content settings. In that
+    // case, this function should invoke OnContentBlocked.
+    virtual void OnCookiesRead(
+        const GURL& url,
+        const net::CookieList& cookie_list,
+        bool blocked_by_policy) = 0;
+
+    // Called when a specific cookie in the current page was changed.
     // |blocked_by_policy| should be true, if the cookie was blocked due to the
     // user's content settings. In that case, this function should invoke
     // OnContentBlocked.
-    virtual void OnCookieAccessed(const GURL& url,
-                                  const std::string& cookie_line,
-                                  const net::CookieOptions& options,
-                                  bool blocked_by_policy) = 0;
+    virtual void OnCookieChanged(const GURL& url,
+                                 const std::string& cookie_line,
+                                 const net::CookieOptions& options,
+                                 bool blocked_by_policy) = 0;
 
     // Called when a specific indexed db factory in the current page was
     // accessed. If access was blocked due to the user's content settings,
@@ -577,6 +589,9 @@ class RenderViewHostDelegate {
     // AutoFill popup.
     virtual void ShowAutoFillDialog() = 0;
 
+    // Reset cache in AutoFillManager.
+    virtual void Reset() = 0;
+
    protected:
     virtual ~AutoFill() {}
   };
@@ -700,7 +715,9 @@ class RenderViewHostDelegate {
   virtual void RenderViewReady(RenderViewHost* render_view_host) {}
 
   // The RenderView died somehow (crashed or was killed by the user).
-  virtual void RenderViewGone(RenderViewHost* render_view_host) {}
+  virtual void RenderViewGone(RenderViewHost* render_view_host,
+                              base::TerminationStatus status,
+                              int error_code) {}
 
   // The RenderView is going to be deleted. This is called when each
   // RenderView is going to be destroyed
@@ -751,6 +768,11 @@ class RenderViewHostDelegate {
   // The RenderView stopped loading a page. This corresponds to WebKit's
   // notion of the throbber stopping.
   virtual void DidStopLoading() {}
+
+  // The RenderView made progress loading a page's top frame.
+  // |progress| is a value between 0 (nothing loaded) to 1.0 (top frame
+  // entirely loaded).
+  virtual void DidChangeLoadProgress(double progress) {}
 
   // The RenderView's main frame document element is ready. This happens when
   // the document has finished parsing.
@@ -854,7 +876,7 @@ class RenderViewHostDelegate {
   virtual void DidInsertCSS() {}
 
   // A different node in the page got focused.
-  virtual void FocusedNodeChanged() {}
+  virtual void FocusedNodeChanged(bool is_editable_node) {}
 
   // Updates the minimum and maximum zoom percentages.
   virtual void UpdateZoomLimits(int minimum_percent,

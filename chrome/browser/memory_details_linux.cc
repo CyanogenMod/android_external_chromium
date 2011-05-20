@@ -8,13 +8,14 @@
 #include <fcntl.h>
 #include <dirent.h>
 
+#include <set>
+
 #include "base/eintr_wrapper.h"
 #include "base/file_version_info.h"
 #include "base/string_util.h"
 #include "base/process_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_child_process_host.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/zygote_host_linux.h"
 #include "chrome/common/chrome_constants.h"
@@ -235,12 +236,12 @@ void MemoryDetails::CollectProcessData(
   }
 
   std::vector<pid_t> current_browser_processes;
-  const pid_t zygote = Singleton<ZygoteHost>()->pid();
+  const pid_t zygote = ZygoteHost::GetInstance()->pid();
   GetAllChildren(processes, getpid(), zygote, &current_browser_processes);
   ProcessData current_browser;
   GetProcessDataMemoryInformation(current_browser_processes, &current_browser);
-  current_browser.name = chrome::kBrowserAppName;
-  current_browser.process_name = L"chrome";
+  current_browser.name = WideToUTF16(chrome::kBrowserAppName);
+  current_browser.process_name = ASCIIToUTF16("chrome");
   process_data_.push_back(current_browser);
 
   // For each browser process, collect a list of its children and get the
@@ -257,7 +258,7 @@ void MemoryDetails::CollectProcessData(
       if (j->pid == *i) {
         BrowserType type = GetBrowserType(j->name);
         if (type != MAX_BROWSERS)
-          browser.name = ASCIIToWide(kBrowserPrettyNames[type]);
+          browser.name = ASCIIToUTF16(kBrowserPrettyNames[type]);
         break;
       }
     }

@@ -4,12 +4,12 @@
 
 #include "chrome/browser/dom_ui/html_dialog_tab_contents_delegate.h"
 
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 
 // Incognito profiles are not long-lived, so we always want to store a
 // non-incognito profile.

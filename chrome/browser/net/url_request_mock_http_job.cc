@@ -21,8 +21,8 @@ static const FilePath::CharType kMockHeaderFileSuffix[] =
 FilePath URLRequestMockHTTPJob::base_path_;
 
 /* static */
-URLRequestJob* URLRequestMockHTTPJob::Factory(URLRequest* request,
-                                              const std::string& scheme) {
+net::URLRequestJob* URLRequestMockHTTPJob::Factory(net::URLRequest* request,
+                                                   const std::string& scheme) {
   return new URLRequestMockHTTPJob(request,
                                    GetOnDiskPath(base_path_, request, scheme));
 }
@@ -56,7 +56,7 @@ GURL URLRequestMockHTTPJob::GetMockViewSourceUrl(const FilePath& path) {
 
 /* static */
 FilePath URLRequestMockHTTPJob::GetOnDiskPath(const FilePath& base_path,
-                                              URLRequest* request,
+                                              net::URLRequest* request,
                                               const std::string& scheme) {
   std::string file_url("file:///");
   file_url += WideToUTF8(base_path.ToWStringHack());
@@ -68,9 +68,9 @@ FilePath URLRequestMockHTTPJob::GetOnDiskPath(const FilePath& base_path,
   return file_path;
 }
 
-URLRequestMockHTTPJob::URLRequestMockHTTPJob(URLRequest* request,
+URLRequestMockHTTPJob::URLRequestMockHTTPJob(net::URLRequest* request,
                                              const FilePath& file_path)
-    : URLRequestFileJob(request, file_path) { }
+    : net::URLRequestFileJob(request, file_path) { }
 
 // Public virtual version.
 void URLRequestMockHTTPJob::GetResponseInfo(net::HttpResponseInfo* info) {
@@ -80,9 +80,9 @@ void URLRequestMockHTTPJob::GetResponseInfo(net::HttpResponseInfo* info) {
 
 bool URLRequestMockHTTPJob::IsRedirectResponse(GURL* location,
                                                int* http_status_code) {
-  // Override the URLRequestFileJob implementation to invoke the default one
-  // based on HttpResponseInfo.
-  return URLRequestJob::IsRedirectResponse(location, http_status_code);
+  // Override the net::URLRequestFileJob implementation to invoke the default
+  // one based on HttpResponseInfo.
+  return net::URLRequestJob::IsRedirectResponse(location, http_status_code);
 }
 
 // Private const version.

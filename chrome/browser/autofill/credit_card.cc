@@ -18,7 +18,7 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_type.h"
 #include "chrome/browser/autofill/field_types.h"
-#include "chrome/browser/guid.h"
+#include "chrome/common/guid.h"
 #ifndef ANDROID
 #include "grit/generated_resources.h"
 #endif
@@ -343,6 +343,10 @@ void CreditCard::SetInfo(const AutoFillType& type, const string16& value) {
   }
 }
 
+const string16 CreditCard::Label() const {
+  return label_;
+}
+
 string16 CreditCard::ObfuscatedNumber() const {
   if (number().empty())
     return string16();  // No CC number, means empty preview.
@@ -389,6 +393,9 @@ string16 CreditCard::LastFourDigits() const {
 }
 
 void CreditCard::operator=(const CreditCard& credit_card) {
+  if (this == &credit_card)
+    return;
+
   number_ = credit_card.number_;
   name_on_card_ = credit_card.name_on_card_;
   type_ = credit_card.type_;

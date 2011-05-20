@@ -207,7 +207,7 @@ class SpdySession : public base::RefCounted<SpdySession>,
     CLOSED
   };
 
-  enum { kDefaultMaxConcurrentStreams = 6 };  // TODO(mbelshe) remove this
+  enum { kDefaultMaxConcurrentStreams = 10 };
 
   struct PendingCreateStream {
     const GURL* url;
@@ -408,9 +408,11 @@ class SpdySession : public base::RefCounted<SpdySession>,
   int streams_pushed_and_claimed_count_;
   int streams_abandoned_count_;
   int frames_received_;
+  int bytes_received_;
   bool sent_settings_;      // Did this session send settings when it started.
   bool received_settings_;  // Did this session receive at least one settings
                             // frame.
+  int stalled_streams_;     // Count of streams that were ever stalled.
 
   // Initial send window size for the session; can be changed by an
   // arriving SETTINGS frame; newly created streams use this value for the

@@ -16,7 +16,7 @@
 #include "chrome/browser/chromeos/notifications/balloon_view_host.h"
 #include "chrome/browser/chromeos/options/network_config_view.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/views/window.h"
 #include "chrome/common/pref_names.h"
@@ -98,7 +98,7 @@ void NetworkMessageObserver::OpenMoreInfoPage(const ListValue* args) {
     return;
   chromeos::NetworkLibrary* lib =
       chromeos::CrosLibrary::Get()->GetNetworkLibrary();
-  chromeos::CellularNetwork* cellular = lib->cellular_network();
+  const chromeos::CellularNetwork* cellular = lib->cellular_network();
   if (!cellular)
     return;
   browser->ShowSingletonTab(GURL(cellular->payment_url()), false);
@@ -132,7 +132,7 @@ void NetworkMessageObserver::OnNetworkManagerChanged(NetworkLibrary* obj) {
       if (wifi->error() == ERROR_BAD_PASSPHRASE ||
           wifi->error() == ERROR_BAD_WEPKEY) {
         // The NetworkConfigView will show the appropriate error message.
-        view = new NetworkConfigView(wifi, true);
+        view = new NetworkConfigView(wifi);
         // There should only be one wifi network that failed to connect.
         // If for some reason, we have more than one failure,
         // we only display the first one. So we break here.

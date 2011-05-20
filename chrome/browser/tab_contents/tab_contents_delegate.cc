@@ -5,10 +5,14 @@
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
 
 #include "chrome/browser/search_engines/template_url.h"
+#include "chrome/common/url_constants.h"
 #include "gfx/rect.h"
 
 std::string TabContentsDelegate::GetNavigationHeaders(const GURL& url) {
   return std::string();
+}
+
+void TabContentsDelegate::LoadProgressChanged(double progress) {
 }
 
 void TabContentsDelegate::DetachContents(TabContents* source) {
@@ -129,6 +133,20 @@ void TabContentsDelegate::ShowPageInfo(Profile* profile,
                                        const GURL& url,
                                        const NavigationEntry::SSLStatus& ssl,
                                        bool show_history) {
+}
+
+void TabContentsDelegate::ViewSourceForTab(TabContents* source,
+                                           const GURL& page_url) {
+  // Fall back implementation based entirely on the view-source scheme.
+  // It suffers from http://crbug.com/523 and that is why browser overrides
+  // it with proper implementation.
+  GURL url = GURL(chrome::kViewSourceScheme + std::string(":") +
+                      page_url.spec());
+  OpenURLFromTab(source,
+                 url,
+                 GURL(),
+                 NEW_FOREGROUND_TAB,
+                 PageTransition::LINK);
 }
 
 bool TabContentsDelegate::PreHandleKeyboardEvent(

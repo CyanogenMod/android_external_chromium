@@ -8,7 +8,6 @@
 #include "base/ref_counted.h"
 #include "base/task.h"
 #include "base/waitable_event.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/history/history.h"
 
 using base::WaitableEvent;
@@ -49,6 +48,10 @@ void HistoryModelWorker::DoWorkAndWaitUntilDone(Callback0::Type* work) {
   scoped_refptr<WorkerTask> task(new WorkerTask(work, &done));
   history_service_->ScheduleDBTask(task.get(), this);
   done.Wait();
+}
+
+ModelSafeGroup HistoryModelWorker::GetModelSafeGroup() {
+  return GROUP_HISTORY;
 }
 
 bool HistoryModelWorker::CurrentThreadIsWorkThread() {

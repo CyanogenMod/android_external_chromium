@@ -6,10 +6,10 @@
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/browser_action_test_util.h"
 #include "chrome/browser/extensions/extension_apitest.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_test_message_listener.h"
 #include "chrome/browser/extensions/user_script_master.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_switches.h"
@@ -86,8 +86,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, IncognitoYesScript) {
 // accidentially create and incognito profile.
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, DontCreateIncognitoProfile) {
   ASSERT_FALSE(browser()->profile()->HasOffTheRecordProfile());
-  ASSERT_TRUE(
-      RunExtensionTestIncognito("incognito/enumerate_tabs")) << message_;
+  ASSERT_TRUE(RunExtensionTestIncognito(
+      "incognito/dont_create_profile")) << message_;
   ASSERT_FALSE(browser()->profile()->HasOffTheRecordProfile());
 }
 

@@ -23,7 +23,7 @@
 #include "chrome/browser/gtk/info_bubble_gtk.h"
 #include "chrome/browser/gtk/menu_gtk.h"
 #include "chrome/browser/gtk/owned_widget_gtk.h"
-#include "chrome/browser/location_bar.h"
+#include "chrome/browser/ui/omnibox/location_bar.h"
 #include "chrome/common/content_settings_types.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
@@ -130,7 +130,7 @@ class LocationBarViewGtk : public AutocompleteEditController,
   virtual LocationBarTesting* GetLocationBarForTesting();
 
   // Implement the LocationBarTesting interface.
-  virtual int PageActionCount() { return page_action_views_.size(); }
+  virtual int PageActionCount();
   virtual int PageActionVisibleCount();
   virtual ExtensionAction* GetPageAction(size_t index);
   virtual ExtensionAction* GetVisiblePageAction(size_t index);

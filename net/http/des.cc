@@ -6,7 +6,10 @@
 
 #include "base/logging.h"
 
-#if defined(USE_NSS)
+#if defined(USE_OPENSSL)
+#include <openssl/des.h>
+#include "base/openssl_util.h"
+#elif defined(USE_NSS)
 #include <nss.h>
 #include <pk11pub.h>
 #include "base/nss_util.h"
@@ -92,10 +95,8 @@ void DESMakeKey(const uint8* raw, uint8* key) {
 #if defined(USE_OPENSSL)
 
 void DESEncrypt(const uint8* key, const uint8* src, uint8* hash) {
-#ifndef ANDROID
   base::EnsureOpenSSLInit();
 
-#endif
   DES_key_schedule ks;
   DES_set_key_unchecked(
       reinterpret_cast<const_DES_cblock*>(const_cast<uint8*>(key)), &ks);

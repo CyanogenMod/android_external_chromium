@@ -213,7 +213,7 @@ class TaskManagerModelObserver {
 };
 
 // The model that the TaskManager is using.
-class TaskManagerModel : public URLRequestJobTracker::JobObserver,
+class TaskManagerModel : public net::URLRequestJobTracker::JobObserver,
                          public base::RefCountedThreadSafe<TaskManagerModel> {
  public:
   explicit TaskManagerModel(TaskManager* task_manager);
@@ -297,13 +297,16 @@ class TaskManagerModel : public URLRequestJobTracker::JobObserver,
   const Extension* GetResourceExtension(int index) const;
 
   // JobObserver methods:
-  void OnJobAdded(net::URLRequestJob* job);
-  void OnJobRemoved(net::URLRequestJob* job);
-  void OnJobDone(net::URLRequestJob* job, const URLRequestStatus& status);
-  void OnJobRedirect(net::URLRequestJob* job,
-                     const GURL& location,
-                     int status_code);
-  void OnBytesRead(net::URLRequestJob* job, const char* buf, int byte_count);
+  virtual void OnJobAdded(net::URLRequestJob* job);
+  virtual void OnJobRemoved(net::URLRequestJob* job);
+  virtual void OnJobDone(net::URLRequestJob* job,
+                         const URLRequestStatus& status);
+  virtual void OnJobRedirect(net::URLRequestJob* job,
+                             const GURL& location,
+                             int status_code);
+  virtual void OnBytesRead(net::URLRequestJob* job,
+                           const char* buf,
+                           int byte_count);
 
   void AddResourceProvider(TaskManager::ResourceProvider* provider);
   void RemoveResourceProvider(TaskManager::ResourceProvider* provider);

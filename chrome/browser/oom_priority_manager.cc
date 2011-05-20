@@ -14,8 +14,8 @@
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/browser/zygote_host_linux.h"
 
 #if !defined(OS_CHROMEOS)
@@ -166,7 +166,7 @@ void OomPriorityManager::DoAdjustOomPriorities(StatsList renderer_stats) {
        iterator != renderer_stats.end(); ++iterator) {
     if (already_seen.find(iterator->renderer_handle) == already_seen.end()) {
       already_seen.insert(iterator->renderer_handle);
-      Singleton<ZygoteHost>::get()->AdjustRendererOOMScore(
+      ZygoteHost::GetInstance()->AdjustRendererOOMScore(
           iterator->renderer_handle,
           static_cast<int>(priority + 0.5f));
       priority += priority_increment;

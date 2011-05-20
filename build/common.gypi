@@ -140,6 +140,9 @@
       # Remoting compilation is enabled by default. Set to 0 to disable.
       'remoting%': 1,
 
+      # Use libjpeg-turbo as the JPEG codec used by Chromium.
+      'use_libjpeg_turbo%': 0,
+
       'library%': '<(library)',
 
       # Variable 'component' is for cases where we would like to build some
@@ -317,7 +320,7 @@
     # Use GConf, the GNOME configuration system.
     'use_gconf%': 1,
 
-    # Use OpenSSL instead of NSS. Currently in development.
+    # Use OpenSSL instead of NSS. Under development: see http://crbug.com/62803
     'use_openssl%': 0,
 
     'conditions': [
@@ -400,6 +403,13 @@
       }, {
         'use_cups%': 0,
       }],
+      # Set the relative path from this file to the GYP file of the JPEG
+      # library used by Chromium.
+      ['use_libjpeg_turbo==1', {
+        'libjpeg_gyp_path': '../third_party/libjpeg_turbo/libjpeg.gyp',
+      }, {
+        'libjpeg_gyp_path': '../third_party/libjpeg/libjpeg.gyp',
+      }],  # use_libjpeg_turbo==1
     ],
 
     # NOTE: When these end up in the Mac bundle, we need to replace '-' for '_'
@@ -541,9 +551,6 @@
               }],
             ],
           }],
-          # Linux gyp (into scons) doesn't like target_conditions?
-          # TODO(???): track down why 'target_conditions' doesn't work
-          # on Linux gyp into scons like it does on Mac gyp into xcodeproj.
           ['OS=="linux"', {
             'cflags': [ '-ftest-coverage',
                         '-fprofile-arcs' ],
@@ -894,73 +901,6 @@
         'ldflags': [
           '-pthread', '-Wl,-z,noexecstack',
         ],
-        'scons_variable_settings': {
-          'LIBPATH': ['$LIB_DIR'],
-          # Linking of large files uses lots of RAM, so serialize links
-          # using the handy flock command from util-linux.
-          'FLOCK_LINK': ['flock', '$TOP_BUILDDIR/linker.lock', '$LINK'],
-          'FLOCK_SHLINK': ['flock', '$TOP_BUILDDIR/linker.lock', '$SHLINK'],
-          'FLOCK_LDMODULE': ['flock', '$TOP_BUILDDIR/linker.lock', '$LDMODULE'],
-
-          # We have several cases where archives depend on each other in
-          # a cyclic fashion.  Since the GNU linker does only a single
-          # pass over the archives we surround the libraries with
-          # --start-group and --end-group (aka -( and -) ). That causes
-          # ld to loop over the group until no more undefined symbols
-          # are found. In an ideal world we would only make groups from
-          # those libraries which we knew to be in cycles. However,
-          # that's tough with SCons, so we bodge it by making all the
-          # archives a group by redefining the linking command here.
-          #
-          # TODO:  investigate whether we still have cycles that
-          # require --{start,end}-group.  There has been a lot of
-          # refactoring since this was first coded, which might have
-          # eliminated the circular dependencies.
-          #
-          # Note:  $_LIBDIRFLAGS comes before ${LINK,SHLINK,LDMODULE}FLAGS
-          # so that we prefer our own built libraries (e.g. -lpng) to
-          # system versions of libraries that pkg-config might turn up.
-          # TODO(sgk): investigate handling this not by re-ordering the
-          # flags this way, but by adding a hook to use the SCons
-          # ParseFlags() option on the output from pkg-config.
-          'LINKCOM': [['$FLOCK_LINK', '-o', '$TARGET',
-                       '$_LIBDIRFLAGS', '$LINKFLAGS', '$SOURCES',
-                       '-Wl,--start-group', '$_LIBFLAGS', '-Wl,--end-group']],
-          'SHLINKCOM': [['$FLOCK_SHLINK', '-o', '$TARGET',
-                         '$_LIBDIRFLAGS', '$SHLINKFLAGS', '$SOURCES',
-                         '-Wl,--start-group', '$_LIBFLAGS', '-Wl,--end-group']],
-          'LDMODULECOM': [['$FLOCK_LDMODULE', '-o', '$TARGET',
-                           '$_LIBDIRFLAGS', '$LDMODULEFLAGS', '$SOURCES',
-                           '-Wl,--start-group', '$_LIBFLAGS', '-Wl,--end-group']],
-          'IMPLICIT_COMMAND_DEPENDENCIES': 0,
-          # -rpath is only used when building with shared libraries.
-          'conditions': [
-            [ 'library=="shared_library"', {
-              'RPATH': '$LIB_DIR',
-            }],
-          ],
-        },
-        'scons_import_variables': [
-          'AS',
-          'CC',
-          'CXX',
-          'LINK',
-        ],
-        'scons_propagate_variables': [
-          'AS',
-          'CC',
-          'CCACHE_DIR',
-          'CXX',
-          'DISTCC_DIR',
-          'DISTCC_HOSTS',
-          'HOME',
-          'INCLUDE_SERVER_ARGS',
-          'INCLUDE_SERVER_PORT',
-          'LINK',
-          'CHROME_BUILD_TYPE',
-          'CHROMIUM_BUILD',
-          'OFFICIAL_BUILD',
-        ],
         'configurations': {
           'Debug_Base': {
             'variables': {
@@ -1168,9 +1108,6 @@
               # http://code.google.com/p/googletest/source/detail?r=446 .
               # TODO(thakis): Use -isystem instead (http://crbug.com/58751 ).
               '-Wno-unnamed-type-template-args',
-              # The integrated assembler chokes on one ffmpeg file.
-              # http://crbug.com/61931
-              '-no-integrated-as',
             ],
             'cflags!': [
               # Clang doesn't seem to know know this flag.
@@ -1186,9 +1123,6 @@
             'cflags': [ '-g' ],
             'defines': ['USE_LINUX_BREAKPAD'],
           }],
-          ['linux_use_seccomp_sandbox==1 and buildtype!="Official"', {
-            'defines': ['USE_SECCOMP_SANDBOX'],
-          }],
           ['library=="shared_library"', {
             # When building with shared libraries, remove the visiblity-hiding
             # flag.
@@ -1198,6 +1132,11 @@
                 # Shared libraries need -fPIC on x86-64 and arm
                 'cflags': ['-fPIC']
               }]
+            ],
+            'ldflags!': [
+              # --as-needed confuses library interdependencies.
+              # See http://code.google.com/p/chromium/issues/detail?id=61430
+              '-Wl,--as-needed',
             ],
           }],
           ['linux_use_heapchecker==1', {
@@ -1503,10 +1442,6 @@
       },
     }],
   ],
-  'scons_settings': {
-    'sconsbuild_dir': '<(DEPTH)/sconsbuild',
-    'tools': ['ar', 'as', 'gcc', 'g++', 'gnulink', 'chromium_builders'],
-  },
   'xcode_settings': {
     # DON'T ADD ANYTHING NEW TO THIS BLOCK UNLESS YOU REALLY REALLY NEED IT!
     # This block adds *project-wide* configuration settings to each project

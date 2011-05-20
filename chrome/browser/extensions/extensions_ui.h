@@ -22,7 +22,7 @@
 
 class DictionaryValue;
 class Extension;
-class ExtensionsService;
+class ExtensionService;
 class FilePath;
 class ListValue;
 class PrefService;
@@ -51,9 +51,7 @@ class ExtensionsUIHTMLSource : public ChromeURLDataManager::DataSource {
   virtual void StartDataRequest(const std::string& path,
                                 bool is_off_the_record,
                                 int request_id);
-  virtual std::string GetMimeType(const std::string&) const {
-    return "text/html";
-  }
+  virtual std::string GetMimeType(const std::string&) const;
 
  private:
   ~ExtensionsUIHTMLSource() {}
@@ -104,7 +102,7 @@ class ExtensionsDOMHandler
     ExtensionsDOMHandler* handler_;
   };
 
-  explicit ExtensionsDOMHandler(ExtensionsService* extension_service);
+  explicit ExtensionsDOMHandler(ExtensionService* extension_service);
   virtual ~ExtensionsDOMHandler();
 
   // DOMMessageHandler implementation.
@@ -113,7 +111,7 @@ class ExtensionsDOMHandler
   // Extension Detail JSON Struct for page. (static for ease of testing).
   // Note: service can be NULL in unit tests.
   static DictionaryValue* CreateExtensionDetailValue(
-      ExtensionsService* service,
+      ExtensionService* service,
       const Extension* extension,
       const std::vector<ExtensionPage>& pages,
       bool enabled);
@@ -190,9 +188,7 @@ class ExtensionsDOMHandler
   virtual void FileSelected(const FilePath& path,
                             int index, void* params);
   virtual void MultiFilesSelected(
-    const std::vector<FilePath>& files, void* params) {
-    NOTREACHED();
-  }
+      const std::vector<FilePath>& files, void* params);
   virtual void FileSelectionCanceled(void* params) {}
 
   // NotificationObserver
@@ -227,7 +223,7 @@ class ExtensionsDOMHandler
   ExtensionInstallUI* GetExtensionInstallUI();
 
   // Our model.
-  scoped_refptr<ExtensionsService> extensions_service_;
+  scoped_refptr<ExtensionService> extensions_service_;
 
   // Used to pick the directory when loading an extension.
   scoped_refptr<SelectFileDialog> load_extension_dialog_;

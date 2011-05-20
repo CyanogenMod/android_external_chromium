@@ -21,7 +21,6 @@
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/app_modal_dialog_queue.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
 #include "chrome/browser/browser_list.h"
@@ -30,7 +29,6 @@
 #include "chrome/browser/dom_ui/bug_report_ui.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_manager.h"
-#include "chrome/browser/find_bar_controller.h"
 #include "chrome/browser/gtk/about_chrome_dialog.h"
 #include "chrome/browser/gtk/accelerators_gtk.h"
 #include "chrome/browser/gtk/bookmark_bar_gtk.h"
@@ -65,17 +63,19 @@
 #include "chrome/browser/gtk/task_manager_gtk.h"
 #include "chrome/browser/gtk/theme_install_bubble_view_gtk.h"
 #include "chrome/browser/gtk/update_recommended_dialog.h"
-#include "chrome/browser/location_bar.h"
 #include "chrome/browser/page_info_window.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/ui/app_modal_dialogs/app_modal_dialog_queue.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/window_sizer.h"
+#include "chrome/browser/ui/find_bar/find_bar_controller.h"
+#include "chrome/browser/ui/omnibox/location_bar.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
+#include "chrome/browser/ui/window_sizer.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/native_web_keyboard_event.h"
 #include "chrome/common/notification_service.h"
@@ -283,26 +283,6 @@ void SetWindowSize(GtkWindow* window, const gfx::Size& size) {
 GQuark GetBrowserWindowQuarkKey() {
   static GQuark quark = g_quark_from_static_string(kBrowserWindowKey);
   return quark;
-}
-
-// Checks if a reserved accelerator key should be processed immediately, rather
-// than being sent to the renderer first.
-bool ShouldExecuteReservedCommandImmediately(
-    const NativeWebKeyboardEvent& event, int command_id) {
-  // IDC_EXIT is now only bound to Ctrl+Shift+q, so we should always execute it
-  // immediately.
-  if (command_id == IDC_EXIT)
-    return true;
-
-  // Keys like Ctrl+w, Ctrl+n, etc. should always be sent to the renderer first,
-  // otherwise some web apps or the Emacs key bindings may not work correctly.
-  int vkey = event.windowsKeyCode;
-  if ((vkey >= app::VKEY_0 && vkey <= app::VKEY_9) ||
-      (vkey >= app::VKEY_A && vkey <= app::VKEY_Z))
-    return false;
-
-  // All other reserved accelerators should be processed immediately.
-  return true;
 }
 
 }  // namespace
@@ -663,7 +643,7 @@ void BrowserWindowGtk::Close() {
   if (accel_group_) {
     // Disconnecting the keys we connected to our accelerator group frees the
     // closures allocated in ConnectAccelerators.
-    AcceleratorsGtk* accelerators = Singleton<AcceleratorsGtk>().get();
+    AcceleratorsGtk* accelerators = AcceleratorsGtk::GetInstance();
     for (AcceleratorsGtk::const_iterator iter = accelerators->begin();
          iter != accelerators->end(); ++iter) {
       gtk_accel_group_disconnect_key(accel_group_,
@@ -874,6 +854,11 @@ bool BrowserWindowGtk::IsBookmarkBarAnimating() const {
   return false;
 }
 
+bool BrowserWindowGtk::IsTabStripEditable() const {
+  return !tabstrip()->IsDragSessionActive() &&
+      !tabstrip()->IsActiveDropTarget();
+}
+
 bool BrowserWindowGtk::IsToolbarVisible() const {
   return IsToolbarSupported();
 }
@@ -1052,11 +1037,9 @@ bool BrowserWindowGtk::PreHandleKeyboardEvent(
   if (id == -1)
     return false;
 
-  if (browser_->IsReservedCommand(id) &&
-      ShouldExecuteReservedCommandImmediately(event, id)) {
-    // Executing the command may cause |this| object to be destroyed.
-    return ExecuteBrowserCommand(id);
-  }
+  // Executing the command may cause |this| object to be destroyed.
+  if (browser_->IsReservedCommand(id) && !event.match_edit_command)
+    return browser_->ExecuteCommandIfEnabled(id);
 
   // The |event| is a keyboard shortcut.
   DCHECK(is_keyboard_shortcut != NULL);
@@ -1081,7 +1064,7 @@ void BrowserWindowGtk::HandleKeyboardEvent(
   // gtk_window_activate_key() takes care of it automatically.
   int id = GetCustomCommandId(os_event);
   if (id != -1)
-    ExecuteBrowserCommand(id);
+    browser_->ExecuteCommandIfEnabled(id);
   else
     gtk_window_activate_key(window_, os_event);
 }
@@ -1218,8 +1201,8 @@ void BrowserWindowGtk::ActiveWindowChanged(GdkWindow* active_window) {
   if (is_active && changed) {
     // If there's an app modal dialog (e.g., JS alert), try to redirect
     // the user's attention to the window owning the dialog.
-    if (Singleton<AppModalDialogQueue>()->HasActiveDialog()) {
-      Singleton<AppModalDialogQueue>()->ActivateModalDialog();
+    if (AppModalDialogQueue::GetInstance()->HasActiveDialog()) {
+      AppModalDialogQueue::GetInstance()->ActivateModalDialog();
       return;
     }
   }
@@ -1300,6 +1283,10 @@ void BrowserWindowGtk::DestroyBrowser() {
 
 void BrowserWindowGtk::OnBoundsChanged(const gfx::Rect& bounds) {
   GetLocationBar()->location_entry()->ClosePopup();
+
+  TabContents* tab_contents = GetDisplayedTabContents();
+  if (tab_contents)
+    tab_contents->WindowMoveOrResizeStarted();
 
   if (bounds_.size() != bounds.size())
     OnSizeChanged(bounds.width(), bounds.height());
@@ -1735,7 +1722,7 @@ void BrowserWindowGtk::ConnectAccelerators() {
   accel_group_ = gtk_accel_group_new();
   gtk_window_add_accel_group(window_, accel_group_);
 
-  AcceleratorsGtk* accelerators = Singleton<AcceleratorsGtk>().get();
+  AcceleratorsGtk* accelerators = AcceleratorsGtk::GetInstance();
   for (AcceleratorsGtk::const_iterator iter = accelerators->begin();
        iter != accelerators->end(); ++iter) {
     gtk_accel_group_connect(
@@ -1869,7 +1856,7 @@ gboolean BrowserWindowGtk::OnGtkAccelerator(GtkAccelGroup* accel_group,
   BrowserWindowGtk* browser_window =
       GetBrowserWindowForNativeWindow(GTK_WINDOW(acceleratable));
   DCHECK(browser_window != NULL);
-  return browser_window->ExecuteBrowserCommand(command_id);
+  return browser_window->browser()->ExecuteCommandIfEnabled(command_id);
 }
 
 // Let the focused widget have first crack at the key event so we don't
@@ -1886,7 +1873,7 @@ gboolean BrowserWindowGtk::OnKeyPress(GtkWidget* widget, GdkEventKey* event) {
     if (command_id == -1)
       command_id = GetPreHandleCommandId(event);
 
-    if (command_id != -1 && ExecuteBrowserCommand(command_id))
+    if (command_id != -1 && browser_->ExecuteCommandIfEnabled(command_id))
       return TRUE;
 
     // Propagate the key event to child widget first, so we don't override their
@@ -2085,14 +2072,6 @@ gboolean BrowserWindowGtk::OnFocusIn(GtkWidget* widget,
 gboolean BrowserWindowGtk::OnFocusOut(GtkWidget* widget,
                                       GdkEventFocus* event) {
   return FALSE;
-}
-
-bool BrowserWindowGtk::ExecuteBrowserCommand(int id) {
-  if (browser_->command_updater()->IsCommandEnabled(id)) {
-    browser_->ExecuteCommand(id);
-    return true;
-  }
-  return false;
 }
 
 void BrowserWindowGtk::ShowSupportedWindowFeatures() {

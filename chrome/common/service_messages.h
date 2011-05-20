@@ -5,10 +5,22 @@
 #ifndef CHROME_COMMON_SERVICE_MESSAGES_H_
 #define CHROME_COMMON_SERVICE_MESSAGES_H_
 
-#include "ipc/ipc_message_utils.h"
+#include "chrome/common/service_messages_internal.h"
 
-#define MESSAGES_INTERNAL_FILE "chrome/common/service_messages_internal.h"
-#include "ipc/ipc_message_macros.h"
+namespace remoting {
+struct ChromotingHostInfo;
+}  // namespace remoting
+
+namespace IPC {
+
+template <>
+struct ParamTraits<remoting::ChromotingHostInfo> {
+  typedef remoting::ChromotingHostInfo param_type;
+  static void Write(Message* m, const param_type& p);
+  static bool Read(const Message* m, void** iter, param_type* p);
+  static void Log(const param_type& p, std::string* l);
+};
+
+}  // namespace IPC
 
 #endif  // CHROME_COMMON_SERVICE_MESSAGES_H_
-

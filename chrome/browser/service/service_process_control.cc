@@ -122,14 +122,14 @@ void ServiceProcessControl::ConnectInternal() {
   // TODO(hclam): Handle error connecting to channel.
   const std::string channel_id = GetServiceProcessChannelName();
   channel_.reset(
-      new IPC::SyncChannel(channel_id, IPC::Channel::MODE_CLIENT, this, NULL,
+      new IPC::SyncChannel(channel_id, IPC::Channel::MODE_CLIENT, this,
                            io_thread->message_loop(), true,
                            g_browser_process->shutdown_event()));
   channel_->set_sync_messages_with_no_timeout_allowed(false);
 
   // We just established a channel with the service process. Notify it if an
   // upgrade is available.
-  if (Singleton<UpgradeDetector>::get()->notify_upgrade()) {
+  if (UpgradeDetector::GetInstance()->notify_upgrade()) {
     Send(new ServiceMsg_UpdateAvailable);
   } else {
     if (registrar_.IsEmpty())
@@ -238,12 +238,17 @@ void ServiceProcessControl::OnProcessLaunched() {
   launcher_ = NULL;
 }
 
-void ServiceProcessControl::OnMessageReceived(const IPC::Message& message) {
+bool ServiceProcessControl::OnMessageReceived(const IPC::Message& message) {
+  bool handled = true;;
   IPC_BEGIN_MESSAGE_MAP(ServiceProcessControl, message)
-      IPC_MESSAGE_HANDLER(ServiceHostMsg_GoodDay, OnGoodDay)
-      IPC_MESSAGE_HANDLER(ServiceHostMsg_CloudPrintProxy_IsEnabled,
-                          OnCloudPrintProxyIsEnabled)
+    IPC_MESSAGE_HANDLER(ServiceHostMsg_GoodDay, OnGoodDay)
+    IPC_MESSAGE_HANDLER(ServiceHostMsg_CloudPrintProxy_IsEnabled,
+                        OnCloudPrintProxyIsEnabled)
+    IPC_MESSAGE_HANDLER(ServiceHostMsg_RemotingHost_HostInfo,
+                         OnRemotingHostInfo)
+    IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
+  return handled;
 }
 
 void ServiceProcessControl::OnChannelConnected(int32 peer_pid) {
@@ -273,7 +278,6 @@ void ServiceProcessControl::Observe(NotificationType type,
   }
 }
 
-
 void ServiceProcessControl::OnGoodDay() {
   if (!message_handler_)
     return;
@@ -290,6 +294,22 @@ void ServiceProcessControl::OnCloudPrintProxyIsEnabled(bool enabled,
   }
 }
 
+void ServiceProcessControl::OnRemotingHostInfo(
+    remoting::ChromotingHostInfo host_info) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  if (remoting_host_status_callback_ != NULL) {
+    remoting_host_status_callback_->Run(host_info);
+    remoting_host_status_callback_.reset();
+  }
+}
+
+bool ServiceProcessControl::GetCloudPrintProxyStatus(
+    Callback2<bool, std::string>::Type* cloud_print_status_callback) {
+  DCHECK(cloud_print_status_callback);
+  cloud_print_status_callback_.reset(cloud_print_status_callback);
+  return Send(new ServiceMsg_IsCloudPrintProxyEnabled);
+}
+
 bool ServiceProcessControl::SendHello() {
   return Send(new ServiceMsg_Hello());
 }
@@ -300,20 +320,26 @@ bool ServiceProcessControl::Shutdown() {
   return ret;
 }
 
-bool ServiceProcessControl::EnableRemotingWithTokens(
+bool ServiceProcessControl::SetRemotingHostCredentials(
     const std::string& user,
-    const std::string& remoting_token,
     const std::string& talk_token) {
   return Send(
-      new ServiceMsg_EnableRemotingWithTokens(user, remoting_token,
-                                              talk_token));
+      new ServiceMsg_SetRemotingHostCredentials(user, talk_token));
 }
 
-bool ServiceProcessControl::GetCloudPrintProxyStatus(
-    Callback2<bool, std::string>::Type* cloud_print_status_callback) {
-  DCHECK(cloud_print_status_callback);
-  cloud_print_status_callback_.reset(cloud_print_status_callback);
-  return Send(new ServiceMsg_IsCloudPrintProxyEnabled);
+bool ServiceProcessControl::EnableRemotingHost() {
+  return Send(new ServiceMsg_EnableRemotingHost());
+}
+
+bool ServiceProcessControl::DisableRemotingHost() {
+  return Send(new ServiceMsg_DisableRemotingHost());
+}
+
+bool ServiceProcessControl::GetRemotingHostStatus(
+    GetRemotingHostStatusCallback* status_callback) {
+  DCHECK(status_callback);
+  remoting_host_status_callback_.reset(status_callback);
+  return Send(new ServiceMsg_GetRemotingHostInfo);
 }
 
 DISABLE_RUNNABLE_METHOD_REFCOUNT(ServiceProcessControl);

@@ -35,6 +35,7 @@ function getAppsCallback(data) {
 
   // The "Create App Shortcut" menu option.
   $('apps-create-shortcut-command-menu-item').style.display =
+      $('apps-create-shortcut-command-separator').style.display =
       (data.disableCreateAppShortcut ? 'none' : 'inline');
 
   appsMiniview.textContent = '';
@@ -77,13 +78,10 @@ function getAppsCallback(data) {
     document.documentElement.classList.add('apps-promo-visible');
   else
     document.documentElement.classList.remove('apps-promo-visible');
-
-  var appsPromoLink = $('apps-promo-link');
-  if (appsPromoLink)
-    appsPromoLink.setAttribute('ping', appsPromoPing);
+  $('apps-promo-link').setAttribute('ping', appsPromoPing);
   maybeDoneLoading();
 
-  if (isDoneLoading()) {
+  if (data.apps.length > 0 && isDoneLoading()) {
     if (!apps.showPromo && data.apps.length >= MAX_APPS_PER_ROW[layoutMode])
       webStoreEntry.classList.add('loner');
     else

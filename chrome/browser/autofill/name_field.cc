@@ -4,7 +4,9 @@
 
 #include "chrome/browser/autofill/name_field.h"
 
+#ifdef ANDROID
 #include "app/l10n_util.h"
+#endif
 #include "base/logging.h"
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
@@ -23,6 +25,12 @@ NameField* NameField::Parse(std::vector<AutoFillField*>::const_iterator* iter,
   return field;
 }
 
+bool FullNameField::GetFieldInfo(FieldTypeMap* field_type_map) const {
+  bool ok = Add(field_type_map, field_, AutoFillType(NAME_FULL));
+  DCHECK(ok);
+  return true;
+}
+
 FullNameField* FullNameField::Parse(
     std::vector<AutoFillField*>::const_iterator* iter) {
   // Exclude labels containing the string "username", which typically
@@ -39,6 +47,10 @@ FullNameField* FullNameField::Parse(
     return new FullNameField(field);
 
   return NULL;
+}
+
+FullNameField::FullNameField(AutoFillField* field)
+    : field_(field) {
 }
 
 FirstLastNameField* FirstLastNameField::Parse1(

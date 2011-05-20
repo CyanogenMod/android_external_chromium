@@ -13,7 +13,7 @@
 #include "chrome/browser/autofill/autofill_metrics.h"
 #include "chrome/browser/autofill/autofill_xml_parser.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "net/http/http_response_headers.h"
 
@@ -67,7 +67,8 @@ void AutoFillDownloadManager::SetObserver(
 }
 
 bool AutoFillDownloadManager::StartQueryRequest(
-    const ScopedVector<FormStructure>& forms) {
+    const ScopedVector<FormStructure>& forms,
+    const AutoFillMetrics& metric_logger) {
   if (next_query_request_ > base::Time::Now()) {
     // We are in back-off mode: do not do the request.
     return false;
@@ -79,7 +80,7 @@ bool AutoFillDownloadManager::StartQueryRequest(
     return false;
 
   request_data.request_type = AutoFillDownloadManager::REQUEST_QUERY;
-  autofill_metrics::LogServerQueryMetric(autofill_metrics::QUERY_SENT);
+  metric_logger.Log(AutoFillMetrics::QUERY_SENT);
 
   return StartRequest(form_xml, request_data);
 }

@@ -206,7 +206,7 @@ void DERCache_free(void* parent, void* ptr, CRYPTO_EX_DATA* ad, int idx,
 
 class X509InitSingleton {
  public:
-  static X509InitSingleton* Get() {
+  static X509InitSingleton* GetInstance() {
     // We allow the X509 store to leak, because it is used from a non-joinable
     // worker that is not stopped on shutdown, hence may still be using
     // OpenSSL library after the AtExit runner has completed.
@@ -216,16 +216,20 @@ class X509InitSingleton {
   int der_cache_ex_index() const { return der_cache_ex_index_; }
   X509_STORE* store() const { return store_.get(); }
 
- private:
-  friend struct DefaultSingletonTraits<X509InitSingleton>;
-  X509InitSingleton()
-      :   der_cache_ex_index_((base::EnsureOpenSSLInit(),
-                               X509_get_ex_new_index(0, 0, 0, 0,
-                                                     DERCache_free))),
-        store_(X509_STORE_new()) {
-    DCHECK_NE(der_cache_ex_index_, -1);
+  void ResetCertStore() {
+    store_.reset(X509_STORE_new());
+    DCHECK(store_.get());
     X509_STORE_set_default_paths(store_.get());
     // TODO(joth): Enable CRL (see X509_STORE_set_flags(X509_V_FLAG_CRL_CHECK)).
+  }
+
+ private:
+  friend struct DefaultSingletonTraits<X509InitSingleton>;
+  X509InitSingleton() {
+    base::EnsureOpenSSLInit();
+    der_cache_ex_index_ = X509_get_ex_new_index(0, 0, 0, 0, DERCache_free);
+    DCHECK_NE(der_cache_ex_index_, -1);
+    ResetCertStore();
   }
 
   int der_cache_ex_index_;
@@ -259,7 +263,8 @@ DERCache* SetDERCache(X509Certificate::OSCertHandle cert,
 // not free it).
 bool GetDERAndCacheIfNeeded(X509Certificate::OSCertHandle cert,
                             DERCache* der_cache) {
-  int x509_der_cache_index = X509InitSingleton::Get()->der_cache_ex_index();
+  int x509_der_cache_index =
+      X509InitSingleton::GetInstance()->der_cache_ex_index();
 
   // Re-encoding the DER data via i2d_X509 is an expensive operation, but it's
   // necessary for comparing two certificates. We re-encode at most once per
@@ -309,6 +314,11 @@ void X509Certificate::Initialize() {
   ParsePrincipal(cert_handle_, X509_get_issuer_name(cert_handle_), &issuer_);
   nxou::ParseDate(X509_get_notBefore(cert_handle_), &valid_start_);
   nxou::ParseDate(X509_get_notAfter(cert_handle_), &valid_expiry_);
+}
+
+// static
+void X509Certificate::ResetCertStore() {
+  X509InitSingleton::GetInstance()->ResetCertStore();
 }
 
 SHA1Fingerprint X509Certificate::CalculateFingerprint(OSCertHandle cert) {
@@ -372,6 +382,16 @@ X509Certificate* X509Certificate::CreateFromPickle(const Pickle& pickle,
   return CreateFromBytes(data, length);
 }
 
+// static
+X509Certificate* X509Certificate::CreateSelfSigned(
+    base::RSAPrivateKey* key,
+    const std::string& subject,
+    uint32 serial_number,
+    base::TimeDelta valid_duration) {
+  // TODO(port): Implement.
+  return NULL;
+}
+
 void X509Certificate::Persist(Pickle* pickle) {
   DERCache der_cache;
   if (!GetDERAndCacheIfNeeded(cert_handle_, &der_cache))
@@ -392,7 +412,7 @@ void X509Certificate::GetDNSNames(std::vector<std::string>* dns_names) const {
 
 // static
 X509_STORE* X509Certificate::cert_store() {
-  return X509InitSingleton::Get()->store();
+  return X509InitSingleton::GetInstance()->store();
 }
 
 #ifndef ANDROID
@@ -426,19 +446,26 @@ int X509Certificate::Verify(const std::string& hostname,
                                cert_handle_, intermediates.get());
   CHECK_EQ(1, rv);
 
-  if (X509_verify_cert(ctx.get()) == 1) {
-    return OK;
+  if (X509_verify_cert(ctx.get()) != 1) {
+    int x509_error = X509_STORE_CTX_get_error(ctx.get());
+    int cert_status = MapCertErrorToCertStatus(x509_error);
+    LOG(ERROR) << "X509 Verification error "
+        << X509_verify_cert_error_string(x509_error)
+        << " : " << x509_error
+        << " : " << X509_STORE_CTX_get_error_depth(ctx.get())
+        << " : " << cert_status;
+    verify_result->cert_status |= cert_status;
   }
 
-  int x509_error = X509_STORE_CTX_get_error(ctx.get());
-  int cert_status = MapCertErrorToCertStatus(x509_error);
-  LOG(ERROR) << "X509 Verification error "
-      << X509_verify_cert_error_string(x509_error)
-      << " : " << x509_error
-      << " : " << X509_STORE_CTX_get_error_depth(ctx.get())
-      << " : " << cert_status;
-  verify_result->cert_status |= cert_status;
-  return MapCertStatusToNetError(verify_result->cert_status);
+  if (IsCertStatusError(verify_result->cert_status))
+    return MapCertStatusToNetError(verify_result->cert_status);
+
+  return OK;
+}
+
+bool X509Certificate::GetDEREncoded(std::string* encoded) {
+  // TODO(port): Implement.
+  return false;
 }
 #endif
 

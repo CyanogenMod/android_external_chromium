@@ -11,11 +11,6 @@ namespace net {
 SSLCertRequestInfo::SSLCertRequestInfo() {
 }
 
-void SSLCertRequestInfo::Reset() {
-  host_and_port.clear();
-  client_certs.clear();
-}
-
 SSLCertRequestInfo::~SSLCertRequestInfo() {
 }
 

@@ -5,20 +5,23 @@
 #include "chrome/browser/background_application_list_model.h"
 
 #include <algorithm>
+#include <set>
 
 #include "app/l10n_util_collator.h"
 #include "base/stl_util-inl.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/background_mode_manager.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/extension_prefs.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/image_loading_tracker.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_resource.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/notification_details.h"
+#include "chrome/common/notification_source.h"
 #include "chrome/common/pref_names.h"
 
 class ExtensionNameComparator {
@@ -67,7 +70,7 @@ class BackgroundApplicationListModel::Application
 };
 
 namespace {
-void GetServiceApplications(ExtensionsService* service,
+void GetServiceApplications(ExtensionService* service,
                             ExtensionList* applications_result) {
   const ExtensionList* extensions = service->extensions();
 
@@ -150,11 +153,11 @@ BackgroundApplicationListModel::BackgroundApplicationListModel(Profile* profile)
                  NotificationType::EXTENSION_UNLOADED,
                  Source<Profile>(profile));
   registrar_.Add(this,
-                 NotificationType::EXTENSION_UNLOADED_DISABLED,
-                 Source<Profile>(profile));
-  registrar_.Add(this,
                  NotificationType::EXTENSIONS_READY,
                  Source<Profile>(profile));
+  ExtensionService* service = profile->GetExtensionService();
+  if (service && service->is_ready())
+    Update();
 }
 
 void BackgroundApplicationListModel::AddObserver(Observer* observer) {
@@ -166,6 +169,13 @@ void BackgroundApplicationListModel::AssociateApplicationData(
   DCHECK(IsBackgroundApp(*extension));
   Application* application = FindApplication(extension);
   if (!application) {
+    // App position is used as a dynamic command and so must be less than any
+    // predefined command id.
+    if (applications_.size() >= IDC_MinimumLabelValue) {
+      LOG(ERROR) << "Background application limit of " << IDC_MinimumLabelValue
+                 << " exceeded.  Ignoring.";
+      return;
+    }
     application = new Application(this, extension);
     applications_[extension->id()] = application;
     application->RequestIcon(Extension::EXTENSION_ICON_BITTY);
@@ -239,7 +249,7 @@ void BackgroundApplicationListModel::Observe(
     Update();
     return;
   }
-  ExtensionsService* service = profile_->GetExtensionsService();
+  ExtensionService* service = profile_->GetExtensionService();
   if (!service || !service->is_ready())
     return;
 
@@ -248,9 +258,7 @@ void BackgroundApplicationListModel::Observe(
       OnExtensionLoaded(Details<Extension>(details).ptr());
       break;
     case NotificationType::EXTENSION_UNLOADED:
-      // Handle extension unload uniformly, falling through to next case.
-    case NotificationType::EXTENSION_UNLOADED_DISABLED:
-      OnExtensionUnloaded(Details<Extension>(details).ptr());
+      OnExtensionUnloaded(Details<UnloadedExtensionInfo>(details)->extension);
       break;
     default:
       NOTREACHED() << "Received unexpected notification";
@@ -270,7 +278,8 @@ void BackgroundApplicationListModel::OnExtensionLoaded(Extension* extension) {
   Update();
 }
 
-void BackgroundApplicationListModel::OnExtensionUnloaded(Extension* extension) {
+void BackgroundApplicationListModel::OnExtensionUnloaded(
+    const Extension* extension) {
   if (!IsBackgroundApp(*extension))
     return;
   Update();
@@ -286,7 +295,7 @@ void BackgroundApplicationListModel::RemoveObserver(Observer* observer) {
 // differs from the old list, it generates OnApplicationListChanged events for
 // each observer.
 void BackgroundApplicationListModel::Update() {
-  ExtensionsService* service = profile_->GetExtensionsService();
+  ExtensionService* service = profile_->GetExtensionService();
 
   // Discover current background applications, compare with previous list, which
   // is consistently sorted, and notify observers if they differ.

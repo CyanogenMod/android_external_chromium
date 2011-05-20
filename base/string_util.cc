@@ -38,6 +38,10 @@ struct EmptyStrings {
   const std::string s;
   const std::wstring ws;
   const string16 s16;
+
+  static EmptyStrings* GetInstance() {
+    return Singleton<EmptyStrings>::get();
+  }
 };
 
 // Used by ReplaceStringPlaceholders to track the position in the string of
@@ -102,15 +106,15 @@ bool IsWprintfFormatPortable(const wchar_t* format) {
 
 
 const std::string& EmptyString() {
-  return Singleton<EmptyStrings>::get()->s;
+  return EmptyStrings::GetInstance()->s;
 }
 
 const std::wstring& EmptyWString() {
-  return Singleton<EmptyStrings>::get()->ws;
+  return EmptyStrings::GetInstance()->ws;
 }
 
 const string16& EmptyString16() {
-  return Singleton<EmptyStrings>::get()->s16;
+  return EmptyStrings::GetInstance()->s16;
 }
 
 #define WHITESPACE_UNICODE \
@@ -1093,41 +1097,4 @@ size_t base::strlcpy(char* dst, const char* src, size_t dst_size) {
 }
 size_t base::wcslcpy(wchar_t* dst, const wchar_t* src, size_t dst_size) {
   return lcpyT<wchar_t>(dst, src, dst_size);
-}
-
-bool ElideString(const std::wstring& input, int max_len, std::wstring* output) {
-  DCHECK(max_len >= 0);
-  if (static_cast<int>(input.length()) <= max_len) {
-    output->assign(input);
-    return false;
-  }
-
-  switch (max_len) {
-    case 0:
-      output->clear();
-      break;
-    case 1:
-      output->assign(input.substr(0, 1));
-      break;
-    case 2:
-      output->assign(input.substr(0, 2));
-      break;
-    case 3:
-      output->assign(input.substr(0, 1) + L"." +
-                     input.substr(input.length() - 1));
-      break;
-    case 4:
-      output->assign(input.substr(0, 1) + L".." +
-                     input.substr(input.length() - 1));
-      break;
-    default: {
-      int rstr_len = (max_len - 3) / 2;
-      int lstr_len = rstr_len + ((max_len - 3) % 2);
-      output->assign(input.substr(0, lstr_len) + L"..." +
-                     input.substr(input.length() - rstr_len));
-      break;
-    }
-  }
-
-  return true;
 }

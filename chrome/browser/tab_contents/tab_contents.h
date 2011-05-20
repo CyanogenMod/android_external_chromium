@@ -9,7 +9,7 @@
 #ifdef ANDROID
 #include "android/autofill/profile_android.h"
 #include "base/scoped_ptr.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/autofill/autofill_host.h"
 
 // Autofill does not need the entire TabContents class, just
@@ -48,14 +48,10 @@ private:
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
 #include "base/scoped_ptr.h"
-#include "chrome/browser/cancelable_request.h"
 #include "chrome/browser/dom_ui/dom_ui_factory.h"
 #include "chrome/browser/download/save_package.h"
 #include "chrome/browser/extensions/image_loading_tracker.h"
 #include "chrome/browser/fav_icon_helper.h"
-#include "chrome/browser/find_bar_controller.h"
-#include "chrome/browser/find_notification_details.h"
-#include "chrome/browser/js_modal_dialog.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/tab_contents/constrained_window.h"
@@ -65,6 +61,9 @@ private:
 #include "chrome/browser/tab_contents/page_navigator.h"
 #include "chrome/browser/tab_contents/render_view_host_manager.h"
 #include "chrome/browser/tab_contents/tab_specific_content_settings.h"
+#include "chrome/browser/ui/app_modal_dialogs/js_modal_dialog.h"
+#include "chrome/browser/ui/find_bar/find_bar_controller.h"
+#include "chrome/browser/ui/find_bar/find_notification_details.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/property_bag.h"
 #include "chrome/common/renderer_preferences.h"
@@ -105,6 +104,7 @@ class LoadNotificationDetails;
 class OmniboxSearchHint;
 class PluginInstaller;
 class Profile;
+class PrerenderManager;
 struct RendererPreferences;
 class RenderViewHost;
 class SessionStorageNamespace;
@@ -342,8 +342,14 @@ class TabContents : public PageNavigator,
 
   // Indicates whether this tab should be considered crashed. The setter will
   // also notify the delegate when the flag is changed.
-  bool is_crashed() const { return is_crashed_; }
-  void SetIsCrashed(bool state);
+  bool is_crashed() const {
+    return (crashed_status_ == base::TERMINATION_STATUS_PROCESS_CRASHED ||
+            crashed_status_ == base::TERMINATION_STATUS_ABNORMAL_TERMINATION ||
+            crashed_status_ == base::TERMINATION_STATUS_PROCESS_WAS_KILLED);
+  }
+  base::TerminationStatus crashed_status() const { return crashed_status_; }
+  int crashed_error_code() const { return crashed_error_code_; }
+  void SetIsCrashed(base::TerminationStatus status, int error_code);
 
   // Call this after updating a page action to notify clients about the changes.
   void PageActionStateChanged();
@@ -390,6 +396,11 @@ class TabContents : public PageNavigator,
   RenderViewHostManager* render_manager() { return &render_manager_; }
 #endif
 
+  // In the underlying RenderViewHostManager, swaps in the provided
+  // RenderViewHost to replace the current RenderViewHost.  The current RVH
+  // will be shutdown and ultimately deleted.
+  void SwapInRenderViewHost(RenderViewHost* rvh);
+
   // Commands ------------------------------------------------------------------
 
   // Implementation of PageNavigator.
@@ -425,6 +436,9 @@ class TabContents : public PageNavigator,
   void ShowPageInfo(const GURL& url,
                     const NavigationEntry::SSLStatus& ssl,
                     bool show_history);
+
+  // Saves the favicon for the current page.
+  void SaveFavicon();
 
   // Window management ---------------------------------------------------------
 
@@ -495,6 +509,9 @@ class TabContents : public PageNavigator,
 
   // Focuses the location bar.
   virtual void SetFocusToLocationBar(bool select_all);
+
+  // Creates a view and sets the size for the specified RVH.
+  virtual void CreateViewAndSetSizeForRVH(RenderViewHost* rvh);
 
   // Infobars ------------------------------------------------------------------
 
@@ -756,8 +773,12 @@ class TabContents : public PageNavigator,
   // Shows a fade effect over this tab contents. Repeated calls will be ignored
   // until the fade is canceled. If |animate| is true the fade should animate.
   void FadeForInstant(bool animate);
+
   // Immediately removes the fade.
   void CancelInstantFade();
+
+  // Opens view-source tab for this contents.
+  void ViewSource();
 
   // Gets the minimum/maximum zoom percent.
   int minimum_zoom_percent() const { return minimum_zoom_percent_; }
@@ -793,6 +814,9 @@ class TabContents : public PageNavigator,
 
   // Used to access the CreateHistoryAddPageArgs member function.
   friend class ExternalTabContainer;
+
+  // Used to access RVH Delegates.
+  friend class PrerenderManager;
 
   // Changes the IsLoading state and notifies delegate as needed
   // |details| is used to provide details on the load that just finished
@@ -913,8 +937,8 @@ class TabContents : public PageNavigator,
   virtual void OnDidGetApplicationInfo(int32 page_id,
                                        const WebApplicationInfo& info);
   virtual void OnInstallApplication(const WebApplicationInfo& info);
-  virtual void OnDisabledOutdatedPlugin(const string16& name,
-                                        const GURL& update_url);
+  virtual void OnBlockedOutdatedPlugin(const string16& name,
+                                       const GURL& update_url);
   virtual void OnPageContents(const GURL& url,
                               int renderer_process_id,
                               int32 page_id,
@@ -931,8 +955,9 @@ class TabContents : public PageNavigator,
 
   // RenderViewHostDelegate::Resource implementation.
   virtual void DidStartProvisionalLoadForFrame(RenderViewHost* render_view_host,
-                                               long long frame_id,
+                                               int64 frame_id,
                                                bool is_main_frame,
+                                               bool is_error_page,
                                                const GURL& url);
   virtual void DidStartReceivingResourceResponse(
       const ResourceRequestDetails& details);
@@ -950,13 +975,13 @@ class TabContents : public PageNavigator,
   virtual void DidRunInsecureContent(const std::string& security_origin);
   virtual void DidFailProvisionalLoadWithError(
       RenderViewHost* render_view_host,
-      long long frame_id,
+      int64 frame_id,
       bool is_main_frame,
       int error_code,
       const GURL& url,
       bool showing_repost_interstitial);
-  virtual void DocumentLoadedInFrame(long long frame_id);
-  virtual void DidFinishLoad(long long frame_id);
+  virtual void DocumentLoadedInFrame(int64 frame_id);
+  virtual void DidFinishLoad(int64 frame_id);
 
   // RenderViewHostDelegate implementation.
   virtual RenderViewHostDelegate::View* GetViewDelegate();
@@ -980,7 +1005,9 @@ class TabContents : public PageNavigator,
   virtual int GetBrowserWindowID() const;
   virtual void RenderViewCreated(RenderViewHost* render_view_host);
   virtual void RenderViewReady(RenderViewHost* render_view_host);
-  virtual void RenderViewGone(RenderViewHost* render_view_host);
+  virtual void RenderViewGone(RenderViewHost* render_view_host,
+                              base::TerminationStatus status,
+                              int error_code);
   virtual void RenderViewDeleted(RenderViewHost* render_view_host);
   virtual void DidNavigate(RenderViewHost* render_view_host,
                            const ViewHostMsg_FrameNavigate_Params& params);
@@ -1003,6 +1030,7 @@ class TabContents : public PageNavigator,
   virtual void RequestMove(const gfx::Rect& new_bounds);
   virtual void DidStartLoading();
   virtual void DidStopLoading();
+  virtual void DidChangeLoadProgress(double progress);
   virtual void DocumentOnLoadCompletedInMainFrame(
       RenderViewHost* render_view_host,
       int32 page_id);
@@ -1047,7 +1075,7 @@ class TabContents : public PageNavigator,
                                 uint64 upload_position, uint64 upload_size);
   virtual bool IsExternalTabContainer() const;
   virtual void DidInsertCSS();
-  virtual void FocusedNodeChanged();
+  virtual void FocusedNodeChanged(bool is_editable_node);
   virtual void UpdateZoomLimits(int minimum_percent,
                                 int maximum_percent,
                                 bool remember);
@@ -1168,7 +1196,8 @@ class TabContents : public PageNavigator,
   bool is_loading_;
 
   // Indicates if the tab is considered crashed.
-  bool is_crashed_;
+  base::TerminationStatus crashed_status_;
+  int crashed_error_code_;
 
   // See waiting_for_response() above.
   bool waiting_for_response_;

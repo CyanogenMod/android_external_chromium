@@ -6,15 +6,22 @@
 
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_navigator.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
+#include "chrome/common/notification_details.h"
+#include "chrome/common/notification_source.h"
 #include "chrome/common/url_constants.h"
 
 namespace printing {
+
+PrintPreviewTabController::PrintPreviewTabController()
+    : waiting_for_new_preview_page_(false) {
+}
+
+PrintPreviewTabController::~PrintPreviewTabController() {}
 
 // static
 PrintPreviewTabController* PrintPreviewTabController::GetInstance() {
@@ -23,20 +30,9 @@ PrintPreviewTabController* PrintPreviewTabController::GetInstance() {
   return g_browser_process->print_preview_tab_controller();
 }
 
-PrintPreviewTabController::PrintPreviewTabController()
-    : waiting_for_new_preview_page_(false) {
-}
-
-PrintPreviewTabController::~PrintPreviewTabController() {
-  preview_tab_map_.clear();
-}
-
 TabContents* PrintPreviewTabController::GetOrCreatePreviewTab(
     TabContents* initiator_tab, int browser_window_id ) {
   DCHECK(initiator_tab);
-
-  if (IsPrintPreviewTab(initiator_tab))
-    return initiator_tab;
 
   // Get the print preview tab for |initiator_tab|.
   TabContents* preview_tab = GetPrintPreviewForTab(initiator_tab);
@@ -46,71 +42,6 @@ TabContents* PrintPreviewTabController::GetOrCreatePreviewTab(
     return preview_tab;
   }
   return CreatePrintPreviewTab(initiator_tab, browser_window_id);
-}
-
-bool PrintPreviewTabController::IsPrintPreviewTab(TabContents* tab) {
-  const GURL& url = tab->GetURL();
-  return (url.SchemeIs(chrome::kChromeUIScheme) &&
-          url.host() == chrome::kChromeUIPrintHost);
-}
-
-TabContents* PrintPreviewTabController::GetInitiatorTab(
-    TabContents* preview_tab) {
-  PrintPreviewTabMap::iterator it = preview_tab_map_.find(preview_tab);
-  if (it != preview_tab_map_.end())
-    return preview_tab_map_[preview_tab];
-  return NULL;
-}
-
-TabContents* PrintPreviewTabController::GetPrintPreviewForTab(
-    TabContents* tab) {
-  PrintPreviewTabMap::iterator it = preview_tab_map_.find(tab);
-  if (it != preview_tab_map_.end())
-    return tab;
-
-  for (it = preview_tab_map_.begin(); it != preview_tab_map_.end(); ++it) {
-    if (it->second == tab)
-      return it->first;
-  }
-  return NULL;
-}
-
-void PrintPreviewTabController::AddObservers(TabContents* tab) {
-  registrar_.Add(this, NotificationType::TAB_CONTENTS_DESTROYED,
-                 Source<TabContents>(tab));
-  registrar_.Add(this, NotificationType::NAV_ENTRY_COMMITTED,
-                 Source<NavigationController>(&tab->controller()));
-}
-
-void PrintPreviewTabController::RemoveObservers(TabContents* tab) {
-  registrar_.Remove(this, NotificationType::TAB_CONTENTS_DESTROYED,
-                    Source<TabContents>(tab));
-  registrar_.Remove(this, NotificationType::NAV_ENTRY_COMMITTED,
-                    Source<NavigationController>(&tab->controller()));
-}
-
-TabContents* PrintPreviewTabController::CreatePrintPreviewTab(
-    TabContents* initiator_tab, int browser_window_id) {
-  Browser* current_browser = BrowserList::FindBrowserWithID(browser_window_id);
-  // Add a new tab next to initiator tab.
-  browser::NavigateParams params(current_browser,
-                                 GURL(chrome::kChromeUIPrintURL),
-                                 PageTransition::LINK);
-  params.disposition = NEW_FOREGROUND_TAB;
-  params.tabstrip_index = current_browser->tabstrip_model()->
-      GetWrapperIndex(initiator_tab) + 1;
-  browser::Navigate(&params);
-  TabContentsWrapper* preview_tab = params.target_contents;
-  preview_tab->tab_contents()->Activate();
-
-  // Add an entry to the map.
-  preview_tab_map_[preview_tab->tab_contents()] = initiator_tab;
-  waiting_for_new_preview_page_ = true;
-
-  AddObservers(initiator_tab);
-  AddObservers(preview_tab->tab_contents());
-
-  return preview_tab->tab_contents();
 }
 
 void PrintPreviewTabController::Observe(NotificationType type,
@@ -192,4 +123,70 @@ void PrintPreviewTabController::Observe(NotificationType type,
     RemoveObservers(initiator_tab);
 }
 
-} // namespace printing
+// static
+bool PrintPreviewTabController::IsPrintPreviewTab(TabContents* tab) {
+  const GURL& url = tab->GetURL();
+  return (url.SchemeIs(chrome::kChromeUIScheme) &&
+          url.host() == chrome::kChromeUIPrintHost);
+}
+
+TabContents* PrintPreviewTabController::GetInitiatorTab(
+    TabContents* preview_tab) {
+  PrintPreviewTabMap::iterator it = preview_tab_map_.find(preview_tab);
+  if (it != preview_tab_map_.end())
+    return preview_tab_map_[preview_tab];
+  return NULL;
+}
+
+TabContents* PrintPreviewTabController::GetPrintPreviewForTab(
+    TabContents* tab) {
+  PrintPreviewTabMap::iterator it = preview_tab_map_.find(tab);
+  if (it != preview_tab_map_.end())
+    return tab;
+
+  for (it = preview_tab_map_.begin(); it != preview_tab_map_.end(); ++it) {
+    if (it->second == tab)
+      return it->first;
+  }
+  return NULL;
+}
+
+TabContents* PrintPreviewTabController::CreatePrintPreviewTab(
+    TabContents* initiator_tab, int browser_window_id) {
+  Browser* current_browser = BrowserList::FindBrowserWithID(browser_window_id);
+  // Add a new tab next to initiator tab.
+  browser::NavigateParams params(current_browser,
+                                 GURL(chrome::kChromeUIPrintURL),
+                                 PageTransition::LINK);
+  params.disposition = NEW_FOREGROUND_TAB;
+  params.tabstrip_index = current_browser->tabstrip_model()->
+      GetWrapperIndex(initiator_tab) + 1;
+  browser::Navigate(&params);
+  TabContentsWrapper* preview_tab = params.target_contents;
+  preview_tab->tab_contents()->Activate();
+
+  // Add an entry to the map.
+  preview_tab_map_[preview_tab->tab_contents()] = initiator_tab;
+  waiting_for_new_preview_page_ = true;
+
+  AddObservers(initiator_tab);
+  AddObservers(preview_tab->tab_contents());
+
+  return preview_tab->tab_contents();
+}
+
+void PrintPreviewTabController::AddObservers(TabContents* tab) {
+  registrar_.Add(this, NotificationType::TAB_CONTENTS_DESTROYED,
+                 Source<TabContents>(tab));
+  registrar_.Add(this, NotificationType::NAV_ENTRY_COMMITTED,
+                 Source<NavigationController>(&tab->controller()));
+}
+
+void PrintPreviewTabController::RemoveObservers(TabContents* tab) {
+  registrar_.Remove(this, NotificationType::TAB_CONTENTS_DESTROYED,
+                    Source<TabContents>(tab));
+  registrar_.Remove(this, NotificationType::NAV_ENTRY_COMMITTED,
+                    Source<NavigationController>(&tab->controller()));
+}
+
+}  // namespace printing

@@ -70,20 +70,15 @@ class PreferenceModelAssociator
   }
 
   // Not implemented.
-  virtual const PrefService::Preference* GetChromeNodeFromSyncId(
-      int64 sync_id) {
-    return NULL;
-  }
+  virtual const PrefService::Preference* GetChromeNodeFromSyncId(int64 sync_id);
 
   // Not implemented.
-  virtual bool InitSyncNodeFromChromeId(std::string node_id,
-                                        sync_api::BaseNode* sync_node) {
-    return false;
-  }
+  virtual bool InitSyncNodeFromChromeId(const std::string& node_id,
+                                        sync_api::BaseNode* sync_node);
 
   // Returns the sync id for the given preference name, or sync_api::kInvalidId
   // if the preference name is not associated to any sync id.
-  virtual int64 GetSyncIdFromChromeId(std::string node_id);
+  virtual int64 GetSyncIdFromChromeId(const std::string& node_id);
 
   // Associates the given preference name with the given sync id.
   virtual void Associate(const PrefService::Preference* node, int64 sync_id);

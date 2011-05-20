@@ -83,9 +83,9 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
     EXTENSION_ICON_BITTY = 16,
   };
 
-  // Type used for UMA_HISTOGRAM_ENUMERATION about extensions.
-  // Do not change the order of entries or remove entries in this list.
-  enum HistogramType {
+  // Do not change the order of entries or remove entries in this list
+  // as this is used in UMA_HISTOGRAM_ENUMERATIONs about extensions.
+  enum Type {
     TYPE_UNKNOWN = 0,
     TYPE_EXTENSION,
     TYPE_THEME,
@@ -98,6 +98,12 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   struct PluginInfo {
     FilePath path;  // Path to the plugin.
     bool is_public;  // False if only this extension can load this plugin.
+  };
+
+  struct TtsVoice {
+    std::string voice_name;
+    std::string locale;
+    std::string gender;
   };
 
   // A permission is defined by its |name| (what is used in the manifest),
@@ -227,8 +233,8 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
            IsExternalLocation(location);
   }
 
-  // See HistogramType definition above.
-  HistogramType GetHistogramType() const;
+  // See Type definition above.
+  Type GetType() const;
 
   // Returns an absolute url to a resource inside of an extension. The
   // |extension_url| argument should be the url() from an Extension object. The
@@ -296,8 +302,8 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // Returns the url prefix for the extension/apps gallery. Can be set via the
   // --apps-gallery-url switch. The URL returned will not contain a trailing
   // slash. Do not use this as a prefix/extent for the store.  Instead see
-  // ExtensionsService::GetWebStoreApp or
-  // ExtensionsService::IsDownloadFromGallery
+  // ExtensionService::GetWebStoreApp or
+  // ExtensionService::IsDownloadFromGallery
   static std::string ChromeStoreLaunchURL();
 
   // Helper function that consolidates the check for whether the script can
@@ -428,6 +434,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   }
   const std::string omnibox_keyword() const { return omnibox_keyword_; }
   bool incognito_split_mode() const { return incognito_split_mode_; }
+  const std::vector<TtsVoice>& tts_voices() const { return tts_voices_; }
 
   // App-related.
   bool is_app() const { return is_app_; }
@@ -691,7 +698,10 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // The Omnibox keyword for this extension, or empty if there is none.
   std::string omnibox_keyword_;
 
-  FRIEND_TEST_ALL_PREFIXES(ExtensionsServiceTest,
+  // List of text-to-speech voices that this extension provides, if any.
+  std::vector<TtsVoice> tts_voices_;
+
+  FRIEND_TEST_ALL_PREFIXES(ExtensionServiceTest,
                            UpdateExtensionPreservesLocation);
   FRIEND_TEST_ALL_PREFIXES(ExtensionTest, LoadPageActionHelper);
   FRIEND_TEST_ALL_PREFIXES(ExtensionTest, InitFromValueInvalid);
@@ -730,12 +740,26 @@ struct UninstalledExtensionInfo {
 
   std::string extension_id;
   std::set<std::string> extension_api_permissions;
-  // TODO(akalin): Once we have a unified ExtensionType, replace the
-  // below member variables with a member of that type.
-  bool is_theme;
-  bool is_app;
-  bool converted_from_user_script;
+  Extension::Type extension_type;
   GURL update_url;
+};
+
+struct UnloadedExtensionInfo {
+  enum Reason {
+    DISABLE,    // The extension is being disabled.
+    UPDATE,     // The extension is being updated to a newer version.
+    UNINSTALL,  // The extension is being uninstalled.
+  };
+
+  Reason reason;
+
+  // Was the extension already disabled?
+  bool already_disabled;
+
+  // The extension being unloaded - this should always be non-NULL.
+  const Extension* extension;
+
+  UnloadedExtensionInfo(const Extension* extension, Reason reason);
 };
 
 #endif  // CHROME_COMMON_EXTENSIONS_EXTENSION_H_

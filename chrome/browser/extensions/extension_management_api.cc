@@ -13,9 +13,9 @@
 #include "base/string_util.h"
 #include "chrome/browser/extensions/extension_event_names.h"
 #include "chrome/browser/extensions/extension_event_router.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_updater.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_error_utils.h"
@@ -47,8 +47,8 @@ const char kNoExtensionError[] = "No extension with id *";
 const char kNotAnAppError[] = "Extension * is not an App";
 }
 
-ExtensionsService* ExtensionManagementFunction::service() {
-  return profile()->GetExtensionsService();
+ExtensionService* ExtensionManagementFunction::service() {
+  return profile()->GetExtensionService();
 }
 
 static DictionaryValue* CreateExtensionInfo(const Extension& extension,
@@ -267,9 +267,14 @@ void ExtensionManagementEventRouter::Observe(
         Details<UninstalledExtensionInfo>(details).ptr()->extension_id;
     args.Append(Value::CreateStringValue(extension_id));
   } else {
-    const Extension* extension = Details<const Extension>(details).ptr();
+    const Extension* extension = NULL;
+    if (event_name == events::kOnExtensionDisabled) {
+      extension = Details<UnloadedExtensionInfo>(details)->extension;
+    } else {
+      extension = Details<const Extension>(details).ptr();
+    }
     CHECK(extension);
-    ExtensionsService* service = profile->GetExtensionsService();
+    ExtensionService* service = profile->GetExtensionService();
     bool enabled = service->GetExtensionById(extension->id(), false) != NULL;
     args.Append(CreateExtensionInfo(*extension, enabled));
   }

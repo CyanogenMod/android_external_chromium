@@ -4,9 +4,11 @@
 
 #include <vector>
 
+#include "base/message_loop.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/in_process_browser_test.h"
@@ -108,7 +110,7 @@ class HistoryBrowserTest : public InProcessBrowserTest {
                             FROM_HERE,
                             NewRunnableMethod(history,
                                               &HistoryService::ScheduleDBTask,
-                                              task.get(),
+                                              task,
                                               &request_consumer));
     ui_test_utils::RunMessageLoop();
   }

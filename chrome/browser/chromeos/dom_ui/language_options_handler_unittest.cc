@@ -27,12 +27,14 @@ static InputMethodDescriptors CreateInputMethodDescriptors() {
   return descriptors;
 }
 
-// TODO: Fix this test.  See http://crosbug.com/6269
-TEST(LanguageOptionsHandlerTest, DISABLED_GetInputMethodList) {
-  // Use the stub libcros. The change is global (i.e. affects other unti
-  // tests), but it should be ok. Unit tests should not require the real
-  // libcros.
-  CrosLibrary::Get()->GetTestApi()->SetUseStubImpl();
+TEST(LanguageOptionsHandlerTest, GetInputMethodList) {
+  // Use the stub libcros. The object will take care of the cleanup.
+  ScopedStubCrosEnabler stub_cros_enabler;
+
+  // Reset the library implementation so it will be initialized
+  // again. Otherwise, non-stub implementation can be reused, if it's
+  // already initialized elsewhere, which results in a crash.
+  CrosLibrary::Get()->GetTestApi()->SetInputMethodLibrary(NULL, false);
 
   InputMethodDescriptors descriptors = CreateInputMethodDescriptors();
   scoped_ptr<ListValue> list(

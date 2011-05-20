@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,24 +33,25 @@ static const char* const supported_mime_type_list[] = {
 static const char* const kGViewUrlPrefix = "http://docs.google.com/gview?url=";
 
 GViewRequestInterceptor::GViewRequestInterceptor() {
-  URLRequest::RegisterRequestInterceptor(this);
+  net::URLRequest::RegisterRequestInterceptor(this);
   for (size_t i = 0; i < arraysize(supported_mime_type_list); ++i) {
     supported_mime_types_.insert(supported_mime_type_list[i]);
   }
 }
 
 GViewRequestInterceptor::~GViewRequestInterceptor() {
-  URLRequest::UnregisterRequestInterceptor(this);
+  net::URLRequest::UnregisterRequestInterceptor(this);
 }
 
-URLRequestJob* GViewRequestInterceptor::MaybeIntercept(URLRequest* request) {
+net::URLRequestJob* GViewRequestInterceptor::MaybeIntercept(
+    net::URLRequest* request) {
   // Don't attempt to intercept here as we want to wait until the mime
   // type is fully determined.
   return NULL;
 }
 
-URLRequestJob* GViewRequestInterceptor::MaybeInterceptResponse(
-    URLRequest* request) {
+net::URLRequestJob* GViewRequestInterceptor::MaybeInterceptResponse(
+    net::URLRequest* request) {
   // Do not intercept this request if it is a download.
   if (request->load_flags() & net::LOAD_IS_DOWNLOAD) {
     return NULL;
@@ -62,9 +63,10 @@ URLRequestJob* GViewRequestInterceptor::MaybeInterceptResponse(
   // redirect PDF files to Google Document Viewer.
   if (mime_type == kPdfMimeType) {
     FilePath pdf_path;
-    WebPluginInfo info;
+    webkit::npapi::WebPluginInfo info;
     PathService::Get(chrome::FILE_PDF_PLUGIN, &pdf_path);
-    if (NPAPI::PluginList::Singleton()->GetPluginInfoByPath(pdf_path, &info) &&
+    if (webkit::npapi::PluginList::Singleton()->GetPluginInfoByPath(
+            pdf_path, &info) &&
         info.enabled)
       return NULL;
   }
@@ -74,12 +76,12 @@ URLRequestJob* GViewRequestInterceptor::MaybeInterceptResponse(
   if (supported_mime_types_.count(mime_type) > 0) {
     std::string url(kGViewUrlPrefix);
     url += EscapePath(request->url().spec());
-    return new URLRequestRedirectJob(request, GURL(url));
+    return new net::URLRequestRedirectJob(request, GURL(url));
   }
   return NULL;
 }
 
-URLRequest::Interceptor* GViewRequestInterceptor::GetGViewRequestInterceptor() {
+GViewRequestInterceptor* GViewRequestInterceptor::GetInstance() {
   return Singleton<GViewRequestInterceptor>::get();
 }
 

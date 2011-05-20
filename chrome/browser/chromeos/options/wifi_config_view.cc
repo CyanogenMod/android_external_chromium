@@ -59,7 +59,6 @@ string16 WifiConfigView::SecurityComboboxModel::GetItemAt(int index) {
 WifiConfigView::WifiConfigView(NetworkConfigView* parent,
                                const WifiNetwork* wifi)
     : parent_(parent),
-      other_network_(false),
       can_login_(false),
       wifi_(new WifiNetwork(*wifi)),
       ssid_textfield_(NULL),
@@ -69,14 +68,12 @@ WifiConfigView::WifiConfigView(NetworkConfigView* parent,
       security_combobox_(NULL),
       passphrase_textfield_(NULL),
       passphrase_visible_button_(NULL),
-      autoconnect_checkbox_(NULL),
       error_label_(NULL) {
   Init();
 }
 
 WifiConfigView::WifiConfigView(NetworkConfigView* parent)
     : parent_(parent),
-      other_network_(true),
       can_login_(false),
       ssid_textfield_(NULL),
       identity_textfield_(NULL),
@@ -85,7 +82,6 @@ WifiConfigView::WifiConfigView(NetworkConfigView* parent)
       security_combobox_(NULL),
       passphrase_textfield_(NULL),
       passphrase_visible_button_(NULL),
-      autoconnect_checkbox_(NULL),
       error_label_(NULL) {
   Init();
 }
@@ -97,7 +93,7 @@ void WifiConfigView::UpdateCanLogin(void) {
   static const size_t kMinWirelessPasswordLen = 5;
 
   bool can_login = true;
-  if (other_network_) {
+  if (!wifi_.get()) {
     // Enforce ssid is non empty.
     // If security is not none, also enforce passphrase is non empty.
     can_login = !GetSSID().empty() &&
@@ -122,15 +118,6 @@ void WifiConfigView::UpdateCanLogin(void) {
   if (can_login != can_login_) {
     can_login_ = can_login;
     parent_->GetDialogClientView()->UpdateDialogButtons();
-  }
-}
-
-void WifiConfigView::UpdateCanViewPassword() {
-  if (passphrase_visible_button_ &&
-      !passphrase_visible_button_->IsVisible() &&
-      passphrase_textfield_->text().empty()) {
-    // Once initial password has been deleted, it's safe to show field content.
-    passphrase_visible_button_->SetVisible(true);
   }
 }
 
@@ -160,7 +147,6 @@ void WifiConfigView::UpdateErrorLabel(bool failed) {
 void WifiConfigView::ContentsChanged(views::Textfield* sender,
                                      const string16& new_contents) {
   UpdateCanLogin();
-  UpdateCanViewPassword();
 }
 
 bool WifiConfigView::HandleKeystroke(
@@ -221,7 +207,7 @@ bool WifiConfigView::Login() {
   }
   NetworkLibrary* cros = CrosLibrary::Get()->GetNetworkLibrary();
   bool connected = false;
-  if (other_network_) {
+  if (!wifi_.get()) {
     ConnectionSecurity sec = SECURITY_UNKNOWN;
     int index = security_combobox_->selected_item();
     if (index == INDEX_NONE)
@@ -234,8 +220,7 @@ bool WifiConfigView::Login() {
       sec = SECURITY_RSN;
     connected =  cros->ConnectToWifiNetwork(
         sec, GetSSID(), GetPassphrase(),
-        identity_string, certificate_path_,
-        autoconnect_checkbox_ ? autoconnect_checkbox_->checked() : true);
+        identity_string, certificate_path_, true);
   } else {
     Save();
     connected = cros->ConnectToWifiNetwork(
@@ -254,17 +239,9 @@ bool WifiConfigView::Login() {
 }
 
 bool WifiConfigView::Save() {
-  // Save password and auto-connect here.
-  if (!other_network_) {
+  // Save password here.
+  if (wifi_.get()) {
     bool changed = false;
-
-    if (autoconnect_checkbox_) {
-      bool auto_connect = autoconnect_checkbox_->checked();
-      if (auto_connect != wifi_->auto_connect()) {
-        wifi_->set_auto_connect(auto_connect);
-        changed = true;
-      }
-    }
 
     if (passphrase_textfield_) {
       std::string passphrase = UTF16ToUTF8(passphrase_textfield_->text());
@@ -305,15 +282,6 @@ const std::string WifiConfigView::GetPassphrase() const {
   return result;
 }
 
-void WifiConfigView::FocusFirstField() {
-  if (ssid_textfield_)
-    ssid_textfield_->RequestFocus();
-  else if (identity_textfield_)
-    identity_textfield_->RequestFocus();
-  else if (passphrase_textfield_)
-    passphrase_textfield_->RequestFocus();
-}
-
 void WifiConfigView::Init() {
   views::GridLayout* layout = CreatePanelGridLayout(this);
   SetLayoutManager(layout);
@@ -334,7 +302,7 @@ void WifiConfigView::Init() {
   layout->StartRow(0, column_view_set_id);
   layout->AddView(new views::Label(l10n_util::GetString(
       IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_NETWORK_ID)));
-  if (other_network_) {
+  if (!wifi_.get()) {
     ssid_textfield_ = new views::Textfield(views::Textfield::STYLE_DEFAULT);
     ssid_textfield_->SetController(this);
     layout->AddView(ssid_textfield_);
@@ -394,7 +362,7 @@ void WifiConfigView::Init() {
   }
 
   // Security select
-  if (other_network_) {
+  if (!wifi_.get()) {
     layout->StartRow(0, column_view_set_id);
     layout->AddView(new views::Label(l10n_util::GetString(
           IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_SECURITY)));
@@ -405,41 +373,34 @@ void WifiConfigView::Init() {
   }
 
   // Passphrase input
-  // Add passphrase if other_network or wifi is encrypted.
-  if (other_network_ || (wifi_.get() && wifi_->encrypted() &&
-                         !certificate_loaded)) {
-    layout->StartRow(0, column_view_set_id);
-    int label_text_id;
-    if (wifi_.get() && wifi_->encryption() == SECURITY_8021X)
-      label_text_id =
-          IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_PRIVATE_KEY_PASSWORD;
-    else
-      label_text_id = IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_PASSPHRASE;
-    layout->AddView(new views::Label(l10n_util::GetString(label_text_id)));
-    passphrase_textfield_ = new views::Textfield(
-        views::Textfield::STYLE_PASSWORD);
-    passphrase_textfield_->SetController(this);
-    if (wifi_.get() && !wifi_->passphrase().empty())
-      passphrase_textfield_->SetText(UTF8ToUTF16(wifi_->passphrase()));
-    // Disable passphrase input initially for other network.
-    if (other_network_)
-      passphrase_textfield_->SetEnabled(false);
-    layout->AddView(passphrase_textfield_);
-    // Password visible button.
-    passphrase_visible_button_ = new views::ImageButton(this);
-    passphrase_visible_button_->SetImage(views::ImageButton::BS_NORMAL,
-        ResourceBundle::GetSharedInstance().
-        GetBitmapNamed(IDR_STATUSBAR_NETWORK_SECURE));
-    passphrase_visible_button_->SetImageAlignment(
-        views::ImageButton::ALIGN_CENTER, views::ImageButton::ALIGN_MIDDLE);
-    // Disable viewing password by unauthenticated user.
-    if (wifi_.get() && !wifi_->passphrase().empty() &&
-        chromeos::UserManager::Get()->logged_in_user().email().empty()) {
-      passphrase_visible_button_->SetVisible(false);
-    }
-    layout->AddView(passphrase_visible_button_);
-    layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->StartRow(0, column_view_set_id);
+  int label_text_id;
+  if (wifi_.get() && wifi_->encryption() == SECURITY_8021X) {
+    label_text_id =
+        IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_PRIVATE_KEY_PASSWORD;
+  } else {
+    label_text_id = IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_PASSPHRASE;
   }
+  layout->AddView(new views::Label(l10n_util::GetString(label_text_id)));
+  passphrase_textfield_ = new views::Textfield(
+      views::Textfield::STYLE_PASSWORD);
+  passphrase_textfield_->SetController(this);
+  if (wifi_.get() && !wifi_->passphrase().empty())
+    passphrase_textfield_->SetText(UTF8ToUTF16(wifi_->passphrase()));
+  // Disable passphrase input initially for other network.
+  if (!wifi_.get())
+    passphrase_textfield_->SetEnabled(false);
+  layout->AddView(passphrase_textfield_);
+  // Password visible button.
+  passphrase_visible_button_ = new views::ImageButton(this);
+  passphrase_visible_button_->SetImage(
+      views::ImageButton::BS_NORMAL,
+      ResourceBundle::GetSharedInstance().
+      GetBitmapNamed(IDR_STATUSBAR_NETWORK_SECURE));
+  passphrase_visible_button_->SetImageAlignment(
+      views::ImageButton::ALIGN_CENTER, views::ImageButton::ALIGN_MIDDLE);
+  layout->AddView(passphrase_visible_button_);
+  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
 
   // Create an error label.
   layout->StartRow(0, column_view_set_id);
@@ -451,19 +412,6 @@ void WifiConfigView::Init() {
   layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
   // Set or hide the error text.
   UpdateErrorLabel(false);
-
-  // Autoconnect checkbox
-  // Only show if this network is already remembered (a favorite).
-  if (wifi_.get() && wifi_->favorite()) {
-    autoconnect_checkbox_ = new views::Checkbox(l10n_util::GetString(
-        IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_AUTO_CONNECT));
-    // For other network, default to autoconnect.
-    bool autoconnect = other_network_ || wifi_->auto_connect();
-    autoconnect_checkbox_->SetChecked(autoconnect);
-    layout->StartRow(0, column_view_set_id);
-    layout->AddView(autoconnect_checkbox_, 3, 1);
-    layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
-  }
 }
 
 }  // namespace chromeos

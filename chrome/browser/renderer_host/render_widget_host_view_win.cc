@@ -4,6 +4,8 @@
 
 #include "chrome/browser/renderer_host/render_widget_host_view_win.h"
 
+#include <algorithm>
+
 #include "app/l10n_util.h"
 #include "app/l10n_util_win.h"
 #include "app/resource_bundle.h"
@@ -15,10 +17,10 @@
 #include "base/scoped_comptr_win.h"
 #include "base/thread.h"
 #include "base/win_util.h"
+#include "base/win/scoped_gdi_object.h"
 #include "chrome/browser/accessibility/browser_accessibility_win.h"
 #include "chrome/browser/accessibility/browser_accessibility_manager.h"
 #include "chrome/browser/accessibility/browser_accessibility_state.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_trial.h"
 #include "chrome/browser/plugin_process_host.h"
@@ -45,11 +47,11 @@
 #include "views/focus/focus_util_win.h"
 // Included for views::kReflectedMessage - TODO(beng): move this to win_util.h!
 #include "views/widget/widget_win.h"
-#include "webkit/glue/plugins/plugin_constants_win.h"
-#include "webkit/glue/plugins/webplugin_delegate_impl.h"
-#include "webkit/glue/plugins/webplugin.h"
 #include "webkit/glue/webaccessibility.h"
 #include "webkit/glue/webcursor.h"
+#include "webkit/plugins/npapi/plugin_constants_win.h"
+#include "webkit/plugins/npapi/webplugin_delegate_impl.h"
+#include "webkit/plugins/npapi/webplugin.h"
 
 using app::ViewProp;
 using base::TimeDelta;
@@ -58,7 +60,7 @@ using WebKit::WebInputEvent;
 using WebKit::WebInputEventFactory;
 using WebKit::WebMouseEvent;
 using WebKit::WebTextDirection;
-using webkit_glue::WebPluginGeometry;
+using webkit::npapi::WebPluginGeometry;
 
 const wchar_t kRenderWidgetHostHWNDClass[] = L"Chrome_RenderWidgetHostHWND";
 
@@ -235,7 +237,7 @@ class NotifyPluginProcessHostTask : public Task {
 
 // Windows callback for OnDestroy to detach the plugin windows.
 BOOL CALLBACK DetachPluginWindowsCallback(HWND window, LPARAM param) {
-  if (WebPluginDelegateImpl::IsPluginDelegateWindow(window) &&
+  if (webkit::npapi::WebPluginDelegateImpl::IsPluginDelegateWindow(window) &&
       !IsHungAppWindow(window)) {
     ::ShowWindow(window, SW_HIDE);
     SetParent(window, NULL);
@@ -489,7 +491,7 @@ HWND RenderWidgetHostViewWin::ReparentWindow(HWND window) {
     wcex.hCursor        = 0;
     wcex.hbrBackground  = reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);
     wcex.lpszMenuName   = 0;
-    wcex.lpszClassName  = kWrapperNativeWindowClassName;
+    wcex.lpszClassName  = webkit::npapi::kWrapperNativeWindowClassName;
     wcex.hIconSm        = 0;
     window_class = RegisterClassEx(&wcex);
   }
@@ -653,11 +655,11 @@ void RenderWidgetHostViewWin::ImeCancelComposition() {
 }
 
 BOOL CALLBACK EnumChildProc(HWND hwnd, LPARAM lparam) {
-  if (!WebPluginDelegateImpl::IsPluginDelegateWindow(hwnd))
+  if (!webkit::npapi::WebPluginDelegateImpl::IsPluginDelegateWindow(hwnd))
     return TRUE;
 
   gfx::Rect* rect = reinterpret_cast<gfx::Rect*>(lparam);
-  static UINT msg = RegisterWindowMessage(kPaintMessageName);
+  static UINT msg = RegisterWindowMessage(webkit::npapi::kPaintMessageName);
   WPARAM wparam = rect->x() << 16 | rect->y();
   lparam = rect->width() << 16 | rect->height();
 
@@ -673,7 +675,7 @@ void RenderWidgetHostViewWin::Redraw() {
   RECT damage_bounds;
   GetUpdateRect(&damage_bounds, FALSE);
 
-  ScopedGDIObject<HRGN> damage_region(CreateRectRgn(0, 0, 0, 0));
+  base::win::ScopedGDIObject<HRGN> damage_region(CreateRectRgn(0, 0, 0, 0));
   GetUpdateRgn(damage_region, FALSE);
 
   // Paint the invalid region synchronously.  Our caller will not paint again
@@ -721,7 +723,8 @@ void RenderWidgetHostViewWin::DidUpdateBackingStore(
     Redraw();
 }
 
-void RenderWidgetHostViewWin::RenderViewGone() {
+void RenderWidgetHostViewWin::RenderViewGone(base::TerminationStatus status,
+                                             int error_code) {
   // TODO(darin): keep this around, and draw sad-tab into it.
   UpdateCursorIfOverSelf();
   being_destroyed_ = true;
@@ -899,7 +902,7 @@ void RenderWidgetHostViewWin::OnPaint(HDC unused_dc) {
 
   // Grab the region to paint before creation of paint_dc since it clears the
   // damage region.
-  ScopedGDIObject<HRGN> damage_region(CreateRectRgn(0, 0, 0, 0));
+  base::win::ScopedGDIObject<HRGN> damage_region(CreateRectRgn(0, 0, 0, 0));
   GetUpdateRgn(damage_region, FALSE);
 
   CPaintDC paint_dc(m_hWnd);
@@ -1445,7 +1448,8 @@ LRESULT RenderWidgetHostViewWin::OnMouseActivate(UINT message,
     ::ScreenToClient(m_hWnd, &cursor_pos);
     HWND child_window = ::RealChildWindowFromPoint(m_hWnd, cursor_pos);
     if (::IsWindow(child_window) && child_window != m_hWnd) {
-      if (win_util::GetClassName(child_window) == kWrapperNativeWindowClassName)
+      if (win_util::GetClassName(child_window) ==
+              webkit::npapi::kWrapperNativeWindowClassName)
         child_window = ::GetWindow(child_window, GW_CHILD);
 
       ::SetFocus(child_window);
@@ -1652,7 +1656,7 @@ LRESULT RenderWidgetHostViewWin::OnGetObject(UINT message, WPARAM wparam,
   if (kIdCustom == lparam) {
     // An MSAA client requestes our custom id. Assume that we have detected an
     // active windows screen reader.
-    Singleton<BrowserAccessibilityState>()->OnScreenReaderDetected();
+    BrowserAccessibilityState::GetInstance()->OnScreenReaderDetected();
     render_widget_host_->EnableRendererAccessibility();
 
     // Return with failure.

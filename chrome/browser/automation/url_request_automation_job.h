@@ -7,11 +7,13 @@
 #define CHROME_BROWSER_AUTOMATION_URL_REQUEST_AUTOMATION_JOB_H_
 #pragma once
 
+#include "base/task.h"
 #include "chrome/common/ref_counted_util.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_job.h"
 
 class AutomationResourceMessageFilter;
+struct AutomationURLResponse;
 
 namespace net {
 class HttpResponseHeaders;
@@ -20,23 +22,22 @@ class HttpResponseInfo;
 
 namespace IPC {
 class Message;
-struct AutomationURLResponse;
 }
 
-// URLRequestJob implementation that loads the resources using
+// net::URLRequestJob implementation that loads the resources using
 // automation.
 class URLRequestAutomationJob : public net::URLRequestJob {
  public:
-  URLRequestAutomationJob(URLRequest* request, int tab, int request_id,
+  URLRequestAutomationJob(net::URLRequest* request, int tab, int request_id,
                           AutomationResourceMessageFilter* filter,
                           bool is_pending);
 
   // Register our factory for HTTP/HTTPs requests.
   static bool EnsureProtocolFactoryRegistered();
 
-  static URLRequest::ProtocolFactory Factory;
+  static net::URLRequest::ProtocolFactory Factory;
 
-  // URLRequestJob methods.
+  // net::URLRequestJob methods.
   virtual void Start();
   virtual void Kill();
   virtual bool GetMimeType(std::string* mime_type) const;
@@ -72,7 +73,7 @@ class URLRequestAutomationJob : public net::URLRequestJob {
                        AutomationResourceMessageFilter* new_filter);
 
  protected:
-  // Protected URLRequestJob override.
+  // Protected net::URLRequestJob override.
   virtual bool ReadRawData(net::IOBuffer* buf, int buf_size, int* bytes_read);
 
   void StartAsync();
@@ -80,10 +81,9 @@ class URLRequestAutomationJob : public net::URLRequestJob {
   void DisconnectFromMessageFilter();
 
   // IPC message handlers.
-  void OnRequestStarted(int tab, int id,
-      const IPC::AutomationURLResponse& response);
-  void OnDataAvailable(int tab, int id, const std::string& bytes);
-  void OnRequestEnd(int tab, int id, const URLRequestStatus& status);
+  void OnRequestStarted(int id, const AutomationURLResponse& response);
+  void OnDataAvailable(int id, const std::string& bytes);
+  void OnRequestEnd(int id, const URLRequestStatus& status);
 
  private:
   virtual ~URLRequestAutomationJob();
@@ -110,8 +110,8 @@ class URLRequestAutomationJob : public net::URLRequestJob {
   static bool is_protocol_factory_registered_;
   // The previous HTTP/HTTPs protocol factories. We pass unhandled
   // requests off to these factories
-  static URLRequest::ProtocolFactory* old_http_factory_;
-  static URLRequest::ProtocolFactory* old_https_factory_;
+  static net::URLRequest::ProtocolFactory* old_http_factory_;
+  static net::URLRequest::ProtocolFactory* old_https_factory_;
 
   // Set to true if the job is waiting for the external host to connect to the
   // automation channel, which will be used for routing the network requests to
@@ -122,8 +122,9 @@ class URLRequestAutomationJob : public net::URLRequestJob {
   // stack when we receive a Read request for a completed job.
   URLRequestStatus request_status_;
 
+  ScopedRunnableMethodFactory<URLRequestAutomationJob> method_factory_;
+
   DISALLOW_COPY_AND_ASSIGN(URLRequestAutomationJob);
 };
 
 #endif  // CHROME_BROWSER_AUTOMATION_URL_REQUEST_AUTOMATION_JOB_H_
-

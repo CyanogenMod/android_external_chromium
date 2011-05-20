@@ -14,6 +14,7 @@
 #include "base/metrics/stats_counters.h"
 #include "base/string_util.h"
 #include "base/time.h"
+#include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
@@ -24,12 +25,13 @@
 #include "chrome/browser/dom_operation_notification_details.h"
 #include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/in_process_webkit/session_storage_namespace.h"
+#include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/printing/printer_query.h"
 #include "chrome/browser/printing/print_job_manager.h"
 #include "chrome/browser/printing/print_preview_tab_controller.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/renderer_host/render_widget_host.h"
@@ -52,6 +54,7 @@
 #include "chrome/common/web_apps.h"
 #include "gfx/native_widget_types.h"
 #include "net/base/net_util.h"
+#include "printing/native_metafile.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebFindOptions.h"
 #include "webkit/glue/context_menu.h"
@@ -139,7 +142,8 @@ RenderViewHost::RenderViewHost(SiteInstance* instance,
       session_storage_namespace_(session_storage),
       is_extension_process_(false),
       autofill_query_id_(0),
-      save_accessibility_tree_for_testing_(false) {
+      save_accessibility_tree_for_testing_(false),
+      render_view_termination_status_(base::TERMINATION_STATUS_STILL_RUNNING) {
   if (!session_storage_namespace_) {
     session_storage_namespace_ =
         new SessionStorageNamespace(process()->profile());
@@ -153,7 +157,7 @@ RenderViewHost::~RenderViewHost() {
   delegate()->RenderViewDeleted(this);
 
   // Be sure to clean up any leftover state from cross-site requests.
-  Singleton<CrossSiteRequestManager>()->SetHasPendingCrossSiteRequest(
+  CrossSiteRequestManager::GetInstance()->SetHasPendingCrossSiteRequest(
       process()->id(), routing_id(), false);
 }
 
@@ -368,7 +372,7 @@ void RenderViewHost::ClosePageIgnoringUnloadEvents() {
 
 void RenderViewHost::SetHasPendingCrossSiteRequest(bool has_pending_request,
                                                    int request_id) {
-  Singleton<CrossSiteRequestManager>()->SetHasPendingCrossSiteRequest(
+  CrossSiteRequestManager::GetInstance()->SetHasPendingCrossSiteRequest(
       process()->id(), routing_id(), has_pending_request);
   pending_request_id_ = request_id;
 }
@@ -693,6 +697,10 @@ void RenderViewHost::ClearFocusedNode() {
   Send(new ViewMsg_ClearFocusedNode(routing_id()));
 }
 
+void RenderViewHost::ScrollFocusedEditableNodeIntoView() {
+  Send(new ViewMsg_ScrollFocusedEditableNodeIntoView(routing_id()));
+}
+
 void RenderViewHost::UpdateWebPreferences(const WebPreferences& prefs) {
   Send(new ViewMsg_UpdateWebPreferences(routing_id(), prefs));
 }
@@ -730,7 +738,7 @@ bool RenderViewHost::SuddenTerminationAllowed() const {
 ///////////////////////////////////////////////////////////////////////////////
 // RenderViewHost, IPC message handlers:
 
-void RenderViewHost::OnMessageReceived(const IPC::Message& msg) {
+bool RenderViewHost::OnMessageReceived(const IPC::Message& msg) {
 #if defined(OS_WIN)
   // On Windows there's a potential deadlock with sync messsages going in
   // a circle from browser -> plugin -> renderer -> browser.
@@ -748,10 +756,11 @@ void RenderViewHost::OnMessageReceived(const IPC::Message& msg) {
     IPC::Message* reply = IPC::SyncMessage::GenerateReply(&msg);
     reply->set_reply_error();
     Send(reply);
-    return;
+    return true;
   }
 #endif
 
+  bool handled = true;
   bool msg_is_ok = true;
   IPC_BEGIN_MESSAGE_MAP_EX(RenderViewHost, msg, msg_is_ok)
     IPC_MESSAGE_HANDLER(ViewHostMsg_ShowView, OnMsgShowView)
@@ -774,6 +783,8 @@ void RenderViewHost::OnMessageReceived(const IPC::Message& msg) {
     IPC_MESSAGE_HANDLER(ViewHostMsg_RequestMove, OnMsgRequestMove)
     IPC_MESSAGE_HANDLER(ViewHostMsg_DidStartLoading, OnMsgDidStartLoading)
     IPC_MESSAGE_HANDLER(ViewHostMsg_DidStopLoading, OnMsgDidStopLoading)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_DidChangeLoadProgress,
+                        OnMsgDidChangeLoadProgress)
     IPC_MESSAGE_HANDLER(ViewHostMsg_DocumentAvailableInMainFrame,
                         OnMsgDocumentAvailableInMainFrame)
     IPC_MESSAGE_HANDLER(ViewHostMsg_DocumentOnLoadCompletedInMainFrame,
@@ -848,8 +859,8 @@ void RenderViewHost::OnMessageReceived(const IPC::Message& msg) {
                         OnDevToolsRuntimePropertyChanged);
     IPC_MESSAGE_HANDLER(ViewHostMsg_MissingPluginStatus, OnMissingPluginStatus);
     IPC_MESSAGE_HANDLER(ViewHostMsg_CrashedPlugin, OnCrashedPlugin);
-    IPC_MESSAGE_HANDLER(ViewHostMsg_DisabledOutdatedPlugin,
-                        OnDisabledOutdatedPlugin);
+    IPC_MESSAGE_HANDLER(ViewHostMsg_BlockedOutdatedPlugin,
+                        OnBlockedOutdatedPlugin);
     IPC_MESSAGE_HANDLER(ViewHostMsg_SendCurrentPageAllSavableResourceLinks,
                         OnReceivedSavableResourceLinksForCurrentPage);
     IPC_MESSAGE_HANDLER(ViewHostMsg_SendSerializedHtmlData,
@@ -907,14 +918,17 @@ void RenderViewHost::OnMessageReceived(const IPC::Message& msg) {
     IPC_MESSAGE_HANDLER(ViewHostMsg_PagesReadyForPreview,
                         OnPagesReadyForPreview)
     // Have the super handle all other messages.
-    IPC_MESSAGE_UNHANDLED(RenderWidgetHost::OnMessageReceived(msg))
+    IPC_MESSAGE_UNHANDLED(handled = RenderWidgetHost::OnMessageReceived(msg))
   IPC_END_MESSAGE_MAP_EX()
 
   if (!msg_is_ok) {
     // The message had a handler, but its de-serialization failed.
     // Kill the renderer.
-    process()->ReceivedBadMessage(msg.type());
+    UserMetrics::RecordAction(UserMetricsAction("BadMessageTerminate_RVH"));
+    process()->ReceivedBadMessage();
   }
+
+  return handled;
 }
 
 void RenderViewHost::Shutdown() {
@@ -929,6 +943,10 @@ void RenderViewHost::Shutdown() {
     devtools_manager->UnregisterDevToolsClientHostFor(this);
 
   RenderWidgetHost::Shutdown();
+}
+
+bool RenderViewHost::IsRenderView() const {
+  return true;
 }
 
 void RenderViewHost::CreateNewWindow(
@@ -993,15 +1011,23 @@ void RenderViewHost::OnMsgRunModal(IPC::Message* reply_msg) {
 }
 
 void RenderViewHost::OnMsgRenderViewReady() {
+  render_view_termination_status_ = base::TERMINATION_STATUS_STILL_RUNNING;
   WasResized();
   delegate_->RenderViewReady(this);
 }
 
-void RenderViewHost::OnMsgRenderViewGone() {
-  // Our base class RenderWidgetHost needs to reset some stuff.
-  RendererExited();
+void RenderViewHost::OnMsgRenderViewGone(int status, int exit_code) {
+  // Keep the termination status so we can get at it later when we
+  // need to know why it died.
+  render_view_termination_status_ =
+      static_cast<base::TerminationStatus>(status);
 
-  delegate_->RenderViewGone(this);
+  // Our base class RenderWidgetHost needs to reset some stuff.
+  RendererExited(render_view_termination_status_, exit_code);
+
+  delegate_->RenderViewGone(this,
+                            static_cast<base::TerminationStatus>(status),
+                            exit_code);
 }
 
 // Called when the renderer navigates.  For every frame loaded, we'll get this
@@ -1148,6 +1174,10 @@ void RenderViewHost::OnMsgDidStopLoading() {
   delegate_->DidStopLoading();
 }
 
+void RenderViewHost::OnMsgDidChangeLoadProgress(double load_progress) {
+  delegate_->DidChangeLoadProgress(load_progress);
+}
+
 void RenderViewHost::OnMsgDocumentAvailableInMainFrame() {
   delegate_->DocumentAvailableInMainFrame(this);
 }
@@ -1187,9 +1217,10 @@ void RenderViewHost::OnMsgDidRunInsecureContent(
     resource_delegate->DidRunInsecureContent(security_origin);
 }
 
-void RenderViewHost::OnMsgDidStartProvisionalLoadForFrame(long long frame_id,
+void RenderViewHost::OnMsgDidStartProvisionalLoadForFrame(int64 frame_id,
                                                           bool is_main_frame,
                                                           const GURL& url) {
+  bool is_error_page = (url.spec() == chrome::kUnreachableWebDataURL);
   GURL validated_url(url);
   FilterURL(ChildProcessSecurityPolicy::GetInstance(),
             process()->id(), &validated_url);
@@ -1198,12 +1229,12 @@ void RenderViewHost::OnMsgDidStartProvisionalLoadForFrame(long long frame_id,
       delegate_->GetResourceDelegate();
   if (resource_delegate) {
     resource_delegate->DidStartProvisionalLoadForFrame(
-        this, frame_id, is_main_frame, validated_url);
+        this, frame_id, is_main_frame, is_error_page, validated_url);
   }
 }
 
 void RenderViewHost::OnMsgDidFailProvisionalLoadWithError(
-    long long frame_id,
+    int64 frame_id,
     bool is_main_frame,
     int error_code,
     const GURL& url,
@@ -1365,14 +1396,14 @@ void RenderViewHost::OnMsgForwardMessageToExternalHost(
   delegate_->ProcessExternalHostMessage(message, origin, target);
 }
 
-void RenderViewHost::OnMsgDocumentLoadedInFrame(long long frame_id) {
+void RenderViewHost::OnMsgDocumentLoadedInFrame(int64 frame_id) {
   RenderViewHostDelegate::Resource* resource_delegate =
       delegate_->GetResourceDelegate();
   if (resource_delegate)
     resource_delegate->DocumentLoadedInFrame(frame_id);
 }
 
-void RenderViewHost::OnMsgDidFinishLoad(long long frame_id) {
+void RenderViewHost::OnMsgDidFinishLoad(int64 frame_id) {
   RenderViewHostDelegate::Resource* resource_delegate =
       delegate_->GetResourceDelegate();
   if (resource_delegate)
@@ -1624,12 +1655,12 @@ void RenderViewHost::OnCrashedPlugin(const FilePath& plugin_path) {
     integration_delegate->OnCrashedPlugin(plugin_path);
 }
 
-void RenderViewHost::OnDisabledOutdatedPlugin(const string16& name,
+void RenderViewHost::OnBlockedOutdatedPlugin(const string16& name,
                                               const GURL& update_url) {
   RenderViewHostDelegate::BrowserIntegration* integration_delegate =
       delegate_->GetBrowserIntegrationDelegate();
   if (integration_delegate)
-    integration_delegate->OnDisabledOutdatedPlugin(name, update_url);
+    integration_delegate->OnBlockedOutdatedPlugin(name, update_url);
 }
 
 void RenderViewHost::GetAllSavableResourceLinksForCurrentPage(
@@ -1843,21 +1874,7 @@ void RenderViewHost::NotifyRendererResponsive() {
 }
 
 void RenderViewHost::OnMsgFocusedNodeChanged(bool is_editable_node) {
-  delegate_->FocusedNodeChanged();
-
-#if defined(TOUCH_UI)
-  if (is_editable_node) {
-    // Need to summon on-screen keyboard
-    // TODO(bryeung): implement this
-
-    // The currently focused element can be placed out of the view as the screen
-    // is now shared by the keyboard. Hence, we tell the renderer to scroll
-    // until the focused element comes in view.
-    Send(new ViewMsg_ScrollFocusedEditableNodeIntoView(routing_id()));
-  } else {
-    // TODO(bryeung): implement this. Should hide the on-screen keyboard.
-  }
-#endif
+  delegate_->FocusedNodeChanged(is_editable_node);
 }
 
 void RenderViewHost::OnMsgFocus() {
@@ -2013,6 +2030,15 @@ void RenderViewHost::TranslatePage(int page_id,
                                    const std::string& translate_script,
                                    const std::string& source_lang,
                                    const std::string& target_lang) {
+  // Ideally we'd have a better way to uniquely identify form control elements,
+  // but we don't have that yet.  So before start translation, we clear the
+  // current form and re-parse it in AutoFillManager first to get the new
+  // labels.
+  RenderViewHostDelegate::AutoFill* autofill_delegate =
+      delegate_->GetAutoFillDelegate();
+  if (autofill_delegate)
+    autofill_delegate->Reset();
+
   Send(new ViewMsg_TranslatePage(routing_id(), page_id, translate_script,
                                  source_lang, target_lang));
 }
@@ -2194,9 +2220,10 @@ void RenderViewHost::OnDetectedPhishingSite(const GURL& phishing_url,
   // to confirm that the URL is really phishing.
 }
 
-void RenderViewHost::OnScriptEvalResponse(int id, bool result) {
-  scoped_ptr<Value> result_value(Value::CreateBooleanValue(result));
-  std::pair<int, Value*> details(id, result_value.get());
+void RenderViewHost::OnScriptEvalResponse(int id, const ListValue& result) {
+  Value* result_value;
+  result.Get(0, &result_value);
+  std::pair<int, Value*> details(id, result_value);
   NotificationService::current()->Notify(
       NotificationType::EXECUTE_JAVASCRIPT_RESULT,
       Source<RenderViewHost>(this),
@@ -2235,25 +2262,38 @@ TabContents* RenderViewHost::GetOrCreatePrintPreviewTab() {
   return NULL;
 }
 
-void RenderViewHost::OnPagesReadyForPreview(int document_cookie,
-                                            int fd_in_browser) {
+void RenderViewHost::OnPagesReadyForPreview(
+    const ViewHostMsg_DidPreviewDocument_Params& params) {
+#if defined(OS_MACOSX)
+  base::SharedMemory shared_buf(params.metafile_data_handle, true);
+  if (!shared_buf.Map(params.data_size)) {
+    NOTREACHED();
+    return;
+  }
+  scoped_ptr<printing::NativeMetafile> metafile(new printing::NativeMetafile());
+  if (!metafile->Init(shared_buf.memory(), params.data_size)) {
+    NOTREACHED();
+    return;
+  }
+
+  // TODO(kmadhusu): Add more functionality for the preview tab to access this
+  // |metafile| data.
+#endif
+
   // Get/Create print preview tab.
   TabContents* print_preview_tab = GetOrCreatePrintPreviewTab();
   DCHECK(print_preview_tab);
 
-  // TODO(kmadhusu): Function definition needs to be changed.
-  // fd_in_browser should be the file descriptor of the metafile.
-
   scoped_refptr<printing::PrinterQuery> printer_query;
-  g_browser_process->print_job_manager()->PopPrinterQuery(document_cookie,
-                                                          &printer_query);
+  g_browser_process->print_job_manager()->PopPrinterQuery(
+      params.document_cookie, &printer_query);
   if (printer_query.get()) {
-      BrowserThread::PostTask(
-          BrowserThread::IO, FROM_HERE,
-          NewRunnableMethod(printer_query.get(),
-                            &printing::PrinterQuery::StopWorker));
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
+        NewRunnableMethod(printer_query.get(),
+                          &printing::PrinterQuery::StopWorker));
   }
 
   // Send the printingDone msg for now.
-  Send(new ViewMsg_PrintingDone(routing_id(), -1, true));
+  Send(new ViewMsg_PrintingDone(routing_id(), params.document_cookie, true));
 }

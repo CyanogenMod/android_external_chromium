@@ -9,9 +9,10 @@
 #include <string>
 #include <vector>
 
+#include "base/process_util.h"
 #include "base/scoped_ptr.h"
-#include "chrome/browser/find_bar_controller.h"
 #include "chrome/browser/renderer_host/render_widget_host.h"
+#include "chrome/browser/ui/find_bar/find_bar_controller.h"
 #include "chrome/common/content_settings_types.h"
 #include "chrome/common/page_zoom.h"
 #include "chrome/common/translate_errors.h"
@@ -38,6 +39,7 @@ struct ContextMenuParams;
 struct MediaPlayerAction;
 struct ThumbnailScore;
 struct ViewHostMsg_AccessibilityNotification_Params;
+struct ViewHostMsg_DidPreviewDocument_Params;
 struct ViewHostMsg_DidPrintPage_Params;
 struct ViewHostMsg_DomMessage_Params;
 struct ViewHostMsg_PageHasOSDD_Type;
@@ -116,6 +118,7 @@ class RenderViewHost : public RenderWidgetHost {
 
   SiteInstance* site_instance() const { return instance_; }
   RenderViewHostDelegate* delegate() const { return delegate_; }
+  void set_delegate(RenderViewHostDelegate* d) { delegate_ = d; }
 
   // Set up the RenderView child process. Virtual because it is overridden by
   // TestRenderViewHost. If the |frame_name| parameter is non-empty, it is used
@@ -125,6 +128,10 @@ class RenderViewHost : public RenderWidgetHost {
   // Returns true if the RenderView is active and has not crashed. Virtual
   // because it is overridden by TestRenderViewHost.
   virtual bool IsRenderViewLive() const;
+
+  base::TerminationStatus render_view_termination_status() const {
+    return render_view_termination_status_;
+  }
 
   // Send the renderer process the current preferences supplied by the
   // RenderViewHostDelegate.
@@ -360,6 +367,9 @@ class RenderViewHost : public RenderWidgetHost {
   // Clears the node that is currently focused (if any).
   void ClearFocusedNode();
 
+  // Tells the renderer view to scroll to the focused node.
+  void ScrollFocusedEditableNodeIntoView();
+
   // Update render view specific (WebKit) preferences.
   void UpdateWebPreferences(const WebPreferences& prefs);
 
@@ -435,8 +445,8 @@ class RenderViewHost : public RenderWidgetHost {
 
   // RenderWidgetHost public overrides.
   virtual void Shutdown();
-  virtual bool IsRenderView() const { return true; }
-  virtual void OnMessageReceived(const IPC::Message& msg);
+  virtual bool IsRenderView() const;
+  virtual bool OnMessageReceived(const IPC::Message& msg);
   virtual void GotFocus();
   virtual void LostCapture();
   virtual void ForwardMouseEvent(const WebKit::WebMouseEvent& mouse_event);
@@ -549,7 +559,7 @@ class RenderViewHost : public RenderWidgetHost {
   void OnMsgShowFullscreenWidget(int route_id);
   void OnMsgRunModal(IPC::Message* reply_msg);
   void OnMsgRenderViewReady();
-  void OnMsgRenderViewGone();
+  void OnMsgRenderViewGone(int status, int error_code);
   void OnMsgNavigate(const IPC::Message& msg);
   void OnMsgUpdateState(int32 page_id,
                         const std::string& state);
@@ -567,6 +577,7 @@ class RenderViewHost : public RenderWidgetHost {
                                        const GURL& target_url);
   void OnMsgDidStartLoading();
   void OnMsgDidStopLoading();
+  void OnMsgDidChangeLoadProgress(double load_progress);
   void OnMsgDocumentAvailableInMainFrame();
   void OnMsgDocumentOnLoadCompletedInMainFrame(int32 page_id);
   void OnMsgDidLoadResourceFromMemoryCache(const GURL& url,
@@ -575,10 +586,10 @@ class RenderViewHost : public RenderWidgetHost {
                                            const std::string& security_info);
   void OnMsgDidDisplayInsecureContent();
   void OnMsgDidRunInsecureContent(const std::string& security_origin);
-  void OnMsgDidStartProvisionalLoadForFrame(long long frame_id,
+  void OnMsgDidStartProvisionalLoadForFrame(int64 frame_id,
                                             bool main_frame,
                                             const GURL& url);
-  void OnMsgDidFailProvisionalLoadWithError(long long frame_id,
+  void OnMsgDidFailProvisionalLoadWithError(int64 frame_id,
                                             bool main_frame,
                                             int error_code,
                                             const GURL& url,
@@ -606,8 +617,8 @@ class RenderViewHost : public RenderWidgetHost {
   void OnMsgForwardMessageToExternalHost(const std::string& message,
                                          const std::string& origin,
                                          const std::string& target);
-  void OnMsgDocumentLoadedInFrame(long long frame_id);
-  void OnMsgDidFinishLoad(long long frame_id);
+  void OnMsgDocumentLoadedInFrame(int64 frame_id);
+  void OnMsgDidFinishLoad(int64 frame_id);
   void OnMsgGoToEntryAtOffset(int offset);
   void OnMsgSetTooltipText(const std::wstring& tooltip_text,
                            WebKit::WebTextDirection text_direction_hint);
@@ -658,7 +669,7 @@ class RenderViewHost : public RenderWidgetHost {
                                         const std::string& value);
   void OnMissingPluginStatus(int status);
   void OnCrashedPlugin(const FilePath& plugin_path);
-  void OnDisabledOutdatedPlugin(const string16& name, const GURL& update_url);
+  void OnBlockedOutdatedPlugin(const string16& name, const GURL& update_url);
 
   void OnReceivedSavableResourceLinksForCurrentPage(
       const std::vector<GURL>& resources_list,
@@ -721,9 +732,10 @@ class RenderViewHost : public RenderWidgetHost {
   void OnDetectedPhishingSite(const GURL& phishing_url,
                               double phishing_score,
                               const SkBitmap& thumbnail);
-  void OnScriptEvalResponse(int id, bool result);
+  void OnScriptEvalResponse(int id, const ListValue& result);
   void OnUpdateContentRestrictions(int restrictions);
-  void OnPagesReadyForPreview(int document_cookie, int fd_in_browser);
+  void OnPagesReadyForPreview(
+      const ViewHostMsg_DidPreviewDocument_Params& params);
 
 #if defined(OS_MACOSX)
   void OnMsgShowPopup(const ViewHostMsg_ShowPopup_Params& params);
@@ -817,6 +829,9 @@ class RenderViewHost : public RenderWidgetHost {
 
   // The most recently received accessibility tree - for unit testing only.
   webkit_glue::WebAccessibility accessibility_tree_;
+
+  // The termination status of the last render view that terminated.
+  base::TerminationStatus render_view_termination_status_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderViewHost);
 };

@@ -34,8 +34,9 @@
 #include "third_party/WebKit/WebKit/chromium/public/WebString.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebVector.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebURL.h"
-#include "webkit/glue/plugins/plugin_instance.h"
-#include "webkit/glue/plugins/webplugininfo.h"
+#include "webkit/glue/media/audio_decoder.h"
+#include "webkit/plugins/npapi/plugin_instance.h"
+#include "webkit/plugins/npapi/webplugininfo.h"
 #include "webkit/glue/webkit_glue.h"
 #include "webkit/glue/websocketstreamhandle_impl.h"
 #include "webkit/glue/weburlloader_impl.h"
@@ -44,6 +45,7 @@
 #include "v8/include/v8.h"
 #endif
 
+using WebKit::WebAudioBus;
 using WebKit::WebCookie;
 using WebKit::WebData;
 using WebKit::WebLocalizedString;
@@ -61,7 +63,7 @@ namespace {
 class MemoryUsageCache {
  public:
   // Retrieves the Singleton.
-  static MemoryUsageCache* Get() {
+  static MemoryUsageCache* GetInstance() {
     return Singleton<MemoryUsageCache>::get();
   }
 
@@ -223,18 +225,18 @@ WebString WebKitClientImpl::userAgent(const WebURL& url) {
 
 void WebKitClientImpl::getPluginList(bool refresh,
                                      WebPluginListBuilder* builder) {
-  std::vector<WebPluginInfo> plugins;
+  std::vector<webkit::npapi::WebPluginInfo> plugins;
   GetPlugins(refresh, &plugins);
 
   for (size_t i = 0; i < plugins.size(); ++i) {
-    const WebPluginInfo& plugin = plugins[i];
+    const webkit::npapi::WebPluginInfo& plugin = plugins[i];
 
     builder->addPlugin(
         plugin.name, plugin.desc,
         FilePathStringToWebString(plugin.path.BaseName().value()));
 
     for (size_t j = 0; j < plugin.mime_types.size(); ++j) {
-      const WebPluginMimeType& mime_type = plugin.mime_types[j];
+      const webkit::npapi::WebPluginMimeType& mime_type = plugin.mime_types[j];
 
       builder->addMediaTypeToLastPlugin(
           WebString::fromUTF8(mime_type.mime_type), mime_type.description);
@@ -350,6 +352,15 @@ WebData WebKitClientImpl::loadResource(const char* name) {
   // strings. http://crbug.com/50675.
   //NOTREACHED() << "Unknown image resource " << name;
   return WebData();
+}
+
+bool WebKitClientImpl::loadAudioResource(
+    WebKit::WebAudioBus* destination_bus, const char* audio_file_data,
+    size_t data_size, double sample_rate) {
+  return DecodeAudioFileData(destination_bus,
+                             audio_file_data,
+                             data_size,
+                             sample_rate);
 }
 
 WebString WebKitClientImpl::queryLocalizedString(
@@ -499,7 +510,7 @@ static size_t memoryUsageMBGeneric() {
 
 static size_t getMemoryUsageMB(bool bypass_cache) {
   size_t current_mem_usage = 0;
-  MemoryUsageCache* mem_usage_cache_singleton = MemoryUsageCache::Get();
+  MemoryUsageCache* mem_usage_cache_singleton = MemoryUsageCache::GetInstance();
   if (!bypass_cache &&
       mem_usage_cache_singleton->IsCachedValueValid(&current_mem_usage))
     return current_mem_usage;

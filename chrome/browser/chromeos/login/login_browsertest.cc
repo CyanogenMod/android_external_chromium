@@ -14,7 +14,7 @@
 #include "chrome/browser/chromeos/cros/mock_screen_lock_library.h"
 #include "chrome/browser/chromeos/cros/mock_system_library.h"
 #include "chrome/browser/chromeos/cros/mock_touchpad_library.h"
-#include "chrome/browser/profile_manager.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/in_process_browser_test.h"
@@ -93,7 +93,7 @@ IN_PROC_BROWSER_TEST_F(LoginProfileTest, UserNotPassed) {
   EXPECT_EQ("Default", profile->GetPath().BaseName().value());
   EXPECT_TRUE(profile->IsOffTheRecord());
   // Ensure there's no extension service for this profile.
-  EXPECT_EQ(NULL, profile->GetExtensionsService());
+  EXPECT_EQ(NULL, profile->GetExtensionService());
 }
 
 } // namespace chromeos

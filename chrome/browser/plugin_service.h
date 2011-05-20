@@ -40,9 +40,14 @@ class Message;
 class MessageLoop;
 class Profile;
 class ResourceDispatcherHost;
-class ResourceMessageFilter;
 class URLRequestContext;
+
+
+namespace webkit {
+namespace npapi {
 struct WebPluginInfo;
+}
+}
 
 // This must be created on the main thread but it's only called on the IO/file
 // thread.
@@ -91,7 +96,7 @@ class PluginService
   // the given url and mime type.  Must be called on the FILE thread.
   bool GetFirstAllowedPluginInfo(const GURL& url,
                                  const std::string& mime_type,
-                                 WebPluginInfo* info,
+                                 webkit::npapi::WebPluginInfo* info,
                                  std::string* actual_mime_type);
 
   // Returns true if the given plugin is allowed to be used by a page with

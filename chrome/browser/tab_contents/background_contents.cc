@@ -6,7 +6,7 @@
 
 #include "chrome/browser/background_contents_service.h"
 #include "chrome/browser/browsing_instance.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/renderer_preferences_util.h"
@@ -56,6 +56,18 @@ BackgroundContents::~BackgroundContents() {
       Source<Profile>(profile),
       Details<BackgroundContents>(this));
   render_view_host_->Shutdown();  // deletes render_view_host
+}
+
+BackgroundContents* BackgroundContents::GetAsBackgroundContents() {
+  return this;
+}
+
+RenderViewHostDelegate::View* BackgroundContents::GetViewDelegate() {
+  return this;
+}
+
+const GURL& BackgroundContents::GetURL() const {
+  return url_;
 }
 
 ViewType::Type BackgroundContents::GetRenderViewType() const {
@@ -132,6 +144,14 @@ void BackgroundContents::OnMessageBoxClosed(IPC::Message* reply_msg,
 
 gfx::NativeWindow BackgroundContents::GetMessageBoxRootWindow() {
   NOTIMPLEMENTED();
+  return NULL;
+}
+
+TabContents* BackgroundContents::AsTabContents() {
+  return NULL;
+}
+
+ExtensionHost* BackgroundContents::AsExtensionHost() {
   return NULL;
 }
 

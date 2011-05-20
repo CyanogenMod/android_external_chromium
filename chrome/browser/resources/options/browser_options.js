@@ -41,13 +41,11 @@ cr.define('options', function() {
       OptionsPage.prototype.initializePage.call(this);
 
       // Wire up controls.
-      $('startupAddButton').onclick = function(event) {
-        OptionsPage.showOverlay('addStartupPageOverlay');
-      };
-      $('startupRemoveButton').onclick =
-          this.removeSelectedStartupPages_.bind(this);
       $('startupUseCurrentButton').onclick = function(event) {
         chrome.send('setStartupPagesToCurrentPages');
+      };
+      $('startupPageManagerButton').onclick = function(event) {
+        OptionsPage.showPageByName('startupPages');
       };
       $('defaultSearchManageEnginesButton').onclick = function(event) {
         OptionsPage.showPageByName('searchEngines');
@@ -85,25 +83,15 @@ cr.define('options', function() {
         };
       }
 
-      var list = $('startupPages');
+      var list = $('startupPagesShortList');
       options.browser_options.StartupPageList.decorate(list);
+      list.autoExpands = true;
       list.selectionModel = new ListSelectionModel;
-
-      list.selectionModel.addEventListener(
-          'change', this.updateRemoveButtonState_.bind(this));
-
-      this.addEventListener('visibleChange', function(event) {
-        $('startupPages').redraw();
-      });
 
       // Check if we are in the guest mode.
       if (cr.commandLine.options['--bwsi']) {
-        // Disable input and button elements under the startup section.
-        var elements = $('startupSection').querySelectorAll('input, button');
-        for (var i = 0; i < elements.length; i++) {
-          elements[i].disabled = true;
-          elements[i].manually_disabled = true;
-        }
+        // Hide the startup section.
+        $('startupSection').classList.add('hidden');
       } else {
         // Initialize control enabled states.
         Preferences.getInstance().addEventListener('session.restore_on_startup',
@@ -115,13 +103,6 @@ cr.define('options', function() {
 
         this.updateCustomStartupPageControlStates_();
       }
-
-      // Remove Windows-style accelerators from button labels.
-      // TODO(stuartmorgan): Remove this once the strings are updated.
-      $('startupAddButton').textContent =
-          localStrings.getStringWithoutAccelerator('startupAddButton');
-      $('startupRemoveButton').textContent =
-          localStrings.getStringWithoutAccelerator('startupRemoveButton');
     },
 
     /**
@@ -187,8 +168,19 @@ cr.define('options', function() {
      * @param {Array} pages List of startup pages.
      */
     updateStartupPages_: function(pages) {
-      $('startupPages').dataModel = new ArrayDataModel(pages);
-      this.updateRemoveButtonState_();
+      var list = $('startupPagesShortList');
+      list.dataModel = new ArrayDataModel(pages);
+      if (pages.length > 0 && pages.length <= 10) {
+        list.classList.remove("hidden");
+        $('startupPageManagement').classList.add('settings-list');
+        $('startupShowPagesLabel').textContent =
+            localStrings.getStringWithoutAccelerator('startupShowPages');
+      } else {
+        list.classList.add("hidden");
+        $('startupPageManagement').classList.remove('settings-list');
+        $('startupShowPagesLabel').textContent =
+            localStrings.getStringWithoutAccelerator('startupShowManyPages');
+      }
     },
 
     /**
@@ -350,39 +342,9 @@ cr.define('options', function() {
      */
     updateCustomStartupPageControlStates_: function() {
       var disable = !this.shouldEnableCustomStartupPageControls_();
-      $('startupAddButton').disabled = disable;
+      $('startupPagesShortList').disabled = disable;
       $('startupUseCurrentButton').disabled = disable;
-      this.updateRemoveButtonState_();
-    },
-
-    /**
-     * Sets the enabled state of the startup page Remove button based on
-     * the current selection in the startup pages list.
-     * @private
-     */
-    updateRemoveButtonState_: function() {
-      var groupEnabled = this.shouldEnableCustomStartupPageControls_();
-      $('startupRemoveButton').disabled = !groupEnabled ||
-          ($('startupPages').selectionModel.selectedIndex == -1);
-    },
-
-    /**
-     * Removes the selected startup pages.
-     * @private
-     */
-    removeSelectedStartupPages_: function() {
-      var selections =
-          $('startupPages').selectionModel.selectedIndexes.map(String);
-      chrome.send('removeStartupPages', selections);
-    },
-
-    /**
-     * Adds the given startup page at the current selection point.
-     * @private
-     */
-    addStartupPage_: function(url) {
-      var firstSelection = $('startupPages').selectionModel.selectedIndex;
-      chrome.send('addStartupPage', [url, String(firstSelection)]);
+      $('startupPageManagerButton').disabled = disable;
     },
 
     /**
@@ -413,10 +375,7 @@ cr.define('options', function() {
 
   BrowserOptions.updateStartupPages = function(pages) {
     BrowserOptions.getInstance().updateStartupPages_(pages);
-  };
-
-  BrowserOptions.addStartupPage = function(url) {
-    BrowserOptions.getInstance().addStartupPage_(url);
+    StartupPageManager.getInstance().updateStartupPages_(pages);
   };
 
   // Export

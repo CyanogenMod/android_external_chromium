@@ -25,14 +25,15 @@
 #include "base/utf_string_conversions.h"
 #include "base/win/registry.h"
 #include "base/win/windows_version.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_updater.h"
 #include "chrome/browser/importer/importer.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/process_singleton.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/views/first_run_search_engine_view.h"
+#include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
@@ -64,14 +65,7 @@ namespace {
 bool GetNewerChromeFile(FilePath* path) {
   if (!PathService::Get(base::DIR_EXE, path))
     return false;
-  *path = path->Append(installer_util::kChromeNewExe);
-  return true;
-}
-
-bool GetBackupChromeFile(std::wstring* path) {
-  if (!PathService::Get(base::DIR_EXE, path))
-    return false;
-  file_util::AppendToPath(path, installer_util::kChromeOldExe);
+  *path = path->Append(installer::kChromeNewExe);
   return true;
 }
 
@@ -89,7 +83,7 @@ bool InvokeGoogleUpdateForRename() {
       DWORD exit_code;
       ::GetExitCodeProcess(handle, &exit_code);
       ::CloseHandle(handle);
-      if (exit_code == installer_util::RENAME_SUCCESSFUL)
+      if (exit_code == installer::RENAME_SUCCESSFUL)
         return true;
     }
   }
@@ -101,8 +95,8 @@ bool LaunchSetupWithParam(const std::string& param, const std::wstring& value,
   FilePath exe_path;
   if (!PathService::Get(base::DIR_MODULE, &exe_path))
     return false;
-  exe_path = exe_path.Append(installer_util::kInstallerDir);
-  exe_path = exe_path.Append(installer_util::kSetupExe);
+  exe_path = exe_path.Append(installer::kInstallerDir);
+  exe_path = exe_path.Append(installer::kSetupExe);
   base::ProcessHandle ph;
   CommandLine cl(exe_path);
   cl.AppendSwitchNative(param, value);
@@ -156,7 +150,7 @@ class FirstRunDelayedTasks : public NotificationObserver {
                        const NotificationDetails& details) {
     // After processing the notification we always delete ourselves.
     if (type.value == NotificationType::EXTENSIONS_READY)
-      DoExtensionWork(Source<Profile>(source).ptr()->GetExtensionsService());
+      DoExtensionWork(Source<Profile>(source).ptr()->GetExtensionService());
     delete this;
     return;
   }
@@ -168,7 +162,7 @@ class FirstRunDelayedTasks : public NotificationObserver {
   // The extension work is to basically trigger an extension update check.
   // If the extension specified in the master pref is older than the live
   // extension it will get updated which is the same as get it installed.
-  void DoExtensionWork(ExtensionsService* service) {
+  void DoExtensionWork(ExtensionService* service) {
     if (!service)
       return;
     service->updater()->CheckNow();
@@ -186,8 +180,8 @@ bool FirstRun::LaunchSetupWithParam(const std::string& param,
   FilePath exe_path;
   if (!PathService::Get(base::DIR_MODULE, &exe_path))
     return false;
-  exe_path = exe_path.Append(installer_util::kInstallerDir);
-  exe_path = exe_path.Append(installer_util::kSetupExe);
+  exe_path = exe_path.Append(installer::kInstallerDir);
+  exe_path = exe_path.Append(installer::kSetupExe);
   base::ProcessHandle ph;
   CommandLine cl(exe_path);
   cl.AppendSwitchNative(param, value);
@@ -225,30 +219,32 @@ void FirstRun::DoDelayedInstallExtensions() {
 CommandLine* Upgrade::new_command_line_ = NULL;
 
 bool FirstRun::CreateChromeDesktopShortcut() {
-  std::wstring chrome_exe;
+  FilePath chrome_exe;
   if (!PathService::Get(base::FILE_EXE, &chrome_exe))
     return false;
   BrowserDistribution *dist = BrowserDistribution::GetDistribution();
   if (!dist)
     return false;
-  return ShellUtil::CreateChromeDesktopShortcut(chrome_exe,
+  return ShellUtil::CreateChromeDesktopShortcut(dist, chrome_exe.value(),
       dist->GetAppDescription(), ShellUtil::CURRENT_USER,
       false, true);  // create if doesn't exist.
 }
 
 bool FirstRun::CreateChromeQuickLaunchShortcut() {
-  std::wstring chrome_exe;
+  FilePath chrome_exe;
   if (!PathService::Get(base::FILE_EXE, &chrome_exe))
     return false;
-  return ShellUtil::CreateChromeQuickLaunchShortcut(chrome_exe,
+  BrowserDistribution* dist = BrowserDistribution::GetDistribution();
+  return ShellUtil::CreateChromeQuickLaunchShortcut(dist, chrome_exe.value(),
       ShellUtil::CURRENT_USER,  // create only for current user.
       true);  // create if doesn't exist.
 }
 
 bool Upgrade::IsBrowserAlreadyRunning() {
   static HANDLE handle = NULL;
-  std::wstring exe;
-  PathService::Get(base::FILE_EXE, &exe);
+  FilePath exe_path;
+  PathService::Get(base::FILE_EXE, &exe_path);
+  std::wstring exe = exe_path.value();
   std::replace(exe.begin(), exe.end(), '\\', '!');
   std::transform(exe.begin(), exe.end(), exe.begin(), tolower);
   exe = L"Global\\" + exe;
@@ -261,8 +257,7 @@ bool Upgrade::IsBrowserAlreadyRunning() {
 
 bool Upgrade::RelaunchChromeBrowser(const CommandLine& command_line) {
   scoped_ptr<base::Environment> env(base::Environment::Create());
-  env->UnSetVar(WideToUTF8(
-      BrowserDistribution::GetDistribution()->GetEnvVersionKey()).c_str());
+  env->UnSetVar(chrome::kChromeVersionEnvVar);
   return base::LaunchApp(command_line.command_line_string(),
                          false, false, NULL);
 }
@@ -273,12 +268,13 @@ bool Upgrade::SwapNewChromeExeIfPresent() {
     return false;
   if (!file_util::PathExists(new_chrome_exe))
     return false;
-  std::wstring curr_chrome_exe;
-  if (!PathService::Get(base::FILE_EXE, &curr_chrome_exe))
+  FilePath cur_chrome_exe;
+  if (!PathService::Get(base::FILE_EXE, &cur_chrome_exe))
     return false;
 
   // First try to rename exe by launching rename command ourselves.
-  bool user_install = InstallUtil::IsPerUserInstall(curr_chrome_exe.c_str());
+  bool user_install =
+      InstallUtil::IsPerUserInstall(cur_chrome_exe.value().c_str());
   HKEY reg_root = user_install ? HKEY_CURRENT_USER : HKEY_LOCAL_MACHINE;
   BrowserDistribution *dist = BrowserDistribution::GetDistribution();
   base::win::RegKey key;
@@ -290,7 +286,7 @@ bool Upgrade::SwapNewChromeExeIfPresent() {
       DWORD exit_code;
       ::GetExitCodeProcess(handle, &exit_code);
       ::CloseHandle(handle);
-      if (exit_code == installer_util::RENAME_SUCCESSFUL)
+      if (exit_code == installer::RENAME_SUCCESSFUL)
         return true;
     }
   }

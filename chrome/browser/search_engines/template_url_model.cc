@@ -11,14 +11,14 @@
 #include "base/string_number_conversions.h"
 #include "base/string_split.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/google/google_url_tracker.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/history/history_notifications.h"
 #include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/pref_set_observer.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/rlz/rlz.h"
 #include "chrome/browser/search_engines/search_host_to_urls_map.h"
 #include "chrome/browser/search_engines/search_terms_data.h"
@@ -741,7 +741,7 @@ void TemplateURLModel::NotifyLoaded() {
       NotificationService::NoDetails());
 
   for (size_t i = 0; i < pending_extension_ids_.size(); ++i) {
-    const Extension* extension = profile_->GetExtensionsService()->
+    const Extension* extension = profile_->GetExtensionService()->
         GetExtensionById(pending_extension_ids_[i], true);
     if (extension)
       RegisterExtensionKeyword(extension);
@@ -844,12 +844,12 @@ bool TemplateURLModel::LoadDefaultSearchProviderFromPrefs(
   std::vector<std::string> encodings_vector;
   base::SplitString(encodings, ';', &encodings_vector);
   (*default_provider)->set_input_encodings(encodings_vector);
-  if (!id_string.empty()) {
+  if (!id_string.empty() && !*is_managed) {
     int64 value;
     base::StringToInt64(id_string, &value);
     (*default_provider)->set_id(value);
   }
-  if (!prepopulate_id.empty()) {
+  if (!prepopulate_id.empty() && !*is_managed) {
     int value;
     base::StringToInt(prepopulate_id, &value);
     (*default_provider)->set_prepopulate_id(value);
@@ -1258,4 +1258,3 @@ void TemplateURLModel::NotifyObservers() {
   FOR_EACH_OBSERVER(TemplateURLModelObserver, model_observers_,
                     OnTemplateURLModelChanged());
 }
-

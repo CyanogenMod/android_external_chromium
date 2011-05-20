@@ -24,6 +24,10 @@ body {
   bottom: 0;
 }
 
+#search-field {
+  margin: 0;
+}
+
 .overlay {
   position: fixed;
   left: 0;
@@ -38,21 +42,32 @@ body {
   -webkit-box-pack: center;
 }
 
-#close-overlay {
+.close-subpage {
+  background-color: transparent;
+  background-image: url('chrome://theme/IDR_CLOSE_BAR');
+  border: none;
   position: relative;
-  top: -20px;
-  width: 20px;
-  height: 20px;
+  top: 12px;
+  height: 16px;
+  width: 16px;
 }
 
-html[dir='ltr'] #close-overlay {
+.close-subpage:hover {
+  background-image: url('chrome://theme/IDR_CLOSE_BAR_H');
+}
+
+.close-subpage:active {
+  background-image: url('chrome://theme/IDR_CLOSE_BAR_P');
+}
+
+html[dir='ltr'] .close-subpage {
   float: right;
-  right: -20px;
+  right: 0;
 }
 
-html[dir='rtl'] #close-overlay {
+html[dir='rtl'] .close-subpage {
   float: left;
-  left: -20px;
+  left: 0;
 }
 
 html[hide-menu=true] .close-subpage {
@@ -116,7 +131,7 @@ html[toolkit=views] .button-strip {
   left: 0;
   position: fixed;
   top: 0;
-  width: 250px;
+  width: 266px;
   z-index: 2;
 }
 
@@ -179,7 +194,7 @@ html[hide-menu=false] #navbar-container {
 
 #mainview {
   -webkit-box-align: stretch;
-  -webkit-padding-start: 251px;
+  -webkit-padding-start: 267px;
   margin: 0;
   position: absolute;
   left: 0;
@@ -195,24 +210,35 @@ html[hide-menu=true] #mainview {
 
 #mainview-content {
   box-sizing: border-box;
+  max-width: 888px;
   min-height: 100%;
+  min-width: 600px;
   padding: 0 24px;
   position: relative;
-  width: 600px;
 }
 
-#subpage-sheet-container {
-  box-sizing: border-box;
-  height: 100%;
+.subpage-sheet-container {
   padding: 8px;
   -webkit-padding-start: 60px;
+  box-sizing: border-box;
+  height: 100%;
   position: absolute;
   top: 0;
   left: 0;
-  width: 748px;
 }
 
-#subpage-sheet {
+#subpage-sheet-container-1 {
+  width: 748px;
+  z-index: 5;
+}
+
+#subpage-sheet-container-2 {
+  left: 60px;
+  width: 688px;
+  z-index: 10;
+}
+
+.subpage-sheet {
   -webkit-box-shadow: #666 0px 3px 5px;
   background-color: white;
   border: 1px solid #b8b8b8;
@@ -220,6 +246,7 @@ html[hide-menu=true] #mainview {
   box-sizing: border-box;
   min-height: 100%;
   padding: 0px 20px;
+  position: relative;
   width: 100%;
 }
 
@@ -255,7 +282,7 @@ html[hide-menu=true] #mainview {
   vertical-align: middle;
 }
 
-.page > h1 {
+.page h1 {
   -webkit-padding-end: 24px;
   border-bottom: 1px solid #eeeeee;
   color: #53637d;
@@ -266,8 +293,8 @@ html[hide-menu=true] #mainview {
   padding-top: 13px;
 }
 
-#subpage-sheet .page > h1 {
-  padding-top: 7px;
+.subpage-sheet .page h1 {
+  padding-top: 4px;
 }
 
 section {
@@ -278,8 +305,14 @@ section {
   padding-bottom: 20px;
 }
 
-section:last-child {
+div.page section:last-child {
   border-bottom: none;
+}
+
+div.page > h3 {
+  font-size: 105%;
+  font-weight: bold;
+  margin: 20px 0 10px 0;
 }
 
 section > h3 {
@@ -298,21 +331,20 @@ section > div:only-of-type {
   margin-top: 0;
 }
 
-.option-control-table, section > div:only-of-type {
-  -webkit-padding-start: 10px;
-  border-spacing: 0 0;
-}
-
 /* TODO(stuartmorgan): make this less specific once all pages
  * are converted to the non-table style.
  */
 section > div:only-of-type label {
-  display: block;
   margin: 5px 0;
 }
 
+label.checkbox,
+label.radio {
+  display: block
+}
+
 .hidden {
-  display: none;
+  display: none !important;
 }
 
 .touch-slider {
@@ -340,6 +372,43 @@ select {
   background-color: pink;
 }
 
+.settings-list {
+  border: 1px solid #d9d9d9;
+  border-radius: 2px;
+}
+
+list > * {
+  -webkit-box-align: center;
+  -webkit-transition: .15s background-color;
+  box-sizing: border-box;
+  border-radius: 0px;
+  display: -webkit-box;
+  height: 32px;
+  border: none;
+  margin: 0;
+}
+
+list:not([disabled]) > :hover {
+  background-color: #f2f2f2;
+}
+
+list > [selected],
+list:focus > [selected],
+list:focus > [lead][selected],
+list > [selected]:hover {
+  background-color: #f2f2f2;
+  background-image: none;
+}
+
+list[disabled] > [lead][selected],
+list[disabled]:focus > [lead][selected] {
+  border: none;
+}
+
+list[disabled] {
+  opacity: 0.6;
+}
+
 list > .heading {
   color: #666666;
 }
@@ -347,6 +416,41 @@ list > .heading {
 list > .heading:hover {
   background-color: transparent;
   border-color: transparent;
+}
+
+list .deletable-item {
+  -webkit-box-align: center;
+}
+
+list .deletable-item > :first-child {
+  -webkit-box-flex: 1;
+  display: -webkit-box;
+}
+
+list .close-button {
+  -webkit-transition: .15s opacity;
+  background-color: transparent;
+  /* TODO(stuartmorgan): Replace with real images once they are available. */
+  background-image: url("../../../app/theme/close_bar.png");
+  border: none;
+  height: 16px;
+  opacity: 1;
+  width: 16px;
+}
+
+list > *:not(:hover) .close-button,
+list[disabled] .close-button,
+list .close-button[disabled] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+list .close-button:hover {
+  background-image: url("../../../app/theme/close_bar_h.png");
+}
+
+list .close-button:active {
+  background-image: url("../../../app/theme/close_bar_p.png");
 }
 
 .left-side-table {
@@ -379,7 +483,19 @@ html[dir=rtl].option-name {
   background-repeat: no-repeat;
 }
 
-html[dir=rtl] .favicon-cell {
+list .favicon-cell {
+  -webkit-padding-start: 33px;
+  background-position: 7px;
+  display: block;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+html[dir=rtl] list .favicon-cell {
+  /* TODO(stuartmorgan): position this 7px from the right (and remove the
+     padding override) once the CSS support is available */
+  -webkit-padding-start: 26px;
   background-position: right;
 }
 
@@ -407,32 +523,16 @@ button {
  * TODO(arv): Test the vertical position on Linux and CrOS as well.
  */
 
-/*
- * Webkit does not move the absolute positioned input element properly and
- * filed bug 48348 to track the problem.
- *   https://bugs.webkit.org/show_bug.cgi?id=48348
- * In the mean time, mark the outer label element 'relative' so that webkit
- * aligns the input element properly.
- */
-label.checkbox,
-label.radio {
-  position: relative;
-}
-
-label.checkbox > input,
-label.radio > input {
+label > input[type=checkbox],
+label > input[type=radio] {
   margin-top: 1px;
-  position: absolute;
 }
 
-label.checkbox > span,
-label.radio > span,
 .suboption {
   -webkit-margin-start: 16px;
-  display: block;
 }
 
-html[os=mac] label.checkbox > input,
-html[os=mac] label.radio > input {
+html[os=mac] label > input[type=checkbox],
+html[os=mac] label > input[type=radio] {
   margin-top: 2px;
 }

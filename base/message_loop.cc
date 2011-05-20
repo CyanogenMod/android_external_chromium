@@ -26,7 +26,6 @@
 #include "base/message_pump_glib_x.h"
 #endif
 
-using base::Time;
 using base::TimeDelta;
 using base::TimeTicks;
 
@@ -141,9 +140,13 @@ MessageLoop::MessageLoop(Type type)
 #define MESSAGE_PUMP_UI new base::MessagePumpDefault()
 #define MESSAGE_PUMP_IO new base::MessagePumpLibevent()
 #elif defined(TOUCH_UI)
-// TODO(sadrul): enable the new message pump when ready
-#define MESSAGE_PUMP_UI new base::MessagePumpForUI()
+#define MESSAGE_PUMP_UI new base::MessagePumpGlibX()
 #define MESSAGE_PUMP_IO new base::MessagePumpLibevent()
+#elif defined(OS_NACL)
+// Currently NaCl doesn't have a UI or an IO MessageLoop.
+// TODO(abarth): Figure out if we need these.
+#define MESSAGE_PUMP_UI NULL
+#define MESSAGE_PUMP_IO NULL
 #elif defined(OS_POSIX)  // POSIX but not MACOSX.
 #define MESSAGE_PUMP_UI new base::MessagePumpForUI()
 #define MESSAGE_PUMP_IO new base::MessagePumpLibevent()
@@ -347,9 +350,9 @@ void MessageLoop::PostTask_Helper(
       // res timers for any timer which is within 2x of the granularity.
       // This is a tradeoff between accuracy and power management.
       bool needs_high_res_timers =
-          delay_ms < (2 * Time::kMinLowResolutionThresholdMs);
+          delay_ms < (2 * base::Time::kMinLowResolutionThresholdMs);
       if (needs_high_res_timers) {
-        Time::ActivateHighResolutionTimer(true);
+        base::Time::ActivateHighResolutionTimer(true);
         high_resolution_timer_expiration_ = TimeTicks::Now() +
             TimeDelta::FromMilliseconds(kHighResolutionTimerModeLeaseTimeMs);
       }
@@ -362,7 +365,7 @@ void MessageLoop::PostTask_Helper(
 #if defined(OS_WIN)
   if (!high_resolution_timer_expiration_.is_null()) {
     if (TimeTicks::Now() > high_resolution_timer_expiration_) {
-      Time::ActivateHighResolutionTimer(false);
+      base::Time::ActivateHighResolutionTimer(false);
       high_resolution_timer_expiration_ = TimeTicks();
     }
   }
@@ -640,7 +643,7 @@ void MessageLoop::EnableHistogrammer(bool enable) {
 
 void MessageLoop::StartHistogrammer() {
   if (enable_histogrammer_ && !message_histogram_.get()
-      && base::StatisticsRecorder::WasStarted()) {
+      && base::StatisticsRecorder::IsActive()) {
     DCHECK(!thread_name_.empty());
     message_histogram_ = base::LinearHistogram::FactoryGet(
         "MsgLoop:" + thread_name_,
@@ -665,7 +668,7 @@ void MessageLoopForUI::DidProcessMessage(const MSG& message) {
 }
 #endif  // defined(OS_WIN)
 
-#if !defined(OS_MACOSX) && !defined(ANDROID)
+#if !defined(OS_MACOSX) && !defined(OS_NACL) && !defined(ANDROID)
 void MessageLoopForUI::AddObserver(Observer* observer) {
   pump_ui()->AddObserver(observer);
 }
@@ -679,7 +682,7 @@ void MessageLoopForUI::Run(Dispatcher* dispatcher) {
   state_->dispatcher = dispatcher;
   RunHandler();
 }
-#endif  // !defined(OS_MACOSX)
+#endif  // !defined(OS_MACOSX) && !defined(OS_NACL)
 
 //------------------------------------------------------------------------------
 // MessageLoopForIO
@@ -694,7 +697,7 @@ bool MessageLoopForIO::WaitForIOCompletion(DWORD timeout, IOHandler* filter) {
   return pump_io()->WaitForIOCompletion(timeout, filter);
 }
 
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) && !defined(OS_NACL)
 
 bool MessageLoopForIO::WatchFileDescriptor(int fd,
                                            bool persistent,

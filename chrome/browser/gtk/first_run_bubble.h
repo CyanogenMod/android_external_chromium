@@ -17,9 +17,10 @@
 #include "base/basictypes.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/gtk/info_bubble_gtk.h"
-#include "chrome/browser/profile.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
+
+class Profile;
 
 class FirstRunBubble : public InfoBubbleGtkDelegate,
                        public NotificationObserver {
@@ -34,7 +35,7 @@ class FirstRunBubble : public InfoBubbleGtkDelegate,
   // is about to be closed.
   virtual void InfoBubbleClosing(InfoBubbleGtk* info_bubble,
                                  bool closed_by_escape);
-  virtual bool CloseOnEscape() { return true; }
+  virtual bool CloseOnEscape();
 
   // Overridden from NotificationObserver:
   virtual void Observe(NotificationType type,

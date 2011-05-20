@@ -272,8 +272,8 @@ void WiredSection::InitSection() {
 }
 
 void WiredSection::ButtonClicked(int button, int connection_type, int id) {
-  CreateModalPopup(new NetworkConfigView(
-      CrosLibrary::Get()->GetNetworkLibrary()->ethernet_network()));
+//  CreateModalPopup(new NetworkConfigView(
+//      CrosLibrary::Get()->GetNetworkLibrary()->ethernet_network()));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -322,7 +322,7 @@ void WirelessSection::InitSection() {
     std::wstring name = ASCIIToWide(wifi_networks_[i]->name());
 
     SkBitmap icon = NetworkMenu::IconForNetworkStrength(
-        wifi_networks_[i]->strength(), true);
+        wifi_networks_[i], true);
     if (wifi_networks_[i]->encrypted()) {
       icon = NetworkMenu::IconForDisplay(icon,
           *rb.GetBitmapNamed(IDR_STATUSBAR_NETWORK_SECURE));
@@ -339,7 +339,7 @@ void WirelessSection::InitSection() {
     std::wstring name = ASCIIToWide(cellular_networks_[i]->name());
 
     SkBitmap icon = NetworkMenu::IconForNetworkStrength(
-        cellular_networks_[i]->strength(), true);
+        cellular_networks_[i], true);
     SkBitmap badge =
         NetworkMenu::BadgeForNetworkTechnology(cellular_networks_[i]);
     icon = NetworkMenu::IconForDisplay(icon, badge);
@@ -361,7 +361,7 @@ void WirelessSection::ButtonClicked(int button, int connection_type, int id) {
         CrosLibrary::Get()->GetNetworkLibrary()->DisconnectFromWirelessNetwork(
             cellular_networks_[id]);
       } else {
-        CreateModalPopup(new NetworkConfigView(cellular_networks_[id]));
+//        CreateModalPopup(new NetworkConfigView(cellular_networks_[id]));
       }
     }
   } else if (connection_type == TYPE_WIFI) {
@@ -369,10 +369,10 @@ void WirelessSection::ButtonClicked(int button, int connection_type, int id) {
       if (button == CONNECT_BUTTON) {
         // Connect to wifi here. Open password page if appropriate.
         if (wifi_networks_[id]->encrypted()) {
-          NetworkConfigView* view =
-              new NetworkConfigView(wifi_networks_[id], true);
-          CreateModalPopup(view);
-          view->SetLoginTextfieldFocus();
+//          NetworkConfigView* view =
+//              new NetworkConfigView(wifi_networks_[id], true);
+//          CreateModalPopup(view);
+//          view->SetLoginTextfieldFocus();
         } else {
           CrosLibrary::Get()->GetNetworkLibrary()->ConnectToWifiNetwork(
               wifi_networks_[id], std::string(), std::string(), std::string());
@@ -381,7 +381,7 @@ void WirelessSection::ButtonClicked(int button, int connection_type, int id) {
         CrosLibrary::Get()->GetNetworkLibrary()->DisconnectFromWirelessNetwork(
             wifi_networks_[id]);
       } else {
-        CreateModalPopup(new NetworkConfigView(wifi_networks_[id], false));
+//        CreateModalPopup(new NetworkConfigView(wifi_networks_[id], false));
       }
     }
   } else {

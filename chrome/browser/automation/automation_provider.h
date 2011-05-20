@@ -34,13 +34,13 @@
 #include "views/event.h"
 #endif  // defined(OS_WIN)
 
-struct AutomationMsg_Find_Params;
 class PopupMenuWaiter;
 class TabContents;
-
-namespace IPC {
+struct AutomationMsg_Find_Params;
 struct Reposition_Params;
 struct ExternalTabSettings;
+
+namespace IPC {
 class ChannelProxy;
 }
 
@@ -148,7 +148,7 @@ class AutomationProvider : public base::RefCounted<AutomationProvider>,
   // IPC implementations
   virtual bool Send(IPC::Message* msg);
   virtual void OnChannelConnected(int pid);
-  virtual void OnMessageReceived(const IPC::Message& msg);
+  virtual bool OnMessageReceived(const IPC::Message& msg);
   virtual void OnChannelError();
 
   IPC::Message* reply_message_release() {
@@ -238,11 +238,6 @@ class AutomationProvider : public base::RefCounted<AutomationProvider>,
                           int flags,
                           bool press_escape_en_route,
                           IPC::Message* reply_message);
-
-#if defined(OS_WIN)
-  // TODO(port): Replace HWND.
-  void GetTabHWND(int handle, HWND* tab_hwnd);
-#endif  // defined(OS_WIN)
   void HandleUnused(const IPC::Message& message, int handle);
   void SetFilteredInet(const IPC::Message& message, bool enabled);
   void GetFilteredInetHitCount(int* hit_count);
@@ -360,11 +355,11 @@ class AutomationProvider : public base::RefCounted<AutomationProvider>,
                        bool restore_focus_to_view);
 
   void OnTabReposition(int tab_handle,
-                       const IPC::Reposition_Params& params);
+                       const Reposition_Params& params);
 
   void OnForwardContextMenuCommandToChrome(int tab_handle, int command);
 
-  void CreateExternalTab(const IPC::ExternalTabSettings& settings,
+  void CreateExternalTab(const ExternalTabSettings& settings,
                          gfx::NativeWindow* tab_container_window,
                          gfx::NativeWindow* tab_window,
                          int* tab_handle,

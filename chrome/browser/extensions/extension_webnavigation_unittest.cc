@@ -8,12 +8,11 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 #include "base/values.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extension_webnavigation_api.h"
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
 #include "chrome/browser/tab_contents/test_tab_contents.h"
-#include "chrome/common/url_constants.h"
 #include "chrome/test/testing_profile.h"
+
 
 class FrameNavigationStateTest : public RenderViewHostTestHarness {
 };
@@ -22,19 +21,19 @@ class FrameNavigationStateTest : public RenderViewHostTestHarness {
 // goes away.
 TEST_F(FrameNavigationStateTest, TrackFrame) {
   FrameNavigationState navigation_state;
-  const long long frame_id1 = 23;
-  const long long frame_id2 = 42;
+  const int64 frame_id1 = 23;
+  const int64 frame_id2 = 42;
   const GURL url1("http://www.google.com/");
   const GURL url2("http://mail.google.com/");
 
   // Create a main frame.
   EXPECT_FALSE(navigation_state.CanSendEvents(frame_id1));
-  navigation_state.TrackFrame(frame_id1, url1, true, contents());
+  navigation_state.TrackFrame(frame_id1, url1, true, false, contents());
   EXPECT_TRUE(navigation_state.CanSendEvents(frame_id1));
 
   // Add a sub frame.
   EXPECT_FALSE(navigation_state.CanSendEvents(frame_id2));
-  navigation_state.TrackFrame(frame_id2, url2, false, contents());
+  navigation_state.TrackFrame(frame_id2, url2, false, false, contents());
   EXPECT_TRUE(navigation_state.CanSendEvents(frame_id2));
 
   // Check frame state.
@@ -54,23 +53,22 @@ TEST_F(FrameNavigationStateTest, TrackFrame) {
 // before a new navigation happened in this frame.
 TEST_F(FrameNavigationStateTest, ErrorState) {
   FrameNavigationState navigation_state;
-  const long long frame_id = 42;
+  const int64 frame_id = 42;
   const GURL url("http://www.google.com/");
 
-  navigation_state.TrackFrame(frame_id, url, true, contents());
+  navigation_state.TrackFrame(frame_id, url, true, false, contents());
   EXPECT_TRUE(navigation_state.CanSendEvents(frame_id));
 
   // After an error occurred, no further events should be sent.
   navigation_state.ErrorOccurredInFrame(frame_id);
   EXPECT_FALSE(navigation_state.CanSendEvents(frame_id));
 
-  // Navigations to the "unreachable web data" URL should be ignored.
-  navigation_state.TrackFrame(
-      frame_id, GURL(chrome::kUnreachableWebDataURL), true, contents());
+  // Navigations to a network error page should be ignored.
+  navigation_state.TrackFrame(frame_id, GURL(), true, true, contents());
   EXPECT_FALSE(navigation_state.CanSendEvents(frame_id));
 
   // However, when the frame navigates again, it should send events again.
-  navigation_state.TrackFrame(frame_id, url, true, contents());
+  navigation_state.TrackFrame(frame_id, url, true, false, contents());
   EXPECT_TRUE(navigation_state.CanSendEvents(frame_id));
 }
 
@@ -78,12 +76,12 @@ TEST_F(FrameNavigationStateTest, ErrorState) {
 // before a new navigation happened in this frame.
 TEST_F(FrameNavigationStateTest, ErrorStateFrame) {
   FrameNavigationState navigation_state;
-  const long long frame_id1 = 23;
-  const long long frame_id2 = 42;
+  const int64 frame_id1 = 23;
+  const int64 frame_id2 = 42;
   const GURL url("http://www.google.com/");
 
-  navigation_state.TrackFrame(frame_id1, url, true, contents());
-  navigation_state.TrackFrame(frame_id2, url, false, contents());
+  navigation_state.TrackFrame(frame_id1, url, true, false, contents());
+  navigation_state.TrackFrame(frame_id2, url, false, false, contents());
   EXPECT_TRUE(navigation_state.CanSendEvents(frame_id1));
   EXPECT_TRUE(navigation_state.CanSendEvents(frame_id2));
 
@@ -92,14 +90,13 @@ TEST_F(FrameNavigationStateTest, ErrorStateFrame) {
   EXPECT_TRUE(navigation_state.CanSendEvents(frame_id1));
   EXPECT_FALSE(navigation_state.CanSendEvents(frame_id2));
 
-  // Navigations to the "unreachable web data" URL should be ignored.
-  navigation_state.TrackFrame(
-      frame_id2, GURL(chrome::kUnreachableWebDataURL), false, contents());
+  // Navigations to a network error page should be ignored.
+  navigation_state.TrackFrame(frame_id2, GURL(), false, true, contents());
   EXPECT_TRUE(navigation_state.CanSendEvents(frame_id1));
   EXPECT_FALSE(navigation_state.CanSendEvents(frame_id2));
 
   // However, when the frame navigates again, it should send events again.
-  navigation_state.TrackFrame(frame_id2, url, false, contents());
+  navigation_state.TrackFrame(frame_id2, url, false, false, contents());
   EXPECT_TRUE(navigation_state.CanSendEvents(frame_id1));
   EXPECT_TRUE(navigation_state.CanSendEvents(frame_id2));
 }

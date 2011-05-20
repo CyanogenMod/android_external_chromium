@@ -4,12 +4,13 @@
 
 #include "chrome/browser/printing/cloud_print/cloud_print_setup_source.h"
 
+#include <algorithm>
+
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/message_loop.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/jstemplate_builder.h"
@@ -123,6 +124,10 @@ void CloudPrintSetupSource::StartDataRequest(const std::string& path_raw,
   html_bytes->data.resize(response.size());
   std::copy(response.begin(), response.end(), html_bytes->data.begin());
   SendResponse(request_id, html_bytes);
+}
+
+std::string CloudPrintSetupSource::GetMimeType(const std::string& path) const {
+  return "text/html";
 }
 
 std::string CloudPrintSetupSource::GetLocalizedUrl(

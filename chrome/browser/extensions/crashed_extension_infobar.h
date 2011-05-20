@@ -12,7 +12,7 @@
 #include "chrome/browser/tab_contents/infobar_delegate.h"
 
 class Extension;
-class ExtensionsService;
+class ExtensionService;
 class SkBitmap;
 
 // This infobar will be displayed when an extension process crashes. It allows
@@ -21,15 +21,17 @@ class CrashedExtensionInfoBarDelegate : public ConfirmInfoBarDelegate {
  public:
   // |tab_contents| should point to the TabContents the infobar will be added
   // to. |extension| should be the crashed extension, and |extensions_service|
-  // the ExtensionsService which manages that extension.
+  // the ExtensionService which manages that extension.
   CrashedExtensionInfoBarDelegate(TabContents* tab_contents,
-                                  ExtensionsService* extensions_service,
+                                  ExtensionService* extensions_service,
                                   const Extension* extension);
 
   const std::string extension_id() { return extension_id_; }
 
   // InfoBarDelegate
   virtual CrashedExtensionInfoBarDelegate* AsCrashedExtensionInfoBarDelegate();
+  virtual bool ShouldExpire(
+      const NavigationController::LoadCommittedDetails& details) const;
 
   // ConfirmInfoBarDelegate
   virtual string16 GetMessageText() const;
@@ -41,7 +43,7 @@ class CrashedExtensionInfoBarDelegate : public ConfirmInfoBarDelegate {
   virtual bool Accept();
 
  private:
-  ExtensionsService* extensions_service_;
+  ExtensionService* extensions_service_;
 
   const std::string extension_id_;
   const std::string extension_name_;

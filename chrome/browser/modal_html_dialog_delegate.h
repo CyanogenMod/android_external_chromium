@@ -39,7 +39,7 @@ class ModalHtmlDialogDelegate
 
   // HTMLDialogUIDelegate implementation:
   virtual bool IsDialogModal() const;
-  virtual std::wstring GetDialogTitle() const { return L"Gears"; }
+  virtual std::wstring GetDialogTitle() const;
   virtual GURL GetDialogContentURL() const;
   virtual void GetDOMMessageHandlers(
       std::vector<DOMMessageHandler*>* handlers) const { }
@@ -47,7 +47,7 @@ class ModalHtmlDialogDelegate
   virtual std::string GetDialogArgs() const;
   virtual void OnDialogClosed(const std::string& json_retval);
   virtual void OnCloseContents(TabContents* source, bool* out_close_dialog) { }
-  virtual bool ShouldShowDialogTitle() const { return true; }
+  virtual bool ShouldShowDialogTitle() const;
 
  private:
   NotificationRegistrar registrar_;

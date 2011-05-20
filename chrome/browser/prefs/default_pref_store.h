@@ -6,25 +6,24 @@
 #define CHROME_BROWSER_PREFS_DEFAULT_PREF_STORE_H_
 #pragma once
 
+#include <map>
+
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
-#include "chrome/common/pref_store.h"
+#include "chrome/browser/prefs/value_map_pref_store.h"
 
 // This PrefStore keeps track of default preference values set when a
 // preference is registered with the PrefService.
-class DefaultPrefStore : public PrefStore {
+class DefaultPrefStore : public ValueMapPrefStore {
  public:
-  DefaultPrefStore();
-  virtual ~DefaultPrefStore();
+  DefaultPrefStore() {}
+  virtual ~DefaultPrefStore() {}
 
-  // PrefStore methods:
-  virtual DictionaryValue* prefs() const;
-  virtual PrefStore::PrefReadError ReadPrefs();
+  // Stores a new |value| for |key|. Assumes ownership of |value|.
+  void SetDefaultValue(const std::string& key, Value* value) {
+    SetValue(key, value);
+  }
 
  private:
-  // The default preference values.
-  scoped_ptr<DictionaryValue> prefs_;
-
   DISALLOW_COPY_AND_ASSIGN(DefaultPrefStore);
 };
 

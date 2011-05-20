@@ -6,14 +6,13 @@
 
 #include <string>
 
-#include "chrome/browser/host_content_settings_map.h"
+#include "chrome/browser/content_settings/host_content_settings_map_unittest.h"
 #include "chrome/browser/mock_browsing_data_appcache_helper.h"
 #include "chrome/browser/mock_browsing_data_database_helper.h"
 #include "chrome/browser/mock_browsing_data_indexed_db_helper.h"
 #include "chrome/browser/mock_browsing_data_local_storage_helper.h"
 #include "chrome/common/net/url_request_context_getter.h"
 #include "chrome/common/notification_details.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/test/testing_profile.h"
 #include "net/url_request/url_request_context.h"
@@ -21,29 +20,6 @@
 
 
 namespace {
-
-class StubSettingsObserver : public NotificationObserver {
- public:
-  StubSettingsObserver() : counter(0) {
-    registrar_.Add(this, NotificationType::CONTENT_SETTINGS_CHANGED,
-                   NotificationService::AllSources());
-  }
-
-  virtual void Observe(NotificationType type,
-                       const NotificationSource& source,
-                       const NotificationDetails& details) {
-    ++counter;
-    Details<HostContentSettingsMap::ContentSettingsDetails>
-        settings_details(details);
-    last_pattern = settings_details.ptr()->pattern();
-  }
-
-  HostContentSettingsMap::Pattern last_pattern;
-  int counter;
-
- private:
-  NotificationRegistrar registrar_;
-};
 
 class CookiesTreeModelTest : public testing::Test {
  public:
@@ -120,7 +96,7 @@ class CookiesTreeModelTest : public testing::Test {
   //   EXPECT_STREQ("Y,X", GetMonsterCookies(monster).c_str());
   std::string GetMonsterCookies(net::CookieMonster* monster) {
     std::vector<std::string> parts;
-    net::CookieMonster::CookieList cookie_list = monster->GetAllCookies();
+    net::CookieList cookie_list = monster->GetAllCookies();
     for (size_t i = 0; i < cookie_list.size(); ++i)
       parts.push_back(cookie_list[i].Name());
     return JoinString(parts, ',');
@@ -670,7 +646,7 @@ TEST_F(CookiesTreeModelTest, OriginOrdering) {
 
 TEST_F(CookiesTreeModelTest, ContentSettings) {
   GURL host("http://example.com/");
-  HostContentSettingsMap::Pattern pattern("[*.]example.com");
+  ContentSettingsPattern pattern("[*.]example.com");
   net::CookieMonster* monster = profile_->GetCookieMonster();
   monster->SetCookie(host, "A=1");
 

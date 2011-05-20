@@ -4,22 +4,53 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 */
 
-.contentSettingsHeader {
-   /* TODO(dhg): something nice. */
-  margin: 0px;
-  margin-bottom: 1em;
+.exceptionPattern {
+  display: -webkit-box;
+  margin-right: 4px;
+  overflow: hidden;
+  -webkit-box-flex: 1;
+  white-space: nowrap;
 }
 
-.zippy div[mode=otr] {
-  display: none;
+.exceptionSetting {
+  display: inline-block;
+  width: 100px;
+  margin-right: 20px;
 }
 
-.zippy.show-otr div[mode=otr] {
-  display: block;
-  /* background reminiscent of an incognito window, but faded */
-  background: -webkit-gradient(linear,
-                               left top,
-                               left bottom,
-                               from(rgba(97, 122, 156, .25)),
-                               to(rgba(82, 108, 145, .25)));
+select.exceptionSetting {
+  vertical-align: middle;
+}
+
+/* Hacks to make the <select> align better with the <input>. */
+html[toolkit=gtk] select.exceptionSetting {
+  height: 22px;
+  margin-top: 1px;
+}
+
+#exceptionColumnHeaders {
+  display: -webkit-box;
+  margin-top: 17px;
+  -webkit-margin-start: 3px;
+}
+
+#exceptionColumnHeaders > div {
+  font-weight: bold;
+}
+
+#exceptionPatternColumn {
+  -webkit-box-flex: 1;
+}
+
+#exceptionBehaviorColumn {
+  width: 140px;
+}
+
+.otr_explanation {
+  font-style: italic;
+}
+
+#contentSettingsExceptionsArea list {
+  margin-bottom: 10px;
+  margin-top: 4px;
 }

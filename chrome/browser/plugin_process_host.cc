@@ -26,8 +26,9 @@
 #include "chrome/browser/net/url_request_tracking.h"
 #include "chrome/browser/plugin_download_helper.h"
 #include "chrome/browser/plugin_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
+#include "chrome/browser/renderer_host/resource_message_filter.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_plugin_lib.h"
 #include "chrome/common/chrome_switches.h"
@@ -54,6 +55,28 @@
 
 static const char kDefaultPluginFinderURL[] =
     "https://dl-ssl.google.com/edgedl/chrome/plugins/plugins2.xml";
+
+namespace {
+
+// Helper class that we pass to ResourceMessageFilter so that it can find the
+// right URLRequestContext for a request.
+class PluginURLRequestContextOverride
+    : public ResourceMessageFilter::URLRequestContextOverride {
+ public:
+  PluginURLRequestContextOverride() {
+  }
+
+  virtual URLRequestContext* GetRequestContext(
+      uint32 request_id, ResourceType::Type resource_type) {
+    return CPBrowsingContextManager::GetInstance()->ToURLRequestContext(
+        request_id);
+  }
+
+ private:
+  virtual ~PluginURLRequestContextOverride() {}
+};
+
+}  // namespace
 
 #if defined(OS_WIN)
 void PluginProcessHost::OnPluginWindowDestroyed(HWND window, HWND parent) {
@@ -87,14 +110,15 @@ void PluginProcessHost::AddWindow(HWND window) {
 void PluginProcessHost::OnMapNativeViewId(gfx::NativeViewId id,
                                           gfx::PluginWindowHandle* output) {
   *output = 0;
-  Singleton<GtkNativeViewManager>()->GetXIDForId(output, id);
+  GtkNativeViewManager::GetInstance()->GetXIDForId(output, id);
 }
 #endif  // defined(TOOLKIT_USES_GTK)
 
 PluginProcessHost::PluginProcessHost()
     : BrowserChildProcessHost(
           PLUGIN_PROCESS,
-          PluginService::GetInstance()->resource_dispatcher_host()),
+          PluginService::GetInstance()->resource_dispatcher_host(),
+          new PluginURLRequestContextOverride()),
       ALLOW_THIS_IN_INITIALIZER_LIST(resolve_proxy_msg_helper_(this, NULL))
 #if defined(OS_MACOSX)
       , plugin_cursor_visible_(true)
@@ -148,7 +172,7 @@ PluginProcessHost::~PluginProcessHost() {
   CancelRequests();
 }
 
-bool PluginProcessHost::Init(const WebPluginInfo& info,
+bool PluginProcessHost::Init(const webkit::npapi::WebPluginInfo& info,
                              const std::string& locale) {
   info_ = info;
   set_name(UTF16ToWideHack(info_.name));
@@ -274,7 +298,8 @@ void PluginProcessHost::OnProcessLaunched() {
   }
 }
 
-void PluginProcessHost::OnMessageReceived(const IPC::Message& msg) {
+bool PluginProcessHost::OnMessageReceived(const IPC::Message& msg) {
+  bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(PluginProcessHost, msg)
     IPC_MESSAGE_HANDLER(PluginProcessHostMsg_ChannelCreated, OnChannelCreated)
     IPC_MESSAGE_HANDLER(PluginProcessHostMsg_GetPluginFinderUrl,
@@ -303,8 +328,11 @@ void PluginProcessHost::OnMessageReceived(const IPC::Message& msg) {
     IPC_MESSAGE_HANDLER(PluginProcessHostMsg_PluginSetCursorVisibility,
                         OnPluginSetCursorVisibility)
 #endif
-    IPC_MESSAGE_UNHANDLED_ERROR()
+    IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
+
+  DCHECK(handled);
+  return handled;
 }
 
 void PluginProcessHost::OnChannelConnected(int32 peer_pid) {
@@ -317,6 +345,10 @@ void PluginProcessHost::OnChannelConnected(int32 peer_pid) {
 
 void PluginProcessHost::OnChannelError() {
   CancelRequests();
+}
+
+bool PluginProcessHost::CanShutdown() {
+  return sent_requests_.empty();
 }
 
 void PluginProcessHost::CancelRequests() {
@@ -348,7 +380,7 @@ void PluginProcessHost::OpenChannelToPlugin(Client* client) {
 void PluginProcessHost::OnGetCookies(uint32 request_context,
                                      const GURL& url,
                                      std::string* cookies) {
-  URLRequestContext* context = CPBrowsingContextManager::Instance()->
+  URLRequestContext* context = CPBrowsingContextManager::GetInstance()->
         ToURLRequestContext(request_context);
   // TODO(mpcomplete): remove fallback case when Gears support is prevalent.
   if (!context)
@@ -393,12 +425,6 @@ void PluginProcessHost::OnResolveProxyCompleted(IPC::Message* reply_msg,
   PluginProcessHostMsg_ResolveProxy::WriteReplyParams(
       reply_msg, result, proxy_list);
   Send(reply_msg);
-}
-
-URLRequestContext* PluginProcessHost::GetRequestContext(
-    uint32 request_id,
-    const ViewHostMsg_Resource_Request& request_data) {
-  return CPBrowsingContextManager::Instance()->ToURLRequestContext(request_id);
 }
 
 void PluginProcessHost::RequestPluginChannel(Client* client) {

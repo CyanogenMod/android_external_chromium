@@ -65,6 +65,13 @@ namespace extension_manifest_keys {
   extern const char* kThemeTints;
   extern const char* kToolstripPath;
   extern const char* kToolstrips;
+  extern const char* kTts;
+  extern const char* kTtsGenderFemale;
+  extern const char* kTtsGenderMale;
+  extern const char* kTtsVoices;
+  extern const char* kTtsVoicesGender;
+  extern const char* kTtsVoicesLocale;
+  extern const char* kTtsVoicesVoiceName;
   extern const char* kType;
   extern const char* kUpdateURL;
   extern const char* kVersion;
@@ -92,6 +99,8 @@ namespace extension_manifest_errors {
   extern const char* kCannotScriptGallery;
   extern const char* kChromeVersionTooLow;
   extern const char* kDevToolsExperimental;
+  extern const char* kDisabledByPolicy;
+  extern const char* kExperimentalFlagRequired;
   extern const char* kHostedAppsCannotIncludeExtensionFeatures;
   extern const char* kInvalidAllFrames;
   extern const char* kInvalidBackground;
@@ -105,7 +114,6 @@ namespace extension_manifest_errors {
   extern const char* kInvalidCssList;
   extern const char* kInvalidDefaultLocale;
   extern const char* kInvalidDescription;
-  extern const char* kDisabledByPolicy;
   extern const char* kInvalidDevToolsPage;
   extern const char* kInvalidGlob;
   extern const char* kInvalidGlobList;
@@ -160,6 +168,11 @@ namespace extension_manifest_errors {
   extern const char* kInvalidThemeTints;
   extern const char* kInvalidToolstrip;
   extern const char* kInvalidToolstrips;
+  extern const char* kInvalidTts;
+  extern const char* kInvalidTtsVoices;
+  extern const char* kInvalidTtsVoicesGender;
+  extern const char* kInvalidTtsVoicesLocale;
+  extern const char* kInvalidTtsVoicesVoiceName;
   extern const char* kInvalidUpdateURL;
   extern const char* kInvalidVersion;
   extern const char* kInvalidWebURL;
@@ -243,8 +256,7 @@ namespace extension_misc {
     PROMO_LAUNCH_WEB_STORE,
     PROMO_CLOSE,
     PROMO_EXPIRE,
-    PROMO_SEEN,
-    PROMO_BUCKET_BOUNDARY
+    PROMO_BUCKET_BOUNDARY = PROMO_EXPIRE + 1
   };
 }  // extension_misc
 

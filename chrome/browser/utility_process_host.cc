@@ -153,20 +153,26 @@ bool UtilityProcessHost::StartProcess(const FilePath& exposed_dir) {
   return true;
 }
 
-void UtilityProcessHost::OnMessageReceived(const IPC::Message& message) {
+bool UtilityProcessHost::OnMessageReceived(const IPC::Message& message) {
   BrowserThread::PostTask(
       client_thread_id_, FROM_HERE,
       NewRunnableMethod(client_.get(), &Client::OnMessageReceived, message));
+  return true;
 }
 
-void UtilityProcessHost::OnProcessCrashed() {
+void UtilityProcessHost::OnProcessCrashed(int exit_code) {
   BrowserThread::PostTask(
       client_thread_id_, FROM_HERE,
-      NewRunnableMethod(client_.get(), &Client::OnProcessCrashed));
+      NewRunnableMethod(client_.get(), &Client::OnProcessCrashed, exit_code));
 }
 
-void UtilityProcessHost::Client::OnMessageReceived(
+bool UtilityProcessHost::CanShutdown() {
+  return true;
+}
+
+bool UtilityProcessHost::Client::OnMessageReceived(
     const IPC::Message& message) {
+  bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(UtilityProcessHost, message)
     IPC_MESSAGE_HANDLER(UtilityHostMsg_UnpackExtension_Succeeded,
                         Client::OnUnpackExtensionSucceeded)
@@ -188,5 +194,7 @@ void UtilityProcessHost::Client::OnMessageReceived(
                         Client::OnIDBKeysFromValuesAndKeyPathSucceeded)
     IPC_MESSAGE_HANDLER(UtilityHostMsg_IDBKeysFromValuesAndKeyPath_Failed,
                         Client::OnIDBKeysFromValuesAndKeyPathFailed)
+    IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP_EX()
+  return handled;
 }

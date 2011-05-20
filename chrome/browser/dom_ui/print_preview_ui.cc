@@ -29,6 +29,10 @@ namespace {
 void SetLocalizedStrings(DictionaryValue* localized_strings) {
   localized_strings->SetString(std::string("title"),
       l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_TITLE));
+  localized_strings->SetString(std::string("loading"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_LOADING));
+  localized_strings->SetString(std::string("noPlugin"),
+      l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_NO_PLUGIN));
   localized_strings->SetString(std::string("noPrinter"),
       l10n_util::GetStringUTF8(IDS_PRINT_PREVIEW_NO_PRINTER));
 
@@ -86,25 +90,39 @@ PrintPreviewUIHTMLSource::~PrintPreviewUIHTMLSource() {}
 void PrintPreviewUIHTMLSource::StartDataRequest(const std::string& path,
                                                 bool is_off_the_record,
                                                 int request_id) {
-  DictionaryValue localized_strings;
-  SetLocalizedStrings(&localized_strings);
-  SetFontAndTextDirection(&localized_strings);
+  // Print Preview Index page.
+  if (path.empty()) {
+    DictionaryValue localized_strings;
+    SetLocalizedStrings(&localized_strings);
+    SetFontAndTextDirection(&localized_strings);
 
-  static const base::StringPiece print_html(
-      ResourceBundle::GetSharedInstance().GetRawDataResource(
-          IDR_PRINT_PREVIEW_HTML));
-  const std::string full_html = jstemplate_builder::GetI18nTemplateHtml(
-      print_html, &localized_strings);
+    static const base::StringPiece print_html(
+        ResourceBundle::GetSharedInstance().GetRawDataResource(
+            IDR_PRINT_PREVIEW_HTML));
+    const std::string full_html = jstemplate_builder::GetI18nTemplateHtml(
+        print_html, &localized_strings);
 
-  scoped_refptr<RefCountedBytes> html_bytes(new RefCountedBytes);
-  html_bytes->data.resize(full_html.size());
-  std::copy(full_html.begin(), full_html.end(), html_bytes->data.begin());
+    scoped_refptr<RefCountedBytes> html_bytes(new RefCountedBytes);
+    html_bytes->data.resize(full_html.size());
+    std::copy(full_html.begin(), full_html.end(), html_bytes->data.begin());
 
-  SendResponse(request_id, html_bytes);
+    SendResponse(request_id, html_bytes);
+    return;
+  }
+
+  // Print Preview data.
+  NOTIMPLEMENTED() << "No PDF for you";
+  scoped_refptr<RefCountedBytes> data_bytes(new RefCountedBytes);
+  SendResponse(request_id, data_bytes);
 }
 
-std::string PrintPreviewUIHTMLSource::GetMimeType(const std::string&) const {
-  return "text/html";
+std::string PrintPreviewUIHTMLSource::GetMimeType(
+    const std::string& path) const {
+  // Print Preview Index page.
+  if (path.empty())
+    return "text/html";
+  // Print Preview data.
+  return "application/pdf";
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -122,7 +140,7 @@ PrintPreviewUI::PrintPreviewUI(TabContents* contents) : DOMUI(contents) {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
-          Singleton<ChromeURLDataManager>::get(),
+          ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(new PrintPreviewUIHTMLSource())));
 }

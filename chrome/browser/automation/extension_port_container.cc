@@ -10,13 +10,11 @@
 #include "base/values.h"
 #include "chrome/browser/automation/automation_provider.h"
 #include "chrome/browser/automation/extension_automation_constants.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extension_message_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/common/automation_messages.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/render_messages.h"
 
 // TODO(siggi): Find a more structured way to read and write JSON messages.
@@ -42,7 +40,7 @@ bool ExtensionPortContainer::PostResponseToExternalPort(
     const std::string& message) {
   return automation_->Send(
       new AutomationMsg_ForwardMessageToExternalHost(
-          0, tab_handle_, message, ext::kAutomationOrigin,
+          tab_handle_, message, ext::kAutomationOrigin,
           ext::kAutomationPortResponseTarget));
 }
 
@@ -50,7 +48,7 @@ bool ExtensionPortContainer::PostMessageToExternalPort(
     const std::string& message) {
   return automation_->Send(
       new AutomationMsg_ForwardMessageToExternalHost(
-          0, tab_handle_, message,
+          tab_handle_, message,
           ext::kAutomationOrigin,
           ext::kAutomationPortRequestTarget));
 }

@@ -105,7 +105,7 @@ class SidebarContainer
   virtual void LoadingStateChanged(TabContents* source) {}
   virtual void CloseContents(TabContents* source) {}
   virtual void MoveContents(TabContents* source, const gfx::Rect& pos) {}
-  virtual bool IsPopup(const TabContents* source) const { return false; }
+  virtual bool IsPopup(const TabContents* source) const;
   virtual void URLStarredChanged(TabContents* source, bool starred) {}
   virtual void UpdateTargetURL(TabContents* source, const GURL& url) {}
   virtual void ToolbarSizeChanged(TabContents* source, bool is_animating) {}
@@ -136,4 +136,3 @@ class SidebarContainer
 };
 
 #endif  // CHROME_BROWSER_SIDEBAR_SIDEBAR_CONTAINER_H_
-

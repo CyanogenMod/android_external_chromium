@@ -7,7 +7,6 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/test/automation/dom_element_proxy.h"
 #include "chrome/browser/dom_ui/mediaplayer_ui.h"
-#include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
@@ -70,7 +69,7 @@ IN_PROC_BROWSER_TEST_F(MediaPlayerBrowserTest, Popup) {
   ui_test_utils::NavigateToURL(browser(),
                                GURL("chrome://downloads"));
 
-  MediaPlayer* player = MediaPlayer::Get();
+  MediaPlayer* player = MediaPlayer::GetInstance();
   // Check that its not currently visible
   ASSERT_FALSE(IsPlayerVisible());
 
@@ -86,7 +85,7 @@ IN_PROC_BROWSER_TEST_F(MediaPlayerBrowserTest, PopupPlaylist) {
                                GURL("chrome://downloads"));
 
 
-  MediaPlayer* player = MediaPlayer::Get();
+  MediaPlayer* player = MediaPlayer::GetInstance();
 
   player->EnqueueMediaURL(GetMusicTestURL(), NULL);
 

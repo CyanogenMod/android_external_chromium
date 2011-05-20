@@ -8,7 +8,6 @@
 #include "chrome/browser/renderer_host/global_request_id.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/renderer_host/resource_message_filter.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/resource_response.h"
 #include "net/base/net_errors.h"
 #include "net/base/io_buffer.h"
@@ -27,8 +26,7 @@ SafeBrowsingResourceHandler::SafeBrowsingResourceHandler(
     int render_view_id,
     ResourceType::Type resource_type,
     SafeBrowsingService* safe_browsing,
-    ResourceDispatcherHost* resource_dispatcher_host,
-    ResourceDispatcherHost::Receiver* receiver)
+    ResourceDispatcherHost* resource_dispatcher_host)
     : state_(STATE_NONE),
       defer_state_(DEFERRED_NONE),
       deferred_request_id_(-1),
@@ -38,9 +36,6 @@ SafeBrowsingResourceHandler::SafeBrowsingResourceHandler(
       safe_browsing_(safe_browsing),
       rdh_(resource_dispatcher_host),
       resource_type_(resource_type) {
-  registrar_.Add(this, NotificationType::RESOURCE_MESSAGE_FILTER_SHUTDOWN,
-                 Source<ResourceMessageFilter>(
-                     static_cast<ResourceMessageFilter*>(receiver)));
 }
 
 SafeBrowsingResourceHandler::~SafeBrowsingResourceHandler() {
@@ -90,7 +85,7 @@ void SafeBrowsingResourceHandler::OnCheckUrlTimeout() {
   CHECK(state_ == STATE_CHECKING_URL);
   CHECK(defer_state_ != DEFERRED_NONE);
   safe_browsing_->CancelCheck(this);
-  OnUrlCheckResult(deferred_url_, SafeBrowsingService::URL_SAFE);
+  OnBrowseUrlCheckResult(deferred_url_, SafeBrowsingService::URL_SAFE);
 }
 
 bool SafeBrowsingResourceHandler::OnWillStart(int request_id,
@@ -139,7 +134,7 @@ void SafeBrowsingResourceHandler::OnRequestClosed() {
 
 // SafeBrowsingService::Client implementation, called on the IO thread once
 // the URL has been classified.
-void SafeBrowsingResourceHandler::OnUrlCheckResult(
+void SafeBrowsingResourceHandler::OnBrowseUrlCheckResult(
     const GURL& url, SafeBrowsingService::UrlCheckResult result) {
   CHECK(state_ == STATE_CHECKING_URL);
   CHECK(defer_state_ != DEFERRED_NONE);
@@ -177,7 +172,7 @@ void SafeBrowsingResourceHandler::StartDisplayingBlockingPage(
 
   // Grab the original url of this request as well.
   GURL original_url;
-  URLRequest* request = rdh_->GetURLRequest(
+  net::URLRequest* request = rdh_->GetURLRequest(
       GlobalRequestID(render_process_host_id_, deferred_request_id_));
   if (request)
     original_url = request->original_url();
@@ -205,13 +200,6 @@ void SafeBrowsingResourceHandler::OnBlockingPageComplete(bool proceed) {
   Release();  // Balances the AddRef() in StartDisplayingBlockingPage().
 }
 
-void SafeBrowsingResourceHandler::Observe(NotificationType type,
-                                          const NotificationSource& source,
-                                          const NotificationDetails& details) {
-  DCHECK(type.value == NotificationType::RESOURCE_MESSAGE_FILTER_SHUTDOWN);
-  Shutdown();
-}
-
 void SafeBrowsingResourceHandler::Shutdown() {
   if (state_ == STATE_CHECKING_URL) {
     timer_.Stop();
@@ -225,7 +213,7 @@ void SafeBrowsingResourceHandler::Shutdown() {
 
 bool SafeBrowsingResourceHandler::CheckUrl(const GURL& url) {
   CHECK(state_ == STATE_NONE);
-  bool succeeded_synchronously = safe_browsing_->CheckUrl(url, this);
+  bool succeeded_synchronously = safe_browsing_->CheckBrowseUrl(url, this);
   if (succeeded_synchronously) {
     safe_browsing_result_ = SafeBrowsingService::URL_SAFE;
     safe_browsing_->LogPauseDelay(base::TimeDelta());  // No delay.

@@ -11,14 +11,14 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_child_process_host.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_object_proxy.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/notifications/notifications_prefs_cache.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/scoped_pref_update.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/site_instance.h"
@@ -317,7 +317,8 @@ void DesktopNotificationService::Observe(NotificationType type,
   } else if (NotificationType::EXTENSION_UNLOADED == type) {
     // Remove all notifications currently shown or queued by the extension
     // which was unloaded.
-    Extension* extension = Details<Extension>(details).ptr();
+    const Extension* extension =
+        Details<UnloadedExtensionInfo>(details)->extension;
     if (extension)
       ui_manager_->CancelAllBySourceOrigin(extension->url());
   } else if (NotificationType::PROFILE_DESTROYED == type) {
@@ -450,6 +451,11 @@ void DesktopNotificationService::SetDefaultContentSetting(
       prefs::kDesktopNotificationDefaultContentSetting,
       setting == CONTENT_SETTING_DEFAULT ?  kDefaultSetting : setting);
   // The cache is updated through the notification observer.
+}
+
+bool DesktopNotificationService::IsDefaultContentSettingManaged() const {
+  return profile_->GetPrefs()->IsManagedPreference(
+      prefs::kDesktopNotificationDefaultContentSetting);
 }
 
 void DesktopNotificationService::ResetToDefaultContentSetting() {
@@ -615,7 +621,7 @@ string16 DesktopNotificationService::DisplayNameForOrigin(
     const GURL& origin) {
   // If the source is an extension, lookup the display name.
   if (origin.SchemeIs(chrome::kExtensionScheme)) {
-    ExtensionsService* ext_service = profile_->GetExtensionsService();
+    ExtensionService* ext_service = profile_->GetExtensionService();
     if (ext_service) {
       const Extension* extension = ext_service->GetExtensionByURL(origin);
       if (extension)

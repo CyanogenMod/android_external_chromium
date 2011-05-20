@@ -92,6 +92,7 @@ class Value {
   virtual bool GetAsReal(double* out_value) const;
   virtual bool GetAsString(std::string* out_value) const;
   virtual bool GetAsString(string16* out_value) const;
+  virtual bool GetAsList(ListValue** out_value);
 
   // This creates a deep copy of the entire Value tree, and returns a pointer
   // to the copy.  The caller gets ownership of the copy, of course.
@@ -99,6 +100,10 @@ class Value {
 
   // Compares if two Value objects have equal contents.
   virtual bool Equals(const Value* other) const;
+
+  // Compares if two Value objects have equal contents. Can handle NULLs.
+  // NULLs are considered equal but different from Value::CreateNullValue().
+  static bool Equals(const Value* a, const Value* b);
 
  protected:
   // This isn't safe for end-users (they should use the Create*Value()
@@ -119,7 +124,7 @@ class FundamentalValue : public Value {
   explicit FundamentalValue(bool in_value);
   explicit FundamentalValue(int in_value);
   explicit FundamentalValue(double in_value);
-  ~FundamentalValue();
+  virtual ~FundamentalValue();
 
   // Subclassed methods
   virtual bool GetAsBoolean(bool* out_value) const;
@@ -146,12 +151,12 @@ class StringValue : public Value {
   // Initializes a StringValue with a string16.
   explicit StringValue(const string16& in_value);
 
-  ~StringValue();
+  virtual ~StringValue();
 
   // Subclassed methods
-  bool GetAsString(std::string* out_value) const;
-  bool GetAsString(string16* out_value) const;
-  Value* DeepCopy() const;
+  virtual bool GetAsString(std::string* out_value) const;
+  virtual bool GetAsString(string16* out_value) const;
+  virtual Value* DeepCopy() const;
   virtual bool Equals(const Value* other) const;
 
  private:
@@ -173,10 +178,10 @@ class BinaryValue: public Value {
   // Returns NULL if buffer is NULL.
   static BinaryValue* CreateWithCopiedBuffer(const char* buffer, size_t size);
 
-  ~BinaryValue();
+  virtual ~BinaryValue();
 
   // Subclassed methods
-  Value* DeepCopy() const;
+  virtual Value* DeepCopy() const;
   virtual bool Equals(const Value* other) const;
 
   size_t GetSize() const { return size_; }
@@ -200,10 +205,10 @@ class BinaryValue: public Value {
 class DictionaryValue : public Value {
  public:
   DictionaryValue();
-  ~DictionaryValue();
+  virtual ~DictionaryValue();
 
   // Subclassed methods
-  Value* DeepCopy() const;
+  virtual Value* DeepCopy() const;
   virtual bool Equals(const Value* other) const;
 
   // Returns true if the current dictionary has a value for the given key.
@@ -303,16 +308,6 @@ class DictionaryValue : public Value {
   // replaced.
   void MergeDictionary(const DictionaryValue* dictionary);
 
-  // Builds a vector containing all of the paths that are different between
-  // the dictionary and a second specified dictionary. These are paths of
-  // values that are either in one dictionary or the other but not both, OR
-  // paths that are present in both dictionaries but differ in value.
-  // Path strings are in ascending lexicographical order in the generated
-  // vector. |different_paths| is cleared before added any paths.
-  void GetDifferingPaths(
-      const DictionaryValue* other,
-      std::vector<std::string>* different_paths) const;
-
   // This class provides an iterator for the keys in the dictionary.
   // It can't be used to modify the dictionary.
   //
@@ -339,17 +334,6 @@ class DictionaryValue : public Value {
   key_iterator end_keys() const { return key_iterator(dictionary_.end()); }
 
  private:
-  // Does the actual heavy lifting for GetDifferingPaths.
-  // Returns true if a path is added to different_paths, otherwise false.
-  // The difference compuation is calculated recursively. The keys for
-  // dictionaries that are handled by recursive calls more shallow than
-  // the current one are concatenated and passed through to deeper calls in
-  // |path_prefix|.
-  bool GetDifferingPathsHelper(
-      const std::string& path_prefix,
-      const DictionaryValue* other,
-      std::vector<std::string>* different_paths) const;
-
   ValueMap dictionary_;
 
   DISALLOW_COPY_AND_ASSIGN(DictionaryValue);
@@ -362,7 +346,8 @@ class ListValue : public Value {
   ~ListValue();
 
   // Subclassed methods
-  Value* DeepCopy() const;
+  virtual bool GetAsList(ListValue** out_value);
+  virtual Value* DeepCopy() const;
   virtual bool Equals(const Value* other) const;
 
   // Clears the contents of this ListValue

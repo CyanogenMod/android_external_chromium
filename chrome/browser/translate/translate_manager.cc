@@ -8,12 +8,13 @@
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/metrics/histogram.h"
+#include "base/singleton.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/language_state.h"
@@ -33,6 +34,7 @@
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/translate_errors.h"
+#include "chrome/common/url_constants.h"
 #include "grit/browser_resources.h"
 #include "net/base/escape.h"
 #include "net/url_request/url_request_status.h"
@@ -145,8 +147,20 @@ TranslateManager::~TranslateManager() {
 }
 
 // static
+TranslateManager* TranslateManager::GetInstance() {
+  return Singleton<TranslateManager>::get();
+}
+
+// static
 bool TranslateManager::IsTranslatableURL(const GURL& url) {
-  return !url.SchemeIs("chrome") && !url.SchemeIs("ftp");
+  // A URLs is translatable unless it is one of the following:
+  // - an internal URL (chrome:// and others)
+  // - the devtools (which is considered UI)
+  // - an FTP page (as FTP pages tend to have long lists of filenames that may
+  //   confuse the CLD)
+  return !url.SchemeIs(chrome::kChromeUIScheme) &&
+         !url.SchemeIs(chrome::kChromeDevToolsScheme) &&
+         !url.SchemeIs(chrome::kFtpScheme);
 }
 
 // static

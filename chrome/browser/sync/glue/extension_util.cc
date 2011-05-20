@@ -11,54 +11,13 @@
 #include "base/stl_util-inl.h"
 #include "base/version.h"
 #include "chrome/browser/extensions/extension_prefs.h"
-#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/sync/protocol/extension_specifics.pb.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "googleurl/src/gurl.h"
 
 namespace browser_sync {
-
-ExtensionType GetExtensionType(const Extension& extension) {
-  if (extension.is_theme()) {
-    return THEME;
-  }
-
-  if (extension.is_app()) {
-    return APP;
-  }
-
-  if (extension.converted_from_user_script()) {
-    if (extension.update_url().is_empty()) {
-      return LOCAL_USER_SCRIPT;
-    }
-    return UPDATEABLE_USER_SCRIPT;
-  }
-
-  // Otherwise, we just have a regular extension.
-  return EXTENSION;
-}
-
-// Keep this in sync with the above function.
-// TODO(akalin): Or just hurry up and remove this!
-ExtensionType GetExtensionTypeFromUninstalledExtensionInfo(
-    const UninstalledExtensionInfo& uninstalled_extension_info) {
-  if (uninstalled_extension_info.is_theme) {
-    return THEME;
-  }
-
-  if (uninstalled_extension_info.is_app) {
-    return APP;
-  }
-
-  if (uninstalled_extension_info.converted_from_user_script) {
-    if (uninstalled_extension_info.update_url.is_empty()) {
-      return LOCAL_USER_SCRIPT;
-    }
-    return UPDATEABLE_USER_SCRIPT;
-  }
-  return EXTENSION;
-}
 
 bool IsExtensionValid(const Extension& extension) {
   // TODO(akalin): Figure out if we need to allow some other types.
@@ -86,13 +45,6 @@ bool IsExtensionValid(const Extension& extension) {
   }
 
   return true;
-}
-
-bool IsExtensionValidAndSyncable(const Extension& extension,
-                                 const ExtensionTypeSet& allowed_types) {
-  return
-      IsExtensionValid(extension) &&
-      ContainsKey(allowed_types, GetExtensionType(extension));
 }
 
 std::string ExtensionSpecificsToString(
@@ -230,7 +182,7 @@ bool IsExtensionOutdated(const Extension& extension,
 
 void SetExtensionProperties(
     const sync_pb::ExtensionSpecifics& specifics,
-    ExtensionsService* extensions_service, const Extension* extension) {
+    ExtensionService* extensions_service, const Extension* extension) {
   DcheckIsExtensionSpecificsValid(specifics);
   CHECK(extensions_service);
   CHECK(extension);

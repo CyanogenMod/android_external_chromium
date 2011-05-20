@@ -29,7 +29,7 @@
 #include "chrome/browser/download/download_util.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
@@ -422,7 +422,7 @@ DOMMessageHandler* FilebrowseHandler::Attach(DOMUI* dom_ui) {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
-          Singleton<ChromeURLDataManager>::get(),
+          ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(new DOMUIFavIconSource(dom_ui->GetProfile()))));
   profile_ = dom_ui->GetProfile();
@@ -622,7 +622,7 @@ void FilebrowseHandler::PlayMediaFile(const ListValue* args) {
 
   Browser* browser = Browser::GetBrowserForController(
       &tab_contents_->controller(), NULL);
-  MediaPlayer* mediaplayer = MediaPlayer::Get();
+  MediaPlayer* mediaplayer = MediaPlayer::GetInstance();
   mediaplayer->ForcePlayMediaURL(gurl, browser);
 #endif
 }
@@ -634,7 +634,7 @@ void FilebrowseHandler::EnqueueMediaFile(const ListValue* args) {
 
   Browser* browser = Browser::GetBrowserForController(
       &tab_contents_->controller(), NULL);
-  MediaPlayer* mediaplayer = MediaPlayer::Get();
+  MediaPlayer* mediaplayer = MediaPlayer::GetInstance();
   mediaplayer->EnqueueMediaURL(gurl, browser);
 #endif
 }
@@ -823,7 +823,7 @@ void FilebrowseHandler::GetChildrenForPath(FilePath& path, bool is_refresh) {
 
 #if defined(OS_CHROMEOS)
   // Don't allow listing files in inaccessible dirs.
-  if (URLRequestFileJob::AccessDisabled(path))
+  if (net::URLRequestFileJob::AccessDisabled(path))
     return;
 #endif  // OS_CHROMEOS
 
@@ -971,7 +971,7 @@ void FilebrowseHandler::HandleDeleteFile(const ListValue* args) {
   FilePath currentpath(path);
 
   // Don't allow file deletion in inaccessible dirs.
-  if (URLRequestFileJob::AccessDisabled(currentpath))
+  if (net::URLRequestFileJob::AccessDisabled(currentpath))
     return;
 
   for (unsigned int x = 0; x < active_download_items_.size(); x++) {
@@ -1008,7 +1008,7 @@ void FilebrowseHandler::HandleCopyFile(const ListValue* value) {
       FilePath DestPath = FilePath(dest);
 
       // Don't allow file copy to inaccessible dirs.
-      if (URLRequestFileJob::AccessDisabled(DestPath))
+      if (net::URLRequestFileJob::AccessDisabled(DestPath))
         return;
 
       TaskProxy* task = new TaskProxy(AsWeakPtr(), SrcPath, DestPath);
@@ -1129,7 +1129,7 @@ FileBrowseUI::FileBrowseUI(TabContents* contents) : HtmlDialogUI(contents) {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
-          Singleton<ChromeURLDataManager>::get(),
+          ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(html_source)));
 }

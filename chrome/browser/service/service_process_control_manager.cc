@@ -7,7 +7,7 @@
 #include "base/singleton.h"
 #include "base/stl_util-inl.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/service/service_process_control.h"
 
 ServiceProcessControlManager::ServiceProcessControlManager() {
@@ -42,6 +42,6 @@ void ServiceProcessControlManager::Shutdown() {
 }
 
 // static
-ServiceProcessControlManager* ServiceProcessControlManager::instance() {
+ServiceProcessControlManager* ServiceProcessControlManager::GetInstance() {
   return Singleton<ServiceProcessControlManager>::get();
 }

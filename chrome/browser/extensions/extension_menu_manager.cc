@@ -15,8 +15,9 @@
 #include "base/json/json_writer.h"
 #include "chrome/browser/extensions/extension_event_router.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/extension.h"
+#include "chrome/common/notification_service.h"
 #include "gfx/favicon_size.h"
 #include "webkit/glue/context_menu.h"
 
@@ -73,10 +74,8 @@ string16 ExtensionMenuItem::TitleWithReplacement(
   // put "%s" in titles that won't get substituted.
   ReplaceSubstringsAfterOffset(&result, 0, ASCIIToUTF16("%s"), selection);
 
-  if (result.length() > max_length) {
-    result = WideToUTF16(l10n_util::TruncateString(UTF16ToWideHack(result),
-                                                   max_length));
-  }
+  if (result.length() > max_length)
+    result = l10n_util::TruncateString(result, max_length);
   return result;
 }
 
@@ -412,8 +411,7 @@ void ExtensionMenuManager::ExecuteCommand(
   AddURLProperty(properties, "frameUrl", params.frame_url);
 
   if (params.selection_text.length() > 0)
-    properties->SetString("selectionText",
-                          WideToUTF16Hack(params.selection_text));
+    properties->SetString("selectionText", params.selection_text);
 
   properties->SetBoolean("editable", params.is_editable);
 
@@ -455,7 +453,8 @@ void ExtensionMenuManager::Observe(NotificationType type,
     NOTREACHED();
     return;
   }
-  const Extension* extension = Details<const Extension>(details).ptr();
+  const Extension* extension =
+      Details<UnloadedExtensionInfo>(details)->extension;
   if (ContainsKey(context_items_, extension->id())) {
     RemoveAllContextItems(extension->id());
   }

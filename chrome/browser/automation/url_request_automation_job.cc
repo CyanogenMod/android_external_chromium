@@ -4,6 +4,7 @@
 
 #include "chrome/browser/automation/url_request_automation_job.h"
 
+#include "base/compiler_specific.h"
 #include "base/message_loop.h"
 #include "base/time.h"
 #include "chrome/browser/automation/automation_resource_message_filter.h"
@@ -39,21 +40,26 @@ static const char* const kFilteredHeaderStrings[] = {
 int URLRequestAutomationJob::instance_count_ = 0;
 bool URLRequestAutomationJob::is_protocol_factory_registered_ = false;
 
-URLRequest::ProtocolFactory* URLRequestAutomationJob::old_http_factory_
+net::URLRequest::ProtocolFactory* URLRequestAutomationJob::old_http_factory_
     = NULL;
-URLRequest::ProtocolFactory* URLRequestAutomationJob::old_https_factory_
+net::URLRequest::ProtocolFactory* URLRequestAutomationJob::old_https_factory_
     = NULL;
 
-URLRequestAutomationJob::URLRequestAutomationJob(URLRequest* request, int tab,
-    int request_id, AutomationResourceMessageFilter* filter, bool is_pending)
-    : URLRequestJob(request),
+URLRequestAutomationJob::URLRequestAutomationJob(
+    net::URLRequest* request,
+    int tab,
+    int request_id,
+    AutomationResourceMessageFilter* filter,
+    bool is_pending)
+    : net::URLRequestJob(request),
       id_(0),
       tab_(tab),
       message_filter_(filter),
       pending_buf_size_(0),
       redirect_status_(0),
       request_id_(request_id),
-      is_pending_(is_pending) {
+      is_pending_(is_pending),
+      ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
   DVLOG(1) << "URLRequestAutomationJob create. Count: " << ++instance_count_;
   DCHECK(message_filter_ != NULL);
 
@@ -73,19 +79,20 @@ bool URLRequestAutomationJob::EnsureProtocolFactoryRegistered() {
 
   if (!is_protocol_factory_registered_) {
     old_http_factory_ =
-        URLRequest::RegisterProtocolFactory("http",
-                                            &URLRequestAutomationJob::Factory);
+        net::URLRequest::RegisterProtocolFactory(
+            "http", &URLRequestAutomationJob::Factory);
     old_https_factory_ =
-        URLRequest::RegisterProtocolFactory("https",
-                                            &URLRequestAutomationJob::Factory);
+        net::URLRequest::RegisterProtocolFactory(
+            "https", &URLRequestAutomationJob::Factory);
     is_protocol_factory_registered_ = true;
   }
 
   return true;
 }
 
-URLRequestJob* URLRequestAutomationJob::Factory(URLRequest* request,
-                                                const std::string& scheme) {
+net::URLRequestJob* URLRequestAutomationJob::Factory(
+    net::URLRequest* request,
+    const std::string& scheme) {
   bool scheme_is_http = request->url().SchemeIs("http");
   bool scheme_is_https = request->url().SchemeIs("https");
 
@@ -121,13 +128,15 @@ URLRequestJob* URLRequestAutomationJob::Factory(URLRequest* request,
   return NULL;
 }
 
-// URLRequestJob Implementation.
+// net::URLRequestJob Implementation.
 void URLRequestAutomationJob::Start() {
   if (!is_pending()) {
     // Start reading asynchronously so that all error reporting and data
     // callbacks happen as they would for network requests.
-    MessageLoop::current()->PostTask(FROM_HERE, NewRunnableMethod(
-        this, &URLRequestAutomationJob::StartAsync));
+    MessageLoop::current()->PostTask(
+        FROM_HERE,
+        method_factory_.NewRunnableMethod(
+            &URLRequestAutomationJob::StartAsync));
   } else {
     // If this is a pending job, then register it immediately with the message
     // filter so it can be serviced later when we receive a request from the
@@ -139,12 +148,12 @@ void URLRequestAutomationJob::Start() {
 void URLRequestAutomationJob::Kill() {
   if (message_filter_.get()) {
     if (!is_pending()) {
-      message_filter_->Send(new AutomationMsg_RequestEnd(0, tab_, id_,
+      message_filter_->Send(new AutomationMsg_RequestEnd(tab_, id_,
           URLRequestStatus(URLRequestStatus::CANCELED, net::ERR_ABORTED)));
     }
   }
   DisconnectFromMessageFilter();
-  URLRequestJob::Kill();
+  net::URLRequestJob::Kill();
 }
 
 bool URLRequestAutomationJob::ReadRawData(
@@ -159,13 +168,13 @@ bool URLRequestAutomationJob::ReadRawData(
   pending_buf_size_ = buf_size;
 
   if (message_filter_) {
-    message_filter_->Send(new AutomationMsg_RequestRead(0, tab_, id_,
-        buf_size));
+    message_filter_->Send(new AutomationMsg_RequestRead(tab_, id_, buf_size));
     SetStatus(URLRequestStatus(URLRequestStatus::IO_PENDING, 0));
   } else {
-    BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
-        NewRunnableMethod(this,
-                          &URLRequestAutomationJob::NotifyJobCompletionTask));
+    MessageLoop::current()->PostTask(
+        FROM_HERE,
+        method_factory_.NewRunnableMethod(
+            &URLRequestAutomationJob::NotifyJobCompletionTask));
   }
   return false;
 }
@@ -231,11 +240,8 @@ bool URLRequestAutomationJob::MayFilterMessage(const IPC::Message& message,
     case AutomationMsg_RequestData::ID:
     case AutomationMsg_RequestEnd::ID: {
       void* iter = NULL;
-      int tab = 0;
-      if (message.ReadInt(&iter, &tab) &&
-          message.ReadInt(&iter, request_id)) {
+      if (message.ReadInt(&iter, request_id))
         return true;
-      }
       break;
     }
   }
@@ -258,8 +264,8 @@ void URLRequestAutomationJob::OnMessage(const IPC::Message& message) {
   IPC_END_MESSAGE_MAP()
 }
 
-void URLRequestAutomationJob::OnRequestStarted(int tab, int id,
-    const IPC::AutomationURLResponse& response) {
+void URLRequestAutomationJob::OnRequestStarted(
+    int id, const AutomationURLResponse& response) {
   DVLOG(1) << "URLRequestAutomationJob: " << request_->url().spec()
            << " - response started.";
   set_expected_content_size(response.content_length);
@@ -279,7 +285,7 @@ void URLRequestAutomationJob::OnRequestStarted(int tab, int id,
 }
 
 void URLRequestAutomationJob::OnDataAvailable(
-    int tab, int id, const std::string& bytes) {
+    int id, const std::string& bytes) {
   DVLOG(1) << "URLRequestAutomationJob: " << request_->url().spec()
            << " - data available, Size: " << bytes.size();
   DCHECK(!bytes.empty());
@@ -303,7 +309,7 @@ void URLRequestAutomationJob::OnDataAvailable(
 }
 
 void URLRequestAutomationJob::OnRequestEnd(
-    int tab, int id, const URLRequestStatus& status) {
+    int id, const URLRequestStatus& status) {
 #ifndef NDEBUG
   std::string url;
   if (request_)
@@ -426,19 +432,18 @@ void URLRequestAutomationJob::StartAsync() {
   }
 
   // Ask automation to start this request.
-  IPC::AutomationURLRequest automation_request = {
-    request_->url().spec(),
-    request_->method(),
-    referrer.spec(),
-    new_request_headers.ToString(),
-    request_->get_upload(),
-    resource_type,
-    request_->load_flags()
-  };
+  AutomationURLRequest automation_request(
+      request_->url().spec(),
+      request_->method(),
+      referrer.spec(),
+      new_request_headers.ToString(),
+      request_->get_upload(),
+      resource_type,
+      request_->load_flags());
 
   DCHECK(message_filter_);
-  message_filter_->Send(new AutomationMsg_RequestStart(0, tab_, id_,
-      automation_request));
+  message_filter_->Send(new AutomationMsg_RequestStart(
+      tab_, id_, automation_request));
 }
 
 void URLRequestAutomationJob::DisconnectFromMessageFilter() {

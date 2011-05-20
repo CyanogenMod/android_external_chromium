@@ -19,7 +19,7 @@
 #include "base/string_util.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
 #include "chrome/browser/gtk/owned_widget_gtk.h"
-#include "chrome/browser/toolbar_model.h"
+#include "chrome/browser/ui/toolbar/toolbar_model.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/page_transition_types.h"
@@ -93,8 +93,8 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
   gfx::Font GetFont();
 
   // Implement the AutocompleteEditView interface.
-  virtual AutocompleteEditModel* model() { return model_.get(); }
-  virtual const AutocompleteEditModel* model() const { return model_.get(); }
+  virtual AutocompleteEditModel* model();
+  virtual const AutocompleteEditModel* model() const;
 
   virtual void SaveStateToTab(TabContents* tab);
 
@@ -488,9 +488,24 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
   // Was the delete key pressed with an empty selection at the end of the edit?
   bool delete_at_end_pressed_;
 
+  // Indicates if we are handling a key press event.
+  bool handling_key_press_;
+
+  // Indicates if omnibox's content maybe changed by a key press event, so that
+  // we need to call OnAfterPossibleChange() after handling the event.
+  // This flag should be set for changes directly caused by a key press event,
+  // including changes to content text, selection range and preedit string.
+  // Changes caused by function calls like SetUserText() should not affect this
+  // flag.
+  bool content_maybe_changed_by_key_press_;
+
 #if GTK_CHECK_VERSION(2, 20, 0)
   // Stores the text being composed by the input method.
   std::wstring preedit_;
+
+  // Tracking preedit state before and after a possible change. We don't need to
+  // track preedit_'s content, as it'll be treated as part of text content.
+  size_t preedit_size_before_change_;
 #endif
 
   // The view that is going to be focused next. Only valid while handling

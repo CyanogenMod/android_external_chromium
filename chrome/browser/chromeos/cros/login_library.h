@@ -9,7 +9,7 @@
 #include <string>
 
 #include "base/singleton.h"
-#include "cros/chromeos_login.h"
+#include "third_party/cros/chromeos_login.h"
 
 namespace chromeos {
 
@@ -94,6 +94,9 @@ class LoginLibrary {
   // This will tell the session manager to terminate the session for the user
   // indicated by |unique_id|.
   virtual bool StopSession(const std::string& unique_id /* unused */) = 0;
+
+  // Restarts the Enterprise Daemon.
+  virtual bool RestartEntd() = 0;
 
   // Restarts the job with specified command line string.
   virtual bool RestartJob(int pid, const std::string& command_line) = 0;

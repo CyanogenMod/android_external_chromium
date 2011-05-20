@@ -18,7 +18,6 @@
 #include "base/string_tokenizer.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/encoding_menu_controller.h"
 #include "chrome/browser/gtk/accelerators_gtk.h"
 #include "chrome/browser/gtk/browser_window_gtk.h"
 #include "chrome/browser/gtk/custom_button.h"
@@ -31,10 +30,11 @@
 #include "chrome/browser/gtk/nine_box.h"
 #include "chrome/browser/gtk/tabs/tab_strip_gtk.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/wrench_menu_model.h"
+#include "chrome/browser/ui/toolbar/encoding_menu_controller.h"
+#include "chrome/browser/ui/toolbar/wrench_menu_model.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "gfx/gtk_util.h"
@@ -307,7 +307,7 @@ void BrowserTitlebar::Init() {
 #if defined(USE_GCONF)
   // Either read the gconf database and register for updates (on GNOME), or use
   // the default value (anywhere else).
-  Singleton<GConfTitlebarListener>()->SetTitlebarButtons(this);
+  GConfTitlebarListener::GetInstance()->SetTitlebarButtons(this);
 #else
   BuildButtons(kDefaultButtonString);
 #endif
@@ -373,7 +373,7 @@ void BrowserTitlebar::Init() {
 BrowserTitlebar::~BrowserTitlebar() {
   ActiveWindowWatcherX::RemoveObserver(this);
 #if defined(USE_GCONF)
-  Singleton<GConfTitlebarListener>()->RemoveObserver(this);
+  GConfTitlebarListener::GetInstance()->RemoveObserver(this);
 #endif
 }
 
@@ -849,7 +849,7 @@ void BrowserTitlebar::ExecuteCommand(int command_id) {
 bool BrowserTitlebar::GetAcceleratorForCommandId(
     int command_id, menus::Accelerator* accelerator) {
   const menus::AcceleratorGtk* accelerator_gtk =
-      Singleton<AcceleratorsGtk>()->GetPrimaryAcceleratorForCommand(
+      AcceleratorsGtk::GetInstance()->GetPrimaryAcceleratorForCommand(
           command_id);
   if (accelerator_gtk)
     *accelerator = *accelerator_gtk;

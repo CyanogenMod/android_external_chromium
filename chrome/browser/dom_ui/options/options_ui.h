@@ -47,7 +47,7 @@ class OptionsPageUIHandler : public DOMMessageHandler,
   virtual ~OptionsPageUIHandler();
 
   // Is this handler enabled?
-  virtual bool IsEnabled() { return true; }
+  virtual bool IsEnabled();
 
   // Collects localized strings for options page.
   virtual void GetLocalizedValues(DictionaryValue* localized_strings) = 0;
@@ -81,8 +81,8 @@ class OptionsUI : public DOMUI {
   virtual ~OptionsUI();
 
   static RefCountedMemory* GetFaviconResourceBytes();
-  void RenderViewCreated(RenderViewHost* render_view_host);
-  void DidBecomeActiveForReusedRenderView();
+  virtual void RenderViewCreated(RenderViewHost* render_view_host);
+  virtual void DidBecomeActiveForReusedRenderView();
 
   void InitializeHandlers();
 

@@ -6,11 +6,12 @@
 
 #include "base/at_exit.h"
 #include "base/command_line.h"
+#include "base/lazy_instance.h"
 #include "base/message_loop.h"
 #include "base/metrics/stats_counters.h"
-#include "base/singleton.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "net/base/cert_verifier.h"
 #include "net/base/completion_callback.h"
 #include "net/base/host_resolver.h"
 #include "net/base/io_buffer.h"
@@ -47,6 +48,8 @@ class Driver {
   int clients_;
 };
 
+static base::LazyInstance<Driver> g_driver(base::LINKER_INITIALIZED);
+
 // A network client
 class Client {
  public:
@@ -60,7 +63,7 @@ class Client {
     int rv = factory->CreateTransaction(&transaction_);
     DCHECK_EQ(net::OK, rv);
     buffer_->AddRef();
-    driver_->ClientStarted();
+    g_driver.Get().ClientStarted();
     request_info_.url = url_;
     request_info_.method = "GET";
     int state = transaction_->Start(
@@ -101,7 +104,7 @@ class Client {
   void OnRequestComplete(int result) {
     static base::StatsCounter requests("FetchClient.requests");
     requests.Increment();
-    driver_->ClientStopped();
+    g_driver.Get().ClientStopped();
     printf(".");
   }
 
@@ -112,7 +115,6 @@ class Client {
   scoped_refptr<net::IOBuffer> buffer_;
   net::CompletionCallbackImpl<Client> connect_callback_;
   net::CompletionCallbackImpl<Client> read_callback_;
-  Singleton<Driver> driver_;
 };
 
 int main(int argc, char**argv) {
@@ -139,6 +141,7 @@ int main(int argc, char**argv) {
       net::CreateSystemHostResolver(net::HostResolver::kDefaultParallelism,
                                     NULL, NULL));
 
+  scoped_ptr<net::CertVerifier> cert_verifier(new net::CertVerifier);
   scoped_refptr<net::ProxyService> proxy_service(
       net::ProxyService::CreateDirect());
   scoped_refptr<net::SSLConfigService> ssl_config_service(
@@ -147,13 +150,15 @@ int main(int argc, char**argv) {
   scoped_ptr<net::HttpAuthHandlerFactory> http_auth_handler_factory(
       net::HttpAuthHandlerFactory::CreateDefault(host_resolver.get()));
   if (use_cache) {
-    factory = new net::HttpCache(host_resolver.get(), NULL, NULL, proxy_service,
-        ssl_config_service, http_auth_handler_factory.get(), NULL, NULL,
+    factory = new net::HttpCache(host_resolver.get(), cert_verifier.get(),
+        NULL, NULL, proxy_service, ssl_config_service,
+        http_auth_handler_factory.get(), NULL, NULL,
         net::HttpCache::DefaultBackend::InMemory(0));
   } else {
     factory = new net::HttpNetworkLayer(
         net::ClientSocketFactory::GetDefaultFactory(),
         host_resolver.get(),
+        cert_verifier.get(),
         NULL /* dnsrr_resolver */,
         NULL /* dns_cert_checker */,
         NULL /* ssl_host_info_factory */,
@@ -203,7 +208,7 @@ int main(int argc, char**argv) {
     // Dump the stats table.
     printf("<stats>\n");
     int counter_max = table.GetMaxCounters();
-    for (int index=0; index < counter_max; index++) {
+    for (int index = 0; index < counter_max; index++) {
       std::string name(table.GetRowName(index));
       if (name.length() > 0) {
         int value = table.GetRowValue(index);

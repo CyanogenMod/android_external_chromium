@@ -8,6 +8,7 @@
 #include "base/format_macros.h"
 #include "base/string_util.h"
 #include "base/time.h"
+#include "chrome/browser/browser_thread.h"
 #include "net/base/load_flags.h"
 #include "net/url_request/url_request_netlog_params.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -16,6 +17,17 @@ namespace {
 
 using net::NetLog;
 using base::TimeDelta;
+
+// Serves to Identify the current thread as the IO thread.
+class LoadTimingObserverTest : public testing::Test {
+ public:
+  LoadTimingObserverTest() : io_thread_(BrowserThread::IO, &message_loop_) {
+  }
+
+ private:
+  MessageLoop message_loop_;
+  BrowserThread io_thread_;
+};
 
 base::TimeTicks current_time;
 
@@ -36,8 +48,8 @@ void AddEndEntry(LoadTimingObserver& observer,
 void AddStartURLRequestEntries(LoadTimingObserver& observer,
                                uint32 id,
                                bool request_timing) {
-  scoped_refptr<URLRequestStartEventParameters> params(
-      new URLRequestStartEventParameters(
+  scoped_refptr<net::URLRequestStartEventParameters> params(
+      new net::URLRequestStartEventParameters(
           GURL(StringPrintf("http://req%d", id)),
           "GET",
           request_timing ? net::LOAD_ENABLE_LOAD_TIMING : 0,
@@ -81,8 +93,8 @@ void AddEndSocketEntries(LoadTimingObserver& observer, uint32 id) {
 
 }  // namespace
 
-// Test that URLRequest with no load timing flag is not processed.
-TEST(LoadTimingObserverTest, NoLoadTimingEnabled) {
+// Test that net::URLRequest with no load timing flag is not processed.
+TEST_F(LoadTimingObserverTest, NoLoadTimingEnabled) {
   LoadTimingObserver observer;
 
   AddStartURLRequestEntries(observer, 0, false);
@@ -92,7 +104,7 @@ TEST(LoadTimingObserverTest, NoLoadTimingEnabled) {
 }
 
 // Test that URLRequestRecord is created, deleted and is not growing unbound.
-TEST(LoadTimingObserverTest, URLRequestRecord) {
+TEST_F(LoadTimingObserverTest, URLRequestRecord) {
   LoadTimingObserver observer;
 
   // Create record.
@@ -114,7 +126,7 @@ TEST(LoadTimingObserverTest, URLRequestRecord) {
 }
 
 // Test that ConnectJobRecord is created, deleted and is not growing unbound.
-TEST(LoadTimingObserverTest, ConnectJobRecord) {
+TEST_F(LoadTimingObserverTest, ConnectJobRecord) {
   LoadTimingObserver observer;
 
   // Create record.
@@ -135,7 +147,7 @@ TEST(LoadTimingObserverTest, ConnectJobRecord) {
 }
 
 // Test that SocketRecord is created, deleted and is not growing unbound.
-TEST(LoadTimingObserverTest, SocketRecord) {
+TEST_F(LoadTimingObserverTest, SocketRecord) {
   LoadTimingObserver observer;
 
   // Create record.
@@ -157,7 +169,7 @@ TEST(LoadTimingObserverTest, SocketRecord) {
 }
 
 // Test that basic time is set to the request.
-TEST(LoadTimingObserverTest, BaseTicks) {
+TEST_F(LoadTimingObserverTest, BaseTicks) {
   LoadTimingObserver observer;
   current_time += TimeDelta::FromSeconds(1);
   AddStartURLRequestEntries(observer, 0, true);
@@ -168,7 +180,7 @@ TEST(LoadTimingObserverTest, BaseTicks) {
 }
 
 // Test proxy time detection.
-TEST(LoadTimingObserverTest, ProxyTime) {
+TEST_F(LoadTimingObserverTest, ProxyTime) {
   LoadTimingObserver observer;
   current_time += TimeDelta::FromSeconds(1);
 
@@ -187,7 +199,7 @@ TEST(LoadTimingObserverTest, ProxyTime) {
 }
 
 // Test connect time detection.
-TEST(LoadTimingObserverTest, ConnectTime) {
+TEST_F(LoadTimingObserverTest, ConnectTime) {
   LoadTimingObserver observer;
   current_time += TimeDelta::FromSeconds(1);
 
@@ -206,7 +218,7 @@ TEST(LoadTimingObserverTest, ConnectTime) {
 }
 
 // Test dns time detection.
-TEST(LoadTimingObserverTest, DnsTime) {
+TEST_F(LoadTimingObserverTest, DnsTime) {
   LoadTimingObserver observer;
 
   // Start request.
@@ -240,7 +252,7 @@ TEST(LoadTimingObserverTest, DnsTime) {
 }
 
 // Test send time detection.
-TEST(LoadTimingObserverTest, SendTime) {
+TEST_F(LoadTimingObserverTest, SendTime) {
   LoadTimingObserver observer;
 
   // Start request.
@@ -266,7 +278,7 @@ TEST(LoadTimingObserverTest, SendTime) {
 }
 
 // Test receive time detection.
-TEST(LoadTimingObserverTest, ReceiveTime) {
+TEST_F(LoadTimingObserverTest, ReceiveTime) {
   LoadTimingObserver observer;
 
   // Start request.
@@ -292,7 +304,7 @@ TEST(LoadTimingObserverTest, ReceiveTime) {
 }
 
 // Test ssl time detection.
-TEST(LoadTimingObserverTest, SslTime) {
+TEST_F(LoadTimingObserverTest, SslTime) {
   LoadTimingObserver observer;
 
   // Start request.

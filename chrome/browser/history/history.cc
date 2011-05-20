@@ -43,8 +43,8 @@
 #include "chrome/browser/history/in_memory_history_backend.h"
 #include "chrome/browser/history/top_sites.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/profile.h"
-#include "chrome/browser/visitedlink_master.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/visitedlink/visitedlink_master.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
@@ -355,6 +355,14 @@ void HistoryService::AddPage(const history::HistoryAddPageArgs& add_page_args) {
   ScheduleAndForget(PRIORITY_NORMAL, &HistoryBackend::AddPage,
                     scoped_refptr<history::HistoryAddPageArgs>(
                         add_page_args.Clone()));
+}
+
+void HistoryService::AddPageNoVisitForBookmark(const GURL& url) {
+  if (!CanAddURL(url))
+    return;
+
+  ScheduleAndForget(PRIORITY_NORMAL,
+                    &HistoryBackend::AddPageNoVisitForBookmark, url);
 }
 
 void HistoryService::SetPageTitle(const GURL& url,

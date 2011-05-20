@@ -48,8 +48,8 @@ class HttpStreamFactory : public StreamFactory,
                                 const BoundNetLog& net_log,
                                 CompletionCallback* callback);
 
-  void AddTLSIntolerantServer(const GURL& url);
-  bool IsTLSIntolerantServer(const GURL& url);
+  virtual void AddTLSIntolerantServer(const GURL& url);
+  virtual bool IsTLSIntolerantServer(const GURL& url);
 
   virtual void ProcessAlternateProtocol(
       HttpAlternateProtocols* alternate_protocols,
@@ -66,6 +66,8 @@ class HttpStreamFactory : public StreamFactory,
   // Turns spdy on or off.
   static void set_spdy_enabled(bool value) {
     spdy_enabled_ = value;
+    if (value == false)
+      set_next_protos("");
   }
   static bool spdy_enabled() { return spdy_enabled_; }
 

@@ -4,9 +4,11 @@
 
 #include "net/base/x509_certificate.h"
 
+#include "base/crypto/rsa_private_key.h"
+#include "base/crypto/scoped_capi_types.h"
+#include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/pickle.h"
-#include "base/singleton.h"
 #include "base/string_tokenizer.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -15,6 +17,7 @@
 #include "net/base/ev_root_ca_metadata.h"
 #include "net/base/net_errors.h"
 #include "net/base/scoped_cert_chain_context.h"
+#include "net/base/test_root_certs.h"
 
 #pragma comment(lib, "crypt32.lib")
 
@@ -23,6 +26,21 @@ using base::Time;
 namespace net {
 
 namespace {
+
+typedef base::ScopedCAPIHandle<
+    HCERTSTORE,
+    base::CAPIDestroyerWithFlags<HCERTSTORE,
+                                 CertCloseStore, 0> > ScopedHCERTSTORE;
+
+struct FreeChainEngineFunctor {
+  void operator()(HCERTCHAINENGINE engine) const {
+    if (engine)
+      CertFreeCertificateChainEngine(engine);
+  }
+};
+
+typedef base::ScopedCAPIHandle<HCERTCHAINENGINE, FreeChainEngineFunctor>
+    ScopedHCERTCHAINENGINE;
 
 //-----------------------------------------------------------------------------
 
@@ -484,6 +502,70 @@ X509Certificate* X509Certificate::CreateFromPickle(const Pickle& pickle,
   return cert;
 }
 
+// static
+X509Certificate* X509Certificate::CreateSelfSigned(
+    base::RSAPrivateKey* key,
+    const std::string& subject,
+    uint32 serial_number,
+    base::TimeDelta valid_duration) {
+  // Get the ASN.1 encoding of the certificate subject.
+  std::wstring w_subject = ASCIIToWide(subject);
+  DWORD encoded_subject_length = 0;
+  if (!CertStrToName(
+          X509_ASN_ENCODING,
+          const_cast<wchar_t*>(w_subject.c_str()),
+          CERT_X500_NAME_STR, NULL, NULL, &encoded_subject_length, NULL)) {
+    return NULL;
+  }
+
+  scoped_array<char> encoded_subject(new char[encoded_subject_length]);
+  if (!CertStrToName(
+          X509_ASN_ENCODING,
+          const_cast<wchar_t*>(w_subject.c_str()),
+          CERT_X500_NAME_STR, NULL,
+          reinterpret_cast<BYTE*>(encoded_subject.get()),
+          &encoded_subject_length, NULL)) {
+    return NULL;
+  }
+
+  CERT_NAME_BLOB subject_name;
+  memset(&subject_name, 0, sizeof(subject_name));
+  subject_name.cbData = encoded_subject_length;
+  subject_name.pbData = reinterpret_cast<BYTE*>(encoded_subject.get());
+
+  CRYPT_ALGORITHM_IDENTIFIER sign_algo;
+  memset(&sign_algo, 0, sizeof(sign_algo));
+  sign_algo.pszObjId = szOID_RSA_SHA1RSA;
+
+  base::Time not_valid = base::Time::Now() + valid_duration;
+  base::Time::Exploded exploded;
+  not_valid.UTCExplode(&exploded);
+
+  // Create the system time struct representing our exploded time.
+  SYSTEMTIME system_time;
+  system_time.wYear = exploded.year;
+  system_time.wMonth = exploded.month;
+  system_time.wDayOfWeek = exploded.day_of_week;
+  system_time.wDay = exploded.day_of_month;
+  system_time.wHour = exploded.hour;
+  system_time.wMinute = exploded.minute;
+  system_time.wSecond = exploded.second;
+  system_time.wMilliseconds = exploded.millisecond;
+
+  PCCERT_CONTEXT cert_handle =
+      CertCreateSelfSignCertificate(key->provider(), &subject_name,
+                                    CERT_CREATE_SELFSIGN_NO_KEY_INFO,
+                                    NULL, &sign_algo, 0, &system_time, 0);
+  DCHECK(cert_handle) << "Failed to create self-signed certificate: "
+                      << logging::GetLastSystemErrorCode();
+
+  X509Certificate* cert = CreateFromHandle(cert_handle,
+                                           SOURCE_LONE_CERT_IMPORT,
+                                           OSCertHandles());
+  FreeOSCertHandle(cert_handle);
+  return cert;
+}
+
 void X509Certificate::Persist(Pickle* pickle) {
   DCHECK(cert_handle_);
   DWORD length;
@@ -529,7 +611,7 @@ class GlobalCertStore {
   }
 
  private:
-  friend struct DefaultSingletonTraits<GlobalCertStore>;
+  friend struct base::DefaultLazyInstanceTraits<GlobalCertStore>;
 
   GlobalCertStore()
       : cert_store_(CertOpenStore(CERT_STORE_PROV_MEMORY, 0, NULL, 0, NULL)) {
@@ -544,9 +626,12 @@ class GlobalCertStore {
   DISALLOW_COPY_AND_ASSIGN(GlobalCertStore);
 };
 
+static base::LazyInstance<GlobalCertStore> g_cert_store(
+    base::LINKER_INITIALIZED);
+
 // static
 HCERTSTORE X509Certificate::cert_store() {
-  return Singleton<GlobalCertStore>::get()->cert_store();
+  return g_cert_store.Get().cert_store();
 }
 
 int X509Certificate::Verify(const std::string& hostname,
@@ -606,15 +691,26 @@ int X509Certificate::Verify(const std::string& hostname,
     }
   }
 
+  // For non-test scenarios, use the default HCERTCHAINENGINE, NULL, which
+  // corresponds to HCCE_CURRENT_USER and is is initialized as needed by
+  // crypt32. However, when testing, it is necessary to create a new
+  // HCERTCHAINENGINE and use that instead. This is because each
+  // HCERTCHAINENGINE maintains a cache of information about certificates
+  // encountered, and each test run may modify the trust status of a
+  // certificate.
+  ScopedHCERTCHAINENGINE chain_engine(NULL);
+  if (TestRootCerts::HasInstance())
+    chain_engine.reset(TestRootCerts::GetInstance()->GetChainEngine());
+
   PCCERT_CHAIN_CONTEXT chain_context;
   // IE passes a non-NULL pTime argument that specifies the current system
   // time.  IE passes CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT as the
   // chain_flags argument.
   if (!CertGetCertificateChain(
-           NULL,  // default chain engine, HCCE_CURRENT_USER
+           chain_engine,
            cert_handle_,
            NULL,  // current system time
-           cert_handle_->hCertStore,  // search this store
+           cert_handle_->hCertStore,
            &chain_para,
            chain_flags,
            NULL,  // reserved
@@ -628,10 +724,10 @@ int X509Certificate::Verify(const std::string& hostname,
     chain_para.RequestedIssuancePolicy.Usage.rgpszUsageIdentifier = NULL;
     CertFreeCertificateChain(chain_context);
     if (!CertGetCertificateChain(
-             NULL,  // default chain engine, HCCE_CURRENT_USER
+             chain_engine,
              cert_handle_,
              NULL,  // current system time
-             cert_handle_->hCertStore,  // search this store
+             cert_handle_->hCertStore,
              &chain_para,
              chain_flags,
              NULL,  // reserved
@@ -642,7 +738,6 @@ int X509Certificate::Verify(const std::string& hostname,
   ScopedCertChainContext scoped_chain_context(chain_context);
 
   GetCertChainInfo(chain_context, verify_result);
-
   verify_result->cert_status |= MapCertChainErrorStatusToCertStatus(
       chain_context->TrustStatus.dwErrorStatus);
 
@@ -746,6 +841,15 @@ int X509Certificate::Verify(const std::string& hostname,
   if (ev_policy_oid && CheckEV(chain_context, ev_policy_oid))
     verify_result->cert_status |= CERT_STATUS_IS_EV;
   return OK;
+}
+
+bool X509Certificate::GetDEREncoded(std::string* encoded) {
+  if (!cert_handle_->pbCertEncoded || !cert_handle_->cbCertEncoded)
+    return false;
+  encoded->clear();
+  encoded->append(reinterpret_cast<char*>(cert_handle_->pbCertEncoded),
+                  cert_handle_->cbCertEncoded);
+  return true;
 }
 
 // Returns true if the certificate is an extended-validation certificate.

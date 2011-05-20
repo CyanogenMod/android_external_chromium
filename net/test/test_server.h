@@ -17,14 +17,10 @@
 #include "base/file_util.h"
 #include "base/process_util.h"
 #include "net/base/host_port_pair.h"
+#include "net/base/net_util.h"
 
 #if defined(OS_WIN)
 #include "base/scoped_handle_win.h"
-#endif
-
-#if defined(USE_NSS)
-#include "base/ref_counted.h"
-#include "net/base/x509_certificate.h"
 #endif
 
 class CommandLine;
@@ -155,9 +151,6 @@ class TestServer {
   // Returns path to the root certificate.
   FilePath GetRootCertificatePath();
 
-  // Returns false if our test root certificate is not trusted.
-  bool CheckCATrusted() WARN_UNUSED_RESULT;
-
   // Load the test root cert, if it hasn't been loaded yet.
   bool LoadTestRootCert() WARN_UNUSED_RESULT;
 
@@ -180,6 +173,8 @@ class TestServer {
   // Handle of the Python process running the test server.
   base::ProcessHandle process_handle_;
 
+  scoped_ptr<net::ScopedPortException> allowed_port_;
+
 #if defined(OS_WIN)
   // JobObject used to clean up orphaned child processes.
   ScopedHandle job_handle_;
@@ -199,10 +194,6 @@ class TestServer {
 
   // If |type_| is TYPE_HTTPS, the TLS settings to use for the test server.
   HTTPSOptions https_options_;
-
-#if defined(USE_NSS)
-  scoped_refptr<X509Certificate> cert_;
-#endif
 
   Type type_;
 

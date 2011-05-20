@@ -1,10 +1,11 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/printing/print_job_worker.h"
 
 #include "base/message_loop.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/printing/print_job.h"
 #include "chrome/common/notification_service.h"
@@ -53,7 +54,8 @@ PrintJobWorker::PrintJobWorker(PrintJobWorkerOwner* owner)
   // The object is created in the IO thread.
   DCHECK_EQ(owner_->message_loop(), MessageLoop::current());
 
-  printing_context_.reset(PrintingContext::Create());
+  printing_context_.reset(PrintingContext::Create(
+      g_browser_process->GetApplicationLocale()));
 }
 
 PrintJobWorker::~PrintJobWorker() {
@@ -82,14 +84,26 @@ void PrintJobWorker::GetSettings(bool ask_user_for_settings,
   printing_context_->set_use_overlays(use_overlays);
 
   if (ask_user_for_settings) {
+#if defined(OS_POSIX)
     BrowserThread::PostTask(
         BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(this, &PrintJobWorker::GetSettingsWithUI,
                           parent_view, document_page_count,
                           has_selection));
+#else
+    printing_context_->AskUserForSettings(
+        parent_view,
+        document_page_count,
+        has_selection,
+        NewCallback(this, &PrintJobWorker::GetSettingsDone));
+#endif  // defined(OS_POSIX)
   } else {
+#if defined(OS_POSIX)
     BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(this, &PrintJobWorker::UseDefaultSettings));
+#else
+    UseDefaultSettings();
+#endif  // defined(OS_POSIX)
   }
 }
 
@@ -108,6 +122,7 @@ void PrintJobWorker::GetSettingsDone(PrintingContext::Result result) {
       result));
 }
 
+#if defined(OS_POSIX)
 void PrintJobWorker::GetSettingsWithUI(gfx::NativeView parent_view,
                                        int document_page_count,
                                        bool has_selection) {
@@ -124,6 +139,7 @@ void PrintJobWorker::GetSettingsWithUIDone(PrintingContext::Result result) {
   message_loop()->PostTask(FROM_HERE, NewRunnableMethod(
       this, &PrintJobWorker::GetSettingsDone, result));
 }
+#endif  // defined(OS_POSIX)
 
 void PrintJobWorker::UseDefaultSettings() {
   PrintingContext::Result result = printing_context_->UseDefaultSettings();
