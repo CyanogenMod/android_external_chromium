@@ -120,8 +120,10 @@ void PrefValueStore::NotifyPrefChanged(
     }
   }
 
+#ifndef ANDROID
   if (changed)
     pref_notifier_->OnPreferenceChanged(path);
+#endif
 }
 
 bool PrefValueStore::PrefValueInManagedPlatformStore(const char* name) const {
@@ -264,5 +266,7 @@ void PrefValueStore::CheckInitializationCompleted() {
     if (store && !store->IsInitializationComplete())
       return;
   }
+#ifndef ANDROID
   pref_notifier_->OnInitializationCompleted();
+#endif
 }
