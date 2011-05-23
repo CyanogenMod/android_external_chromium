@@ -83,19 +83,6 @@ const size_t kDefaultNumPacThreads = 4;
 // setups.
 const int64 kNumMillisToStallAfterNetworkChanges = 2000;
 
-#ifdef ANDROID
-// Config getter that fails every time.
-class ProxyConfigServiceNull : public ProxyConfigService {
- public:
-  // ProxyConfigService implementation:
-  virtual void AddObserver(Observer* observer) {}
-  virtual void RemoveObserver(Observer* observer) {}
-  virtual bool GetLatestProxyConfig(ProxyConfig* config) {
-    return false;
-  }
-};
-#endif
-
 // Config getter that always returns direct settings.
 class ProxyConfigServiceDirect : public ProxyConfigService {
  public:
@@ -808,7 +795,11 @@ ProxyConfigService* ProxyService::CreateSystemProxyConfigService(
   NOTREACHED() << "ProxyConfigService for ChromeOS should be created in "
                << "chrome_url_request_context.cc::CreateProxyConfigService.";
   return NULL;
-#elif defined(OS_LINUX) && !defined(ANDROID)
+#elif defined(ANDROID)
+  NOTREACHED() << "ProxyConfigService for Android should be created in "
+               << "WebCache.cpp: WebCache::WebCache";
+  return NULL;
+#elif defined(OS_LINUX)
   ProxyConfigServiceLinux* linux_config_service
       = new ProxyConfigServiceLinux();
 

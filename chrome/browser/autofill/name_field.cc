@@ -12,9 +12,6 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_type.h"
-#ifndef ANDROID
-#include "grit/autofill_resources.h"
-#endif
 
 NameField* NameField::Parse(std::vector<AutoFillField*>::const_iterator* iter,
                             bool is_ecml) {

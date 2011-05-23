@@ -4,9 +4,7 @@
 
 #include "chrome/browser/prefs/pref_value_store.h"
 
-#ifdef ANDROID
 #include "base/logging.h"
-#endif
 #include "chrome/browser/prefs/pref_notifier.h"
 
 PrefValueStore::PrefStoreKeeper::PrefStoreKeeper()
