@@ -27,7 +27,7 @@
 #define ANDROID_URL_REQUEST_CONTEXT_GETTER_H
 
 #include "base/message_loop_proxy.h"
-#include "base/thread.h"
+#include "base/threading/thread.h"
 #include "common/net/url_request_context_getter.h"
 #include "net/url_request/url_request_context.h"
 

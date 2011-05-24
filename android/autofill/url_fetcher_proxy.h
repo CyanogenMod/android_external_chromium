@@ -28,7 +28,7 @@
 #include "android/autofill/android_url_request_context_getter.h"
 #include "android/autofill/profile_android.h"
 #include "base/scoped_ptr.h"
-#include "base/thread.h"
+#include "base/threading/thread.h"
 #include "common/net/url_fetcher.h"
 #include "net/url_request/url_request_status.h"
 #include <WebCoreSupport/autofill/MainThreadProxy.h>

@@ -17,12 +17,8 @@
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
-<<<<<<< HEAD
-#include "base/thread.h"
-#ifndef ANDROID
-=======
 #include "base/threading/thread.h"
->>>>>>> chromium.org at r10.0.634.0
+#ifndef ANDROID
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/diagnostics/sqlite_diagnostics.h"
 #endif
