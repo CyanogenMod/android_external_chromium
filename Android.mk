@@ -32,6 +32,7 @@ LOCAL_SRC_FILES := \
     googleurl/src/url_parse_file.cc \
     googleurl/src/url_util.cc \
     \
+    android/execinfo.cc \
     android/app/l10n_util.cc \
     android/jni/mime_utils.cc \
     android/jni/jni_utils.cc \
@@ -45,16 +46,12 @@ LOCAL_SRC_FILES := \
     \
     base/at_exit.cc \
     base/base64.cc \
-    base/cancellation_flag.cc \
-    base/condition_variable_posix.cc \
     base/file_descriptor_shuffle.cc \
     base/file_path.cc \
     base/file_util.cc \
     base/file_util_android.cc \
     base/file_util_posix.cc \
     base/lazy_instance.cc \
-    base/lock.cc \
-    base/lock_impl_posix.cc \
     base/logging.cc \
     base/message_loop.cc \
     base/message_loop_proxy.cc \
@@ -64,11 +61,10 @@ LOCAL_SRC_FILES := \
     base/message_pump_libevent.cc \
     base/md5.cc \
     base/native_library_linux.cc \
-    base/non_thread_safe.cc \
     base/openssl_util.cc \
     base/pickle.cc \
+    base/platform_file.cc \
     base/platform_file_posix.cc \
-    base/platform_thread_posix.cc \
     base/process_util.cc \
     base/process_util_linux.cc \
     base/process_util_posix.cc \
@@ -89,24 +85,17 @@ LOCAL_SRC_FILES := \
     base/sys_info_posix.cc \
     base/sys_string_conversions_linux.cc \
     base/task.cc \
-    base/thread.cc \
-    base/thread_checker.cc \
-    base/thread_collision_warner.cc \
-    base/thread_local_posix.cc \
-    base/thread_local_storage_posix.cc \
     base/time.cc \
     base/time_posix.cc \
     base/timer.cc \
     base/tracked.cc \
     base/tracked_objects.cc \
-    base/waitable_event_posix.cc \
     base/utf_offset_string_conversions.cc \
     base/utf_string_conversions.cc \
     base/utf_string_conversion_utils.cc \
     base/values.cc \
     base/vlog.cc \
     base/weak_ptr.cc \
-    base/worker_pool_posix.cc \
     \
     base/debug/debugger_posix.cc \
     base/debug/stack_trace.cc \
@@ -124,6 +113,19 @@ LOCAL_SRC_FILES := \
     base/metrics/histogram.cc \
     base/metrics/stats_counters.cc \
     base/metrics/stats_table.cc \
+    \
+    base/synchronization/cancellation_flag.cc \
+    base/synchronization/condition_variable_posix.cc \
+    base/synchronization/lock_impl_posix.cc \
+    base/synchronization/waitable_event_posix.cc \
+    \
+    base/threading/platform_thread_posix.cc \
+    base/threading/thread.cc \
+    base/threading/thread_checker.cc \
+    base/threading/thread_collision_warner.cc \
+    base/threading/thread_local_posix.cc \
+    base/threading/thread_local_storage_posix.cc \
+    base/threading/worker_pool_posix.cc \
     \
     base/third_party/icu/icu_utf.cc \
     \
