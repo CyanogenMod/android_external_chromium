@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include "app/menus/accelerator_cocoa.h"
 #include "app/menus/menu_model.h"
 #include "app/resource_bundle.h"
-#include "base/mac_util.h"
+#include "base/mac/mac_util.h"
 #include "base/singleton.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -170,7 +170,7 @@ class NotificationBridge : public NotificationObserver {
        nibFileNamed:(NSString*)nibName {
   DCHECK(model && commands && profile && [nibName length]);
   if ((self = [super initWithNibName:nibName
-                              bundle:mac_util::MainAppBundle()])) {
+                              bundle:base::mac::MainAppBundle()])) {
     toolbarModel_ = model;
     commands_ = commands;
     profile_ = profile;
@@ -245,6 +245,8 @@ class NotificationBridge : public NotificationObserver {
   [wrenchButton_ setImage:
       app::mac::GetCachedImageWithName(kWrenchButtonImageName)];
   [self badgeWrenchMenuIfNeeded];
+
+  [wrenchButton_ setOpenMenuOnClick:YES];
 
   [backButton_ setShowsBorderOnlyWhileMouseInside:YES];
   [forwardButton_ setShowsBorderOnlyWhileMouseInside:YES];

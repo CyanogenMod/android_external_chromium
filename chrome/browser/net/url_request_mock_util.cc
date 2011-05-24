@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <string>
 
 #include "base/path_service.h"
-#include "base/thread_restrictions.h"
+#include "base/threading/thread_restrictions.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/net/url_request_failed_dns_job.h"
 #include "chrome/browser/net/url_request_mock_http_job.h"
@@ -30,7 +30,7 @@ void SetUrlRequestMocksEnabled(bool enabled) {
     // anywhere.
     base::ThreadRestrictions::ScopedAllowIO allow_io;
 
-    URLRequestFilter::GetInstance()->ClearHandlers();
+    net::URLRequestFilter::GetInstance()->ClearHandlers();
 
     URLRequestFailedDnsJob::AddUrlHandler();
     URLRequestMockLinkDoctorJob::AddUrlHandler();
@@ -42,7 +42,7 @@ void SetUrlRequestMocksEnabled(bool enabled) {
     URLRequestSlowHTTPJob::AddUrlHandler(root_http);
   } else {
     // Revert to the default handlers.
-    URLRequestFilter::GetInstance()->ClearHandlers();
+    net::URLRequestFilter::GetInstance()->ClearHandlers();
   }
 }
 

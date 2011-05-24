@@ -15,7 +15,7 @@
 #include "base/stl_util-inl.h"
 #include "base/string_piece.h"
 #include "base/task.h"
-#include "base/worker_pool.h"
+#include "base/threading/worker_pool.h"
 #include "net/base/dns_reload_timer.h"
 #include "net/base/dns_util.h"
 #include "net/base/net_errors.h"
@@ -26,9 +26,9 @@
 //      |                       (origin loop)    (worker loop)
 //      |
 //   Resolve()
-//      |---->----<creates>
-//      |
 //      |---->-------------------<creates>
+//      |
+//      |---->----<creates>
 //      |
 //      |---->---------------------------------------------------<creates>
 //      |
@@ -58,11 +58,9 @@
 //
 // A cache hit:
 //
-// DnsRRResolver CacheHitCallbackTask  Handle
+// DnsRRResolver                       Handle
 //      |
 //   Resolve()
-//      |---->----<creates>
-//      |
 //      |---->------------------------<creates>
 //      |
 //      |
@@ -70,9 +68,7 @@
 //
 // (MessageLoop cycles)
 //
-//                   Run
-//                    |
-//                    |----->-----------Post
+//                                      Post
 
 
 
@@ -139,9 +135,9 @@ class RRResolverWorker {
   bool Start() {
     DCHECK_EQ(MessageLoop::current(), origin_loop_);
 
-    return WorkerPool::PostTask(
-               FROM_HERE, NewRunnableMethod(this, &RRResolverWorker::Run),
-               true /* task is slow */);
+    return base::WorkerPool::PostTask(
+        FROM_HERE, NewRunnableMethod(this, &RRResolverWorker::Run),
+        true /* task is slow */);
   }
 
   // Cancel is called from the origin loop when the DnsRRResolver is getting
@@ -559,7 +555,11 @@ class RRResolverJob {
   }
 
   ~RRResolverJob() {
-    Cancel(ERR_ABORTED);
+    if (worker_) {
+      worker_->Cancel();
+      worker_ = NULL;
+      PostAll(ERR_ABORTED, NULL);
+    }
   }
 
   void AddHandle(RRResolverHandle* handle) {
@@ -569,14 +569,6 @@ class RRResolverJob {
   void HandleResult(int result, const RRResponse& response) {
     worker_ = NULL;
     PostAll(result, &response);
-  }
-
-  void Cancel(int error) {
-    if (worker_) {
-      worker_->Cancel();
-      worker_ = NULL;
-      PostAll(error, NULL);
-    }
   }
 
  private:
@@ -669,6 +661,7 @@ intptr_t DnsRRResolver::Resolve(const std::string& name, uint16 rrtype,
     job = new RRResolverJob(worker);
     inflight_.insert(make_pair(key, job));
     if (!worker->Start()) {
+      inflight_.erase(key);
       delete job;
       delete worker;
       return kInvalidHandle;

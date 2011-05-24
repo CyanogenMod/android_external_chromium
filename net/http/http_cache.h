@@ -23,9 +23,9 @@
 #include "base/file_path.h"
 #include "base/hash_tables.h"
 #include "base/message_loop_proxy.h"
-#include "base/non_thread_safe.h"
 #include "base/scoped_ptr.h"
 #include "base/task.h"
+#include "base/threading/non_thread_safe.h"
 #include "base/weak_ptr.h"
 #include "net/base/cache_type.h"
 #include "net/base/completion_callback.h"
@@ -58,7 +58,7 @@ class ViewCacheHelper;
 
 class HttpCache : public HttpTransactionFactory,
                   public base::SupportsWeakPtr<HttpCache>,
-                  public NonThreadSafe {
+                  public base::NonThreadSafe {
  public:
   ~HttpCache();
 
@@ -87,7 +87,8 @@ class HttpCache : public HttpTransactionFactory,
     // notification arrives.
     // The implementation must not access the factory object after invoking the
     // |callback| because the object can be deleted from within the callback.
-    virtual int CreateBackend(disk_cache::Backend** backend,
+    virtual int CreateBackend(NetLog* net_log,
+                              disk_cache::Backend** backend,
                               CompletionCallback* callback) = 0;
   };
 
@@ -105,7 +106,8 @@ class HttpCache : public HttpTransactionFactory,
     static BackendFactory* InMemory(int max_bytes);
 
     // BackendFactory implementation.
-    virtual int CreateBackend(disk_cache::Backend** backend,
+    virtual int CreateBackend(NetLog* net_log,
+                              disk_cache::Backend** backend,
                               CompletionCallback* callback);
 
    private:
@@ -140,6 +142,7 @@ class HttpCache : public HttpTransactionFactory,
   // by the HttpCache and will be destroyed using |delete| when the HttpCache is
   // destroyed.
   HttpCache(HttpTransactionFactory* network_layer,
+            NetLog* net_log,
             BackendFactory* backend_factory);
 
   HttpTransactionFactory* network_layer() { return network_layer_.get(); }
@@ -215,7 +218,7 @@ class HttpCache : public HttpTransactionFactory,
     bool               will_process_pending_queue;
     bool               doomed;
 
-    explicit ActiveEntry(disk_cache::Entry*);
+    explicit ActiveEntry(disk_cache::Entry* entry);
     ~ActiveEntry();
   };
 
@@ -343,6 +346,8 @@ class HttpCache : public HttpTransactionFactory,
 
 
   // Variables ----------------------------------------------------------------
+
+  NetLog* net_log_;
 
   // Used when lazily constructing the disk_cache_.
   scoped_ptr<BackendFactory> backend_factory_;

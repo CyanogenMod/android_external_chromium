@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,6 +23,7 @@
 #include "base/scoped_ptr.h"
 #include "base/timer.h"
 #include "chrome/common/child_process_info.h"
+#include "chrome/common/notification_type.h"
 #include "chrome/browser/renderer_host/resource_queue.h"
 #include "ipc/ipc_message.h"
 #include "net/url_request/url_request.h"
@@ -32,6 +33,7 @@ class CrossSiteResourceHandler;
 class DownloadFileManager;
 class DownloadRequestLimiter;
 class LoginHandler;
+class NotificationDetails;
 class PluginService;
 class ResourceDispatcherHostRequestInfo;
 class ResourceHandler;
@@ -40,12 +42,15 @@ class SafeBrowsingService;
 class SaveFileManager;
 class SSLClientAuthHandler;
 class UserScriptListener;
-class URLRequestContext;
 class WebKitThread;
 struct DownloadSaveInfo;
 struct GlobalRequestID;
 struct ViewHostMsg_Resource_Request;
 struct ViewMsg_ClosePage_Params;
+
+namespace net {
+class URLRequestContext;
+}  // namespace net
 
 namespace webkit_blob {
 class DeletableFileReference;
@@ -89,7 +94,7 @@ class ResourceDispatcherHost : public net::URLRequest::Delegate {
                      bool prompt_for_save_location,
                      int process_unique_id,
                      int route_id,
-                     URLRequestContext* request_context);
+                     net::URLRequestContext* request_context);
 
   // Initiates a save file from the browser process (as opposed to a resource
   // request from the renderer or another child process).
@@ -97,7 +102,7 @@ class ResourceDispatcherHost : public net::URLRequest::Delegate {
                      const GURL& referrer,
                      int process_unique_id,
                      int route_id,
-                     URLRequestContext* request_context);
+                     net::URLRequestContext* request_context);
 
   // Cancels the given request if it still exists. We ignore cancels from the
   // renderer in the event of a download.
@@ -419,6 +424,14 @@ class ResourceDispatcherHost : public net::URLRequest::Delegate {
   // Determine request priority based on how critical this resource typically
   // is to user-perceived page load performance.
   static net::RequestPriority DetermineRequestPriority(ResourceType::Type type);
+
+  // Sends the given notification on the UI thread.  The RenderViewHost's
+  // controller is used as the source.
+  template <class T>
+  static void NotifyOnUI(NotificationType type,
+                         int render_process_id,
+                         int render_view_id,
+                         T* detail);
 
   PendingRequestList pending_requests_;
 

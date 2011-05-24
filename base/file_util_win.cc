@@ -19,11 +19,11 @@
 #include "base/win/scoped_handle.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
-#include "base/thread_restrictions.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
-#include "base/win_util.h"
 #include "base/win/scoped_comptr.h"
+#include "base/win/win_util.h"
 #include "base/win/windows_version.h"
 
 namespace file_util {
@@ -76,19 +76,6 @@ bool DevicePathToDriveLetterPath(const FilePath& device_path,
 }
 
 }  // namespace
-
-std::wstring GetDirectoryFromPath(const std::wstring& path) {
-  base::ThreadRestrictions::AssertIOAllowed();
-  wchar_t path_buffer[MAX_PATH];
-  wchar_t* file_ptr = NULL;
-  if (GetFullPathName(path.c_str(), MAX_PATH, path_buffer, &file_ptr) == 0)
-    return L"";
-
-  std::wstring::size_type length =
-      file_ptr ? file_ptr - path_buffer : path.length();
-  std::wstring directory(path, 0, length);
-  return FilePath(directory).StripTrailingSeparators().value();
-}
 
 bool AbsolutePath(FilePath* path) {
   base::ThreadRestrictions::AssertIOAllowed();
@@ -447,7 +434,7 @@ bool CreateShortcutLink(const wchar_t *source, const wchar_t *destination,
     if (FAILED(property_store.QueryFrom(i_shell_link)))
       return false;
 
-    if (!win_util::SetAppIdForPropertyStore(property_store, app_id))
+    if (!base::win::SetAppIdForPropertyStore(property_store, app_id))
       return false;
   }
 
@@ -499,7 +486,7 @@ bool UpdateShortcutLink(const wchar_t *source, const wchar_t *destination,
     if (FAILED(property_store.QueryFrom(i_shell_link)))
       return false;
 
-    if (!win_util::SetAppIdForPropertyStore(property_store, app_id))
+    if (!base::win::SetAppIdForPropertyStore(property_store, app_id))
       return false;
   }
 
@@ -757,9 +744,8 @@ int WriteFile(const FilePath& filename, const char* data, int size) {
                                           0,
                                           NULL));
   if (!file) {
-    LOG(WARNING) << "CreateFile failed for path " << filename.value() <<
-        " error code=" << GetLastError() <<
-        " error text=" << win_util::FormatLastWin32Error();
+    LOG(WARNING) << "CreateFile failed for path " << filename.value()
+                 << " error code=" << GetLastError();
     return -1;
   }
 
@@ -770,9 +756,8 @@ int WriteFile(const FilePath& filename, const char* data, int size) {
 
   if (!result) {
     // WriteFile failed.
-    LOG(WARNING) << "writing file " << filename.value() <<
-        " failed, error code=" << GetLastError() <<
-        " description=" << win_util::FormatLastWin32Error();
+    LOG(WARNING) << "writing file " << filename.value()
+                 << " failed, error code=" << GetLastError();
   } else {
     // Didn't write all the bytes.
     LOG(WARNING) << "wrote" << written << " bytes to " <<

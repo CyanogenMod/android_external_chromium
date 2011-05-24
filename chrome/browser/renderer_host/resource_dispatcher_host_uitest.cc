@@ -202,7 +202,7 @@ TEST_F(ResourceDispatcherTest, CrossSiteOnunloadCookie) {
 // strip the app on the build bots, this is bad times.
 TEST_F(ResourceDispatcherTest, CrossSiteAfterCrash) {
   // This test only works in multi-process mode
-  if (in_process_renderer())
+  if (ProxyLauncher::in_process_renderer())
     return;
 
   scoped_refptr<BrowserProxy> browser_proxy(automation()->GetBrowserWindow(0));
@@ -216,7 +216,7 @@ TEST_F(ResourceDispatcherTest, CrossSiteAfterCrash) {
 #endif
   ASSERT_TRUE(tab->NavigateToURLAsync(GURL(chrome::kAboutCrashURL)));
   // Wait for browser to notice the renderer crash.
-  PlatformThread::Sleep(sleep_timeout_ms());
+  base::PlatformThread::Sleep(sleep_timeout_ms());
 
   // Navigate to a new cross-site page.  The browser should not wait around for
   // the old renderer's on{before}unload handlers to run.

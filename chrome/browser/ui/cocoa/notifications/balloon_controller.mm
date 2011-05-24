@@ -8,7 +8,7 @@
 #include "app/mac/nsimage_cache.h"
 #include "app/resource_bundle.h"
 #import "base/mac/cocoa_protocols.h"
-#include "base/mac_util.h"
+#include "base/mac/mac_util.h"
 #import "base/scoped_nsobject.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/notifications/balloon.h"
@@ -43,7 +43,7 @@ const int kRightMargin = 2;
 
 - (id)initWithBalloon:(Balloon*)balloon {
   NSString* nibpath =
-      [mac_util::MainAppBundle() pathForResource:@"Notification"
+      [base::mac::MainAppBundle() pathForResource:@"Notification"
                                           ofType:@"nib"];
   if ((self = [super initWithWindowNibPath:nibpath owner:self])) {
     balloon_ = balloon;
@@ -113,45 +113,12 @@ const int kRightMargin = 2;
                                        assumeInside:NO];
 }
 
-- (BOOL)handleEvent:(NSEvent*)event {
-  BOOL eventHandled = NO;
-  if ([event type] == NSLeftMouseDown) {
-    NSPoint mouse = [shelf_ convertPoint:[event locationInWindow]
-                                fromView:nil];
-    if (NSPointInRect(mouse, [closeButton_ frame])) {
-      [closeButton_ mouseDown:event];
-
-      // Bring back the front process that is deactivated when we click the
-      // close button.
-      if (frontProcessNum_.highLongOfPSN || frontProcessNum_.lowLongOfPSN) {
-        SetFrontProcessWithOptions(&frontProcessNum_,
-                                   kSetFrontProcessFrontWindowOnly);
-        frontProcessNum_.highLongOfPSN = 0;
-        frontProcessNum_.lowLongOfPSN = 0;
-      }
-
-      eventHandled = YES;
-    } else if (NSPointInRect(mouse, [optionsButton_ frame])) {
-      [optionsButton_ mouseDown:event];
-      eventHandled = YES;
-    }
-  }
-  return eventHandled;
-}
-
 - (void) mouseEntered:(NSEvent*)event {
   [[closeButton_ cell] setHighlighted:YES];
-
-  // Remember the current front process so that we can bring it back later.
-  if (!frontProcessNum_.highLongOfPSN && !frontProcessNum_.lowLongOfPSN)
-    GetFrontProcess(&frontProcessNum_);
 }
 
 - (void) mouseExited:(NSEvent*)event {
   [[closeButton_ cell] setHighlighted:NO];
-
-  frontProcessNum_.highLongOfPSN = 0;
-  frontProcessNum_.lowLongOfPSN = 0;
 }
 
 - (IBAction)optionsButtonPressed:(id)sender {

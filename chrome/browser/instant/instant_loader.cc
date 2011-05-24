@@ -203,8 +203,24 @@ class InstantLoader::TabContentsDelegateImpl : public TabContentsDelegate {
 
   void set_user_typed_before_load() { user_typed_before_load_ = true; }
 
+  // Sets the last URL that will be added to history when CommitHistory is
+  // invoked and removes all but the first navigation.
+  void SetLastHistoryURLAndPrune(const GURL& url) {
+    if (add_page_vector_.empty())
+      return;
+
+    history::HistoryAddPageArgs* args = add_page_vector_.front().get();
+    args->url = url;
+    args->redirects.clear();
+    args->redirects.push_back(url);
+
+    // Prune all but the first entry.
+    add_page_vector_.erase(add_page_vector_.begin() + 1,
+                           add_page_vector_.end());
+  }
+
   // Commits the currently buffered history.
-  void CommitHistory() {
+  void CommitHistory(bool supports_instant) {
     TabContents* tab = loader_->preview_contents()->tab_contents();
     if (tab->profile()->IsOffTheRecord())
       return;
@@ -234,6 +250,15 @@ class InstantLoader::TabContentsDelegateImpl : public TabContentsDelegate {
       favicon_service->SetFavicon(active_entry->url(),
                                   active_entry->favicon().url(),
                                   image_data);
+      if (supports_instant && !add_page_vector_.empty()) {
+        // If we're using the instant API, then we've tweaked the url that is
+        // going to be added to history. We need to also set the favicon for the
+        // url we're adding to history (see comment in ReleasePreviewContents
+        // for details).
+        favicon_service->SetFavicon(add_page_vector_.back()->url,
+                                    active_entry->favicon().url(),
+                                    image_data);
+      }
     }
   }
 
@@ -271,10 +296,6 @@ class InstantLoader::TabContentsDelegateImpl : public TabContentsDelegate {
   virtual void LoadingStateChanged(TabContents* source) {}
   virtual void CloseContents(TabContents* source) {}
   virtual void MoveContents(TabContents* source, const gfx::Rect& pos) {}
-  virtual void DetachContents(TabContents* source) {}
-  virtual bool IsPopup(const TabContents* source) const {
-    return false;
-  }
   virtual bool ShouldFocusConstrainedWindow() {
     // Return false so that constrained windows are not initially focused. If
     // we did otherwise the preview would prematurely get committed when focus
@@ -292,15 +313,6 @@ class InstantLoader::TabContentsDelegateImpl : public TabContentsDelegate {
   virtual void ToolbarSizeChanged(TabContents* source, bool is_animating) {}
   virtual void URLStarredChanged(TabContents* source, bool starred) {}
   virtual void UpdateTargetURL(TabContents* source, const GURL& url) {}
-  virtual void ContentsMouseEvent(
-      TabContents* source, const gfx::Point& location, bool motion) {}
-  virtual void ContentsZoomChange(bool zoom_in) {}
-  virtual void OnContentSettingsChange(TabContents* source) {}
-  virtual bool IsApplication() const { return false; }
-  virtual void ConvertContentsToApplication(TabContents* source) {}
-  virtual bool CanReloadContents(TabContents* source) const { return true; }
-  virtual void ShowHtmlDialog(HtmlDialogUIDelegate* delegate,
-                              gfx::NativeWindow parent_window) {}
   virtual bool ShouldSuppressDialogs() {
     // Any message shown during instant cancels instant, so we suppress them.
     return true;
@@ -308,48 +320,18 @@ class InstantLoader::TabContentsDelegateImpl : public TabContentsDelegate {
   virtual void BeforeUnloadFired(TabContents* tab,
                                  bool proceed,
                                  bool* proceed_to_fire_unload) {}
-  virtual void ForwardMessageToExternalHost(const std::string& message,
-                                            const std::string& origin,
-                                            const std::string& target) {}
-  virtual bool IsExternalTabContainer() const { return false; }
   virtual void SetFocusToLocationBar(bool select_all) {}
   virtual bool ShouldFocusPageAfterCrash() { return false; }
-  virtual void RenderWidgetShowing() {}
-  virtual bool TakeFocus(bool reverse) { return false; }
   virtual void LostCapture() {
     CommitFromMouseReleaseIfNecessary();
   }
-  virtual void SetTabContentBlocked(TabContents* contents, bool blocked) {}
-  virtual void TabContentsFocused(TabContents* tab_content) {
-  }
-  virtual int GetExtraRenderViewHeight() const { return 0; }
   virtual bool CanDownload(int request_id) { return false; }
-  virtual void OnStartDownload(DownloadItem* download, TabContents* tab) {}
-  virtual bool HandleContextMenu(const ContextMenuParams& params) {
-    return false;
-  }
-  virtual bool ExecuteContextMenuCommand(int command) {
-    return false;
-  }
-  virtual void ConfirmAddSearchProvider(const TemplateURL* template_url,
-                                        Profile* profile) {}
-  virtual void ShowPageInfo(Profile* profile,
-                            const GURL& url,
-                            const NavigationEntry::SSLStatus& ssl,
-                            bool show_history) {}
-  virtual bool PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
-                                      bool* is_keyboard_shortcut) {
-    return false;
-  }
   virtual void HandleMouseUp() {
     CommitFromMouseReleaseIfNecessary();
   }
   virtual void HandleMouseActivate() {
     is_mouse_down_from_activate_ = true;
   }
-  virtual void ShowRepostFormWarningDialog(TabContents* tab_contents) {}
-  virtual void ShowContentSettingsWindow(ContentSettingsType content_type) {}
-  virtual void ShowCollectedCookiesDialog(TabContents* tab_contents) {}
   virtual bool OnGoToEntryOffset(int offset) { return false; }
   virtual bool ShouldAddNavigationToHistory(
       const history::HistoryAddPageArgs& add_page_args,
@@ -363,16 +345,6 @@ class InstantLoader::TabContentsDelegateImpl : public TabContentsDelegate {
     }
     return false;
   }
-  virtual void OnDidGetApplicationInfo(TabContents* tab_contents,
-                                       int32 page_id) {}
-  virtual gfx::NativeWindow GetFrameNativeWindow() {
-    return NULL;
-  }
-  virtual void TabContentsCreated(TabContents* new_contents) {}
-  virtual bool infobars_enabled() { return false; }
-  virtual bool ShouldEnablePreferredSizeNotifications() { return false; }
-  virtual void UpdatePreferredSize(const gfx::Size& pref_size) {}
-  virtual void ContentTypeChanged(TabContents* source) {}
 
   virtual void OnSetSuggestions(int32 page_id,
                                 const std::vector<std::string>& suggestions) {
@@ -523,8 +495,6 @@ void InstantLoader::Update(TabContentsWrapper* tab_contents,
   if (created_preview_contents)
     CreatePreviewContents(tab_contents);
 
-  preview_tab_contents_delegate_->PrepareForNewLoad();
-
   if (template_url) {
     DCHECK(template_url_id_ == template_url->id());
     if (!created_preview_contents) {
@@ -549,6 +519,8 @@ void InstantLoader::Update(TabContentsWrapper* tab_contents,
             complete_suggested_text_.substr(user_text_.size());
       }
     } else {
+      preview_tab_contents_delegate_->PrepareForNewLoad();
+
       // Load the instant URL. We don't reflect the url we load in url() as
       // callers expect that we're loading the URL they tell us to.
       //
@@ -565,6 +537,8 @@ void InstantLoader::Update(TabContentsWrapper* tab_contents,
         instant_url = GURL(cl->GetSwitchValueASCII(switches::kInstantURL));
       preview_contents_->controller().LoadURL(
           instant_url, GURL(), transition_type);
+      preview_contents_->render_view_host()->SearchBoxChange(
+          user_text_, verbatim, 0, 0);
       frame_load_observer_.reset(
           new FrameLoadObserver(this,
                                 preview_contents()->tab_contents(),
@@ -573,6 +547,7 @@ void InstantLoader::Update(TabContentsWrapper* tab_contents,
     }
   } else {
     DCHECK(template_url_id_ == 0);
+    preview_tab_contents_delegate_->PrepareForNewLoad();
     frame_load_observer_.reset(NULL);
     preview_contents_->controller().LoadURL(url_, GURL(), transition_type);
   }
@@ -622,12 +597,20 @@ TabContentsWrapper* InstantLoader::ReleasePreviewContents(
   }
   omnibox_bounds_ = gfx::Rect();
   last_omnibox_bounds_ = gfx::Rect();
-  url_ = GURL();
+  GURL url;
+  url.Swap(&url_);
   user_text_.clear();
   complete_suggested_text_.clear();
   if (preview_contents_.get()) {
-    if (type != INSTANT_COMMIT_DESTROY)
-      preview_tab_contents_delegate_->CommitHistory();
+    if (type != INSTANT_COMMIT_DESTROY) {
+      if (template_url_id_) {
+        // The URL used during instant is mostly gibberish, and not something
+        // we'll parse and match as a past search. Set it to something we can
+        // parse.
+        preview_tab_contents_delegate_->SetLastHistoryURLAndPrune(url);
+      }
+      preview_tab_contents_delegate_->CommitHistory(template_url_id_ != 0);
+    }
     // Destroy the paint observer.
     // RenderWidgetHostView may be null during shutdown.
     if (preview_contents_->tab_contents()->GetRenderWidgetHostView()) {

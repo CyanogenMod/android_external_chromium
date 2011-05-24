@@ -20,6 +20,7 @@
 #include "base/utf_string_conversions.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/browser_list.h"
+#include "chrome/browser/google/google_util.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -44,7 +45,7 @@
 #include "webkit/glue/webkit_glue.h"
 
 #if defined(OS_WIN)
-#include "base/win_util.h"
+#include "base/win/win_util.h"
 #include "chrome/browser/views/restart_message_box.h"
 #include "chrome/installer/util/install_util.h"
 #endif  // defined(OS_WIN)
@@ -202,7 +203,7 @@ void AboutChromeView::Init() {
 
   // Add the dialog labels.
   about_title_label_ = new views::Label(
-      l10n_util::GetString(IDS_PRODUCT_NAME));
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_PRODUCT_NAME)));
   about_title_label_->SetFont(ResourceBundle::GetSharedInstance().GetFont(
       ResourceBundle::BaseFont).DeriveFont(18));
   about_title_label_->SetColor(SK_ColorBLACK);
@@ -232,14 +233,15 @@ void AboutChromeView::Init() {
 
   // The copyright URL portion of the main label.
   copyright_label_ = new views::Label(
-      l10n_util::GetString(IDS_ABOUT_VERSION_COPYRIGHT));
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ABOUT_VERSION_COPYRIGHT)));
   copyright_label_->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
   AddChildView(copyright_label_);
 
   main_text_label_ = new views::Label(L"");
 
   // Figure out what to write in the main label of the About box.
-  std::wstring text = l10n_util::GetString(IDS_ABOUT_VERSION_LICENSE);
+  std::wstring text =
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ABOUT_VERSION_LICENSE));
 
   chromium_url_appears_first_ =
       text.find(kBeginLinkChr) < text.find(kBeginLinkOss);
@@ -301,17 +303,17 @@ void AboutChromeView::Init() {
 
 #if defined(GOOGLE_CHROME_BUILD)
   std::vector<size_t> url_offsets;
-  text = l10n_util::GetStringF(IDS_ABOUT_TERMS_OF_SERVICE,
-                               std::wstring(),
-                               std::wstring(),
-                               &url_offsets);
+  text = UTF16ToWide(l10n_util::GetStringFUTF16(IDS_ABOUT_TERMS_OF_SERVICE,
+                                                string16(),
+                                                string16(),
+                                                &url_offsets));
 
   main_label_chunk4_ = text.substr(0, url_offsets[0]);
   main_label_chunk5_ = text.substr(url_offsets[0]);
 
   // The Terms of Service URL at the bottom.
-  terms_of_service_url_ =
-      new views::Link(l10n_util::GetString(IDS_TERMS_OF_SERVICE));
+  terms_of_service_url_ = new views::Link(
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_TERMS_OF_SERVICE)));
   AddChildView(terms_of_service_url_);
   terms_of_service_url_->SetController(this);
 
@@ -533,7 +535,7 @@ void AboutChromeView::ViewHierarchyChanged(bool is_add,
       // for Vista is another option.
       int service_pack_major = 0, service_pack_minor = 0;
       base::win::GetServicePackLevel(&service_pack_major, &service_pack_minor);
-      if (win_util::UserAccountControlIsEnabled() ||
+      if (base::win::UserAccountControlIsEnabled() ||
           base::win::GetVersion() == base::win::VERSION_XP ||
           (base::win::GetVersion() == base::win::VERSION_VISTA &&
            service_pack_major >= 1) ||
@@ -563,14 +565,14 @@ void AboutChromeView::ViewHierarchyChanged(bool is_add,
 std::wstring AboutChromeView::GetDialogButtonLabel(
     MessageBoxFlags::DialogButton button) const {
   if (button == MessageBoxFlags::DIALOGBUTTON_OK) {
-    return l10n_util::GetString(IDS_RESTART_AND_UPDATE);
+    return UTF16ToWide(l10n_util::GetStringUTF16(IDS_RESTART_AND_UPDATE));
   } else if (button == MessageBoxFlags::DIALOGBUTTON_CANCEL) {
     if (restart_button_visible_)
-      return l10n_util::GetString(IDS_NOT_NOW);
+      return UTF16ToWide(l10n_util::GetStringUTF16(IDS_NOT_NOW));
     // The OK button (which is the default button) has been re-purposed to be
     // 'Restart Now' so we want the Cancel button should have the label
     // OK but act like a Cancel button in all other ways.
-    return l10n_util::GetString(IDS_OK);
+    return UTF16ToWide(l10n_util::GetStringUTF16(IDS_OK));
   }
 
   NOTREACHED();
@@ -578,7 +580,7 @@ std::wstring AboutChromeView::GetDialogButtonLabel(
 }
 
 std::wstring AboutChromeView::GetWindowTitle() const {
-  return l10n_util::GetString(IDS_ABOUT_CHROME_TITLE);
+  return UTF16ToWide(l10n_util::GetStringUTF16(IDS_ABOUT_CHROME_TITLE));
 }
 
 bool AboutChromeView::IsDialogButtonEnabled(
@@ -646,14 +648,16 @@ views::View* AboutChromeView::GetContentsView() {
 void AboutChromeView::LinkActivated(views::Link* source,
                                     int event_flags) {
   GURL url;
-  if (source == terms_of_service_url_)
+  if (source == terms_of_service_url_) {
     url = GURL(chrome::kAboutTermsURL);
-  else if (source == chromium_url_)
-    url = GURL(l10n_util::GetStringUTF16(IDS_CHROMIUM_PROJECT_URL));
-  else if (source == open_source_url_)
+  } else if (source == chromium_url_) {
+    url = google_util::AppendGoogleLocaleParam(
+      GURL(chrome::kChromiumProjectURL));
+  } else if (source == open_source_url_) {
     url = GURL(chrome::kAboutCreditsURL);
-  else
+  } else {
     NOTREACHED() << "Unknown link source";
+  }
 
   Browser* browser = BrowserList::GetLastActive();
 #if defined(OS_CHROMEOS)
@@ -715,13 +719,15 @@ void AboutChromeView::UpdateStatus(GoogleUpdateUpgradeResult result,
     case UPGRADE_STARTED:
       UserMetrics::RecordAction(UserMetricsAction("Upgrade_Started"), profile_);
       show_throbber = true;
-      update_label_.SetText(l10n_util::GetString(IDS_UPGRADE_STARTED));
+      update_label_.SetText(
+          UTF16ToWide(l10n_util::GetStringUTF16(IDS_UPGRADE_STARTED)));
       break;
     case UPGRADE_CHECK_STARTED:
       UserMetrics::RecordAction(UserMetricsAction("UpgradeCheck_Started"),
                                 profile_);
       show_throbber = true;
-      update_label_.SetText(l10n_util::GetString(IDS_UPGRADE_CHECK_STARTED));
+      update_label_.SetText(
+          UTF16ToWide(l10n_util::GetStringUTF16(IDS_UPGRADE_CHECK_STARTED)));
       break;
     case UPGRADE_IS_AVAILABLE:
       UserMetrics::RecordAction(
@@ -751,19 +757,19 @@ void AboutChromeView::UpdateStatus(GoogleUpdateUpgradeResult result,
       scoped_ptr<Version> running_version(
           Version::GetVersionFromString(current_version_));
       if (!installed_version.get() ||
-          (installed_version->CompareTo(*running_version) < 0)) {
+          (installed_version->CompareTo(*running_version) <= 0)) {
 #endif
         UserMetrics::RecordAction(
             UserMetricsAction("UpgradeCheck_AlreadyUpToDate"), profile_);
 #if defined(OS_CHROMEOS)
-        std::wstring update_label_text =
-            l10n_util::GetStringF(IDS_UPGRADE_ALREADY_UP_TO_DATE,
-                                  l10n_util::GetString(IDS_PRODUCT_NAME));
+        std::wstring update_label_text = UTF16ToWide(l10n_util::GetStringFUTF16(
+            IDS_UPGRADE_ALREADY_UP_TO_DATE,
+            l10n_util::GetStringUTF16(IDS_PRODUCT_NAME)));
 #else
-        std::wstring update_label_text =
-            l10n_util::GetStringF(IDS_UPGRADE_ALREADY_UP_TO_DATE,
-                                  l10n_util::GetString(IDS_PRODUCT_NAME),
-                                  ASCIIToUTF16(current_version_));
+        std::wstring update_label_text = l10n_util::GetStringFUTF16(
+            IDS_UPGRADE_ALREADY_UP_TO_DATE,
+            l10n_util::GetStringUTF16(IDS_PRODUCT_NAME),
+            ASCIIToUTF16(current_version_));
 #endif
         if (base::i18n::IsRTL()) {
           update_label_text.push_back(
@@ -786,8 +792,9 @@ void AboutChromeView::UpdateStatus(GoogleUpdateUpgradeResult result,
                                   profile_);
       restart_button_visible_ = true;
       const std::wstring& update_string =
-          l10n_util::GetStringF(IDS_UPGRADE_SUCCESSFUL_RESTART,
-                                l10n_util::GetString(IDS_PRODUCT_NAME));
+          UTF16ToWide(l10n_util::GetStringFUTF16(
+              IDS_UPGRADE_SUCCESSFUL_RESTART,
+              l10n_util::GetStringUTF16(IDS_PRODUCT_NAME)));
       update_label_.SetText(update_string);
       show_success_indicator = true;
       break;
@@ -796,8 +803,8 @@ void AboutChromeView::UpdateStatus(GoogleUpdateUpgradeResult result,
       UserMetrics::RecordAction(UserMetricsAction("UpgradeCheck_Error"),
                                 profile_);
       restart_button_visible_ = false;
-      update_label_.SetText(l10n_util::GetStringF(IDS_UPGRADE_ERROR,
-          UTF8ToWide(base::IntToString(error_code))));
+      update_label_.SetText(UTF16ToWide(
+          l10n_util::GetStringFUTF16Int(IDS_UPGRADE_ERROR, error_code)));
       show_timeout_indicator = true;
       break;
     default:

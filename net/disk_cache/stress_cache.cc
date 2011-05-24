@@ -32,11 +32,11 @@
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
-#include "base/platform_thread.h"
 #include "base/process_util.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
-#include "base/thread.h"
+#include "base/threading/platform_thread.h"
+#include "base/threading/thread.h"
 #include "base/utf_string_conversions.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
@@ -104,7 +104,7 @@ void StressTheCache(int iteration) {
   int rv = disk_cache::BackendImpl::CreateBackend(
                path, false, cache_size, net::DISK_CACHE,
                disk_cache::kNoLoadProtection | disk_cache::kNoRandom,
-               cache_thread.message_loop_proxy(), &cache, &cb);
+               cache_thread.message_loop_proxy(), NULL, &cache, &cb);
 
   if (cb.GetResult(rv) != net::OK) {
     printf("Unable to initialize cache.\n");
@@ -228,7 +228,7 @@ int main(int argc, const char* argv[]) {
   logging::SetLogAssertHandler(CrashHandler);
 
   // Some time for the memory manager to flush stuff.
-  PlatformThread::Sleep(3000);
+  base::PlatformThread::Sleep(3000);
   MessageLoop message_loop(MessageLoop::TYPE_IO);
 
   char* end;

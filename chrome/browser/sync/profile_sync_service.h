@@ -15,6 +15,7 @@
 #include "base/string16.h"
 #include "base/time.h"
 #include "base/timer.h"
+#include "chrome/browser/browser_signin.h"
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/glue/data_type_controller.h"
@@ -37,6 +38,7 @@ class NotificationSource;
 class NotificationType;
 class Profile;
 class ProfileSyncFactory;
+class TabContents;
 class TokenMigrator;
 
 // ProfileSyncService is the layer between browser subsystems like bookmarks,
@@ -83,6 +85,7 @@ class TokenMigrator;
 //
 class ProfileSyncService : public browser_sync::SyncFrontend,
                            public browser_sync::UnrecoverableErrorHandler,
+                           public BrowserSignin::SigninDelegate,
                            public NotificationObserver {
  public:
   typedef ProfileSyncServiceObserver Observer;
@@ -223,6 +226,9 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   }
   virtual void ShowLoginDialog(gfx::NativeWindow parent_window);
   void ShowConfigure(gfx::NativeWindow parent_window);
+  void PromptForExistingPassphrase(gfx::NativeWindow parent_window);
+  void SigninForPassphrase(TabContents* container);
+  void ShowPassphraseMigration(gfx::NativeWindow parent_window);
 
   // Pretty-printed strings for a given StatusSummary.
   static std::string BuildSyncStatusSummaryText(
@@ -230,6 +236,10 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
 
   // Returns true if the SyncBackendHost has told us it's ready to accept
   // changes.
+  // [REMARK] - it is safe to call this function only from the ui thread.
+  // because the variable is not thread safe and should only be accessed from
+  // single thread. If we want multiple threads to access this(and there is
+  // currently no need to do so) we need to protect this with a lock.
   // TODO(timsteele): What happens if the bookmark model is loaded, a change
   // takes place, and the backend isn't initialized yet?
   bool sync_initialized() const { return backend_initialized_; }
@@ -314,6 +324,10 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   virtual void Observe(NotificationType type,
                        const NotificationSource& source,
                        const NotificationDetails& details);
+
+  // BrowserSignin::SigninDelegate interface.
+  virtual void OnLoginSuccess();
+  virtual void OnLoginFailure(const GoogleServiceAuthError& error);
 
   // Changes which data types we're going to be syncing to |preferred_types|.
   // If it is running, the DataTypeManager will be instructed to reconfigure

@@ -4,8 +4,8 @@
 
 #include "base/command_line.h"
 #include "base/file_util.h"
-#include "base/simple_thread.h"
 #include "base/test/test_file_util.h"
+#include "base/threading/simple_thread.h"
 #include "chrome/test/automation/tab_proxy.h"
 #include "chrome/test/ui/ui_test.h"
 #include "net/test/test_server.h"
@@ -164,7 +164,7 @@ class PrintingLayoutTest : public PrintingTest<UITest> {
       }
       if (found_emf && found_prn)
         break;
-      PlatformThread::Sleep(100);
+      base::PlatformThread::Sleep(100);
     }
     EXPECT_TRUE(found_emf) << ".PRN file is: " << prn_file;
     EXPECT_TRUE(found_prn) << ".EMF file is: " << emf_file;
@@ -256,13 +256,13 @@ class DismissTheWindow : public base::DelegateSimpleThread::Delegate {
           break;
         }
       }
-      PlatformThread::Sleep(10);
+      base::PlatformThread::Sleep(10);
     }
 
     // Now verify that it indeed closed itself.
     while (IsWindow(dialog_window)) {
       CloseDialogWindow(dialog_window);
-      PlatformThread::Sleep(10);
+      base::PlatformThread::Sleep(10);
     }
   }
 

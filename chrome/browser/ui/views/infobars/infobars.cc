@@ -6,7 +6,6 @@
 
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
-#include "app/slide_animation.h"
 #include "base/message_loop.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/views/event_utils.h"
@@ -14,6 +13,7 @@
 #include "gfx/canvas.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/animation/slide_animation.h"
 #include "views/background.h"
 #include "views/controls/button/image_button.h"
 #include "views/controls/button/native_button.h"
@@ -23,7 +23,7 @@
 #include "views/widget/widget.h"
 
 #if defined(OS_WIN)
-#include "app/win_util.h"
+#include "app/win/hwnd_util.h"
 #endif
 
 // static
@@ -96,10 +96,12 @@ InfoBar::InfoBar(InfoBarDelegate* delegate)
 
   switch (delegate->GetInfoBarType()) {
     case InfoBarDelegate::WARNING_TYPE:
-      SetAccessibleName(l10n_util::GetString(IDS_ACCNAME_INFOBAR_WARNING));
+      SetAccessibleName(UTF16ToWide(
+          l10n_util::GetStringUTF16(IDS_ACCNAME_INFOBAR_WARNING)));
       break;
     case InfoBarDelegate::PAGE_ACTION_TYPE:
-      SetAccessibleName(l10n_util::GetString(IDS_ACCNAME_INFOBAR_PAGE_ACTION));
+      SetAccessibleName(UTF16ToWide(
+          l10n_util::GetStringUTF16(IDS_ACCNAME_INFOBAR_PAGE_ACTION)));
       break;
     default:
       NOTREACHED();
@@ -113,11 +115,12 @@ InfoBar::InfoBar(InfoBarDelegate* delegate)
                           rb.GetBitmapNamed(IDR_CLOSE_BAR_H));
   close_button_->SetImage(views::CustomButton::BS_PUSHED,
                           rb.GetBitmapNamed(IDR_CLOSE_BAR_P));
-  close_button_->SetAccessibleName(l10n_util::GetString(IDS_ACCNAME_CLOSE));
+  close_button_->SetAccessibleName(
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_CLOSE)));
   AddChildView(close_button_);
 
-  animation_.reset(new SlideAnimation(this));
-  animation_->SetTweenType(Tween::LINEAR);
+  animation_.reset(new ui::SlideAnimation(this));
+  animation_->SetTweenType(ui::Tween::LINEAR);
 }
 
 InfoBar::~InfoBar() {
@@ -207,14 +210,14 @@ void InfoBar::FocusWillChange(View* focused_before, View* focused_now) {
   }
 }
 
-// InfoBar, AnimationDelegate implementation: ----------------------------------
+// InfoBar, ui::AnimationDelegate implementation: ------------------------------
 
-void InfoBar::AnimationProgressed(const Animation* animation) {
+void InfoBar::AnimationProgressed(const ui::Animation* animation) {
   if (container_)
     container_->InfoBarAnimated(true);
 }
 
-void InfoBar::AnimationEnded(const Animation* animation) {
+void InfoBar::AnimationEnded(const ui::Animation* animation) {
   if (container_) {
     container_->InfoBarAnimated(false);
 
@@ -243,7 +246,7 @@ void InfoBar::AnimateClose() {
   // Do not restore focus (and active state with it) on Windows if some other
   // top-level window became active.
   if (GetWidget() &&
-      !win_util::DoesWindowBelongToActiveWindow(GetWidget()->GetNativeView())) {
+      !app::win::DoesWindowBelongToActiveWindow(GetWidget()->GetNativeView())) {
     restore_focus = false;
   }
 #endif  // defined(OS_WIN)

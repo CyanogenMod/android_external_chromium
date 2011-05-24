@@ -48,10 +48,6 @@
 #include "net/base/mime_util.h"
 #include "net/base/net_util.h"
 
-#if defined(OS_WIN)
-#include "app/win_util.h"
-#endif
-
 DownloadManager::DownloadManager(DownloadStatusUpdater* status_updater)
     : shutdown_needed_(false),
       profile_(NULL),
@@ -857,8 +853,6 @@ bool DownloadManager::ShouldOpenFileBasedOnExtension(
     const FilePath& path) const {
   FilePath::StringType extension = path.Extension();
   if (extension.empty())
-    return false;
-  if (!download_util::IsFileExtensionSafe(extension))
     return false;
   if (Extension::IsExtension(path))
     return false;

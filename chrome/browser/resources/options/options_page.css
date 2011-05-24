@@ -75,13 +75,17 @@ html[hide-menu=true] .close-subpage {
 }
 
 .action-area {
-  -webkit-box-orient: horizontal;
   -webkit-box-align: center;
+  -webkit-box-orient: horizontal;
+  bottom: 0;
+  display: -webkit-box;
   padding: 12px;
   position: absolute;
-  right: 0px;
-  bottom: 0px;
-  display: -webkit-box;
+  right: 0;
+}
+
+html[dir='rtl'] .action-area {
+  left: 0;
 }
 
 .button-strip {
@@ -114,17 +118,8 @@ html[toolkit=views] .button-strip {
 
 #navbar-container {
   -webkit-border-end: 1px solid #c6c9ce;
-  background: -webkit-gradient(linear,
-                               left top,
-                               left bottom,
-                               from(rgba(234, 238, 243, 0)),
-                               to(#eaeef3)),
-              -webkit-gradient(linear,
-                               left top,
-                               right top,
-                               from(#eaeef3),
-                               color-stop(0.97, #eaeef3),
-                               to(#d3d7db));
+  background: -webkit-linear-gradient(rgba(234, 238, 243, 0), #eaeef3),
+              -webkit-linear-gradient(left, #eaeef3, #eaeef3 97%, #d3d7db);
   bottom: 0;
   cursor: pointer;
   display: none;
@@ -136,18 +131,10 @@ html[toolkit=views] .button-strip {
 }
 
 html[dir='rtl'] #navbar-container {
-  background: -webkit-gradient(linear,
-                               left top,
-                               left bottom,
-                               from(rgba(255, 255, 255, 0)),
-                               color-stop(0.7, rgba(255, 255, 255, 0)),
-                               to(white)),
-              -webkit-gradient(linear,
-                               right top,
-                               left top,
-                               from(white),
-                               color-stop(0.8, white),
-                               to(#f3f3f3));
+  background: -webkit-linear-gradient(rgba(255, 255, 255, 0)),
+                                      rgba(255, 255, 255, 0) 70%,
+                                      white),
+              -webkit-linear-gradient(right, white, white 80%, #f3f3f3);
   left: auto;
   right: 0;
 }
@@ -251,12 +238,7 @@ html[hide-menu=true] #mainview {
 }
 
 #managed-prefs-banner {
-  background: -webkit-gradient(linear,
-                               left top,
-                               left bottom,
-                               from(#fff2b7),
-                               color-stop(0.97, #fae691),
-                               to(#878787));
+  background: -webkit-linear-gradient(#fff2b7, #fae691 97%, #878787);
   height: 31px;
   width: 100%;
 }
@@ -352,7 +334,7 @@ label.radio {
 }
 
 select {
-  margin: 0px;
+  margin: 0;
 }
 
 .link-button {
@@ -368,10 +350,6 @@ select {
   border-color: transparent;
 }
 
-#contentSettingsPage :invalid {
-  background-color: pink;
-}
-
 .settings-list {
   border: 1px solid #d9d9d9;
   border-radius: 2px;
@@ -381,7 +359,7 @@ list > * {
   -webkit-box-align: center;
   -webkit-transition: .15s background-color;
   box-sizing: border-box;
-  border-radius: 0px;
+  border-radius: 0;
   display: -webkit-box;
   height: 32px;
   border: none;
@@ -484,8 +462,8 @@ html[dir=rtl].option-name {
 }
 
 list .favicon-cell {
-  -webkit-padding-start: 33px;
-  background-position: 7px;
+  -webkit-margin-start: 7px;
+  -webkit-padding-start: 26px;
   display: block;
   text-overflow: ellipsis;
   overflow: hidden;
@@ -493,9 +471,6 @@ list .favicon-cell {
 }
 
 html[dir=rtl] list .favicon-cell {
-  /* TODO(stuartmorgan): position this 7px from the right (and remove the
-     padding override) once the CSS support is available */
-  -webkit-padding-start: 26px;
   background-position: right;
 }
 

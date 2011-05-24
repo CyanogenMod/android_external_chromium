@@ -1,0 +1,23 @@
+K 25
+svn:wc:ra_dav:version-url
+V 39
+/svn/!svn/ver/61430/trunk/src/build/mac
+END
+chrome_mac.croc
+K 25
+svn:wc:ra_dav:version-url
+V 55
+/svn/!svn/ver/61430/trunk/src/build/mac/chrome_mac.croc
+END
+strip_from_xcode
+K 25
+svn:wc:ra_dav:version-url
+V 56
+/svn/!svn/ver/48655/trunk/src/build/mac/strip_from_xcode
+END
+strip_save_dsym
+K 25
+svn:wc:ra_dav:version-url
+V 55
+/svn/!svn/ver/41200/trunk/src/build/mac/strip_save_dsym
+END

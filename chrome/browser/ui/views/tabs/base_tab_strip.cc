@@ -12,7 +12,6 @@
 #include "views/window/window.h"
 
 #if defined(OS_WIN)
-#include "app/win_util.h"
 #include "views/widget/widget_win.h"
 #endif
 
@@ -26,11 +25,11 @@ class ResetDraggingStateDelegate
   explicit ResetDraggingStateDelegate(BaseTab* tab) : tab_(tab) {
   }
 
-  virtual void AnimationEnded(const Animation* animation) {
+  virtual void AnimationEnded(const ui::Animation* animation) {
     tab_->set_dragging(false);
   }
 
-  virtual void AnimationCanceled(const Animation* animation) {
+  virtual void AnimationCanceled(const ui::Animation* animation) {
     tab_->set_dragging(false);
   }
 
@@ -52,11 +51,11 @@ class BaseTabStrip::RemoveTabDelegate
         tab_(tab) {
   }
 
-  virtual void AnimationEnded(const Animation* animation) {
+  virtual void AnimationEnded(const ui::Animation* animation) {
     CompleteRemove();
   }
 
-  virtual void AnimationCanceled(const Animation* animation) {
+  virtual void AnimationCanceled(const ui::Animation* animation) {
     // We can be canceled for two interesting reasons:
     // . The tab we reference was dragged back into the tab strip. In this case
     //   we don't want to remove the tab (closing is false).
@@ -464,7 +463,7 @@ void BaseTabStrip::PrepareForAnimation() {
   }
 }
 
-AnimationDelegate* BaseTabStrip::CreateRemoveTabDelegate(BaseTab* tab) {
+ui::AnimationDelegate* BaseTabStrip::CreateRemoveTabDelegate(BaseTab* tab) {
   return new RemoveTabDelegate(this, tab);
 }
 

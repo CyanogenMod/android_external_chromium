@@ -6,7 +6,7 @@
 
 #import "chrome/browser/ui/cocoa/keyword_editor_cocoa_controller.h"
 
-#import "base/mac_util.h"
+#import "base/mac/mac_util.h"
 #include "base/lazy_instance.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/browser/browser_process.h"
@@ -146,7 +146,7 @@ static base::LazyInstance<ProfileControllerMap> g_profile_controller_map(
 
 - (id)initWithProfile:(Profile*)profile {
   DCHECK(profile);
-  NSString* nibpath = [mac_util::MainAppBundle()
+  NSString* nibpath = [base::mac::MainAppBundle()
                         pathForResource:@"KeywordEditor"
                                  ofType:@"nib"];
   if ((self = [super initWithWindowNibPath:nibpath owner:self])) {
@@ -295,9 +295,9 @@ static base::LazyInstance<ProfileControllerMap> g_profile_controller_map(
     DCHECK(!tableColumn);
     TableModel::Groups groups = controller_->table_model()->GetGroups();
     if (row == 0) {
-      return base::SysWideToNSString(groups[0].title);
+      return base::SysUTF16ToNSString(groups[0].title);
     } else {
-      return base::SysWideToNSString(groups[1].title);
+      return base::SysUTF16ToNSString(groups[1].title);
     }
   }
 
@@ -312,8 +312,8 @@ static base::LazyInstance<ProfileControllerMap> g_profile_controller_map(
     // The keyword object value is a normal string.
     int index = [self indexInModelForRow:row];
     int columnID = IDS_SEARCH_ENGINES_EDITOR_KEYWORD_COLUMN;
-    std::wstring text = controller_->table_model()->GetText(index, columnID);
-    return base::SysWideToNSString(text);
+    string16 text = controller_->table_model()->GetText(index, columnID);
+    return base::SysUTF16ToNSString(text);
   }
 
   // And we shouldn't have any other columns...
@@ -357,9 +357,9 @@ static base::LazyInstance<ProfileControllerMap> g_profile_controller_map(
   if ([[tableColumn identifier] isEqualToString:@"name"]) {
     DCHECK([cell isKindOfClass:[NSButtonCell class]]);
     NSButtonCell* buttonCell = static_cast<NSButtonCell*>(cell);
-    std::wstring title = controller_->table_model()->GetText(offsetRow,
+    string16 title = controller_->table_model()->GetText(offsetRow,
         IDS_SEARCH_ENGINES_EDITOR_DESCRIPTION_COLUMN);
-    [buttonCell setTitle:base::SysWideToNSString(title)];
+    [buttonCell setTitle:base::SysUTF16ToNSString(title)];
     [buttonCell setImage:observer_->GetImageForRow(offsetRow)];
     [buttonCell setRefusesFirstResponder:YES];  // Don't push in like a button.
     [buttonCell setHighlightsBy:NSNoCellMask];

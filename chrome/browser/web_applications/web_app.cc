@@ -18,7 +18,7 @@
 #include "base/md5.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
-#include "base/thread.h"
+#include "base/threading/thread.h"
 #include "base/scoped_ptr.h"
 #include "base/utf_string_conversions.h"
 #include "base/win/windows_version.h"
@@ -38,7 +38,7 @@
 #endif  // defined(OS_LINUX)
 
 #if defined(OS_WIN)
-#include "base/win_util.h"
+#include "base/win/win_util.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_source.h"
 #include "gfx/icon_util.h"

@@ -5,7 +5,7 @@
 #include "base/at_exit.h"
 #include "base/atomic_sequence_num.h"
 #include "base/lazy_instance.h"
-#include "base/simple_thread.h"
+#include "base/threading/simple_thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -26,7 +26,8 @@ class ConstructAndDestructLogger {
 class SlowConstructor {
  public:
   SlowConstructor() : some_int_(0) {
-    PlatformThread::Sleep(1000);  // Sleep for 1 second to try to cause a race.
+    // Sleep for 1 second to try to cause a race.
+    base::PlatformThread::Sleep(1000);
     ++constructed;
     some_int_ = 12;
   }

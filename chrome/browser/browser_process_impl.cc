@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,9 @@
 #include "base/file_util.h"
 #include "base/path_service.h"
 #include "base/task.h"
-#include "base/thread.h"
-#include "base/thread_restrictions.h"
-#include "base/waitable_event.h"
+#include "base/threading/thread.h"
+#include "base/threading/thread_restrictions.h"
+#include "base/synchronization/waitable_event.h"
 #include "chrome/browser/appcache/chrome_appcache_service.h"
 #include "chrome/browser/automation/automation_provider_list.h"
 #include "chrome/browser/browser_child_process_host.h"
@@ -40,6 +40,7 @@
 #include "chrome/browser/plugin_data_remover.h"
 #include "chrome/browser/plugin_service.h"
 #include "chrome/browser/plugin_updater.h"
+#include "chrome/browser/policy/configuration_policy_provider_keeper.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/printing/print_job_manager.h"
 #include "chrome/browser/printing/print_preview_tab_controller.h"
@@ -100,6 +101,7 @@ BrowserProcessImpl::BrowserProcessImpl(const CommandLine& command_line)
       created_debugger_wrapper_(false),
       created_devtools_manager_(false),
       created_sidebar_manager_(false),
+      created_configuration_policy_provider_keeper_(false),
       created_notification_ui_manager_(false),
       created_safe_browsing_detection_service_(false),
       module_ref_count_(0),
@@ -174,6 +176,10 @@ BrowserProcessImpl::~BrowserProcessImpl() {
     // Cancel pending requests and prevent new requests.
     resource_dispatcher_host()->Shutdown();
   }
+
+  // The policy providers managed by |configuration_policy_provider_keeper_|
+  // need to shut down while the file thread is still alive.
+  configuration_policy_provider_keeper_.reset();
 
 #if defined(USE_X11)
   // The IO thread must outlive the BACKGROUND_X11 thread.
@@ -412,6 +418,18 @@ NotificationUIManager* BrowserProcessImpl::notification_ui_manager() {
   if (!created_notification_ui_manager_)
     CreateNotificationUIManager();
   return notification_ui_manager_.get();
+}
+
+policy::ConfigurationPolicyProviderKeeper*
+    BrowserProcessImpl::configuration_policy_provider_keeper() {
+  DCHECK(CalledOnValidThread());
+  if (!created_configuration_policy_provider_keeper_) {
+    DCHECK(configuration_policy_provider_keeper_.get() == NULL);
+    created_configuration_policy_provider_keeper_ = true;
+    configuration_policy_provider_keeper_.reset(
+        new policy::ConfigurationPolicyProviderKeeper());
+  }
+  return configuration_policy_provider_keeper_.get();
 }
 
 IconManager* BrowserProcessImpl::icon_manager() {
@@ -752,7 +770,8 @@ void BrowserProcessImpl::CreateIntranetRedirectDetector() {
 
 void BrowserProcessImpl::CreateNotificationUIManager() {
   DCHECK(notification_ui_manager_.get() == NULL);
-  notification_ui_manager_.reset(NotificationUIManager::Create());
+  notification_ui_manager_.reset(NotificationUIManager::Create(local_state()));
+
   created_notification_ui_manager_ = true;
 }
 

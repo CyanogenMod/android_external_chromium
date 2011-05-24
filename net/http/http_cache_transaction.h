@@ -110,6 +110,8 @@ class HttpCache::Transaction : public HttpTransaction {
 
   CompletionCallback* io_callback() { return &io_callback_; }
 
+  const BoundNetLog& net_log() const;
+
  private:
   static const size_t kNumValidationHeaders = 2;
   // Helper struct to pair a header name with its value, for
@@ -311,9 +313,6 @@ class HttpCache::Transaction : public HttpTransaction {
   // Performs the needed work after receiving data from the cache, when
   // working with range requests.
   int DoPartialCacheReadCompleted(int result);
-
-  // Sends a histogram with info about the response headers.
-  void HistogramHeaders(const HttpResponseHeaders* headers);
 
   // Called to signal completion of asynchronous IO.
   void OnIOComplete(int result);

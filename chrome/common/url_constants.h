@@ -63,6 +63,7 @@ extern const char kAboutVersionURL[];
 // chrome: URLs (including schemes). Should be kept in sync with the
 // components below.
 extern const char kChromeUIAboutAboutURL[];
+extern const char kChromeUIAboutCreditsURL[];
 extern const char kChromeUIAboutURL[];
 extern const char kChromeUIAppLauncherURL[];
 extern const char kChromeUIBookmarksURL[];
@@ -85,6 +86,7 @@ extern const char kChromeUISettingsURL[];
 extern const char kChromeUITextfieldsURL[];
 
 #if defined(OS_CHROMEOS)
+extern const char kChromeUIAboutOSCreditsURL[];
 extern const char kChromeUIFileBrowseURL[];
 extern const char kChromeUIImageBurnerURL[];
 extern const char kChromeUIKeyboardOverlayURL[];
@@ -188,6 +190,13 @@ extern const char kCrashReasonURL[];
 
 // "Learn more" URL for the Privacy section under Options.
 extern const char kPrivacyLearnMoreURL[];
+
+// The URL for the Chromium project used in the About dialog.
+extern const char kChromiumProjectURL[];
+
+// The URL for the "Learn more" page for the usage/crash reporting option in the
+// first run dialog.
+extern const char kLearnMoreReportingURL[];
 
 // Call near the beginning of startup to register Chrome's internal URLs that
 // should be parsed as "standard" with the googleurl library.

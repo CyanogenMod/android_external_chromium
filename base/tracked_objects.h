@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,8 @@
 #include <vector>
 
 #include "base/lock.h"
-#include "base/thread_local_storage.h"
 #include "base/tracked.h"
+#include "base/threading/thread_local_storage.h"
 
 // TrackedObjects provides a database of stats about objects (generally Tasks)
 // that are tracked.  Tracking means their birth, death, duration, birth thread,
@@ -307,6 +307,8 @@ class DataCollector {
   void AddListOfLivingObjects();
 
  private:
+  typedef std::map<const BirthOnThread*, int> BirthCount;
+
   // This instance may be provided to several threads to contribute data.  The
   // following counter tracks how many more threads will contribute.  When it is
   // zero, then all asynchronous contributions are complete, and locked access
@@ -318,7 +320,6 @@ class DataCollector {
 
   // The total number of births recorded at each location for which we have not
   // seen a death count.
-  typedef std::map<const BirthOnThread*, int> BirthCount;
   BirthCount global_birth_count_;
 
   Lock accumulation_lock_;  // Protects access during accumulation phase.
@@ -571,7 +572,7 @@ class ThreadData {
   static void ShutdownDisablingFurtherTracking();
 
   // We use thread local store to identify which ThreadData to interact with.
-  static TLSSlot tls_index_;
+  static base::ThreadLocalStorage::Slot tls_index_;
 
   // Link to the most recently created instance (starts a null terminated list).
   static ThreadData* first_;

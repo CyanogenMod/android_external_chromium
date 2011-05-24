@@ -22,7 +22,7 @@
 #include "base/string_number_conversions.h"
 #include "base/stringprintf.h"
 #include "base/sys_string_conversions.h"
-#include "base/thread_restrictions.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/win/windows_version.h"
@@ -71,10 +71,9 @@
 
 #if defined(OS_WIN)
 #include "app/os_exchange_data_provider_win.h"
-#include "app/win_util.h"
 #include "app/win/drag_source.h"
+#include "app/win/win_util.h"
 #include "base/win/scoped_comptr.h"
-#include "base/win_util.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/views/frame/browser_view.h"
 #endif
@@ -91,6 +90,39 @@ static const int kCompleteAnimationCycles = 5;
 // extension, where 1 <= nnn <= kMaxUniqueFiles.
 // Also used by code that cleans up said files.
 static const int kMaxUniqueFiles = 100;
+
+namespace {
+
+#if defined(OS_WIN)
+// Returns whether the specified extension is automatically integrated into the
+// windows shell.
+bool IsShellIntegratedExtension(const string16& extension) {
+  string16 extension_lower = StringToLowerASCII(extension);
+
+  static const wchar_t* const integrated_extensions[] = {
+    // See <http://msdn.microsoft.com/en-us/library/ms811694.aspx>.
+    L"local",
+    // Right-clicking on shortcuts can be magical.
+    L"lnk",
+  };
+
+  for (int i = 0; i < arraysize(integrated_extensions); ++i) {
+    if (extension_lower == integrated_extensions[i])
+      return true;
+  }
+
+  // See <http://www.juniper.net/security/auto/vulnerabilities/vuln2612.html>.
+  // That vulnerability report is not exactly on point, but files become magical
+  // if their end in a CLSID.  Here we block extensions that look like CLSIDs.
+  if (extension_lower.size() > 0 && extension_lower.at(0) == L'{' &&
+      extension_lower.at(extension_lower.length() - 1) == L'}')
+    return true;
+
+  return false;
+}
+#endif  // OS_WIN
+
+}  // namespace
 
 // Download temporary file creation --------------------------------------------
 
@@ -157,7 +189,7 @@ void GenerateExtension(const FilePath& file_name,
       FILE_PATH_LITERAL("download");
 
   // Rename shell-integrated extensions.
-  if (win_util::IsShellIntegratedExtension(extension))
+  if (IsShellIntegratedExtension(extension))
     extension.assign(default_extension);
 #endif
 
@@ -186,12 +218,14 @@ void GenerateFileName(const GURL& url,
                       const std::string& referrer_charset,
                       const std::string& mime_type,
                       FilePath* generated_name) {
-  std::wstring default_name =
-      l10n_util::GetString(IDS_DEFAULT_DOWNLOAD_FILENAME);
 #if defined(OS_WIN)
-  FilePath default_file_path(default_name);
+  FilePath default_file_path(
+      l10n_util::GetStringUTF16(IDS_DEFAULT_DOWNLOAD_FILENAME));
 #elif defined(OS_POSIX)
-  FilePath default_file_path(base::SysWideToNativeMB(default_name));
+  std::string default_file =
+      l10n_util::GetStringUTF8(IDS_DEFAULT_DOWNLOAD_FILENAME);
+  FilePath default_file_path(
+      base::SysWideToNativeMB(base::SysUTF8ToWide(default_file)));
 #endif
 
   *generated_name = net::GetSuggestedFilename(GURL(url),
@@ -214,7 +248,7 @@ void GenerateSafeFileName(const std::string& mime_type, FilePath* file_name) {
   // Prepend "_" to the file name if it's a reserved name
   FilePath::StringType leaf_name = file_name->BaseName().value();
   DCHECK(!leaf_name.empty());
-  if (win_util::IsReservedName(leaf_name)) {
+  if (app::win::IsReservedName(leaf_name)) {
     leaf_name = FilePath::StringType(FILE_PATH_LITERAL("_")) + leaf_name;
     *file_name = file_name->DirName();
     if (file_name->value() == FilePath::kCurrentDirectory) {
@@ -511,7 +545,7 @@ DictionaryValue* CreateDownloadItemValue(DownloadItem* download, int id) {
     }
 
     file_value->SetString("progress_status_text",
-       WideToUTF16Hack(GetProgressStatusText(download)));
+       GetProgressStatusText(download));
 
     file_value->SetInteger("percent",
         static_cast<int>(download->PercentComplete()));
@@ -533,13 +567,12 @@ DictionaryValue* CreateDownloadItemValue(DownloadItem* download, int id) {
   return file_value;
 }
 
-std::wstring GetProgressStatusText(DownloadItem* download) {
+string16 GetProgressStatusText(DownloadItem* download) {
   int64 total = download->total_bytes();
   int64 size = download->received_bytes();
   DataUnits amount_units = GetByteDisplayUnits(size);
-  std::wstring received_size = UTF16ToWideHack(FormatBytes(size, amount_units,
-                                                           true));
-  std::wstring amount = received_size;
+  string16 received_size = FormatBytes(size, amount_units, true);
+  string16 amount = received_size;
 
   // Adjust both strings for the locale direction since we don't yet know which
   // string we'll end up using for constructing the final progress string.
@@ -547,21 +580,19 @@ std::wstring GetProgressStatusText(DownloadItem* download) {
 
   if (total) {
     amount_units = GetByteDisplayUnits(total);
-    std::wstring total_text =
-        UTF16ToWideHack(FormatBytes(total, amount_units, true));
+    string16 total_text = FormatBytes(total, amount_units, true);
     base::i18n::AdjustStringForLocaleDirection(&total_text);
 
     base::i18n::AdjustStringForLocaleDirection(&received_size);
-    amount = l10n_util::GetStringF(IDS_DOWNLOAD_TAB_PROGRESS_SIZE,
-                                   received_size,
-                                   total_text);
+    amount = l10n_util::GetStringFUTF16(IDS_DOWNLOAD_TAB_PROGRESS_SIZE,
+                                        received_size,
+                                        total_text);
   } else {
     amount.assign(received_size);
   }
   int64 current_speed = download->CurrentSpeed();
   amount_units = GetByteDisplayUnits(current_speed);
-  std::wstring speed_text = UTF16ToWideHack(FormatSpeed(current_speed,
-                                                        amount_units, true));
+  string16 speed_text = FormatSpeed(current_speed, amount_units, true);
   base::i18n::AdjustStringForLocaleDirection(&speed_text);
 
   base::TimeDelta remaining;
@@ -573,11 +604,11 @@ std::wstring GetProgressStatusText(DownloadItem* download) {
 
   if (time_remaining.empty()) {
     base::i18n::AdjustStringForLocaleDirection(&amount);
-    return l10n_util::GetStringF(IDS_DOWNLOAD_TAB_PROGRESS_STATUS_TIME_UNKNOWN,
-                                 speed_text, amount);
+    return l10n_util::GetStringFUTF16(
+        IDS_DOWNLOAD_TAB_PROGRESS_STATUS_TIME_UNKNOWN, speed_text, amount);
   }
-  return l10n_util::GetStringF(IDS_DOWNLOAD_TAB_PROGRESS_STATUS, speed_text,
-                               amount, UTF16ToWideHack(time_remaining));
+  return l10n_util::GetStringFUTF16(IDS_DOWNLOAD_TAB_PROGRESS_STATUS,
+                                    speed_text, amount, time_remaining);
 }
 
 #if !defined(OS_MACOSX)

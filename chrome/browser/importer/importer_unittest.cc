@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@
 
 #include <vector>
 
+#include "app/win/scoped_com_initializer.h"
 #include "base/file_util.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
@@ -34,7 +35,6 @@
 #include "webkit/glue/password_form.h"
 
 #if defined(OS_WIN)
-#include "app/win_util.h"
 #include "base/scoped_comptr_win.h"
 #include "chrome/browser/importer/ie_importer.h"
 #include "chrome/browser/password_manager/ie7_password.h"
@@ -357,9 +357,8 @@ void WritePStore(IPStore* pstore, const GUID* type, const GUID* subtype) {
 
 TEST_F(ImporterTest, IEImporter) {
   // Sets up a favorites folder.
-  win_util::ScopedCOMInitializer com_init;
-  std::wstring path = test_path_.ToWStringHack();
-  file_util::AppendToPath(&path, L"Favorites");
+  app::win::ScopedCOMInitializer com_init;
+  std::wstring path = test_path_.AppendASCII("Favorites").value();
   CreateDirectory(path.c_str(), NULL);
   CreateDirectory((path + L"\\SubFolder").c_str(), NULL);
   CreateDirectory((path + L"\\Links").c_str(), NULL);

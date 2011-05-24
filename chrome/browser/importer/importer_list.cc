@@ -23,7 +23,7 @@
 #include "chrome/browser/password_manager/ie7_password.h"
 #endif
 #if defined(OS_MACOSX)
-#include "base/mac_util.h"
+#include "base/mac/mac_util.h"
 #include "chrome/browser/importer/safari_importer.h"
 #endif
 
@@ -33,7 +33,7 @@ namespace {
 void DetectIEProfiles(std::vector<importer::ProfileInfo*>* profiles) {
     // IE always exists and doesn't have multiple profiles.
   ProfileInfo* ie = new ProfileInfo();
-  ie->description = l10n_util::GetString(IDS_IMPORT_FROM_IE);
+  ie->description = UTF16ToWide(l10n_util::GetStringUTF16(IDS_IMPORT_FROM_IE));
   ie->browser_type = importer::MS_IE;
   ie->source_path.clear();
   ie->app_path.clear();
@@ -46,12 +46,13 @@ void DetectIEProfiles(std::vector<importer::ProfileInfo*>* profiles) {
 #if defined(OS_MACOSX)
 void DetectSafariProfiles(std::vector<importer::ProfileInfo*>* profiles) {
   uint16 items = importer::NONE;
-  if (!SafariImporter::CanImport(mac_util::GetUserLibraryPath(), &items))
+  if (!SafariImporter::CanImport(base::mac::GetUserLibraryPath(), &items))
     return;
 
   importer::ProfileInfo* safari = new importer::ProfileInfo();
   safari->browser_type = importer::SAFARI;
-  safari->description = l10n_util::GetString(IDS_IMPORT_FROM_SAFARI);
+  safari->description =
+      UTF16ToWideHack(l10n_util::GetStringUTF16(IDS_IMPORT_FROM_SAFARI));
   safari->source_path.clear();
   safari->app_path.clear();
   safari->services_supported = items;
@@ -84,7 +85,8 @@ void DetectFirefoxProfiles(std::vector<importer::ProfileInfo*>* profiles) {
   }
 
   importer::ProfileInfo* firefox = new importer::ProfileInfo();
-  firefox->description = l10n_util::GetString(IDS_IMPORT_FROM_FIREFOX);
+  firefox->description =
+      UTF16ToWideHack(l10n_util::GetStringUTF16(IDS_IMPORT_FROM_FIREFOX));
   firefox->browser_type = firefox_type;
   firefox->source_path = profile_path;
 #if defined(OS_WIN)
@@ -105,8 +107,8 @@ void DetectGoogleToolbarProfiles(
 
   importer::ProfileInfo* google_toolbar = new importer::ProfileInfo();
   google_toolbar->browser_type = importer::GOOGLE_TOOLBAR5;
-  google_toolbar->description = l10n_util::GetString(
-                                IDS_IMPORT_FROM_GOOGLE_TOOLBAR);
+  google_toolbar->description = UTF16ToWideHack(l10n_util::GetStringUTF16(
+      IDS_IMPORT_FROM_GOOGLE_TOOLBAR));
   google_toolbar->source_path.clear();
   google_toolbar->app_path.clear();
   google_toolbar->services_supported = importer::FAVORITES;
@@ -131,7 +133,7 @@ Importer* ImporterList::CreateImporterByType(importer::ProfileType type) {
       return new Toolbar5Importer();
 #if defined(OS_MACOSX)
     case importer::SAFARI:
-      return new SafariImporter(mac_util::GetUserLibraryPath());
+      return new SafariImporter(base::mac::GetUserLibraryPath());
 #endif  // OS_MACOSX
     case importer::NO_PROFILE_TYPE:
       NOTREACHED();

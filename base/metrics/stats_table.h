@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -26,7 +26,7 @@
 #include "base/basictypes.h"
 #include "base/hash_tables.h"
 #include "base/lock.h"
-#include "base/thread_local_storage.h"
+#include "base/threading/thread_local_storage.h"
 
 namespace base {
 
@@ -132,6 +132,7 @@ class StatsTable {
  private:
   class Private;
   struct TLSData;
+  typedef hash_map<std::string, int> CountersMap;
 
   // Returns the space occupied by a thread in the table.  Generally used
   // if a thread terminates but the process continues.  This function
@@ -171,8 +172,6 @@ class StatsTable {
   // initialized.
   TLSData* GetTLSData() const;
 
-  typedef hash_map<std::string, int> CountersMap;
-
   Private* impl_;
 
   // The counters_lock_ protects the counters_ hash table.
@@ -184,7 +183,7 @@ class StatsTable {
   // we don't have a counter in our hash table, another process may
   // have created it.
   CountersMap counters_;
-  TLSSlot tls_index_;
+  ThreadLocalStorage::Slot tls_index_;
 
   static StatsTable* global_table_;
 

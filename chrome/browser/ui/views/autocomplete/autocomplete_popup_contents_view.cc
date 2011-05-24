@@ -42,7 +42,7 @@
 #include <commctrl.h>
 #include <dwmapi.h>
 
-#include "app/win_util.h"
+#include "app/win/hwnd_util.h"
 #include "base/win/scoped_gdi_object.h"
 #endif
 
@@ -200,8 +200,8 @@ class AutocompletePopupContentsView::InstantOptInView
         bg_painter_(views::Painter::CreateVerticalGradient(
                         SkColorSetRGB(255, 242, 183),
                         SkColorSetRGB(250, 230, 145))) {
-    views::Label* label =
-        new views::Label(l10n_util::GetString(IDS_INSTANT_OPT_IN_LABEL));
+    views::Label* label = new views::Label(
+        UTF16ToWide(l10n_util::GetStringUTF16(IDS_INSTANT_OPT_IN_LABEL)));
     label->SetFont(label_font);
 
     views::GridLayout* layout = new views::GridLayout(this);
@@ -252,7 +252,7 @@ class AutocompletePopupContentsView::InstantOptInView
     // TODO: these buttons look crap. Figure out the right border/background to
     // use.
     views::TextButton* button =
-        new views::TextButton(this, l10n_util::GetString(id));
+        new views::TextButton(this, UTF16ToWide(l10n_util::GetStringUTF16(id)));
     button->set_border(new OptInButtonBorder());
     button->SetNormalHasBorder(true);
     button->set_tag(id);
@@ -422,7 +422,7 @@ AutocompleteResultView::AutocompleteResultView(
       model_index_(model_index),
       normal_font_(font),
       bold_font_(bold_font),
-      ellipsis_width_(font.GetStringWidth(kEllipsis)),
+      ellipsis_width_(font.GetStringWidth(WideToUTF16(kEllipsis))),
       mirroring_context_(new MirroringContext()),
       match_(NULL, 0, false, AutocompleteMatch::URL_WHAT_YOU_TYPED) {
   CHECK(model_index >= 0);
@@ -458,8 +458,8 @@ void AutocompleteResultView::Paint(gfx::Canvas* canvas) {
   // would also let us use a more properly-localizable string than we get with
   // just the IDS_AUTOCOMPLETE_MATCH_DESCRIPTION_SEPARATOR.
   if (!match_.description.empty()) {
-    std::wstring separator =
-        l10n_util::GetString(IDS_AUTOCOMPLETE_MATCH_DESCRIPTION_SEPARATOR);
+    std::wstring separator = UTF16ToWide(l10n_util::GetStringUTF16(
+        IDS_AUTOCOMPLETE_MATCH_DESCRIPTION_SEPARATOR));
     ACMatchClassifications classifications;
     classifications.push_back(
         ACMatchClassification(0, ACMatchClassification::NONE));
@@ -614,7 +614,8 @@ int AutocompleteResultView::DrawString(
       else
         current_data->color = GetColor(state, force_dim ? DIMMED_TEXT : TEXT);
       current_data->pixel_width =
-          current_data->font->GetStringWidth(current_data->text);
+          current_data->font->GetStringWidth(
+              WideToUTF16Hack(current_data->text));
       current_run->pixel_width += current_data->pixel_width;
     }
     DCHECK(!current_run->classifications.empty());
@@ -740,7 +741,7 @@ void AutocompleteResultView::Elide(Runs* runs, int remaining_width) const {
              (prior_classification->font == &normal_font_)))
           j->font = &normal_font_;
 
-        j->pixel_width = j->font->GetStringWidth(elided_text);
+        j->pixel_width = j->font->GetStringWidth(WideToUTF16Hack(elided_text));
 
         // Erase any other classifications that come after the elided one.
         i->classifications.erase(j.base(), i->classifications.end());
@@ -938,7 +939,7 @@ const SkBitmap* AutocompletePopupContentsView::GetSpecialIcon(
 // AutocompletePopupContentsView, AnimationDelegate implementation:
 
 void AutocompletePopupContentsView::AnimationProgressed(
-    const Animation* animation) {
+    const ui::Animation* animation) {
   // We should only be running the animation when the popup is already visible.
   DCHECK(popup_ != NULL);
   popup_->SetBounds(GetPopupBounds());
@@ -1106,7 +1107,7 @@ void AutocompletePopupContentsView::MakeContentsPath(
 void AutocompletePopupContentsView::UpdateBlurRegion() {
 #if defined(OS_WIN)
   // We only support background blurring on Vista with Aero-Glass enabled.
-  if (!win_util::ShouldUseVistaFrame() || !GetWidget())
+  if (!app::win::ShouldUseVistaFrame() || !GetWidget())
     return;
 
   // Provide a blurred background effect within the contents region of the

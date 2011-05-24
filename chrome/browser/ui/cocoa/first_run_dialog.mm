@@ -5,9 +5,13 @@
 #import "chrome/browser/ui/cocoa/first_run_dialog.h"
 
 #include "app/l10n_util_mac.h"
-#include "base/mac_util.h"
+#include "base/mac/mac_util.h"
 #include "base/message_loop.h"
 #include "base/ref_counted.h"
+#include "base/sys_string_conversions.h"
+#include "chrome/browser/google/google_util.h"
+#include "chrome/common/url_constants.h"
+#include "googleurl/src/gurl.h"
 #include "grit/locale_settings.h"
 #import "third_party/GTM/AppKit/GTMUILocalizerAndLayoutTweaker.h"
 
@@ -58,7 +62,7 @@ void FirstRunShowBridge::ShowDialog() {
 
 - (id)init {
   NSString* nibpath =
-      [mac_util::MainAppBundle() pathForResource:@"FirstRunDialog"
+      [base::mac::MainAppBundle() pathForResource:@"FirstRunDialog"
                                           ofType:@"nib"];
   self = [super initWithWindowNibPath:nibpath owner:self];
   if (self != nil) {
@@ -187,7 +191,9 @@ void FirstRunShowBridge::ShowDialog() {
 }
 
 - (IBAction)learnMore:(id)sender {
-  NSString* urlStr = l10n_util::GetNSString(IDS_LEARN_MORE_REPORTING_URL);
+  GURL url = google_util::AppendGoogleLocaleParam(
+      GURL(chrome::kLearnMoreReportingURL));
+  NSString* urlStr = base::SysUTF8ToNSString(url.spec());;
   NSURL* learnMoreUrl = [NSURL URLWithString:urlStr];
   [[NSWorkspace sharedWorkspace] openURL:learnMoreUrl];
 }

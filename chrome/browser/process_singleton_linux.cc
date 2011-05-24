@@ -64,7 +64,6 @@
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
-#include "base/platform_thread.h"
 #include "base/process_util.h"
 #include "base/rand_util.h"
 #include "base/safe_strerror_posix.h"
@@ -72,9 +71,10 @@
 #include "base/string_number_conversions.h"
 #include "base/string_split.h"
 #include "base/sys_string_conversions.h"
-#include "base/utf_string_conversions.h"
+#include "base/threading/platform_thread.h"
 #include "base/time.h"
 #include "base/timer.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #if defined(TOOLKIT_GTK)
@@ -298,16 +298,17 @@ bool ParseLockPath(const FilePath& path,
 void DisplayProfileInUseError(const std::string& lock_path,
                               const std::string& hostname,
                               int pid) {
-  std::wstring error = l10n_util::GetStringF(IDS_PROFILE_IN_USE_LINUX,
-        UTF8ToWide(base::IntToString(pid)),
-        ASCIIToWide(hostname),
-        base::SysNativeMBToWide(lock_path),
-        l10n_util::GetString(IDS_PRODUCT_NAME));
-  LOG(ERROR) << base::SysWideToNativeMB(error).c_str();
+  string16 error = l10n_util::GetStringFUTF16(
+      IDS_PROFILE_IN_USE_LINUX,
+      base::IntToString16(pid),
+      ASCIIToUTF16(hostname),
+      WideToUTF16(base::SysNativeMBToWide(lock_path)),
+      l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
+  LOG(ERROR) << base::SysWideToNativeMB(UTF16ToWide(error)).c_str();
 #if defined(TOOLKIT_GTK)
   if (!CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kNoProcessSingletonDialog))
-    ProcessSingletonDialog::ShowAndRun(WideToUTF8(error));
+    ProcessSingletonDialog::ShowAndRun(UTF16ToUTF8(error));
 #endif
 }
 
@@ -818,7 +819,7 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcessWithTimeout(
       return PROCESS_NONE;
     }
 
-    PlatformThread::Sleep(1000 /* ms */);
+    base::PlatformThread::Sleep(1000 /* ms */);
   }
 
   timeval timeout = {timeout_seconds, 0};

@@ -1205,7 +1205,8 @@
       'msvs_guid': '8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942',
       'variables': {
         'grit_cmd': ['python', '../tools/grit/grit.py'],
-        'grit_info_cmd': ['python', '../tools/grit/grit_info.py'],
+        'grit_info_cmd': ['python', '../tools/grit/grit_info.py',
+                          '<@(grit_defines)'],
         'input_paths': [
           'base/net_resources.grd',
         ],
@@ -1224,7 +1225,8 @@
           'action':
             ['<@(grit_cmd)',
              '-i', '<(RULE_INPUT_PATH)', 'build',
-             '-o', '<(SHARED_INTERMEDIATE_DIR)/net'],
+             '-o', '<(SHARED_INTERMEDIATE_DIR)/net',
+             '<@(grit_defines)'],
           'message': 'Generating resources from <(RULE_INPUT_PATH)',
         },
       ],

@@ -96,7 +96,7 @@ static DOMUIFactoryFunction GetDOMUIFactoryFunction(Profile* profile,
   if (url.host() == chrome::kChromeUIDialogHost)
     return &NewDOMUI<ConstrainedHtmlUI>;
 
-  ExtensionService* service = profile->GetExtensionService();
+  ExtensionService* service = profile ? profile->GetExtensionService() : NULL;
   if (service && service->ExtensionBindingsAllowed(url))
     return &NewDOMUI<ExtensionDOMUI>;
 
@@ -200,8 +200,8 @@ static DOMUIFactoryFunction GetDOMUIFactoryFunction(Profile* profile,
     return &NewDOMUI<chromeos::NetworkMenuUI>;
 #else
   if (url.host() == chrome::kChromeUISettingsHost) {
-    if (CommandLine::ForCurrentProcess()->HasSwitch(
-        switches::kEnableTabbedOptions)) {
+    if (!CommandLine::ForCurrentProcess()->HasSwitch(
+        switches::kDisableTabbedOptions)) {
       return &NewDOMUI<OptionsUI>;
     }
   }

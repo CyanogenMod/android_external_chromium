@@ -10,7 +10,6 @@
 
 #include <string>
 
-#include "app/animation_delegate.h"
 #include "app/gtk_signal.h"
 #include "base/scoped_ptr.h"
 #include "base/timer.h"
@@ -20,10 +19,14 @@
 #include "chrome/common/notification_registrar.h"
 #include "gfx/point.h"
 #include "googleurl/src/gurl.h"
+#include "ui/base/animation/animation_delegate.h"
 
 class GtkThemeProvider;
 class Profile;
+
+namespace ui {
 class SlideAnimation;
+}
 
 // GTK implementation of StatusBubble. Unlike Windows, our status bubble
 // doesn't have the nice leave-the-window effect since we can't rely on the
@@ -31,7 +34,7 @@ class SlideAnimation;
 // We therefore position it absolutely in a GtkFixed, that we don't own.
 class StatusBubbleGtk : public StatusBubble,
                         public NotificationObserver,
-                        public AnimationDelegate {
+                        public ui::AnimationDelegate {
  public:
   explicit StatusBubbleGtk(Profile* profile);
   virtual ~StatusBubbleGtk();
@@ -45,9 +48,9 @@ class StatusBubbleGtk : public StatusBubble,
   virtual void Hide();
   virtual void MouseMoved(const gfx::Point& location, bool left_content);
 
-  // AnimationDelegate implementation.
-  virtual void AnimationEnded(const Animation* animation);
-  virtual void AnimationProgressed(const Animation* animation);
+  // ui::AnimationDelegate implementation.
+  virtual void AnimationEnded(const ui::Animation* animation);
+  virtual void AnimationProgressed(const ui::Animation* animation);
 
   // Called when the download shelf becomes visible or invisible.
   // This is used by to ensure that the status bubble does not obscure
@@ -105,6 +108,9 @@ class StatusBubbleGtk : public StatusBubble,
   CHROMEGTK_CALLBACK_1(StatusBubbleGtk, gboolean, HandleMotionNotify,
                        GdkEventMotion*);
 
+  CHROMEGTK_CALLBACK_1(StatusBubbleGtk, gboolean, HandleEnterNotify,
+                       GdkEventCrossing*);
+
   NotificationRegistrar registrar_;
 
   // Provides colors.
@@ -139,7 +145,7 @@ class StatusBubbleGtk : public StatusBubble,
   base::OneShotTimer<StatusBubbleGtk> expand_timer_;
 
   // The animation for resizing the status bubble on long hovers.
-  scoped_ptr<SlideAnimation> expand_animation_;
+  scoped_ptr<ui::SlideAnimation> expand_animation_;
 
   // The start and end width of the current resize animation.
   int start_width_;
@@ -161,6 +167,10 @@ class StatusBubbleGtk : public StatusBubble,
   // when its text changes, triggering a size change.
   gfx::Point last_mouse_location_;
   bool last_mouse_left_content_;
+
+  // Shortly after the cursor enters the status bubble, we'll get a message
+  // that the cursor left the content area. This lets us ignore that.
+  bool ignore_next_left_content_;
 };
 
 #endif  // CHROME_BROWSER_GTK_STATUS_BUBBLE_GTK_H_

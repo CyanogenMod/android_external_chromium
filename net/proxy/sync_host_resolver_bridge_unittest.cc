@@ -4,8 +4,8 @@
 
 #include "net/proxy/sync_host_resolver_bridge.h"
 
-#include "base/thread.h"
-#include "base/waitable_event.h"
+#include "base/threading/thread.h"
+#include "base/synchronization/waitable_event.h"
 #include "net/base/address_list.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_log.h"

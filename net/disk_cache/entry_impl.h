@@ -7,6 +7,7 @@
 #pragma once
 
 #include "base/scoped_ptr.h"
+#include "net/base/net_log.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/disk_cache/storage_block.h"
 #include "net/disk_cache/storage_block-inl.h"
@@ -31,28 +32,6 @@ class EntryImpl : public Entry, public base::RefCounted<EntryImpl> {
   };
 
   EntryImpl(BackendImpl* backend, Addr address, bool read_only);
-
-  // Entry interface.
-  virtual void Doom();
-  virtual void Close();
-  virtual std::string GetKey() const;
-  virtual base::Time GetLastUsed() const;
-  virtual base::Time GetLastModified() const;
-  virtual int32 GetDataSize(int index) const;
-  virtual int ReadData(int index, int offset, net::IOBuffer* buf, int buf_len,
-                       net::CompletionCallback* completion_callback);
-  virtual int WriteData(int index, int offset, net::IOBuffer* buf, int buf_len,
-                        net::CompletionCallback* completion_callback,
-                        bool truncate);
-  virtual int ReadSparseData(int64 offset, net::IOBuffer* buf, int buf_len,
-                             net::CompletionCallback* completion_callback);
-  virtual int WriteSparseData(int64 offset, net::IOBuffer* buf, int buf_len,
-                              net::CompletionCallback* completion_callback);
-  virtual int GetAvailableRange(int64 offset, int len, int64* start,
-                                CompletionCallback* callback);
-  virtual bool CouldBeSparse() const;
-  virtual void CancelSparseIO();
-  virtual int ReadyForSparseIO(net::CompletionCallback* completion_callback);
 
   // Background implementation of the Entry interface.
   void DoomImpl();
@@ -129,6 +108,36 @@ class EntryImpl : public Entry, public base::RefCounted<EntryImpl> {
   // Generates a histogram for the time spent working on this operation.
   void ReportIOTime(Operation op, const base::TimeTicks& start);
 
+  // Logs a begin event and enables logging for the EntryImpl.  Will also cause
+  // an end event to be logged on destruction.  The EntryImpl must have its key
+  // initialized before this is called.  |created| is true if the Entry was
+  // created rather than opened.
+  void BeginLogging(net::NetLog* net_log, bool created);
+
+  const net::BoundNetLog& net_log() const;
+
+  // Entry interface.
+  virtual void Doom();
+  virtual void Close();
+  virtual std::string GetKey() const;
+  virtual base::Time GetLastUsed() const;
+  virtual base::Time GetLastModified() const;
+  virtual int32 GetDataSize(int index) const;
+  virtual int ReadData(int index, int offset, net::IOBuffer* buf, int buf_len,
+                       net::CompletionCallback* completion_callback);
+  virtual int WriteData(int index, int offset, net::IOBuffer* buf, int buf_len,
+                        net::CompletionCallback* completion_callback,
+                        bool truncate);
+  virtual int ReadSparseData(int64 offset, net::IOBuffer* buf, int buf_len,
+                             net::CompletionCallback* completion_callback);
+  virtual int WriteSparseData(int64 offset, net::IOBuffer* buf, int buf_len,
+                              net::CompletionCallback* completion_callback);
+  virtual int GetAvailableRange(int64 offset, int len, int64* start,
+                                CompletionCallback* callback);
+  virtual bool CouldBeSparse() const;
+  virtual void CancelSparseIO();
+  virtual int ReadyForSparseIO(net::CompletionCallback* completion_callback);
+
  private:
   enum {
      kNumStreams = 3
@@ -136,6 +145,13 @@ class EntryImpl : public Entry, public base::RefCounted<EntryImpl> {
   class UserBuffer;
 
   ~EntryImpl();
+
+  // Do all the work for ReadDataImpl and WriteDataImpl.  Implemented as
+  // separate functions to make logging of results simpler.
+  int InternalReadData(int index, int offset, net::IOBuffer* buf,
+                       int buf_len, CompletionCallback* callback);
+  int InternalWriteData(int index, int offset, net::IOBuffer* buf, int buf_len,
+                        CompletionCallback* callback, bool truncate);
 
   // Initializes the storage for an internal or external data block.
   bool CreateDataBlock(int index, int size);
@@ -219,6 +235,8 @@ class EntryImpl : public Entry, public base::RefCounted<EntryImpl> {
   bool doomed_;               // True if this entry was removed from the cache.
   bool read_only_;            // True if not yet writing.
   scoped_ptr<SparseControl> sparse_;  // Support for sparse entries.
+
+  net::BoundNetLog net_log_;
 
   DISALLOW_COPY_AND_ASSIGN(EntryImpl);
 };

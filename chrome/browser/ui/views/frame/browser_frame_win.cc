@@ -9,8 +9,8 @@
 
 #include <set>
 
-#include "app/win_util.h"
-#include "base/win_util.h"
+#include "app/win/hwnd_util.h"
+#include "app/win/win_util.h"
 #include "chrome/browser/accessibility/browser_accessibility_state.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/browser_list.h"
@@ -19,6 +19,7 @@
 #include "chrome/browser/views/frame/browser_root_view.h"
 #include "chrome/browser/views/frame/browser_view.h"
 #include "chrome/browser/views/frame/glass_browser_frame_view.h"
+#include "gfx/font.h"
 #include "grit/theme_resources.h"
 #include "views/screen.h"
 #include "views/window/window_delegate.h"
@@ -40,7 +41,7 @@ BrowserFrame* BrowserFrame::Create(BrowserView* browser_view,
 
 // static
 const gfx::Font& BrowserFrame::GetTitleFont() {
-  static gfx::Font* title_font = new gfx::Font(win_util::GetWindowTitleFont());
+  static gfx::Font* title_font = new gfx::Font(app::win::GetWindowTitleFont());
   return *title_font;
 }
 
@@ -108,7 +109,7 @@ bool BrowserFrameWin::AlwaysUseNativeFrame() const {
   // We don't theme popup or app windows, so regardless of whether or not a
   // theme is active for normal browser windows, we don't want to use the custom
   // frame for popups/apps.
-  if (!browser_view_->IsBrowserTypeNormal() && win_util::ShouldUseVistaFrame())
+  if (!browser_view_->IsBrowserTypeNormal() && app::win::ShouldUseVistaFrame())
     return true;
 
   // Otherwise, we use the native frame when we're told we should by the theme

@@ -12,7 +12,7 @@
 #include "chrome/common/chrome_switches.h"
 
 #if defined(OS_WIN)
-#include "app/win_util.h"
+#include "app/win/win_util.h"
 #endif
 
 ExtensionsStartupUtil::ExtensionsStartupUtil() : pack_job_succeeded_(false) {}
@@ -21,9 +21,10 @@ void ExtensionsStartupUtil::OnPackSuccess(
     const FilePath& crx_path,
     const FilePath& output_private_key_path) {
   pack_job_succeeded_ = true;
-  ShowPackExtensionMessage(L"Extension Packaging Success",
-                           PackExtensionJob::StandardSuccessMessage(
-                               crx_path, output_private_key_path));
+  ShowPackExtensionMessage(
+      L"Extension Packaging Success",
+      UTF16ToWideHack(PackExtensionJob::StandardSuccessMessage(
+          crx_path, output_private_key_path)));
 }
 
 void ExtensionsStartupUtil::OnPackFailure(const std::string& error_message) {
@@ -35,7 +36,7 @@ void ExtensionsStartupUtil::ShowPackExtensionMessage(
     const std::wstring& caption,
     const std::wstring& message) {
 #if defined(OS_WIN)
-  win_util::MessageBox(NULL, message, caption, MB_OK | MB_SETFOREGROUND);
+  app::win::MessageBox(NULL, message, caption, MB_OK | MB_SETFOREGROUND);
 #else
   // Just send caption & text to stdout on mac & linux.
   std::string out_text = WideToASCII(caption);

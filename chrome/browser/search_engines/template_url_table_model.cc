@@ -4,9 +4,6 @@
 
 #include "chrome/browser/search_engines/template_url_table_model.h"
 
-#include <string>
-#include <vector>
-
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "app/table_model_observer.h"
@@ -177,32 +174,35 @@ int TemplateURLTableModel::RowCount() {
   return static_cast<int>(entries_.size());
 }
 
-std::wstring TemplateURLTableModel::GetText(int row, int col_id) {
+string16 TemplateURLTableModel::GetText(int row, int col_id) {
   DCHECK(row >= 0 && row < RowCount());
   const TemplateURL& url = entries_[row]->template_url();
 
   switch (col_id) {
     case IDS_SEARCH_ENGINES_EDITOR_DESCRIPTION_COLUMN: {
-      std::wstring url_short_name = url.short_name();
+      string16 url_short_name = WideToUTF16Hack(url.short_name());
       // TODO(xji): Consider adding a special case if the short name is a URL,
       // since those should always be displayed LTR. Please refer to
       // http://crbug.com/6726 for more information.
       base::i18n::AdjustStringForLocaleDirection(&url_short_name);
-      return (template_url_model_->GetDefaultSearchProvider() == &url) ?
-          l10n_util::GetStringF(IDS_SEARCH_ENGINES_EDITOR_DEFAULT_ENGINE,
-                                url_short_name) : url_short_name;
+      if (template_url_model_->GetDefaultSearchProvider() == &url) {
+        return l10n_util::GetStringFUTF16(
+            IDS_SEARCH_ENGINES_EDITOR_DEFAULT_ENGINE,
+            url_short_name);
+      }
+      return url_short_name;
     }
 
     case IDS_SEARCH_ENGINES_EDITOR_KEYWORD_COLUMN: {
       // Keyword should be domain name. Force it to have LTR directionality.
       string16 keyword = WideToUTF16(url.keyword());
       keyword = base::i18n::GetDisplayStringInLTRDirectionality(keyword);
-      return UTF16ToWide(keyword);
+      return keyword;
     }
 
     default:
       NOTREACHED();
-      return std::wstring();
+      return string16();
   }
 }
 
@@ -224,13 +224,13 @@ TemplateURLTableModel::Groups TemplateURLTableModel::GetGroups() {
 
   Group search_engine_group;
   search_engine_group.title =
-      l10n_util::GetString(IDS_SEARCH_ENGINES_EDITOR_MAIN_SEPARATOR);
+      l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_MAIN_SEPARATOR);
   search_engine_group.id = kMainGroupID;
   groups.push_back(search_engine_group);
 
   Group other_group;
   other_group.title =
-      l10n_util::GetString(IDS_SEARCH_ENGINES_EDITOR_OTHER_SEPARATOR);
+      l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_OTHER_SEPARATOR);
   other_group.id = kOtherGroupID;
   groups.push_back(other_group);
 

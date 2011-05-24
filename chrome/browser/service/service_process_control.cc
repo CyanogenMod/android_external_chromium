@@ -8,8 +8,8 @@
 #include "base/file_path.h"
 #include "base/process_util.h"
 #include "base/stl_util-inl.h"
-#include "base/thread.h"
-#include "base/thread_restrictions.h"
+#include "base/threading/thread.h"
+#include "base/threading/thread_restrictions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/io_thread.h"
@@ -96,8 +96,7 @@ class ServiceProcessControl::Launcher
 
 // ServiceProcessControl implementation.
 ServiceProcessControl::ServiceProcessControl(Profile* profile)
-    : profile_(profile),
-      message_handler_(NULL) {
+    : profile_(profile) {
 }
 
 ServiceProcessControl::~ServiceProcessControl() {
@@ -239,9 +238,8 @@ void ServiceProcessControl::OnProcessLaunched() {
 }
 
 bool ServiceProcessControl::OnMessageReceived(const IPC::Message& message) {
-  bool handled = true;;
+  bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(ServiceProcessControl, message)
-    IPC_MESSAGE_HANDLER(ServiceHostMsg_GoodDay, OnGoodDay)
     IPC_MESSAGE_HANDLER(ServiceHostMsg_CloudPrintProxy_IsEnabled,
                         OnCloudPrintProxyIsEnabled)
     IPC_MESSAGE_HANDLER(ServiceHostMsg_RemotingHost_HostInfo,
@@ -278,13 +276,6 @@ void ServiceProcessControl::Observe(NotificationType type,
   }
 }
 
-void ServiceProcessControl::OnGoodDay() {
-  if (!message_handler_)
-    return;
-
-  message_handler_->OnGoodDay();
-}
-
 void ServiceProcessControl::OnCloudPrintProxyIsEnabled(bool enabled,
                                                        std::string email) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
@@ -297,9 +288,9 @@ void ServiceProcessControl::OnCloudPrintProxyIsEnabled(bool enabled,
 void ServiceProcessControl::OnRemotingHostInfo(
     remoting::ChromotingHostInfo host_info) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  if (remoting_host_status_callback_ != NULL) {
-    remoting_host_status_callback_->Run(host_info);
-    remoting_host_status_callback_.reset();
+  for (std::set<MessageHandler*>::iterator it = message_handlers_.begin();
+       it != message_handlers_.end(); ++it) {
+    (*it)->OnRemotingHostInfo(host_info);
   }
 }
 
@@ -308,10 +299,6 @@ bool ServiceProcessControl::GetCloudPrintProxyStatus(
   DCHECK(cloud_print_status_callback);
   cloud_print_status_callback_.reset(cloud_print_status_callback);
   return Send(new ServiceMsg_IsCloudPrintProxyEnabled);
-}
-
-bool ServiceProcessControl::SendHello() {
-  return Send(new ServiceMsg_Hello());
 }
 
 bool ServiceProcessControl::Shutdown() {
@@ -335,11 +322,18 @@ bool ServiceProcessControl::DisableRemotingHost() {
   return Send(new ServiceMsg_DisableRemotingHost());
 }
 
-bool ServiceProcessControl::GetRemotingHostStatus(
-    GetRemotingHostStatusCallback* status_callback) {
-  DCHECK(status_callback);
-  remoting_host_status_callback_.reset(status_callback);
+bool ServiceProcessControl::RequestRemotingHostStatus() {
   return Send(new ServiceMsg_GetRemotingHostInfo);
+}
+
+void ServiceProcessControl::AddMessageHandler(
+    MessageHandler* message_handler) {
+  message_handlers_.insert(message_handler);
+}
+
+void ServiceProcessControl::RemoveMessageHandler(
+    MessageHandler* message_handler) {
+  message_handlers_.erase(message_handler);
 }
 
 DISABLE_RUNNABLE_METHOD_REFCOUNT(ServiceProcessControl);

@@ -16,7 +16,7 @@
 #include "base/scoped_ptr.h"
 #include "base/string_number_conversions.h"
 #include "base/string_split.h"
-#include "base/thread_restrictions.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/automation/automation_provider.h"
 #include "chrome/browser/automation/automation_provider_list.h"
@@ -70,10 +70,6 @@
 
 #if defined(OS_MACOSX)
 #include "chrome/browser/ui/cocoa/keystone_infobar.h"
-#endif
-
-#if defined(OS_WIN)
-#include "app/win_util.h"
 #endif
 
 #if defined(TOOLKIT_GTK)

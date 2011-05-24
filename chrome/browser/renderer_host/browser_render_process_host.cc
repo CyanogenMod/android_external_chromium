@@ -25,8 +25,8 @@
 #include "base/platform_file.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
-#include "base/thread.h"
-#include "base/thread_restrictions.h"
+#include "base/threading/thread.h"
+#include "base/threading/thread_restrictions.h"
 #include "chrome/browser/appcache/appcache_dispatcher_host.h"
 #include "chrome/browser/browser_child_process_host.h"
 #include "chrome/browser/browser_process.h"
@@ -54,6 +54,7 @@
 #include "chrome/browser/renderer_host/database_message_filter.h"
 #include "chrome/browser/renderer_host/file_utilities_message_filter.h"
 #include "chrome/browser/renderer_host/pepper_file_message_filter.h"
+#include "chrome/browser/renderer_host/pepper_message_filter.h"
 #include "chrome/browser/renderer_host/render_message_filter.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
@@ -65,6 +66,7 @@
 #include "chrome/browser/safe_browsing/client_side_detection_service.h"
 #include "chrome/browser/search_engines/search_provider_install_state_message_filter.h"
 #include "chrome/browser/speech/speech_input_dispatcher_host.h"
+#include "chrome/browser/speech/speech_input_manager.h"
 #include "chrome/browser/spellcheck_host.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/visitedlink/visitedlink_master.h"
@@ -95,7 +97,8 @@
 #include "webkit/plugins/plugin_switches.h"
 
 #if defined(OS_WIN)
-#include "app/win_util.h"
+#include <objbase.h>
+#include "app/win/win_util.h"
 #endif
 
 using WebKit::WebCache;
@@ -450,6 +453,7 @@ void BrowserRenderProcessHost::CreateMessageFilters() {
       GeolocationDispatcherHost::New(
           id(), profile()->GetGeolocationPermissionContext()));
   channel_->AddFilter(new PepperFileMessageFilter(id(), profile()));
+  channel_->AddFilter(new PepperMessageFilter(profile()));
   channel_->AddFilter(new speech_input::SpeechInputDispatcherHost(id()));
   channel_->AddFilter(
       new SearchProviderInstallStateMessageFilter(id(), profile()));
@@ -787,23 +791,8 @@ void BrowserRenderProcessHost::InitExtensions() {
 }
 
 void BrowserRenderProcessHost::InitSpeechInput() {
-  bool enabled = true;
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
-
-  if (command_line.HasSwitch(switches::kDisableSpeechInput)) {
-    enabled = false;
-#if defined(GOOGLE_CHROME_BUILD)
-  } else if (!command_line.HasSwitch(switches::kEnableSpeechInput)) {
-    // We need to evaluate whether IO is OK here. http://crbug.com/63335.
-    base::ThreadRestrictions::ScopedAllowIO allow_io;
-    // Official Chrome builds have speech input enabled by default only in the
-    // dev channel.
-    std::string channel = platform_util::GetVersionStringModifier();
-    enabled = (channel == "dev");
-#endif
-  }
-
-  Send(new ViewMsg_SpeechInput_SetFeatureEnabled(enabled));
+  Send(new ViewMsg_SpeechInput_SetFeatureEnabled(
+      speech_input::SpeechInputManager::IsFeatureEnabled()));
 }
 
 void BrowserRenderProcessHost::SendUserScriptsUpdate(
@@ -910,7 +899,7 @@ TransportDIB* BrowserRenderProcessHost::MapTransportDIB(
     TransportDIB::Id dib_id) {
 #if defined(OS_WIN)
   // On Windows we need to duplicate the handle from the remote process
-  HANDLE section = win_util::GetSectionFromProcess(
+  HANDLE section = app::win::GetSectionFromProcess(
       dib_id.handle, GetHandle(), false /* read write */);
   return TransportDIB::Map(section);
 #elif defined(OS_MACOSX)

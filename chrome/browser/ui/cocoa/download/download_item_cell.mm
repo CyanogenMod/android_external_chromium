@@ -6,7 +6,6 @@
 
 #include "app/l10n_util.h"
 #include "app/text_elider.h"
-#include "base/mac_util.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_item_model.h"
@@ -237,14 +236,14 @@ NSGradient* BackgroundTheme::GetNSGradient(int id) const {
   // Set the name of the download.
   downloadPath_ = downloadModel->download()->GetFileNameToReportUser();
 
-  std::wstring statusText = downloadModel->GetStatusText();
+  string16 statusText = downloadModel->GetStatusText();
   if (statusText.empty()) {
     // Remove the status text label.
     [self hideSecondaryTitle];
     isStatusTextVisible_ = NO;
   } else {
     // Set status text.
-    NSString* statusString = base::SysWideToNSString(statusText);
+    NSString* statusString = base::SysUTF16ToNSString(statusText);
     [self setSecondaryTitle:statusString];
     isStatusTextVisible_ = YES;
   }

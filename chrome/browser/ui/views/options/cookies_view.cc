@@ -144,11 +144,11 @@ void CookiesView::ContentsChanged(views::Textfield* sender,
           &CookiesView::UpdateSearchResults), kSearchFilterDelayMs);
 }
 
-bool CookiesView::HandleKeystroke(views::Textfield* sender,
-                                  const views::Textfield::Keystroke& key) {
-  if (key.GetKeyboardCode() == app::VKEY_ESCAPE) {
+bool CookiesView::HandleKeyEvent(views::Textfield* sender,
+                                 const views::KeyEvent& key_event) {
+  if (key_event.GetKeyCode() == app::VKEY_ESCAPE) {
     ResetSearchQuery();
-  } else if (key.GetKeyboardCode() == app::VKEY_RETURN) {
+  } else if (key_event.GetKeyCode() == app::VKEY_RETURN) {
     search_update_factory_.RevokeAll();
     UpdateSearchResults();
   }
@@ -159,7 +159,8 @@ bool CookiesView::HandleKeystroke(views::Textfield* sender,
 // CookiesView, views::DialogDelegate implementation:
 
 std::wstring CookiesView::GetWindowTitle() const {
-  return l10n_util::GetString(IDS_COOKIES_WEBSITE_PERMISSIONS_WINDOW_TITLE);
+  return UTF16ToWide(
+      l10n_util::GetStringUTF16(IDS_COOKIES_WEBSITE_PERMISSIONS_WINDOW_TITLE));
 }
 
 void CookiesView::WindowClosing() {
@@ -277,14 +278,15 @@ CookiesView::CookiesView(Profile* profile)
 
 void CookiesView::Init() {
   search_label_ = new views::Label(
-      l10n_util::GetString(IDS_COOKIES_SEARCH_LABEL));
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_COOKIES_SEARCH_LABEL)));
   search_field_ = new views::Textfield;
   search_field_->SetController(this);
   clear_search_button_ = new views::NativeButton(
-      this, l10n_util::GetString(IDS_COOKIES_CLEAR_SEARCH_LABEL));
+      this,
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_COOKIES_CLEAR_SEARCH_LABEL)));
   clear_search_button_->SetEnabled(false);
   description_label_ = new views::Label(
-      l10n_util::GetString(IDS_COOKIES_INFO_LABEL));
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_COOKIES_INFO_LABEL)));
   description_label_->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
   cookies_tree_model_.reset(new CookiesTreeModel(
       profile_->GetRequestContext()->GetCookieStore()->GetCookieMonster(),
@@ -309,9 +311,11 @@ void CookiesView::Init() {
 
   cookies_tree_ = new CookiesTreeView(cookies_tree_model_.get());
   remove_button_ = new views::NativeButton(
-      this, l10n_util::GetString(IDS_COOKIES_REMOVE_LABEL));
+      this,
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_COOKIES_REMOVE_LABEL)));
   remove_all_button_ = new views::NativeButton(
-      this, l10n_util::GetString(IDS_COOKIES_REMOVE_ALL_LABEL));
+      this,
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_COOKIES_REMOVE_ALL_LABEL)));
 
   using views::GridLayout;
   using views::ColumnSet;

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,6 +48,7 @@ private:
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
 #include "base/scoped_ptr.h"
+#include "base/string16.h"
 #include "chrome/browser/dom_ui/dom_ui_factory.h"
 #include "chrome/browser/download/save_package.h"
 #include "chrome/browser/extensions/image_loading_tracker.h"
@@ -72,6 +73,10 @@ private:
 #include "gfx/native_widget_types.h"
 #include "net/base/load_states.h"
 
+#if defined(OS_WIN)
+#include "base/win/scoped_handle.h"
+#endif
+
 namespace gfx {
 class Rect;
 }
@@ -82,10 +87,6 @@ class HistoryAddPageArgs;
 
 namespace printing {
 class PrintViewManager;
-}
-
-namespace IPC {
-class Message;
 }
 
 namespace webkit_glue {
@@ -127,7 +128,6 @@ class TabContents : public PageNavigator,
                     public NotificationObserver,
                     public RenderViewHostDelegate,
                     public RenderViewHostDelegate::BrowserIntegration,
-                    public RenderViewHostDelegate::Resource,
                     public RenderViewHostManager::Delegate,
                     public JavaScriptAppModalDialogDelegate,
                     public ImageLoadingTracker::Observer,
@@ -294,7 +294,7 @@ class TabContents : public PageNavigator,
   virtual bool ShouldDisplayFavIcon();
 
   // Returns a human-readable description the tab's loading state.
-  virtual std::wstring GetStatusText() const;
+  virtual string16 GetStatusText() const;
 
   // Add and remove observers for page navigation notifications. Adding or
   // removing multiple times has no effect. The order in which notifications
@@ -818,6 +818,27 @@ class TabContents : public PageNavigator,
   // Used to access RVH Delegates.
   friend class PrerenderManager;
 
+  // Message handlers.
+  void OnDidStartProvisionalLoadForFrame(int64 frame_id,
+                                         bool main_frame,
+                                         const GURL& url);
+  void OnDidRedirectProvisionalLoad(int32 page_id,
+                                    const GURL& source_url,
+                                    const GURL& target_url);
+  void OnDidFailProvisionalLoadWithError(int64 frame_id,
+                                         bool main_frame,
+                                         int error_code,
+                                         const GURL& url,
+                                         bool showing_repost_interstitial);
+  void OnDidLoadResourceFromMemoryCache(const GURL& url,
+                                        const std::string& frame_origin,
+                                        const std::string& main_frame_origin,
+                                        const std::string& security_info);
+  void OnDidDisplayInsecureContent();
+  void OnDidRunInsecureContent(const std::string& security_origin);
+  void OnDocumentLoadedInFrame(int64 frame_id);
+  void OnDidFinishLoad(int64 frame_id);
+
   // Changes the IsLoading state and notifies delegate as needed
   // |details| is used to provide details on the load that just finished
   // (but can be null if not applicable). Can be overridden.
@@ -953,43 +974,12 @@ class TabContents : public PageNavigator,
                                 const std::vector<std::string>& suggestions);
   virtual void OnInstantSupportDetermined(int32 page_id, bool result);
 
-  // RenderViewHostDelegate::Resource implementation.
-  virtual void DidStartProvisionalLoadForFrame(RenderViewHost* render_view_host,
-                                               int64 frame_id,
-                                               bool is_main_frame,
-                                               bool is_error_page,
-                                               const GURL& url);
-  virtual void DidStartReceivingResourceResponse(
-      const ResourceRequestDetails& details);
-  virtual void DidRedirectProvisionalLoad(int32 page_id,
-                                          const GURL& source_url,
-                                          const GURL& target_url);
-  virtual void DidRedirectResource(
-      const ResourceRedirectDetails& details);
-  virtual void DidLoadResourceFromMemoryCache(
-      const GURL& url,
-      const std::string& frame_origin,
-      const std::string& main_frame_origin,
-      const std::string& security_info);
-  virtual void DidDisplayInsecureContent();
-  virtual void DidRunInsecureContent(const std::string& security_origin);
-  virtual void DidFailProvisionalLoadWithError(
-      RenderViewHost* render_view_host,
-      int64 frame_id,
-      bool is_main_frame,
-      int error_code,
-      const GURL& url,
-      bool showing_repost_interstitial);
-  virtual void DocumentLoadedInFrame(int64 frame_id);
-  virtual void DidFinishLoad(int64 frame_id);
-
   // RenderViewHostDelegate implementation.
   virtual RenderViewHostDelegate::View* GetViewDelegate();
   virtual RenderViewHostDelegate::RendererManagement*
       GetRendererManagementDelegate();
   virtual RenderViewHostDelegate::BrowserIntegration*
       GetBrowserIntegrationDelegate();
-  virtual RenderViewHostDelegate::Resource* GetResourceDelegate();
   virtual RenderViewHostDelegate::ContentSettings* GetContentSettingsDelegate();
   virtual RenderViewHostDelegate::Save* GetSaveDelegate();
   virtual RenderViewHostDelegate::Printing* GetPrintingDelegate();
@@ -1001,6 +991,7 @@ class TabContents : public PageNavigator,
   virtual AutomationResourceRoutingDelegate*
       GetAutomationResourceRoutingDelegate();
   virtual TabContents* GetAsTabContents();
+  virtual bool OnMessageReceived(const IPC::Message& message);
   virtual ViewType::Type GetRenderViewType() const;
   virtual int GetBrowserWindowID() const;
   virtual void RenderViewCreated(RenderViewHost* render_view_host);
@@ -1213,7 +1204,7 @@ class TabContents : public PageNavigator,
 
   // The current load state and the URL associated with it.
   net::LoadState load_state_;
-  std::wstring load_state_host_;
+  string16 load_state_host_;
   // Upload progress, for displaying in the status bar.
   // Set to zero when there is no significant upload happening.
   uint64 upload_size_;
@@ -1327,7 +1318,7 @@ class TabContents : public PageNavigator,
   // Handle to an event that's set when the page is showing a message box (or
   // equivalent constrained window).  Plugin processes check this to know if
   // they should pump messages then.
-  ScopedHandle message_box_active_;
+  base::win::ScopedHandle message_box_active_;
 #endif
 
   // The time that the last javascript message was dismissed.

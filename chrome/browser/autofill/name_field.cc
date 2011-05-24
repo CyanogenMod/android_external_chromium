@@ -4,14 +4,19 @@
 
 #include "chrome/browser/autofill/name_field.h"
 
+<<<<<<< HEAD
 #ifdef ANDROID
 #include "app/l10n_util.h"
 #endif
+=======
+#include "app/l10n_util.h"
+>>>>>>> chromium.org at r10.0.634.0
 #include "base/logging.h"
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_type.h"
+#include "grit/autofill_resources.h"
 
 NameField* NameField::Parse(std::vector<AutoFillField*>::const_iterator* iter,
                             bool is_ecml) {

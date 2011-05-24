@@ -6,6 +6,7 @@
 #include "build/build_config.h"
 
 #include <errno.h>
+#include <execinfo.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +31,6 @@
 #include <iostream>
 
 #include "base/basictypes.h"
-#include "base/compat_execinfo.h"
 #include "base/eintr_wrapper.h"
 #include "base/logging.h"
 #include "base/safe_strerror_posix.h"
@@ -137,7 +137,7 @@ bool BeingDebugged() {
 
 #elif defined(OS_FREEBSD)
 
-bool DebugUtil::BeingDebugged() {
+bool BeingDebugged() {
   // TODO(benl): can we determine this under FreeBSD?
   NOTIMPLEMENTED();
   return false;

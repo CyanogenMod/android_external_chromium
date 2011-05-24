@@ -9,14 +9,14 @@
 #include "app/l10n_util.h"
 #include "app/l10n_util_win.h"
 #include "app/resource_bundle.h"
+#include "app/win/hwnd_util.h"
 #include "app/view_prop.h"
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
 #include "base/metrics/histogram.h"
 #include "base/process_util.h"
 #include "base/scoped_comptr_win.h"
-#include "base/thread.h"
-#include "base/win_util.h"
+#include "base/threading/thread.h"
 #include "base/win/scoped_gdi_object.h"
 #include "chrome/browser/accessibility/browser_accessibility_win.h"
 #include "chrome/browser/accessibility/browser_accessibility_manager.h"
@@ -1448,7 +1448,7 @@ LRESULT RenderWidgetHostViewWin::OnMouseActivate(UINT message,
     ::ScreenToClient(m_hWnd, &cursor_pos);
     HWND child_window = ::RealChildWindowFromPoint(m_hWnd, cursor_pos);
     if (::IsWindow(child_window) && child_window != m_hWnd) {
-      if (win_util::GetClassName(child_window) ==
+      if (app::win::GetClassName(child_window) ==
               webkit::npapi::kWrapperNativeWindowClassName)
         child_window = ::GetWindow(child_window, GW_CHILD);
 

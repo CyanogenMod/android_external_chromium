@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,21 +26,6 @@ namespace file_util {
 // Use the FilePath versions instead.
 FILE* OpenFile(const std::string& filename, const char* mode);
 FILE* OpenFile(const std::wstring& filename, const char* mode);
-
-// Use FilePath::BaseName instead.
-std::wstring GetFilenameFromPath(const std::wstring& path);
-
-// Returns the directory component of a path, without the trailing
-// path separator, or an empty string on error. The function does not
-// check for the existence of the path, so if it is passed a directory
-// without the trailing \, it will interpret the last component of the
-// path as a file and chomp it. This does not support relative paths.
-// Examples:
-// path == "C:\pics\jojo.jpg",     returns "C:\pics"
-// path == "C:\Windows\system32\", returns "C:\Windows\system32"
-// path == "C:\Windows\system32",  returns "C:\Windows"
-// Deprecated. Use FilePath's DirName() instead.
-std::wstring GetDirectoryFromPath(const std::wstring& path);
 
 // Appends new_ending to path, adding a separator between the two if necessary.
 void AppendToPath(std::wstring* path, const std::wstring& new_ending);

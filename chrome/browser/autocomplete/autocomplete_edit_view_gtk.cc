@@ -10,7 +10,6 @@
 #include <algorithm>
 
 #include "app/l10n_util.h"
-#include "app/multi_animation.h"
 #include "base/logging.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -36,14 +35,17 @@
 #include "grit/generated_resources.h"
 #include "net/base/escape.h"
 #include "third_party/undoview/undo_view.h"
+#include "ui/base/animation/multi_animation.h"
 
 #if defined(TOOLKIT_VIEWS)
-#include "chrome/browser/views/autocomplete/autocomplete_popup_contents_view.h"
-#include "chrome/browser/views/location_bar/location_bar_view.h"
+#include "chrome/browser/gtk/accessible_widget_helper_gtk.h"
+#include "chrome/browser/ui/views/autocomplete/autocomplete_popup_contents_view.h"
+#include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #else
 #include "chrome/browser/autocomplete/autocomplete_popup_view_gtk.h"
 #include "chrome/browser/gtk/gtk_theme_provider.h"
 #include "chrome/browser/gtk/location_bar_view_gtk.h"
+#include "views/controls/native/native_view_host.h"
 #endif
 
 namespace {
@@ -381,12 +383,12 @@ void AutocompleteEditViewGtk::Init() {
 
   AdjustVerticalAlignmentOfInstantView();
 
-  MultiAnimation::Parts parts;
-  parts.push_back(MultiAnimation::Part(
-      InstantController::kAutoCommitPauseTimeMS, Tween::ZERO));
-  parts.push_back(MultiAnimation::Part(
-      InstantController::kAutoCommitFadeInTimeMS, Tween::EASE_IN));
-  instant_animation_.reset(new MultiAnimation(parts));
+  ui::MultiAnimation::Parts parts;
+  parts.push_back(ui::MultiAnimation::Part(
+      InstantController::kAutoCommitPauseTimeMS, ui::Tween::ZERO));
+  parts.push_back(ui::MultiAnimation::Part(
+      InstantController::kAutoCommitFadeInTimeMS, ui::Tween::EASE_IN));
+  instant_animation_.reset(new ui::MultiAnimation(parts));
   instant_animation_->set_continuous(false);
 
 #if !defined(TOOLKIT_VIEWS)
@@ -416,44 +418,6 @@ void AutocompleteEditViewGtk::HandleHierarchyChanged(
 
 void AutocompleteEditViewGtk::SetFocus() {
   gtk_widget_grab_focus(text_view_);
-}
-
-int AutocompleteEditViewGtk::TextWidth() {
-  int horizontal_border_size =
-      gtk_text_view_get_border_window_size(GTK_TEXT_VIEW(text_view_),
-                                           GTK_TEXT_WINDOW_LEFT) +
-      gtk_text_view_get_border_window_size(GTK_TEXT_VIEW(text_view_),
-                                           GTK_TEXT_WINDOW_RIGHT) +
-      gtk_text_view_get_left_margin(GTK_TEXT_VIEW(text_view_)) +
-      gtk_text_view_get_right_margin(GTK_TEXT_VIEW(text_view_));
-
-  GtkTextIter start, end;
-  GdkRectangle first_char_bounds, last_char_bounds;
-  gtk_text_buffer_get_start_iter(text_buffer_, &start);
-
-  // Use the real end iterator here to take the width of instant suggestion
-  // text into account, so that location bar can layout its children correctly.
-  gtk_text_buffer_get_end_iter(text_buffer_, &end);
-  gtk_text_view_get_iter_location(GTK_TEXT_VIEW(text_view_),
-                                  &start, &first_char_bounds);
-  gtk_text_view_get_iter_location(GTK_TEXT_VIEW(text_view_),
-                                  &end, &last_char_bounds);
-
-  gint first_char_start = first_char_bounds.x;
-  gint first_char_end = first_char_start + first_char_bounds.width;
-  gint last_char_start = last_char_bounds.x;
-  gint last_char_end = last_char_start + last_char_bounds.width;
-
-  // bounds width could be negative for RTL text.
-  if (first_char_start > first_char_end)
-    std::swap(first_char_start, first_char_end);
-  if (last_char_start > last_char_end)
-    std::swap(last_char_start, last_char_end);
-
-  gint text_width = first_char_start < last_char_start ?
-      last_char_end - first_char_start : first_char_end - last_char_start;
-
-  return text_width + horizontal_border_size;
 }
 
 int AutocompleteEditViewGtk::WidthOfTextAfterCursor() {
@@ -689,12 +653,6 @@ void AutocompleteEditViewGtk::OnRevertTemporaryText() {
 }
 
 void AutocompleteEditViewGtk::OnBeforePossibleChange() {
-  // This method will be called in HandleKeyPress() method just before
-  // handling a key press event. So we should prevent it from being called
-  // when handling the key press event.
-  if (handling_key_press_)
-    return;
-
   // If this change is caused by a paste clipboard action and all text is
   // selected, then call model_->on_paste_replacing_all() to prevent inline
   // autocomplete.
@@ -703,6 +661,12 @@ void AutocompleteEditViewGtk::OnBeforePossibleChange() {
     if (IsSelectAll())
       model_->on_paste_replacing_all();
   }
+
+  // This method will be called in HandleKeyPress() method just before
+  // handling a key press event. So we should prevent it from being called
+  // when handling the key press event.
+  if (handling_key_press_)
+    return;
 
   // Record our state.
   text_before_change_ = GetText();
@@ -790,6 +754,102 @@ CommandUpdater* AutocompleteEditViewGtk::GetCommandUpdater() {
   return command_updater_;
 }
 
+#if defined(TOOLKIT_VIEWS)
+views::View* AutocompleteEditViewGtk::AddToView(views::View* parent) {
+  views::NativeViewHost* host = new views::NativeViewHost;
+  parent->AddChildView(host);
+  host->set_focus_view(parent);
+  host->Attach(GetNativeView());
+  return host;
+}
+
+bool AutocompleteEditViewGtk::CommitInstantSuggestion(
+    const std::wstring& typed_text,
+    const std::wstring& suggestion) {
+  return CommitInstantSuggestion();
+}
+
+void AutocompleteEditViewGtk::EnableAccessibility() {
+  accessible_widget_helper_.reset(
+      new AccessibleWidgetHelper(text_view(), model_->profile()));
+  accessible_widget_helper_->SetWidgetName(
+      text_view(), l10n_util::GetStringUTF8(IDS_ACCNAME_LOCATION));
+}
+
+void AutocompleteEditViewGtk::SetInstantSuggestion(const string16& suggestion) {
+  SetInstantSuggestion(UTF16ToUTF8(suggestion));
+}
+#endif
+
+int AutocompleteEditViewGtk::TextWidth() const {
+  int horizontal_border_size =
+      gtk_text_view_get_border_window_size(GTK_TEXT_VIEW(text_view_),
+                                           GTK_TEXT_WINDOW_LEFT) +
+      gtk_text_view_get_border_window_size(GTK_TEXT_VIEW(text_view_),
+                                           GTK_TEXT_WINDOW_RIGHT) +
+      gtk_text_view_get_left_margin(GTK_TEXT_VIEW(text_view_)) +
+      gtk_text_view_get_right_margin(GTK_TEXT_VIEW(text_view_));
+
+  GtkTextIter start, end;
+  GdkRectangle first_char_bounds, last_char_bounds;
+  gtk_text_buffer_get_start_iter(text_buffer_, &start);
+
+  // Use the real end iterator here to take the width of instant suggestion
+  // text into account, so that location bar can layout its children correctly.
+  gtk_text_buffer_get_end_iter(text_buffer_, &end);
+  gtk_text_view_get_iter_location(GTK_TEXT_VIEW(text_view_),
+                                  &start, &first_char_bounds);
+  gtk_text_view_get_iter_location(GTK_TEXT_VIEW(text_view_),
+                                  &end, &last_char_bounds);
+
+  gint first_char_start = first_char_bounds.x;
+  gint first_char_end = first_char_start + first_char_bounds.width;
+  gint last_char_start = last_char_bounds.x;
+  gint last_char_end = last_char_start + last_char_bounds.width;
+
+  // bounds width could be negative for RTL text.
+  if (first_char_start > first_char_end)
+    std::swap(first_char_start, first_char_end);
+  if (last_char_start > last_char_end)
+    std::swap(last_char_start, last_char_end);
+
+  gint text_width = first_char_start < last_char_start ?
+      last_char_end - first_char_start : first_char_end - last_char_start;
+
+  return text_width + horizontal_border_size;
+}
+
+#if defined(TOOLKIT_VIEWS)
+// static
+AutocompleteEditView* AutocompleteEditViewGtk::Create(
+    AutocompleteEditController* controller,
+    ToolbarModel* toolbar_model,
+    Profile* profile,
+    CommandUpdater* command_updater,
+    bool popup_window_mode,
+    const views::View* location_bar) {
+  AutocompleteEditViewGtk* autocomplete =
+      new AutocompleteEditViewGtk(controller,
+                                  toolbar_model,
+                                  profile,
+                                  command_updater,
+                                  popup_window_mode,
+                                  location_bar);
+  autocomplete->Init();
+
+  // Make all the children of the widget visible. NOTE: this won't display
+  // anything, it just toggles the visible flag.
+  gtk_widget_show_all(autocomplete->GetNativeView());
+  // Hide the widget. NativeViewHostGtk will make it visible again as
+  // necessary.
+  gtk_widget_hide(autocomplete->GetNativeView());
+
+  autocomplete->EnableAccessibility();
+
+  return autocomplete;
+}
+#endif
+
 void AutocompleteEditViewGtk::Observe(NotificationType type,
                                       const NotificationSource& source,
                                       const NotificationDetails& details) {
@@ -798,15 +858,17 @@ void AutocompleteEditViewGtk::Observe(NotificationType type,
   SetBaseColor();
 }
 
-void AutocompleteEditViewGtk::AnimationEnded(const Animation* animation) {
+void AutocompleteEditViewGtk::AnimationEnded(const ui::Animation* animation) {
   controller_->OnCommitSuggestedText(GetText());
 }
 
-void AutocompleteEditViewGtk::AnimationProgressed(const Animation* animation) {
+void AutocompleteEditViewGtk::AnimationProgressed(
+    const ui::Animation* animation) {
   UpdateInstantViewColors();
 }
 
-void AutocompleteEditViewGtk::AnimationCanceled(const Animation* animation) {
+void AutocompleteEditViewGtk::AnimationCanceled(
+    const ui::Animation* animation) {
   UpdateInstantViewColors();
 }
 

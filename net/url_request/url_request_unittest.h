@@ -17,7 +17,7 @@
 #include "base/process_util.h"
 #include "base/string_util.h"
 #include "base/string16.h"
-#include "base/thread.h"
+#include "base/threading/thread.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "net/base/cert_verifier.h"
@@ -173,6 +173,7 @@ class TestURLRequestContext : public URLRequestContext {
                                              http_auth_handler_factory_,
                                              network_delegate_,
                                              NULL),
+        NULL /* net_log */,
         net::HttpCache::DefaultBackend::InMemory(0));
     // In-memory cookie store.
     cookie_store_ = new net::CookieMonster(NULL, NULL);

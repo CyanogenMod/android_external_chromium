@@ -354,6 +354,19 @@ int HttpCache::Transaction::WriteMetadata(IOBuffer* buf, int buf_len,
                                        callback, true);
 }
 
+// Histogram data from the end of 2010 show the following distribution of
+// response headers:
+//
+//   Content-Length............... 87%
+//   Date......................... 98%
+//   Last-Modified................ 49%
+//   Etag......................... 19%
+//   Accept-Ranges: bytes......... 25%
+//   Accept-Ranges: none.......... 0.4%
+//   Strong Validator............. 50%
+//   Strong Validator + ranges.... 24%
+//   Strong Validator + CL........ 49%
+//
 bool HttpCache::Transaction::AddTruncatedFlag() {
   DCHECK(mode_ & WRITE);
 
@@ -383,6 +396,10 @@ LoadState HttpCache::Transaction::GetWriterLoadState() const {
   if (entry_ || !request_)
     return LOAD_STATE_IDLE;
   return LOAD_STATE_WAITING_FOR_CACHE;
+}
+
+const BoundNetLog& HttpCache::Transaction::net_log() const {
+  return net_log_;
 }
 
 //-----------------------------------------------------------------------------
@@ -566,13 +583,14 @@ int HttpCache::Transaction::DoLoop(int result) {
 int HttpCache::Transaction::DoGetBackend() {
   cache_pending_ = true;
   next_state_ = STATE_GET_BACKEND_COMPLETE;
-  net_log_.BeginEvent(NetLog::TYPE_HTTP_CACHE_WAITING, NULL);
+  net_log_.BeginEvent(NetLog::TYPE_HTTP_CACHE_GET_BACKEND, NULL);
   return cache_->GetBackendForTransaction(this);
 }
 
 int HttpCache::Transaction::DoGetBackendComplete(int result) {
   DCHECK(result == OK || result == ERR_FAILED);
-  net_log_.EndEvent(NetLog::TYPE_HTTP_CACHE_WAITING, NULL);
+  net_log_.EndEventWithNetErrorCode(NetLog::TYPE_HTTP_CACHE_GET_BACKEND,
+                                    result);
   cache_pending_ = false;
 
   if (!ShouldPassThrough()) {
@@ -688,8 +706,6 @@ int HttpCache::Transaction::DoSuccessfulSendRequest() {
     return OK;
   }
 
-  HistogramHeaders(new_response->headers);
-
   // Are we expecting a response to a conditional query?
   if (mode_ == READ_WRITE || mode_ == UPDATE) {
     if (new_response->headers->response_code() == 304 ||
@@ -746,7 +762,7 @@ int HttpCache::Transaction::DoOpenEntryComplete(int result) {
   // It is important that we go to STATE_ADD_TO_ENTRY whenever the result is
   // OK, otherwise the cache will end up with an active entry without any
   // transaction attached.
-  net_log_.EndEvent(NetLog::TYPE_HTTP_CACHE_OPEN_ENTRY, NULL);
+  net_log_.EndEventWithNetErrorCode(NetLog::TYPE_HTTP_CACHE_OPEN_ENTRY, result);
   cache_pending_ = false;
   if (result == OK) {
     next_state_ = STATE_ADD_TO_ENTRY;
@@ -789,7 +805,8 @@ int HttpCache::Transaction::DoCreateEntryComplete(int result) {
   // It is important that we go to STATE_ADD_TO_ENTRY whenever the result is
   // OK, otherwise the cache will end up with an active entry without any
   // transaction attached.
-  net_log_.EndEvent(NetLog::TYPE_HTTP_CACHE_CREATE_ENTRY, NULL);
+  net_log_.EndEventWithNetErrorCode(NetLog::TYPE_HTTP_CACHE_CREATE_ENTRY,
+                                    result);
   cache_pending_ = false;
   next_state_ = STATE_ADD_TO_ENTRY;
 
@@ -820,7 +837,7 @@ int HttpCache::Transaction::DoDoomEntry() {
 }
 
 int HttpCache::Transaction::DoDoomEntryComplete(int result) {
-  net_log_.EndEvent(NetLog::TYPE_HTTP_CACHE_DOOM_ENTRY, NULL);
+  net_log_.EndEventWithNetErrorCode(NetLog::TYPE_HTTP_CACHE_DOOM_ENTRY, result);
   next_state_ = STATE_CREATE_ENTRY;
   cache_pending_ = false;
   if (result == ERR_CACHE_RACE)
@@ -833,14 +850,15 @@ int HttpCache::Transaction::DoAddToEntry() {
   DCHECK(new_entry_);
   cache_pending_ = true;
   next_state_ = STATE_ADD_TO_ENTRY_COMPLETE;
-  net_log_.BeginEvent(NetLog::TYPE_HTTP_CACHE_WAITING, NULL);
+  net_log_.BeginEvent(NetLog::TYPE_HTTP_CACHE_ADD_TO_ENTRY, NULL);
   DCHECK(entry_lock_waiting_since_.is_null());
   entry_lock_waiting_since_ = base::TimeTicks::Now();
   return cache_->AddTransactionToEntry(new_entry_, this);
 }
 
 int HttpCache::Transaction::DoAddToEntryComplete(int result) {
-  net_log_.EndEvent(NetLog::TYPE_HTTP_CACHE_WAITING, NULL);
+  net_log_.EndEventWithNetErrorCode(NetLog::TYPE_HTTP_CACHE_ADD_TO_ENTRY,
+                                    result);
 
   const base::TimeDelta entry_lock_wait =
       base::TimeTicks::Now() - entry_lock_waiting_since_;
@@ -991,12 +1009,19 @@ int HttpCache::Transaction::DoTruncateCachedData() {
   cache_callback_->AddRef();  // Balanced in DoTruncateCachedDataComplete.
   if (!entry_)
     return OK;
+  if (net_log_.IsLoggingAllEvents())
+    net_log_.BeginEvent(NetLog::TYPE_HTTP_CACHE_WRITE_DATA, NULL);
 
   // Truncate the stream.
   return WriteToEntry(kResponseContentIndex, 0, NULL, 0, cache_callback_);
 }
 
 int HttpCache::Transaction::DoTruncateCachedDataComplete(int result) {
+  if (net_log_.IsLoggingAllEvents() && entry_) {
+    net_log_.EndEventWithNetErrorCode(NetLog::TYPE_HTTP_CACHE_WRITE_DATA,
+                                      result);
+  }
+
   // Balance the AddRef from DoTruncateCachedData.
   cache_callback_->Release();
   next_state_ = STATE_TRUNCATE_CACHED_METADATA;
@@ -1009,10 +1034,17 @@ int HttpCache::Transaction::DoTruncateCachedMetadata() {
   if (!entry_)
     return OK;
 
+  if (net_log_.IsLoggingAllEvents())
+    net_log_.BeginEvent(NetLog::TYPE_HTTP_CACHE_WRITE_INFO, NULL);
   return WriteToEntry(kMetadataIndex, 0, NULL, 0, cache_callback_);
 }
 
 int HttpCache::Transaction::DoTruncateCachedMetadataComplete(int result) {
+  if (net_log_.IsLoggingAllEvents() && entry_) {
+    net_log_.EndEventWithNetErrorCode(NetLog::TYPE_HTTP_CACHE_WRITE_INFO,
+                                      result);
+  }
+
   // Balance the AddRef from DoTruncateCachedMetadata.
   cache_callback_->Release();
 
@@ -1062,7 +1094,7 @@ int HttpCache::Transaction::DoCacheReadResponse() {
 
 int HttpCache::Transaction::DoCacheReadResponseComplete(int result) {
   cache_callback_->Release();  // Balance the AddRef from DoCacheReadResponse.
-  net_log_.EndEvent(NetLog::TYPE_HTTP_CACHE_READ_INFO, NULL);
+  net_log_.EndEventWithNetErrorCode(NetLog::TYPE_HTTP_CACHE_READ_INFO, result);
   if (result != io_buf_len_ ||
       !HttpCache::ParseResponseInfo(read_buf_->data(), io_buf_len_,
                                     &response_, &truncated_)) {
@@ -1102,10 +1134,14 @@ int HttpCache::Transaction::DoCacheReadResponseComplete(int result) {
 }
 
 int HttpCache::Transaction::DoCacheWriteResponse() {
+  if (net_log_.IsLoggingAllEvents() && entry_)
+    net_log_.BeginEvent(NetLog::TYPE_HTTP_CACHE_WRITE_INFO, NULL);
   return WriteResponseInfoToEntry(false);
 }
 
 int HttpCache::Transaction::DoCacheWriteTruncatedResponse() {
+  if (net_log_.IsLoggingAllEvents() && entry_)
+    net_log_.BeginEvent(NetLog::TYPE_HTTP_CACHE_WRITE_INFO, NULL);
   return WriteResponseInfoToEntry(true);
 }
 
@@ -1114,6 +1150,10 @@ int HttpCache::Transaction::DoCacheWriteResponseComplete(int result) {
   target_state_ = STATE_NONE;
   if (!entry_)
     return OK;
+  if (net_log_.IsLoggingAllEvents()) {
+    net_log_.EndEventWithNetErrorCode(NetLog::TYPE_HTTP_CACHE_WRITE_INFO,
+                                      result);
+  }
 
   // Balance the AddRef from WriteResponseInfoToEntry.
   write_headers_callback_->Release();
@@ -1141,7 +1181,7 @@ int HttpCache::Transaction::DoCacheReadMetadata() {
 
 int HttpCache::Transaction::DoCacheReadMetadataComplete(int result) {
   cache_callback_->Release();  // Balance the AddRef from DoCacheReadMetadata.
-  net_log_.EndEvent(NetLog::TYPE_HTTP_CACHE_READ_INFO, NULL);
+  net_log_.EndEventWithNetErrorCode(NetLog::TYPE_HTTP_CACHE_READ_INFO, result);
   if (result != response_.metadata->size()) {
     DLOG(ERROR) << "ReadData failed: " << result;
     return ERR_CACHE_READ_FAILURE;
@@ -1172,6 +1212,9 @@ int HttpCache::Transaction::DoCacheReadData() {
   DCHECK(entry_);
   next_state_ = STATE_CACHE_READ_DATA_COMPLETE;
   cache_callback_->AddRef();  // Balanced in DoCacheReadDataComplete.
+
+  if (net_log_.IsLoggingAllEvents())
+    net_log_.BeginEvent(NetLog::TYPE_HTTP_CACHE_READ_DATA, NULL);
   if (partial_.get()) {
     return partial_->CacheRead(entry_->disk_entry, read_buf_, io_buf_len_,
                                cache_callback_);
@@ -1183,6 +1226,10 @@ int HttpCache::Transaction::DoCacheReadData() {
 
 int HttpCache::Transaction::DoCacheReadDataComplete(int result) {
   cache_callback_->Release();  // Balance the AddRef from DoCacheReadData.
+  if (net_log_.IsLoggingAllEvents()) {
+    net_log_.EndEventWithNetErrorCode(NetLog::TYPE_HTTP_CACHE_READ_DATA,
+                                      result);
+  }
 
   if (!cache_)
     return ERR_UNEXPECTED;
@@ -1202,12 +1249,18 @@ int HttpCache::Transaction::DoCacheReadDataComplete(int result) {
 int HttpCache::Transaction::DoCacheWriteData(int num_bytes) {
   next_state_ = STATE_CACHE_WRITE_DATA_COMPLETE;
   write_len_ = num_bytes;
+  if (net_log_.IsLoggingAllEvents() && entry_)
+    net_log_.BeginEvent(NetLog::TYPE_HTTP_CACHE_WRITE_DATA, NULL);
   cache_callback_->AddRef();  // Balanced in DoCacheWriteDataComplete.
 
   return AppendResponseDataToEntry(read_buf_, num_bytes, cache_callback_);
 }
 
 int HttpCache::Transaction::DoCacheWriteDataComplete(int result) {
+  if (net_log_.IsLoggingAllEvents() && entry_) {
+    net_log_.EndEventWithNetErrorCode(NetLog::TYPE_HTTP_CACHE_WRITE_DATA,
+                                      result);
+  }
   // Balance the AddRef from DoCacheWriteData.
   cache_callback_->Release();
   if (!cache_)
@@ -1855,47 +1908,6 @@ int HttpCache::Transaction::DoPartialCacheReadCompleted(int result) {
     next_state_ = STATE_START_PARTIAL_CACHE_VALIDATION;
   }
   return result;
-}
-
-// For a 200 response we'll add a histogram with one bit set per header:
-//   0x01 Content-Length
-//   0x02 Date
-//   0x04 Last-Modified
-//   0x08 Etag
-//   0x10 Accept-Ranges: bytes
-//   0x20 Accept-Ranges: none
-//
-// TODO(rvargas): remove after having some results.
-void HttpCache::Transaction::HistogramHeaders(
-    const HttpResponseHeaders* headers) {
-  if (headers->response_code() != 200)
-    return;
-
-  int64 content_length = headers->GetContentLength();
-  int value = 0;
-  if (content_length > 0)
-    value = 1;
-
-  Time date;
-  if (headers->GetDateValue(&date))
-    value += 2;
-  if (headers->GetLastModifiedValue(&date))
-    value += 4;
-
-  std::string etag;
-  headers->EnumerateHeader(NULL, "etag", &etag);
-  if (!etag.empty())
-    value += 8;
-
-  std::string accept_ranges("Accept-Ranges");
-  if (headers->HasHeaderValue(accept_ranges, "bytes"))
-    value += 0x10;
-  if (headers->HasHeaderValue(accept_ranges, "none"))
-    value += 0x20;
-
-  // |value| goes from 0 to 63. Actually, the max value should be 47 (0x2f)
-  // but we'll see.
-  UMA_HISTOGRAM_ENUMERATION("HttpCache.ResponseHeaders", value, 65);
 }
 
 void HttpCache::Transaction::OnIOComplete(int result) {

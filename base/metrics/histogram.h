@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,10 +41,11 @@
 #include "base/logging.h"
 #include "base/time.h"
 
-class Lock;
 class Pickle;
 
 namespace base {
+
+class Lock;
 
 //------------------------------------------------------------------------------
 // Provide easy general purpose histogram in a macro, just like stats counters.
@@ -541,11 +542,7 @@ class Histogram : public base::RefCountedThreadSafe<Histogram> {
 // buckets.
 class LinearHistogram : public Histogram {
  public:
-  virtual ClassType histogram_type() const;
-
-  // Store a list of number/text values for use in rendering the histogram.
-  // The last element in the array has a null in its "description" slot.
-  virtual void SetRangeDescriptions(const DescriptionPair descriptions[]);
+  virtual ~LinearHistogram();
 
   /* minimum should start from 1. 0 is as minimum is invalid. 0 is an implicit
      default underflow bucket. */
@@ -555,7 +552,12 @@ class LinearHistogram : public Histogram {
       TimeDelta minimum, TimeDelta maximum, size_t bucket_count,
       Flags flags);
 
-  virtual ~LinearHistogram();
+  // Overridden from Histogram:
+  virtual ClassType histogram_type() const;
+
+  // Store a list of number/text values for use in rendering the histogram.
+  // The last element in the array has a null in its "description" slot.
+  virtual void SetRangeDescriptions(const DescriptionPair descriptions[]);
 
  protected:
   LinearHistogram(const std::string& name, Sample minimum,
@@ -609,10 +611,12 @@ class BooleanHistogram : public LinearHistogram {
 // CustomHistogram is a histogram for a set of custom integers.
 class CustomHistogram : public Histogram {
  public:
-  virtual ClassType histogram_type() const;
 
   static scoped_refptr<Histogram> FactoryGet(const std::string& name,
       const std::vector<Sample>& custom_ranges, Flags flags);
+
+  // Overridden from Histogram:
+  virtual ClassType histogram_type() const;
 
  protected:
   CustomHistogram(const std::string& name,
@@ -681,7 +685,7 @@ class StatisticsRecorder {
   static HistogramMap* histograms_;
 
   // lock protects access to the above map.
-  static Lock* lock_;
+  static base::Lock* lock_;
 
   // Dump all known histograms to log.
   static bool dump_on_exit_;

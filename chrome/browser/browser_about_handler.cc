@@ -16,13 +16,12 @@
 #include "base/metrics/histogram.h"
 #include "base/metrics/stats_table.h"
 #include "base/path_service.h"
-#include "base/platform_thread.h"
 #include "base/singleton.h"
 #include "base/stringprintf.h"
 #include "base/string_number_conversions.h"
 #include "base/string_piece.h"
 #include "base/string_util.h"
-#include "base/thread.h"
+#include "base/threading/thread.h"
 #include "base/tracked_objects.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/about_flags.h"
@@ -851,7 +850,9 @@ void AboutMemoryHandler::AppendProcess(ListValue* child_data,
   child_data->Append(child);
   BindProcessMetrics(child, info);
 
-  std::string child_label(ChildProcessInfo::GetTypeNameInEnglish(info->type));
+  std::string child_label(
+      ChildProcessInfo::GetFullTypeNameInEnglish(info->type,
+                                                 info->renderer_type));
   if (info->is_diagnostics)
     child_label.append(" (diagnostics)");
   child->SetString("child_name", child_label);
@@ -1078,14 +1079,8 @@ bool WillHandleBrowserAboutURL(GURL* url, Profile* profile) {
   if (chrome_about_handler::WillHandle(*url))
     return false;
 
-  // Anything else requires our special handler, make sure its initialized.
-  // We only need to register the AboutSource once and it is kept globally.
-  // There is currently no way to remove a data source.
-  static bool initialized = false;
-  if (!initialized) {
-    about_source = new AboutSource();
-    initialized = true;
-  }
+  // Anything else requires our special handler; make sure it's initialized.
+  InitializeAboutDataSource();
 
   // Special case about:memory to go through a redirect before ending up on
   // the final page. See GetAboutMemoryRedirectResponse above for why.
@@ -1101,6 +1096,16 @@ bool WillHandleBrowserAboutURL(GURL* url, Profile* profile) {
   about_url.append(url->path());
   *url = GURL(about_url);
   return true;
+}
+
+void InitializeAboutDataSource() {
+  // We only need to register the AboutSource once and it is kept globally.
+  // There is currently no way to remove a data source.
+  static bool initialized = false;
+  if (!initialized) {
+    about_source = new AboutSource();
+    initialized = true;
+  }
 }
 
 // This function gets called with the fixed-up chrome: URLs, so we have to

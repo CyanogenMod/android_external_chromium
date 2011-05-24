@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,13 +19,16 @@
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/path_service.h"
-#include "base/platform_thread.h"
-#include "base/scoped_handle.h"
 #include "base/scoped_temp_dir.h"
+#include "base/threading/platform_thread.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
+
+#if defined(OS_WIN)
+#include "base/win/scoped_handle.h"
+#endif
 
 // This macro helps avoid wrapped lines in the test structs.
 #define FPL(x) FILE_PATH_LITERAL(x)
@@ -251,17 +254,6 @@ static const struct filename_case {
 #endif
 };
 
-#if defined(OS_WIN)
-// This function is deprecated on non-Windows.
-TEST_F(FileUtilTest, GetFilenameFromPath) {
-  for (unsigned int i = 0; i < arraysize(filename_cases); ++i) {
-    const filename_case& value = filename_cases[i];
-    std::wstring result = file_util::GetFilenameFromPath(value.path);
-    EXPECT_EQ(value.filename, result);
-  }
-}
-#endif
-
 // Test finding the file type from a path name
 static const struct extension_case {
   const wchar_t* path;
@@ -326,18 +318,6 @@ static const struct dir_case {
 #endif
 };
 
-#if defined(OS_WIN)
-// This function is deprecated, and only exists on Windows anymore.
-TEST_F(FileUtilTest, GetDirectoryFromPath) {
-  for (unsigned int i = 0; i < arraysize(dir_cases); ++i) {
-    const dir_case& dir = dir_cases[i];
-    const std::wstring parent =
-        file_util::GetDirectoryFromPath(dir.full_path);
-    EXPECT_EQ(dir.directory, parent);
-  }
-}
-#endif
-
 // Flaky, http://crbug.com/46246
 TEST_F(FileUtilTest, FLAKY_CountFilesCreatedAfter) {
   // Create old file (that we don't want to count)
@@ -347,11 +327,11 @@ TEST_F(FileUtilTest, FLAKY_CountFilesCreatedAfter) {
 
   // Age to perfection
 #if defined(OS_WIN)
-  PlatformThread::Sleep(100);
+  base::PlatformThread::Sleep(100);
 #elif defined(OS_POSIX)
   // We need to wait at least one second here because the precision of
   // file creation time is one second.
-  PlatformThread::Sleep(1500);
+  base::PlatformThread::Sleep(1500);
 #endif
 
   // Establish our cutoff time
@@ -494,7 +474,7 @@ TEST_F(FileUtilTest, NormalizeFilePathReparsePoints) {
 
   FilePath to_sub_a = base_b.Append(FPL("to_sub_a"));
   ASSERT_TRUE(file_util::CreateDirectory(to_sub_a));
-  ScopedHandle reparse_to_sub_a(
+  base::win::ScopedHandle reparse_to_sub_a(
       ::CreateFile(to_sub_a.value().c_str(),
                    FILE_ALL_ACCESS,
                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -507,7 +487,7 @@ TEST_F(FileUtilTest, NormalizeFilePathReparsePoints) {
 
   FilePath to_base_b = base_b.Append(FPL("to_base_b"));
   ASSERT_TRUE(file_util::CreateDirectory(to_base_b));
-  ScopedHandle reparse_to_base_b(
+  base::win::ScopedHandle reparse_to_base_b(
       ::CreateFile(to_base_b.value().c_str(),
                    FILE_ALL_ACCESS,
                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -520,7 +500,7 @@ TEST_F(FileUtilTest, NormalizeFilePathReparsePoints) {
 
   FilePath to_sub_long = base_b.Append(FPL("to_sub_long"));
   ASSERT_TRUE(file_util::CreateDirectory(to_sub_long));
-  ScopedHandle reparse_to_sub_long(
+  base::win::ScopedHandle reparse_to_sub_long(
       ::CreateFile(to_sub_long.value().c_str(),
                    FILE_ALL_ACCESS,
                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,

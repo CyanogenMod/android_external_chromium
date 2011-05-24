@@ -11,7 +11,7 @@
 #include "base/file_util.h"
 #include "base/path_service.h"
 #include "base/singleton.h"
-#include "base/thread_restrictions.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_thread.h"
@@ -159,7 +159,7 @@ class PrintDialogCloudTest : public InProcessBrowserTest {
 
   virtual void TearDown() {
     if (handler_added_) {
-      URLRequestFilter* filter = URLRequestFilter::GetInstance();
+      net::URLRequestFilter* filter = net::URLRequestFilter::GetInstance();
       filter->RemoveHostnameHandler(scheme_, host_name_);
       handler_added_ = false;
       TestController::GetInstance()->set_delegate(NULL);
@@ -173,7 +173,7 @@ class PrintDialogCloudTest : public InProcessBrowserTest {
   // individual test functions seems to fix that.
   void AddTestHandlers() {
     if (!handler_added_) {
-      URLRequestFilter* filter = URLRequestFilter::GetInstance();
+      net::URLRequestFilter* filter = net::URLRequestFilter::GetInstance();
       GURL cloud_print_service_url =
           CloudPrintURL(browser()->profile()).
           GetCloudPrintServiceURL();

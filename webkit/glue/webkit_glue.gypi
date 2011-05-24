@@ -1,4 +1,4 @@
-# Copyright (c) 2010 The Chromium Authors. All rights reserved.
+# Copyright (c) 2011 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -12,7 +12,8 @@
       }],
     ],
 
-    'grit_info_cmd': ['python', '<(DEPTH)/tools/grit/grit_info.py'],
+    'grit_info_cmd': ['python', '<(DEPTH)/tools/grit/grit_info.py',
+                      '<@(grit_defines)'],
     'grit_cmd': ['python', '<(DEPTH)/tools/grit/grit.py'],
   },
   'targets': [
@@ -37,7 +38,8 @@
           ],
           'action': ['<@(grit_cmd)',
                      '-i', '<(input_path)', 'build',
-                     '-o', '<(grit_out_dir)'],
+                     '-o', '<(grit_out_dir)',
+                     '<@(grit_defines)'],
           'message': 'Generating resources from <(input_path)',
         },
         {
@@ -53,7 +55,8 @@
           ],
           'action': ['<@(grit_cmd)',
                      '-i', '<(input_path)', 'build',
-                     '-o', '<(grit_out_dir)'],
+                     '-o', '<(grit_out_dir)',
+                     '<@(grit_defines)'],
           'message': 'Generating resources from <(input_path)',
         },
       ],
@@ -89,7 +92,8 @@
           ],
           'action': ['<@(grit_cmd)',
                      '-i', '<(input_path)', 'build',
-                     '-o', '<(grit_out_dir)'],
+                     '-o', '<(grit_out_dir)',
+                     '<@(grit_defines)'],
           'message': 'Generating resources from <(input_path)',
         },
       ],
@@ -117,7 +121,7 @@
           'action_name': 'webkit_version',
           'inputs': [
             '../build/webkit_version.py',
-            '<(webkit_src_dir)/WebCore/Configurations/Version.xcconfig',
+            '<(webkit_src_dir)/Source/WebCore/Configurations/Version.xcconfig',
           ],
           'outputs': [
             '<(INTERMEDIATE_DIR)/webkit_version.h',
@@ -281,12 +285,13 @@
         '../plugins/ppapi/ppb_file_ref_impl.h',
         '../plugins/ppapi/ppb_file_system_impl.cc',
         '../plugins/ppapi/ppb_file_system_impl.h',
-        '../plugins/ppapi/ppb_flash.h',
         '../plugins/ppapi/ppb_flash_impl.cc',
         '../plugins/ppapi/ppb_flash_impl.h',
         '../plugins/ppapi/ppb_flash_impl_linux.cc',
         '../plugins/ppapi/ppb_font_impl.cc',
         '../plugins/ppapi/ppb_font_impl.h',
+        '../plugins/ppapi/ppb_gles_chromium_texture_mapping_impl.cc',
+        '../plugins/ppapi/ppb_gles_chromium_texture_mapping_impl.h',
         '../plugins/ppapi/ppb_graphics_2d_impl.cc',
         '../plugins/ppapi/ppb_graphics_2d_impl.h',
         '../plugins/ppapi/ppb_graphics_3d_impl.cc',
@@ -302,6 +307,8 @@
         '../plugins/ppapi/ppb_pdf_impl.h',
         '../plugins/ppapi/ppb_scrollbar_impl.cc',
         '../plugins/ppapi/ppb_scrollbar_impl.h',
+        '../plugins/ppapi/ppb_surface_3d_impl.cc',
+        '../plugins/ppapi/ppb_surface_3d_impl.h',
         '../plugins/ppapi/ppb_transport_impl.cc',
         '../plugins/ppapi/ppb_transport_impl.h',
         '../plugins/ppapi/ppb_url_loader_impl.cc',
@@ -420,6 +427,7 @@
         'websocketstreamhandle_impl.cc',
         'websocketstreamhandle_impl.h',
         'webthemeengine_impl_linux.cc',
+        'webthemeengine_impl_mac.cc',
         'webthemeengine_impl_win.cc',
         'weburlloader_impl.cc',
         'weburlloader_impl.h',
@@ -463,6 +471,9 @@
         }],
         ['OS!="mac"', {
           'sources/': [['exclude', '_mac\\.(cc|mm)$']],
+          'sources!': [
+            'webthemeengine_impl_mac.cc',
+          ],          
         }, {  # else: OS=="mac"
           'sources/': [['exclude', 'plugin_(lib|list)_posix\\.cc$']],
           'link_settings': {

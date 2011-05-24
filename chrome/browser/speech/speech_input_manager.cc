@@ -8,16 +8,20 @@
 #include <string>
 
 #include "app/l10n_util.h"
+#include "base/command_line.h"
+#include "base/lazy_instance.h"
 #include "base/lock.h"
 #include "base/ref_counted.h"
-#include "base/lazy_instance.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_thread.h"
+#include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/speech/speech_input_bubble_controller.h"
 #include "chrome/browser/speech/speech_recognizer.h"
 #include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/browser/tab_contents/tab_util.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
 #include "media/audio/audio_manager.h"
@@ -135,7 +139,6 @@ class SpeechInputManagerImpl : public SpeechInputManager,
   // Starts/restarts recognition for an existing request.
   void StartRecognitionForRequest(int caller_id);
 
-  SpeechInputManagerDelegate* delegate_;
   typedef std::map<int, SpeechInputRequest> SpeechRecognizerMap;
   SpeechRecognizerMap requests_;
   int recording_caller_id_;
@@ -148,6 +151,26 @@ static ::base::LazyInstance<SpeechInputManagerImpl> g_speech_input_manager_impl(
 
 SpeechInputManager* SpeechInputManager::Get() {
   return g_speech_input_manager_impl.Pointer();
+}
+
+bool SpeechInputManager::IsFeatureEnabled() {
+  bool enabled = true;
+  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+
+  if (command_line.HasSwitch(switches::kDisableSpeechInput)) {
+    enabled = false;
+#if defined(GOOGLE_CHROME_BUILD)
+  } else if (!command_line.HasSwitch(switches::kEnableSpeechInput)) {
+    // We need to evaluate whether IO is OK here. http://crbug.com/63335.
+    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    // Official Chrome builds have speech input enabled by default only in the
+    // dev channel.
+    std::string channel = platform_util::GetVersionStringModifier();
+    enabled = (channel == "dev");
+#endif
+  }
+
+  return enabled;
 }
 
 SpeechInputManagerImpl::SpeechInputManagerImpl()

@@ -13,6 +13,7 @@
 #include "app/resource_bundle.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
+#include "chrome/browser/google/google_util.h"
 #include "chrome/browser/gtk/cairo_cached_surface.h"
 #include "chrome/browser/gtk/gtk_chrome_link_button.h"
 #include "chrome/browser/gtk/gtk_theme_provider.h"
@@ -78,8 +79,9 @@ void OnLinkButtonClick(GtkWidget* button, const char* url) {
 }
 
 const char* GetChromiumUrl() {
-  static std::string url(l10n_util::GetStringUTF8(IDS_CHROMIUM_PROJECT_URL));
-  return url.c_str();
+  static GURL url = google_util::AppendGoogleLocaleParam(
+      GURL(chrome::kChromiumProjectURL));
+  return url.spec().c_str();
 }
 
 gboolean OnEventBoxExpose(GtkWidget* event_box,
@@ -253,18 +255,18 @@ void ShowAboutDialogForProfile(GtkWindow* parent, Profile* profile) {
   gtk_box_pack_start(GTK_BOX(vbox), gtk_label_new(""), FALSE, FALSE, 0);
 
   std::vector<size_t> url_offsets;
-  std::wstring text = l10n_util::GetStringF(IDS_ABOUT_TERMS_OF_SERVICE,
-                                            std::wstring(),
-                                            std::wstring(),
-                                            &url_offsets);
+  string16 text = l10n_util::GetStringFUTF16(IDS_ABOUT_TERMS_OF_SERVICE,
+                                             string16(),
+                                             string16(),
+                                             &url_offsets);
 
   GtkWidget* tos_chunk1 = gtk_label_new(
-      WideToUTF8(text.substr(0, url_offsets[0])).c_str());
+      UTF16ToUTF8(text.substr(0, url_offsets[0])).c_str());
   gtk_misc_set_alignment(GTK_MISC(tos_chunk1), 0.0, 0.5);
   GtkWidget* tos_link = gtk_chrome_link_button_new(
       l10n_util::GetStringUTF8(IDS_TERMS_OF_SERVICE).c_str());
   GtkWidget* tos_chunk2 = gtk_label_new(
-      WideToUTF8(text.substr(url_offsets[0])).c_str());
+      UTF16ToUTF8(text.substr(url_offsets[0])).c_str());
   gtk_misc_set_alignment(GTK_MISC(tos_chunk2), 0.0, 0.5);
 
   GtkWidget* tos_hbox = gtk_hbox_new(FALSE, 0);

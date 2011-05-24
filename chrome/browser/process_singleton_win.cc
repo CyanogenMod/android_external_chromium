@@ -1,18 +1,18 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/process_singleton.h"
 
 #include "app/l10n_util.h"
-#include "app/win_util.h"
+#include "app/win/hwnd_util.h"
 #include "base/base_paths.h"
 #include "base/command_line.h"
 #include "base/file_path.h"
 #include "base/path_service.h"
 #include "base/process_util.h"
-#include "base/scoped_handle.h"
-#include "base/win_util.h"
+#include "base/utf_string_conversions.h"
+#include "base/win/scoped_handle.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/extensions_startup.h"
 #include "chrome/browser/platform_util.h"
@@ -53,7 +53,8 @@ ProcessSingleton::ProcessSingleton(const FilePath& user_data_dir)
     // since it isn't guaranteed we will get it. It is better to create it
     // without ownership and explicitly get the ownership afterward.
     std::wstring mutex_name(L"Local\\ChromeProcessSingletonStartup!");
-    ScopedHandle only_me(CreateMutex(NULL, FALSE, mutex_name.c_str()));
+    base::win::ScopedHandle only_me(
+        CreateMutex(NULL, FALSE, mutex_name.c_str()));
     DCHECK(only_me.Get() != NULL) << "GetLastError = " << GetLastError();
 
     // This is how we acquire the mutex (as opposed to the initial ownership).
@@ -143,8 +144,10 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcess() {
 
   // If there is a visible browser window, ask the user before killing it.
   if (visible_window) {
-    std::wstring text = l10n_util::GetString(IDS_BROWSER_HUNGBROWSER_MESSAGE);
-    std::wstring caption = l10n_util::GetString(IDS_PRODUCT_NAME);
+    std::wstring text =
+        UTF16ToWide(l10n_util::GetStringUTF16(IDS_BROWSER_HUNGBROWSER_MESSAGE));
+    std::wstring caption =
+        UTF16ToWide(l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
     if (!platform_util::SimpleYesNoBox(NULL, caption, text)) {
       // The user denied. Quit silently.
       return PROCESS_NOTIFIED;
@@ -192,7 +195,7 @@ bool ProcessSingleton::Create() {
                          0, 0, 0, 0, 0, HWND_MESSAGE, 0, hinst, 0);
   DCHECK(window_);
 
-  win_util::SetWindowUserData(window_, this);
+  app::win::SetWindowUserData(window_, this);
   return true;
 }
 

@@ -1,0 +1,13 @@
+K 13
+svn:eol-style
+V 2
+LF
+K 14
+svn:executable
+V 1
+*
+K 13
+svn:mergeinfo
+V 80
+/branches/chrome_webkit_merge_branch/chrome/tools/build/apply_locales.py:69-2775
+END

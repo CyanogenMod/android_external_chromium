@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,8 @@
 #include "base/scoped_ptr.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
-#include "base/thread.h"
+#include "base/threading/thread.h"
+#include "base/win/scoped_handle.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/io_buffer.h"
 #include "net/base/test_completion_callback.h"
@@ -326,7 +327,7 @@ bool MasterSM::DoInit() {
                                             FilePath::FromWStringHack(path_), 0,
                                             false,
                                             cache_thread_.message_loop_proxy(),
-                                            &cache, &cb);
+                                            NULL, &cache, &cb);
     if (cb.GetResult(rv) != net::OK) {
       printf("Unable to initialize new files\n");
       return false;
@@ -607,7 +608,7 @@ SlaveSM::SlaveSM(const std::wstring& path, HANDLE channel)
                                           FilePath::FromWStringHack(path), 0,
                                           false,
                                           cache_thread_.message_loop_proxy(),
-                                          &cache, &cb);
+                                          NULL, &cache, &cb);
   if (cb.GetResult(rv) != net::OK) {
     printf("Unable to open cache files\n");
     return;
@@ -912,7 +913,7 @@ int CopyCache(const std::wstring& output_path, HANDLE pipe, bool copy_to_text) {
 int RunSlave(const std::wstring& input_path, const std::wstring& pipe_number) {
   MessageLoop loop(MessageLoop::TYPE_IO);
 
-  ScopedHandle pipe(OpenServer(pipe_number));
+  base::win::ScopedHandle pipe(OpenServer(pipe_number));
   if (!pipe.IsValid()) {
     printf("Unable to open the server pipe\n");
     return -1;

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,15 @@
 #include <dwmapi.h>
 #include <shobjidl.h>
 
-#include "app/win_util.h"
+#include "app/win/hwnd_util.h"
+#include "app/win/window_impl.h"
+#include "app/win/shell.h"
 #include "base/command_line.h"
 #include "base/scoped_comptr_win.h"
-#include "base/scoped_handle_win.h"
 #include "base/scoped_native_library.h"
-#include "base/waitable_event.h"
+#include "base/synchronization/waitable_event.h"
+#include "base/win/scoped_gdi_object.h"
+#include "base/win/scoped_hdc.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/app_icon_win.h"
 #include "chrome/browser/browser_list.h"
@@ -31,7 +34,6 @@
 #include "chrome/installer/util/browser_distribution.h"
 #include "gfx/gdi_util.h"
 #include "gfx/icon_util.h"
-#include "gfx/window_impl.h"
 #include "skia/ext/image_operations.h"
 #include "skia/ext/platform_canvas.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -250,7 +252,7 @@ class RegisterThumbnailTask : public Task {
     // browser icon in the taskbar.
     // TODO(mattm): This should use ShellIntegration::GetChromiumAppId to work
     // properly with multiple profiles.
-    win_util::SetAppIdForWindow(
+    app::win::SetAppIdForWindow(
         BrowserDistribution::GetDistribution()->GetBrowserAppId(), window_);
 
     // Register this place-holder window to the taskbar as a child of
@@ -338,7 +340,7 @@ class SendThumbnailTask : public Task {
     // Create a DIB, copy the resized image, and send the DIB to Windows.
     // We can delete this DIB after sending it to Windows since Windows creates
     // a copy of the DIB and use it.
-    ScopedHDC hdc(CreateCompatibleDC(NULL));
+    base::win::ScopedHDC hdc(CreateCompatibleDC(NULL));
     if (!hdc.Get()) {
       LOG(ERROR) << "cannot create a memory DC: " << GetLastError();
       return;
@@ -349,12 +351,13 @@ class SendThumbnailTask : public Task {
                             &header);
 
     void* bitmap_data = NULL;
-    ScopedBitmap bitmap(CreateDIBSection(hdc,
-                                         reinterpret_cast<BITMAPINFO*>(&header),
-                                         DIB_RGB_COLORS,
-                                         &bitmap_data,
-                                         NULL,
-                                         0));
+    base::win::ScopedBitmap bitmap(
+        CreateDIBSection(hdc,
+                         reinterpret_cast<BITMAPINFO*>(&header),
+                         DIB_RGB_COLORS,
+                         &bitmap_data,
+                         NULL,
+                         0));
 
     if (!bitmap.Get() || !bitmap_data) {
       LOG(ERROR) << "cannot create a bitmap: " << GetLastError();
@@ -452,7 +455,7 @@ class SendLivePreviewTask : public Task {
     // tab image into the DIB, and send it to Windows.
     // We don't need to paste this tab image onto the frame image since Windows
     // automatically pastes it for us.
-    ScopedHDC hdc(CreateCompatibleDC(NULL));
+    base::win::ScopedHDC hdc(CreateCompatibleDC(NULL));
     if (!hdc.Get()) {
       LOG(ERROR) << "cannot create a memory DC: " << GetLastError();
       return;
@@ -463,10 +466,11 @@ class SendLivePreviewTask : public Task {
                             &header);
 
     void* bitmap_data = NULL;
-    ScopedBitmap bitmap(CreateDIBSection(hdc.Get(),
-                                         reinterpret_cast<BITMAPINFO*>(&header),
-                                         DIB_RGB_COLORS, &bitmap_data,
-                                         NULL, 0));
+    base::win::ScopedBitmap bitmap(
+        CreateDIBSection(hdc.Get(),
+                         reinterpret_cast<BITMAPINFO*>(&header),
+                         DIB_RGB_COLORS, &bitmap_data,
+                         NULL, 0));
     if (!bitmap.Get() || !bitmap_data) {
       LOG(ERROR) << "cannot create a bitmap: " << GetLastError();
       return;
@@ -544,7 +548,7 @@ class SendLivePreviewTask : public Task {
 // * Translating received messages for TabStrip.
 // This class is used by the AeroPeekManager class, which is a proxy
 // between TabStrip and Windows 7.
-class AeroPeekWindow : public gfx::WindowImpl {
+class AeroPeekWindow : public app::win::WindowImpl {
  public:
   AeroPeekWindow(HWND frame_window,
                  AeroPeekWindowDelegate* delegate,
@@ -682,7 +686,7 @@ class AeroPeekWindow : public gfx::WindowImpl {
 
   // The favicon for this tab.
   SkBitmap favicon_bitmap_;
-  ScopedHICON favicon_;
+  base::win::ScopedHICON favicon_;
 
   // The icon used by the frame window.
   // This icon is used when this tab doesn't have a favicon.
@@ -1012,7 +1016,7 @@ bool AeroPeekManager::Enabled() {
   // flooding users with tab thumbnails.
   const CommandLine* command_line = CommandLine::ForCurrentProcess();
   return base::win::GetVersion() >= base::win::VERSION_WIN7 &&
-      win_util::ShouldUseVistaFrame() &&
+      app::win::ShouldUseVistaFrame() &&
       !command_line->HasSwitch(switches::kApp) &&
       command_line->HasSwitch(switches::kEnableAeroPeekTabs);
 }

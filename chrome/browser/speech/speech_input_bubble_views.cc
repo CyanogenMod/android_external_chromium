@@ -13,10 +13,6 @@
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/views/info_bubble.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
 #include "gfx/canvas.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -66,7 +62,7 @@ ContentView::ContentView(SpeechInputBubbleDelegate* delegate)
   const gfx::Font& font = rb.GetFont(ResourceBundle::MediumFont);
 
   heading_ = new views::Label(
-      l10n_util::GetString(IDS_SPEECH_INPUT_BUBBLE_HEADING));
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_SPEECH_INPUT_BUBBLE_HEADING)));
   heading_->SetFont(font);
   heading_->SetHorizontalAlignment(views::Label::ALIGN_CENTER);
   AddChildView(heading_);
@@ -83,12 +79,14 @@ ContentView::ContentView(SpeechInputBubbleDelegate* delegate)
   icon_->SetHorizontalAlignment(views::ImageView::CENTER);
   AddChildView(icon_);
 
-  cancel_ = new views::NativeButton(this, l10n_util::GetString(IDS_CANCEL));
+  cancel_ = new views::NativeButton(
+      this,
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_CANCEL)));
   AddChildView(cancel_);
 
   try_again_ = new views::NativeButton(
       this,
-      l10n_util::GetString(IDS_SPEECH_INPUT_TRY_AGAIN));
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_SPEECH_INPUT_TRY_AGAIN)));
   AddChildView(try_again_);
 }
 
@@ -103,11 +101,13 @@ void ContentView::UpdateLayout(SpeechInputBubbleBase::DisplayMode mode,
   if (mode == SpeechInputBubbleBase::DISPLAY_MODE_MESSAGE) {
     message_->SetText(UTF16ToWideHack(message_text));
   } else if (mode == SpeechInputBubbleBase::DISPLAY_MODE_RECORDING) {
-    heading_->SetText(l10n_util::GetString(IDS_SPEECH_INPUT_BUBBLE_HEADING));
+    heading_->SetText(UTF16ToWide(
+        l10n_util::GetStringUTF16(IDS_SPEECH_INPUT_BUBBLE_HEADING)));
     icon_->SetImage(*ResourceBundle::GetSharedInstance().GetBitmapNamed(
         IDR_SPEECH_INPUT_MIC_EMPTY));
   } else {
-    heading_->SetText(l10n_util::GetString(IDS_SPEECH_INPUT_BUBBLE_WORKING));
+    heading_->SetText(UTF16ToWide(
+        l10n_util::GetStringUTF16(IDS_SPEECH_INPUT_BUBBLE_WORKING)));
   }
 }
 
@@ -196,8 +196,7 @@ void ContentView::Layout() {
 // Implementation of SpeechInputBubble.
 class SpeechInputBubbleImpl
     : public SpeechInputBubbleBase,
-      public InfoBubbleDelegate,
-      public NotificationObserver {
+      public InfoBubbleDelegate {
  public:
   SpeechInputBubbleImpl(TabContents* tab_contents,
                         Delegate* delegate,
@@ -216,11 +215,6 @@ class SpeechInputBubbleImpl
   // |element_rect| is the html element's bounds in page coordinates.
   gfx::Rect GetInfoBubbleTarget(const gfx::Rect& element_rect);
 
-  // NotificationObserver implementation.
-  virtual void Observe(NotificationType type,
-                       const NotificationSource& source,
-                       const NotificationDetails& details);
-
   // InfoBubbleDelegate
   virtual void InfoBubbleClosing(InfoBubble* info_bubble,
                                  bool closed_by_escape);
@@ -230,9 +224,7 @@ class SpeechInputBubbleImpl
  private:
   Delegate* delegate_;
   InfoBubble* info_bubble_;
-  TabContents* tab_contents_;
   ContentView* bubble_content_;
-  NotificationRegistrar registrar_;
   gfx::Rect element_rect_;
 
   // Set to true if the object is being destroyed normally instead of the
@@ -245,9 +237,9 @@ class SpeechInputBubbleImpl
 SpeechInputBubbleImpl::SpeechInputBubbleImpl(TabContents* tab_contents,
                                              Delegate* delegate,
                                              const gfx::Rect& element_rect)
-    : delegate_(delegate),
+    : SpeechInputBubbleBase(tab_contents),
+      delegate_(delegate),
       info_bubble_(NULL),
-      tab_contents_(tab_contents),
       bubble_content_(NULL),
       element_rect_(element_rect),
       did_invoke_close_(false) {
@@ -261,26 +253,14 @@ SpeechInputBubbleImpl::~SpeechInputBubbleImpl() {
 gfx::Rect SpeechInputBubbleImpl::GetInfoBubbleTarget(
     const gfx::Rect& element_rect) {
   gfx::Rect container_rect;
-  tab_contents_->GetContainerBounds(&container_rect);
+  tab_contents()->GetContainerBounds(&container_rect);
   return gfx::Rect(
       container_rect.x() + element_rect.x() + kBubbleTargetOffsetX,
       container_rect.y() + element_rect.y() + element_rect.height(), 1, 1);
 }
 
-void SpeechInputBubbleImpl::Observe(NotificationType type,
-                                    const NotificationSource& source,
-                                    const NotificationDetails& details) {
-  if (type == NotificationType::TAB_CONTENTS_DESTROYED) {
-    delegate_->InfoBubbleButtonClicked(SpeechInputBubble::BUTTON_CANCEL);
-  } else {
-    NOTREACHED() << "Unknown notification";
-  }
-}
-
 void SpeechInputBubbleImpl::InfoBubbleClosing(InfoBubble* info_bubble,
                                               bool closed_by_escape) {
-  registrar_.Remove(this, NotificationType::TAB_CONTENTS_DESTROYED,
-                    Source<TabContents>(tab_contents_));
   info_bubble_ = NULL;
   bubble_content_ = NULL;
   if (!did_invoke_close_)
@@ -303,7 +283,7 @@ void SpeechInputBubbleImpl::Show() {
   UpdateLayout();
 
   views::Widget* parent = views::Widget::GetWidgetFromNativeWindow(
-      tab_contents_->view()->GetTopLevelNativeWindow());
+      tab_contents()->view()->GetTopLevelNativeWindow());
   info_bubble_ = InfoBubble::Show(parent,
                                   GetInfoBubbleTarget(element_rect_),
                                   BubbleBorder::TOP_LEFT, bubble_content_,
@@ -315,9 +295,6 @@ void SpeechInputBubbleImpl::Show() {
   // to end so the caller can manage this object's life cycle like a normal
   // stack based or member variable object.
   info_bubble_->set_fade_away_on_close(false);
-
-  registrar_.Add(this, NotificationType::TAB_CONTENTS_DESTROYED,
-                 Source<TabContents>(tab_contents_));
 }
 
 void SpeechInputBubbleImpl::Hide() {

@@ -8,12 +8,13 @@
 #include "app/l10n_util_mac.h"
 #include "app/resource_bundle.h"
 #include "base/logging.h"
-#include "base/mac_util.h"
+#include "base/mac/mac_util.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
+#include "chrome/browser/google/google_util.h"
 #include "chrome/browser/platform_util.h"
 #import "chrome/browser/ui/cocoa/background_tile_view.h"
 #import "chrome/browser/ui/cocoa/keystone_glue.h"
@@ -100,7 +101,7 @@ void AttributedStringAppendHyperlink(NSMutableAttributedString* attr_str,
 @implementation AboutWindowController
 
 - (id)initWithProfile:(Profile*)profile {
-  NSString* nibPath = [mac_util::MainAppBundle() pathForResource:@"About"
+  NSString* nibPath = [base::mac::MainAppBundle() pathForResource:@"About"
                                                           ofType:@"nib"];
   if ((self = [super initWithWindowNibPath:nibPath owner:self])) {
     profile_ = profile;
@@ -128,7 +129,7 @@ void AttributedStringAppendHyperlink(NSMutableAttributedString* attr_str,
 static BOOL recentShownUserActionFailedStatus = NO;
 
 - (void)awakeFromNib {
-  NSBundle* bundle = mac_util::MainAppBundle();
+  NSBundle* bundle = base::mac::MainAppBundle();
   NSString* chromeVersion =
       [bundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
 
@@ -660,7 +661,9 @@ static BOOL recentShownUserActionFailedStatus = NO;
   NSString* kEndLinkChr = @"END_LINK_CHR";
   NSString* kEndLinkOss = @"END_LINK_OSS";
   // The CHR link should go to here
-  NSString* kChromiumProject = l10n_util::GetNSString(IDS_CHROMIUM_PROJECT_URL);
+  GURL url = google_util::AppendGoogleLocaleParam(
+      GURL(chrome::kChromiumProjectURL));
+  NSString* kChromiumProject = base::SysUTF8ToNSString(url.spec());
   // The OSS link should go to here
   NSString* kAcknowledgements =
       [NSString stringWithUTF8String:chrome::kAboutCreditsURL];

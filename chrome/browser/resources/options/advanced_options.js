@@ -137,6 +137,10 @@ var OptionsPage = options.OptionsPage;
           chrome.send('showCloudPrintManagePage');
         };
       }
+
+      $('remotingSetupButton').onclick = function(event) {
+        chrome.send('showRemotingSetupDialog');
+      }
     }
   };
 
@@ -251,10 +255,16 @@ var OptionsPage = options.OptionsPage;
     }
   };
 
-  AdvancedOptions.HideCloudPrintProxySection = function() {
+  AdvancedOptions.RemoveCloudPrintProxySection = function() {
     if (!cr.isChromeOS) {
-      $('cloud-print-proxy-section').style.display = 'none';
+      var proxySectionElm = $('cloud-print-proxy-section');
+      proxySectionElm.parentNode.removeChild(proxySectionElm);
     }
+  };
+
+  AdvancedOptions.RemoveRemotingSection = function() {
+    var proxySectionElm = $('remoting-section');
+    proxySectionElm.parentNode.removeChild(proxySectionElm);
   };
 
   // Export

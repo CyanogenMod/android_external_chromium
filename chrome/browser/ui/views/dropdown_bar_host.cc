@@ -5,21 +5,32 @@
 #include "chrome/browser/views/dropdown_bar_host.h"
 
 #include "app/keyboard_codes.h"
-#include "app/slide_animation.h"
-#include "base/scoped_handle.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/dropdown_bar_view.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "gfx/path.h"
 #include "gfx/scrollbar_size.h"
+#include "ui/base/animation/slide_animation.h"
 #include "views/focus/external_focus_tracker.h"
 #include "views/focus/view_storage.h"
 #include "views/widget/widget.h"
 
-#if defined(OS_LINUX)
+#if defined(OS_WIN)
+#include "base/win/scoped_gdi_object.h"
+#elif defined(OS_LINUX)
 #include "app/scoped_handle_gtk.h"
 #endif
+
+namespace {
+
+#if defined(OS_WIN)
+typedef base::win::ScopedRegion ScopedPlatformRegion;
+#elif defined(OS_LINUX)
+typedef ScopedRegion ScopedPlatformRegion;
+#endif
+
+}  // namespace
 
 using gfx::Path;
 
@@ -57,7 +68,7 @@ void DropdownBarHost::Init(DropdownBarView* view) {
   }
 
   // Start the process of animating the opening of the widget.
-  animation_.reset(new SlideAnimation(this));
+  animation_.reset(new ui::SlideAnimation(this));
 }
 
 DropdownBarHost::~DropdownBarHost() {
@@ -139,9 +150,9 @@ void DropdownBarHost::FocusWillChange(views::View* focused_before,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// DropdownBarHost, AnimationDelegate implementation:
+// DropdownBarHost, ui::AnimationDelegate implementation:
 
-void DropdownBarHost::AnimationProgressed(const Animation* animation) {
+void DropdownBarHost::AnimationProgressed(const ui::Animation* animation) {
   // First, we calculate how many pixels to slide the widget.
   gfx::Size pref_size = view_->GetPreferredSize();
   animation_offset_ = static_cast<int>((1.0 - animation_->GetCurrentValue()) *
@@ -158,7 +169,7 @@ void DropdownBarHost::AnimationProgressed(const Animation* animation) {
   view_->SchedulePaint();
 }
 
-void DropdownBarHost::AnimationEnded(const Animation* animation) {
+void DropdownBarHost::AnimationEnded(const ui::Animation* animation) {
   // Place the dropdown widget in its fully opened state.
   animation_offset_ = 0;
 
@@ -212,8 +223,7 @@ void DropdownBarHost::UpdateWindowEdges(const gfx::Rect& new_pos) {
   // We then create the polygon and use SetWindowRgn to force the window to draw
   // only within that area. This region may get reduced in size below.
   Path path(polygon, arraysize(polygon));
-  ScopedRegion region(path.CreateNativeRegion());
-
+  ScopedPlatformRegion region(path.CreateNativeRegion());
   // Are we animating?
   if (animation_offset() > 0) {
     // The animation happens in two steps: First, we clip the window and then in
@@ -231,7 +241,8 @@ void DropdownBarHost::UpdateWindowEdges(const gfx::Rect& new_pos) {
     SkRect animation_rect = { SkIntToScalar(0), SkIntToScalar(y),
                               SkIntToScalar(max_x), SkIntToScalar(max_y) };
     animation_path.addRect(animation_rect);
-    ScopedRegion animation_region(animation_path.CreateNativeRegion());
+    ScopedPlatformRegion animation_region(
+        animation_path.CreateNativeRegion());
     region.Set(Path::IntersectRegions(animation_region.Get(), region.Get()));
 
     // Next, we need to increase the region a little bit to account for the
@@ -246,7 +257,7 @@ void DropdownBarHost::UpdateWindowEdges(const gfx::Rect& new_pos) {
 
     // Combine the region for the curve on the left with our main region.
     Path left_path(left_curve, arraysize(left_curve));
-    ScopedRegion r(left_path.CreateNativeRegion());
+    ScopedPlatformRegion r(left_path.CreateNativeRegion());
     region.Set(Path::CombineRegions(r.Get(), region.Get()));
 
     // Combine the region for the curve on the right with our main region.
@@ -284,7 +295,7 @@ void DropdownBarHost::UpdateWindowEdges(const gfx::Rect& new_pos) {
 
     // Subtract this region from the original region.
     gfx::Path exclude_path(exclude, arraysize(exclude));
-    ScopedRegion exclude_region(exclude_path.CreateNativeRegion());
+    ScopedPlatformRegion exclude_region(exclude_path.CreateNativeRegion());
     region.Set(Path::SubtractRegion(region.Get(), exclude_region.Get()));
   }
 

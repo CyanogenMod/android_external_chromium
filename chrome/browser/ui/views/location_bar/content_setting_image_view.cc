@@ -48,7 +48,7 @@ ContentSettingImageView::ContentSettingImageView(
     ContentSettingsType content_type,
     LocationBarView* parent,
     Profile* profile)
-    : LinearAnimation(kMoveTimeMs, kFrameRateHz, NULL),
+    : ui::LinearAnimation(kMoveTimeMs, kFrameRateHz, NULL),
       content_setting_image_model_(
           ContentSettingImageModel::CreateContentSettingImageModel(
               content_type)),
@@ -95,8 +95,8 @@ void ContentSettingImageView::UpdateFromTabContents(TabContents* tab_contents) {
       content_setting_image_model_->explanatory_string_id();
   // Check if the animation is enabled and if the string for animation is
   // available.
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableBlockContentAnimation) || !animated_string_id)
+  if (CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kDisableBlockContentAnimation) || !animated_string_id)
     return;
 
   // Do not start animation if already in progress.
@@ -104,7 +104,7 @@ void ContentSettingImageView::UpdateFromTabContents(TabContents* tab_contents) {
     animation_in_progress_ = true;
     // Initialize animated string. It will be cleared when animation is
     // completed.
-    animated_text_ = l10n_util::GetString(animated_string_id);
+    animated_text_ = l10n_util::GetStringUTF16(animated_string_id);
     text_size_ = ResourceBundle::GetSharedInstance().GetFont(
         ResourceBundle::MediumFont).GetStringWidth(animated_text_);
     text_size_ += 2 * kTextMarginPixels + kIconLeftMargin;
@@ -183,7 +183,7 @@ void ContentSettingImageView::Paint(gfx::Canvas* canvas) {
   if (animation_in_progress_) {
     // Paint text to the right of the icon.
     ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-    canvas->DrawStringInt(animated_text_,
+    canvas->DrawStringInt(UTF16ToWideHack(animated_text_),
         rb.GetFont(ResourceBundle::MediumFont), SK_ColorBLACK,
         GetImageBounds().right() + kTextMarginPixels, y(),
         width() - GetImageBounds().width(), height(),

@@ -14,9 +14,10 @@
 #include "base/singleton.h"
 #include "base/string_piece.h"
 #include "base/string_util.h"
-#include "base/thread.h"
+#include "base/threading/thread.h"
 #include "base/time.h"
 #include "base/values.h"
+#include "chrome/browser/browser_about_handler.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/dom_ui_theme_source.h"
 #include "chrome/browser/dom_ui/options/about_page_handler.h"
@@ -46,13 +47,12 @@
 #include "chrome/common/notification_type.h"
 #include "chrome/common/time_format.h"
 #include "chrome/common/url_constants.h"
-#include "net/base/escape.h"
-
 #include "grit/browser_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
+#include "net/base/escape.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/dom_ui/accounts_options_handler.h"
@@ -202,7 +202,7 @@ OptionsUI::OptionsUI(TabContents* contents) : DOMUI(contents) {
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(html_source)));
 
-  // Set up chrome://theme/ source.
+  // Set up the chrome://theme/ source.
   DOMUIThemeSource* theme = new DOMUIThemeSource(GetProfile());
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
@@ -210,6 +210,10 @@ OptionsUI::OptionsUI(TabContents* contents) : DOMUI(contents) {
           ChromeURLDataManager::GetInstance(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(theme)));
+
+  // Initialize the chrome://about/ source in case the user clicks the credits
+  // link.
+  InitializeAboutDataSource();
 }
 
 OptionsUI::~OptionsUI() {

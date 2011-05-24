@@ -21,14 +21,14 @@
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
 #include "base/path_service.h"
-#include "base/platform_thread.h"
+#include "base/threading/platform_thread.h"
 #include "base/process_util.h"
 #include "base/string_number_conversions.h"
 #include "base/string_piece.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
-#include "base/thread_restrictions.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
@@ -129,7 +129,7 @@
 #include <shellapi.h>
 
 #include "app/l10n_util_win.h"
-#include "app/win_util.h"
+#include "app/win/scoped_com_initializer.h"
 #include "chrome/browser/browser_trial.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/net/url_fixer_upper.h"
@@ -480,7 +480,7 @@ void BrowserMainParts::MainMessageLoopStart() {
 
 void BrowserMainParts::InitializeMainThread() {
   const char* kThreadName = "CrBrowserMain";
-  PlatformThread::SetName(kThreadName);
+  base::PlatformThread::SetName(kThreadName);
   main_message_loop().set_thread_name(kThreadName);
 
   // Register the main thread by instantiating it, but don't call any methods.
@@ -1315,8 +1315,8 @@ int BrowserMain(const MainFunctionParams& parameters) {
 
       case ProcessSingleton::PROCESS_NOTIFIED:
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
-        printf("%s\n", base::SysWideToNativeMB(
-                   l10n_util::GetString(IDS_USED_EXISTING_BROWSER)).c_str());
+        printf("%s\n", base::SysWideToNativeMB(UTF16ToWide(
+            l10n_util::GetStringUTF16(IDS_USED_EXISTING_BROWSER))).c_str());
 #endif
         return ResultCodes::NORMAL_EXIT;
 
@@ -1487,7 +1487,7 @@ int BrowserMain(const MainFunctionParams& parameters) {
       preconnect_enabled);
 
 #if defined(OS_WIN)
-  win_util::ScopedCOMInitializer com_initializer;
+  app::win::ScopedCOMInitializer com_initializer;
 
 #if defined(GOOGLE_CHROME_BUILD)
   // Init the RLZ library. This just binds the dll and schedules a task on the

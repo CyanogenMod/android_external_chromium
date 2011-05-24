@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/platform_thread.h"
 #include "base/string_util.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/automation/tab_proxy.h"
@@ -157,7 +156,7 @@ TEST_F(SessionHistoryTest, MAYBE_FrameBackForward) {
   ASSERT_TRUE(test_server_.Start());
 
   // about:blank should be loaded first.
-  GURL home(homepage_);
+  GURL home(homepage());
   ASSERT_FALSE(tab_->GoBack());
   EXPECT_EQ(L"", GetTabTitle());
   EXPECT_EQ(home, GetTabURL());

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,7 @@
 
 #include "base/basictypes.h"
 #include "base/message_loop.h"
-#include "base/non_thread_safe.h"
+#include "base/threading/non_thread_safe.h"
 #include "base/timer.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/browser_process.h"
@@ -36,7 +36,7 @@ class TabCloseableStateWatcher;
 
 // Real implementation of BrowserProcess that creates and returns the services.
 class BrowserProcessImpl : public BrowserProcess,
-                           public NonThreadSafe,
+                           public base::NonThreadSafe,
                            public NotificationObserver {
  public:
   explicit BrowserProcessImpl(const CommandLine& command_line);
@@ -61,6 +61,8 @@ class BrowserProcessImpl : public BrowserProcess,
   virtual SidebarManager* sidebar_manager();
   virtual Clipboard* clipboard();
   virtual NotificationUIManager* notification_ui_manager();
+  virtual policy::ConfigurationPolicyProviderKeeper*
+      configuration_policy_provider_keeper();
   virtual IconManager* icon_manager();
   virtual ThumbnailGenerator* GetThumbnailGenerator();
   virtual AutomationProviderList* InitAutomationProviderList();
@@ -178,6 +180,10 @@ class BrowserProcessImpl : public BrowserProcess,
 
   bool created_sidebar_manager_;
   scoped_refptr<SidebarManager> sidebar_manager_;
+
+  bool created_configuration_policy_provider_keeper_;
+  scoped_ptr<policy::ConfigurationPolicyProviderKeeper>
+      configuration_policy_provider_keeper_;
 
   scoped_refptr<printing::PrintPreviewTabController>
       print_preview_tab_controller_;

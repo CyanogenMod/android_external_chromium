@@ -72,6 +72,7 @@ const char kAboutVersionURL[] = "about:version";
 const char kAboutBrowserCrash[] = "about:inducebrowsercrashforrealz";
 
 const char kChromeUIAboutAboutURL[] = "chrome://about/about";
+const char kChromeUIAboutCreditsURL[] = "chrome://about/credits";
 const char kChromeUIAboutURL[] = "chrome://settings/about";
 const char kChromeUIAppLauncherURL[] = "chrome://newtab/#mode=app-launcher";
 const char kChromeUIBookmarksURL[] = "chrome://bookmarks/";
@@ -94,6 +95,7 @@ const char kChromeUISettingsURL[] = "chrome://settings/";
 const char kChromeUITextfieldsURL[] = "chrome://textfields/";
 
 #if defined(OS_CHROMEOS)
+const char kChromeUIAboutOSCreditsURL[] = "chrome://about/os-credits";
 const char kChromeUIFileBrowseURL[] = "chrome://filebrowse/";
 const char kChromeUIImageBurnerURL[] = "chrome://imageburner/";
 const char kChromeUIKeyboardOverlayURL[] = "chrome://keyboardoverlay/";
@@ -208,6 +210,11 @@ const char kPrivacyLearnMoreURL[] =
 #else
     "http://www.google.com/support/chrome/bin/answer.py?answer=114836";
 #endif
+
+const char kChromiumProjectURL[] = "http://code.google.com/chromium/";
+
+const char kLearnMoreReportingURL[] =
+    "http://www.google.com/support/chrome/bin/answer.py?answer=96817&amp;";
 
 void RegisterChromeSchemes() {
   // Don't need "chrome-internal" which was used in old versions of Chrome for

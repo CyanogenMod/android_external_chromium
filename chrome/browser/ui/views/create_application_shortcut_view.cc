@@ -32,11 +32,6 @@
 #include "views/standard_layout.h"
 #include "views/window/window.h"
 
-
-#if defined(OS_WIN)
-#include "base/win_util.h"
-#endif  // defined(OS_WIN)
-
 namespace {
 
 const int kAppIconSize = 32;
@@ -240,29 +235,30 @@ void CreateApplicationShortcutView::InitControls() {
   app_info_ = new AppInfoView(shortcut_info_.title, shortcut_info_.description,
                               shortcut_info_.favicon);
   create_shortcuts_label_ = new views::Label(
-      l10n_util::GetString(IDS_CREATE_SHORTCUTS_LABEL));
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_CREATE_SHORTCUTS_LABEL)));
   create_shortcuts_label_->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
 
-  desktop_check_box_ = AddCheckbox(
-      l10n_util::GetString(IDS_CREATE_SHORTCUTS_DESKTOP_CHKBOX),
+  desktop_check_box_ = AddCheckbox(UTF16ToWide(
+      l10n_util::GetStringUTF16(IDS_CREATE_SHORTCUTS_DESKTOP_CHKBOX)),
       profile_->GetPrefs()->GetBoolean(prefs::kWebAppCreateOnDesktop));
 
   menu_check_box_ = NULL;
   quick_launch_check_box_ = NULL;
 
 #if defined(OS_WIN)
-  menu_check_box_ = AddCheckbox(
-      l10n_util::GetString(IDS_CREATE_SHORTCUTS_START_MENU_CHKBOX),
+  menu_check_box_ = AddCheckbox(UTF16ToWide(
+      l10n_util::GetStringUTF16(IDS_CREATE_SHORTCUTS_START_MENU_CHKBOX)),
       profile_->GetPrefs()->GetBoolean(prefs::kWebAppCreateInAppsMenu));
 
   quick_launch_check_box_ = AddCheckbox(
       (base::win::GetVersion() >= base::win::VERSION_WIN7) ?
-        l10n_util::GetString(IDS_PIN_TO_TASKBAR_CHKBOX) :
-        l10n_util::GetString(IDS_CREATE_SHORTCUTS_QUICK_LAUNCH_BAR_CHKBOX),
+        UTF16ToWide(l10n_util::GetStringUTF16(IDS_PIN_TO_TASKBAR_CHKBOX)) :
+        UTF16ToWide(l10n_util::GetStringUTF16(
+            IDS_CREATE_SHORTCUTS_QUICK_LAUNCH_BAR_CHKBOX)),
       profile_->GetPrefs()->GetBoolean(prefs::kWebAppCreateInQuickLaunchBar));
 #elif defined(OS_LINUX)
   menu_check_box_ = AddCheckbox(
-      l10n_util::GetString(IDS_CREATE_SHORTCUTS_MENU_CHKBOX),
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_CREATE_SHORTCUTS_MENU_CHKBOX)),
       profile_->GetPrefs()->GetBoolean(prefs::kWebAppCreateInAppsMenu));
 #endif
 
@@ -316,7 +312,7 @@ gfx::Size CreateApplicationShortcutView::GetPreferredSize() {
 std::wstring CreateApplicationShortcutView::GetDialogButtonLabel(
     MessageBoxFlags::DialogButton button) const {
   if (button == MessageBoxFlags::DIALOGBUTTON_OK) {
-    return l10n_util::GetString(IDS_CREATE_SHORTCUTS_COMMIT);
+    return UTF16ToWide(l10n_util::GetStringUTF16(IDS_CREATE_SHORTCUTS_COMMIT));
   }
 
   return std::wstring();
@@ -355,7 +351,7 @@ bool CreateApplicationShortcutView::IsModal() const {
 }
 
 std::wstring CreateApplicationShortcutView::GetWindowTitle() const {
-  return l10n_util::GetString(IDS_CREATE_SHORTCUTS_TITLE);
+  return UTF16ToWide(l10n_util::GetStringUTF16(IDS_CREATE_SHORTCUTS_TITLE));
 }
 
 bool CreateApplicationShortcutView::Accept() {

@@ -1,0 +1,137 @@
+K 25
+svn:wc:ra_dav:version-url
+V 35
+/svn/!svn/ver/70757/trunk/src/build
+END
+README.chromium
+K 25
+svn:wc:ra_dav:version-url
+V 51
+/svn/!svn/ver/26095/trunk/src/build/README.chromium
+END
+features_override.gypi
+K 25
+svn:wc:ra_dav:version-url
+V 58
+/svn/!svn/ver/70340/trunk/src/build/features_override.gypi
+END
+release.gypi
+K 25
+svn:wc:ra_dav:version-url
+V 48
+/svn/!svn/ver/45665/trunk/src/build/release.gypi
+END
+extract_from_cab.py
+K 25
+svn:wc:ra_dav:version-url
+V 55
+/svn/!svn/ver/54058/trunk/src/build/extract_from_cab.py
+END
+branding_value.sh
+K 25
+svn:wc:ra_dav:version-url
+V 53
+/svn/!svn/ver/16372/trunk/src/build/branding_value.sh
+END
+build-bisect.py
+K 25
+svn:wc:ra_dav:version-url
+V 51
+/svn/!svn/ver/70112/trunk/src/build/build-bisect.py
+END
+common.gypi
+K 25
+svn:wc:ra_dav:version-url
+V 47
+/svn/!svn/ver/70757/trunk/src/build/common.gypi
+END
+gyp_chromium
+K 25
+svn:wc:ra_dav:version-url
+V 48
+/svn/!svn/ver/65408/trunk/src/build/gyp_chromium
+END
+dir_exists.py
+K 25
+svn:wc:ra_dav:version-url
+V 49
+/svn/!svn/ver/53810/trunk/src/build/dir_exists.py
+END
+install-build-deps.sh
+K 25
+svn:wc:ra_dav:version-url
+V 57
+/svn/!svn/ver/65094/trunk/src/build/install-build-deps.sh
+END
+sanitize-win-build-log.sh
+K 25
+svn:wc:ra_dav:version-url
+V 61
+/svn/!svn/ver/69510/trunk/src/build/sanitize-win-build-log.sh
+END
+compiler_version.py
+K 25
+svn:wc:ra_dav:version-url
+V 55
+/svn/!svn/ver/30847/trunk/src/build/compiler_version.py
+END
+all.gyp
+K 25
+svn:wc:ra_dav:version-url
+V 43
+/svn/!svn/ver/70743/trunk/src/build/all.gyp
+END
+sanitize-win-build-log.sed
+K 25
+svn:wc:ra_dav:version-url
+V 62
+/svn/!svn/ver/69510/trunk/src/build/sanitize-win-build-log.sed
+END
+whitespace_file.txt
+K 25
+svn:wc:ra_dav:version-url
+V 55
+/svn/!svn/ver/69665/trunk/src/build/whitespace_file.txt
+END
+sanitize-mac-build-log.sh
+K 25
+svn:wc:ra_dav:version-url
+V 61
+/svn/!svn/ver/69274/trunk/src/build/sanitize-mac-build-log.sh
+END
+build_config.h
+K 25
+svn:wc:ra_dav:version-url
+V 50
+/svn/!svn/ver/66999/trunk/src/build/build_config.h
+END
+sanitize-mac-build-log.sed
+K 25
+svn:wc:ra_dav:version-url
+V 62
+/svn/!svn/ver/69510/trunk/src/build/sanitize-mac-build-log.sed
+END
+install-chroot.sh
+K 25
+svn:wc:ra_dav:version-url
+V 53
+/svn/!svn/ver/63175/trunk/src/build/install-chroot.sh
+END
+common.croc
+K 25
+svn:wc:ra_dav:version-url
+V 47
+/svn/!svn/ver/47071/trunk/src/build/common.croc
+END
+apply_locales.py
+K 25
+svn:wc:ra_dav:version-url
+V 52
+/svn/!svn/ver/40985/trunk/src/build/apply_locales.py
+END
+output_dll_copy.rules
+K 25
+svn:wc:ra_dav:version-url
+V 53
+/svn/!svn/ver/7/trunk/src/build/output_dll_copy.rules
+END

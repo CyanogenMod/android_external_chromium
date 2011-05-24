@@ -18,7 +18,7 @@
 #include "base/process_util.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
-#include "base/thread.h"
+#include "base/threading/thread.h"
 #include "base/utf_string_conversions.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
@@ -135,7 +135,7 @@ int SimpleInsert(const FilePath& path, RankCrashes action,
   disk_cache::Backend* cache;
   int rv = disk_cache::CreateCacheBackend(net::DISK_CACHE, path, 0, false,
                                           cache_thread->message_loop_proxy(),
-                                          &cache, &cb);
+                                          NULL, &cache, &cb);
   if (cb.GetResult(rv) != net::OK || cache->GetEntryCount())
     return GENERIC;
 
@@ -176,7 +176,7 @@ int SimpleRemove(const FilePath& path, RankCrashes action,
   // Use a simple LRU for eviction.
   int rv = disk_cache::CreateCacheBackend(net::MEDIA_CACHE, path, 0, false,
                                           cache_thread->message_loop_proxy(),
-                                          &cache, &cb);
+                                          NULL, &cache, &cb);
   if (cb.GetResult(rv) != net::OK || cache->GetEntryCount())
     return GENERIC;
 
@@ -219,7 +219,7 @@ int HeadRemove(const FilePath& path, RankCrashes action,
   // Use a simple LRU for eviction.
   int rv = disk_cache::CreateCacheBackend(net::MEDIA_CACHE, path, 0, false,
                                           cache_thread->message_loop_proxy(),
-                                          &cache, &cb);
+                                          NULL, &cache, &cb);
   if (cb.GetResult(rv) != net::OK || cache->GetEntryCount())
     return GENERIC;
 
@@ -256,7 +256,7 @@ int LoadOperations(const FilePath& path, RankCrashes action,
 
   // Work with a tiny index table (16 entries).
   disk_cache::BackendImpl* cache = new disk_cache::BackendImpl(
-      path, 0xf, cache_thread->message_loop_proxy());
+      path, 0xf, cache_thread->message_loop_proxy(), NULL);
   if (!cache || !cache->SetMaxSize(0x100000))
     return GENERIC;
 

@@ -1,9 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/tabs/dock_info.h"
 
+#include "base/win/scoped_gdi_object.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -129,7 +130,7 @@ class TopMostFinder : public BaseWindowFinder {
   // in ShouldStopIterating if target_ is passed in.
   bool is_top_most_;
 
-  ScopedRegion tmp_region_;
+  base::win::ScopedRegion tmp_region_;
 
   DISALLOW_COPY_AND_ASSIGN(TopMostFinder);
 };

@@ -14,7 +14,6 @@
 #include "base/lock.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
-#include "base/platform_thread.h"
 #include "base/scoped_ptr.h"
 #include "base/sha1.h"
 #include "base/string_util.h"
@@ -215,6 +214,10 @@ int64 BaseNode::GetParentId() const {
 
 int64 BaseNode::GetId() const {
   return GetEntry()->Get(syncable::META_HANDLE);
+}
+
+int64 BaseNode::GetModificationTime() const {
+  return GetEntry()->Get(syncable::MTIME);
 }
 
 bool BaseNode::GetIsFolder() const {

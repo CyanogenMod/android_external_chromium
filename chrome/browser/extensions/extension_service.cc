@@ -15,7 +15,7 @@
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
-#include "base/thread_restrictions.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
@@ -553,7 +553,8 @@ ExtensionService::ExtensionService(Profile* profile,
       show_extensions_prompts_(true),
       ready_(false),
       ALLOW_THIS_IN_INITIALIZER_LIST(toolbar_model_(this)),
-      default_apps_(profile->GetPrefs()),
+      default_apps_(profile->GetPrefs(),
+                    g_browser_process->GetApplicationLocale()),
       event_routers_initialized_(false) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 

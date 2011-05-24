@@ -7,9 +7,6 @@
 #include <math.h>
 #include <set>
 
-#include "app/animation.h"
-#include "app/animation_delegate.h"
-#include "app/slide_animation.h"
 #include "app/resource_bundle.h"
 #include "base/callback.h"
 #include "base/i18n/rtl.h"
@@ -33,6 +30,9 @@
 #include "gfx/canvas_skia.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/animation/animation.h"
+#include "ui/base/animation/animation_delegate.h"
+#include "ui/base/animation/slide_animation.h"
 #include "views/event.h"
 #include "views/widget/root_view.h"
 #include "views/widget/widget.h"
@@ -199,7 +199,7 @@ int MajorAxisValue(const gfx::Point& point, BaseTabStrip* tabstrip) {
 // possible dock position (as represented by DockInfo). DockDisplayer shows
 // a window with a DockView in it. Two animations are used that correspond to
 // the state of DockInfo::in_enable_area.
-class DraggedTabController::DockDisplayer : public AnimationDelegate {
+class DraggedTabController::DockDisplayer : public ui::AnimationDelegate {
  public:
   DockDisplayer(DraggedTabController* controller,
                 const DockInfo& info)
@@ -265,11 +265,11 @@ class DraggedTabController::DockDisplayer : public AnimationDelegate {
     animation_.Hide();
   }
 
-  virtual void AnimationProgressed(const Animation* animation) {
+  virtual void AnimationProgressed(const ui::Animation* animation) {
     UpdateLayeredAlpha();
   }
 
-  virtual void AnimationEnded(const Animation* animation) {
+  virtual void AnimationEnded(const ui::Animation* animation) {
     if (!hidden_)
       return;
 #if defined(OS_WIN)
@@ -303,7 +303,7 @@ class DraggedTabController::DockDisplayer : public AnimationDelegate {
   gfx::NativeView popup_view_;
 
   // Animation for when first made visible.
-  SlideAnimation animation_;
+  ui::SlideAnimation animation_;
 
   // Have we been hidden?
   bool hidden_;
@@ -1021,12 +1021,12 @@ gfx::Point DraggedTabController::GetAttachedTabDragPoint(
   const gfx::Size& tab_size = attached_tab_->bounds().size();
 
   if (attached_tabstrip_->type() == BaseTabStrip::HORIZONTAL_TAB_STRIP) {
-    int max_x = attached_tabstrip_->bounds().right() - tab_size.width();
+    int max_x = attached_tabstrip_->width() - tab_size.width();
     x = std::min(std::max(x, 0), max_x);
     y = 0;
   } else {
     x = SideTabStrip::kTabStripInset;
-    int max_y = attached_tabstrip_->bounds().bottom() - tab_size.height();
+    int max_y = attached_tabstrip_->height() - tab_size.height();
     y = std::min(std::max(y, SideTabStrip::kTabStripInset), max_y);
   }
   return gfx::Point(x, y);

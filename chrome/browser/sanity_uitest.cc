@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 
 #include "base/basictypes.h"
 #include "base/file_path.h"
-#include "base/platform_thread.h"
 #include "chrome/common/chrome_switches.h"
 #include "net/base/net_util.h"
 
@@ -18,7 +17,7 @@ class GoogleTest : public UITest {
   GoogleTest() : UITest() {
     FilePath test_file =
         test_data_directory_.AppendASCII("google").AppendASCII("google.html");
-    homepage_ = GURL(net::FilePathToFileURL(test_file)).spec();
+    set_homepage(GURL(net::FilePathToFileURL(test_file)).spec());
   }
 };
 
@@ -35,7 +34,7 @@ class ColumnLayout : public UITest {
  protected:
   ColumnLayout() : UITest() {
     FilePath test_file = test_data_directory_.AppendASCII("columns.html");
-    homepage_ = GURL(net::FilePathToFileURL(test_file)).spec();
+    set_homepage(GURL(net::FilePathToFileURL(test_file)).spec());
   }
 };
 

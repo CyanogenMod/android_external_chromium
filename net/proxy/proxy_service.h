@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
-#include "base/waitable_event.h"
+#include "base/synchronization/waitable_event.h"
 #include "net/base/completion_callback.h"
 #include "net/base/network_change_notifier.h"
 #include "net/base/net_log.h"
@@ -21,7 +21,6 @@
 
 class GURL;
 class MessageLoop;
-class URLRequestContext;
 
 namespace net {
 
@@ -29,6 +28,7 @@ class HostResolver;
 class InitProxyResolver;
 class ProxyResolver;
 class ProxyScriptFetcher;
+class URLRequestContext;
 
 // This class can be used to resolve the proxy server to use when loading a
 // HTTP(S) URL.  It uses the given ProxyResolver to handle the actual proxy
@@ -277,15 +277,15 @@ class ProxyService : public base::RefCountedThreadSafe<ProxyService>,
                               int result_code,
                               const BoundNetLog& net_log);
 
+  // Start initialization using |fetched_config_|.
+  void InitializeUsingLastFetchedConfig();
+
   // NetworkChangeNotifier::Observer
   // When this is called, we re-fetch PAC scripts and re-run WPAD.
   virtual void OnIPAddressChanged();
 
   // ProxyConfigService::Observer
   virtual void OnProxyConfigChanged(const ProxyConfig& config);
-
-  // Start initialization using |fetched_config_|.
-  void InitializeUsingLastFetchedConfig();
 
   scoped_ptr<ProxyConfigService> config_service_;
   scoped_ptr<ProxyResolver> resolver_;

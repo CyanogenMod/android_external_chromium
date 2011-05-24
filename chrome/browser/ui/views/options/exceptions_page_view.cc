@@ -29,7 +29,7 @@ ExceptionsTableModel::ExceptionsTableModel(Profile* profile)
 ExceptionsTableModel::~ExceptionsTableModel() {
 }
 
-std::wstring ExceptionsTableModel::GetText(int row, int col_id) {
+string16 ExceptionsTableModel::GetText(int row, int col_id) {
   DCHECK_EQ(col_id, IDS_PASSWORDS_PAGE_VIEW_SITE_COLUMN);
   return PasswordsTableModel::GetText(row, col_id);
 }
@@ -69,14 +69,18 @@ ExceptionsPageView::ExceptionsPageView(Profile* profile)
     : OptionsPageView(profile),
       ALLOW_THIS_IN_INITIALIZER_LIST(show_button_(
           this,
-          l10n_util::GetString(IDS_PASSWORDS_PAGE_VIEW_SHOW_BUTTON),
-          l10n_util::GetString(IDS_PASSWORDS_PAGE_VIEW_HIDE_BUTTON))),
+          UTF16ToWide(l10n_util::GetStringUTF16(
+              IDS_PASSWORDS_PAGE_VIEW_SHOW_BUTTON)),
+          UTF16ToWide(l10n_util::GetStringUTF16(
+              IDS_PASSWORDS_PAGE_VIEW_HIDE_BUTTON)))),
       ALLOW_THIS_IN_INITIALIZER_LIST(remove_button_(
           this,
-          l10n_util::GetString(IDS_EXCEPTIONS_PAGE_VIEW_REMOVE_BUTTON))),
+          UTF16ToWide(l10n_util::GetStringUTF16(
+              IDS_PASSWORDS_PAGE_VIEW_REMOVE_BUTTON)))),
       ALLOW_THIS_IN_INITIALIZER_LIST(remove_all_button_(
           this,
-          l10n_util::GetString(IDS_EXCEPTIONS_PAGE_VIEW_REMOVE_ALL_BUTTON))),
+          UTF16ToWide(l10n_util::GetStringUTF16(
+              IDS_PASSWORDS_PAGE_VIEW_REMOVE_ALL_BUTTON)))),
       table_model_(profile),
       table_view_(NULL) {
 }

@@ -11,7 +11,7 @@
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/string_split.h"
-#include "base/thread_restrictions.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/profiles/profile.h"
@@ -255,7 +255,7 @@ void SpellCheckHost::WriteWordToCustomDictionary(const std::string& word) {
 
 void SpellCheckHost::OnURLFetchComplete(const URLFetcher* source,
                                         const GURL& url,
-                                        const URLRequestStatus& status,
+                                        const net::URLRequestStatus& status,
                                         int response_code,
                                         const ResponseCookies& cookies,
                                         const std::string& data) {

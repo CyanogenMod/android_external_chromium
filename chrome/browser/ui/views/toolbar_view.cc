@@ -7,9 +7,11 @@
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/i18n/number_formatting.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/accessibility/browser_accessibility_state.h"
 #include "chrome/browser/background_page_tracker.h"
+#include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
@@ -21,7 +23,6 @@
 #include "chrome/browser/ui/views/event_utils.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/upgrade_detector.h"
-#include "chrome/common/badge_util.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "gfx/canvas.h"
@@ -71,10 +72,6 @@ static const int kPulsateEveryMs = 8000;
 static const int kPopupTopSpacingNonGlass = 3;
 static const int kPopupBottomSpacingNonGlass = 2;
 static const int kPopupBottomSpacingGlass = 1;
-
-// The size of the font to use in the text overlay for the background page
-// badge.
-static const float kBadgeTextFontSize = 9.0;
 
 // Top margin for the wrench menu badges (badge is placed in the upper right
 // corner of the wrench menu).
@@ -154,16 +151,20 @@ void ToolbarView::Init(Profile* profile) {
   back_->set_tag(IDC_BACK);
   back_->SetImageAlignment(views::ImageButton::ALIGN_RIGHT,
                            views::ImageButton::ALIGN_TOP);
-  back_->SetTooltipText(l10n_util::GetString(IDS_TOOLTIP_BACK));
-  back_->SetAccessibleName(l10n_util::GetString(IDS_ACCNAME_BACK));
+  back_->SetTooltipText(
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_TOOLTIP_BACK)));
+  back_->SetAccessibleName(
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_BACK)));
   back_->SetID(VIEW_ID_BACK_BUTTON);
 
   forward_ = new views::ButtonDropDown(this, forward_menu_model_.get());
   forward_->set_triggerable_event_flags(views::Event::EF_LEFT_BUTTON_DOWN |
                                         views::Event::EF_MIDDLE_BUTTON_DOWN);
   forward_->set_tag(IDC_FORWARD);
-  forward_->SetTooltipText(l10n_util::GetString(IDS_TOOLTIP_FORWARD));
-  forward_->SetAccessibleName(l10n_util::GetString(IDS_ACCNAME_FORWARD));
+  forward_->SetTooltipText(
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_TOOLTIP_FORWARD)));
+  forward_->SetAccessibleName(
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_FORWARD)));
   forward_->SetID(VIEW_ID_FORWARD_BUTTON);
 
   // Have to create this before |reload_| as |reload_|'s constructor needs it.
@@ -175,17 +176,20 @@ void ToolbarView::Init(Profile* profile) {
   reload_->set_triggerable_event_flags(views::Event::EF_LEFT_BUTTON_DOWN |
                                        views::Event::EF_MIDDLE_BUTTON_DOWN);
   reload_->set_tag(IDC_RELOAD);
-  reload_->SetTooltipText(l10n_util::GetString(IDS_TOOLTIP_RELOAD));
-  reload_->SetAccessibleName(l10n_util::GetString(IDS_ACCNAME_RELOAD));
+  reload_->SetTooltipText(
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_TOOLTIP_RELOAD)));
+  reload_->SetAccessibleName(
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_RELOAD)));
   reload_->SetID(VIEW_ID_RELOAD_BUTTON);
 
 #if defined(OS_CHROMEOS)
   feedback_ = new views::ImageButton(this);
   feedback_->set_tag(IDC_FEEDBACK);
   feedback_->set_triggerable_event_flags(views::Event::EF_LEFT_BUTTON_DOWN |
-                                       views::Event::EF_MIDDLE_BUTTON_DOWN);
+                                         views::Event::EF_MIDDLE_BUTTON_DOWN);
   feedback_->set_tag(IDC_FEEDBACK);
-  feedback_->SetTooltipText(l10n_util::GetString(IDS_TOOLTIP_FEEDBACK));
+  feedback_->SetTooltipText(
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_TOOLTIP_FEEDBACK)));
   feedback_->SetID(VIEW_ID_FEEDBACK_BUTTON);
 #endif
 
@@ -193,8 +197,10 @@ void ToolbarView::Init(Profile* profile) {
   home_->set_triggerable_event_flags(views::Event::EF_LEFT_BUTTON_DOWN |
                                      views::Event::EF_MIDDLE_BUTTON_DOWN);
   home_->set_tag(IDC_HOME);
-  home_->SetTooltipText(l10n_util::GetString(IDS_TOOLTIP_HOME));
-  home_->SetAccessibleName(l10n_util::GetString(IDS_ACCNAME_HOME));
+  home_->SetTooltipText(
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_TOOLTIP_HOME)));
+  home_->SetAccessibleName(
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_HOME)));
   home_->SetID(VIEW_ID_HOME_BUTTON);
 
   browser_actions_ = new BrowserActionsContainer(browser_, this);
@@ -202,9 +208,11 @@ void ToolbarView::Init(Profile* profile) {
   app_menu_ = new views::MenuButton(NULL, std::wstring(), this, false);
   app_menu_->set_border(NULL);
   app_menu_->EnableCanvasFlippingForRTLUI(true);
-  app_menu_->SetAccessibleName(l10n_util::GetString(IDS_ACCNAME_APP));
-  app_menu_->SetTooltipText(l10n_util::GetStringF(IDS_APPMENU_TOOLTIP,
-      l10n_util::GetString(IDS_PRODUCT_NAME)));
+  app_menu_->SetAccessibleName(
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_APP)));
+  app_menu_->SetTooltipText(UTF16ToWide(l10n_util::GetStringFUTF16(
+      IDS_APPMENU_TOOLTIP,
+      l10n_util::GetStringUTF16(IDS_PRODUCT_NAME))));
   app_menu_->SetID(VIEW_ID_APP_MENU);
 
   // Add any necessary badges to the menu item based on the system state.
@@ -234,8 +242,10 @@ void ToolbarView::Init(Profile* profile) {
 
   // Accessibility specific tooltip text.
   if (BrowserAccessibilityState::GetInstance()->IsAccessibleBrowser()) {
-    back_->SetTooltipText(l10n_util::GetString(IDS_ACCNAME_TOOLTIP_BACK));
-    forward_->SetTooltipText(l10n_util::GetString(IDS_ACCNAME_TOOLTIP_FORWARD));
+    back_->SetTooltipText(
+        UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_TOOLTIP_BACK)));
+    forward_->SetTooltipText(
+        UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_TOOLTIP_FORWARD)));
   }
 }
 
@@ -723,6 +733,15 @@ SkBitmap ToolbarView::GetAppMenuIcon(views::CustomButton::ButtonState state) {
   }
   SkBitmap icon = *tp->GetBitmapNamed(id);
 
+#if defined(OS_WIN)
+  // Keep track of whether we were showing the badge before, so we don't send
+  // multiple UMA events for example when multiple Chrome windows are open.
+  static bool incompatibility_badge_showing = false;
+  // Save the old value before resetting it.
+  bool was_showing = incompatibility_badge_showing;
+  incompatibility_badge_showing = false;
+#endif
+
   bool add_badge = IsUpgradeRecommended() ||
                    ShouldShowIncompatibilityWarning() ||
                    ShouldShowBackgroundPageBadge();
@@ -741,10 +760,13 @@ SkBitmap ToolbarView::GetAppMenuIcon(views::CustomButton::ButtonState state) {
   if (IsUpgradeRecommended()) {
     badge = *tp->GetBitmapNamed(IDR_UPDATE_BADGE);
   } else if (ShouldShowBackgroundPageBadge()) {
-    badge = GetBackgroundPageBadge();
+    badge = *tp->GetBitmapNamed(IDR_BACKGROUND_BADGE);
   } else if (ShouldShowIncompatibilityWarning()) {
 #if defined(OS_WIN)
+    if (!was_showing)
+      UserMetrics::RecordAction(UserMetricsAction("ConflictBadge"), profile_);
     badge = *tp->GetBitmapNamed(IDR_CONFLICT_BADGE);
+    incompatibility_badge_showing = true;
 #else
     NOTREACHED();
 #endif
@@ -756,16 +778,3 @@ SkBitmap ToolbarView::GetAppMenuIcon(views::CustomButton::ButtonState state) {
 
   return canvas->ExtractBitmap();
 }
-
-SkBitmap ToolbarView::GetBackgroundPageBadge() {
-  ThemeProvider* tp = GetThemeProvider();
-  SkBitmap* badge = tp->GetBitmapNamed(IDR_BACKGROUND_BADGE);
-  string16 badge_text = base::FormatNumber(
-      BackgroundPageTracker::GetInstance()->GetBackgroundPageCount());
-  return badge_util::DrawBadgeIconOverlay(
-      *badge,
-      kBadgeTextFontSize,
-      badge_text,
-      l10n_util::GetStringUTF16(IDS_BACKGROUND_PAGE_BADGE_OVERFLOW));
-}
-

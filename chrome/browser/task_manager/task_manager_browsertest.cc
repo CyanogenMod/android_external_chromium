@@ -110,8 +110,8 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeTabContentsChanges) {
   // Check that the third entry is a tab contents resource whose title starts
   // starts with "Tab:".
   ASSERT_TRUE(model()->GetResourceTabContents(2) != NULL);
-  string16 prefix = WideToUTF16Hack(l10n_util::GetStringF(
-      IDS_TASK_MANAGER_TAB_PREFIX, L""));
+  string16 prefix = l10n_util::GetStringFUTF16(
+      IDS_TASK_MANAGER_TAB_PREFIX, string16());
   ASSERT_TRUE(StartsWith(model()->GetResourceTitle(2), prefix, true));
 
   // Close the tab and verify that we notice.
@@ -193,8 +193,8 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeExtensionTabs) {
   ASSERT_EQ(TaskManager::Resource::EXTENSION, model()->GetResourceType(2));
   ASSERT_TRUE(model()->GetResourceTabContents(2) == NULL);
   ASSERT_TRUE(model()->GetResourceExtension(2) != NULL);
-  string16 prefix = WideToUTF16Hack(l10n_util::GetStringF(
-      IDS_TASK_MANAGER_EXTENSION_PREFIX, L""));
+  string16 prefix = l10n_util::GetStringFUTF16(
+      IDS_TASK_MANAGER_EXTENSION_PREFIX, string16());
   ASSERT_TRUE(StartsWith(model()->GetResourceTitle(2), prefix, true));
 
   // Check that the fourth entry (page.html) is of type extension and has both
@@ -233,8 +233,8 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeAppTabs) {
   ASSERT_EQ(TaskManager::Resource::EXTENSION, model()->GetResourceType(2));
   ASSERT_TRUE(model()->GetResourceTabContents(2) != NULL);
   ASSERT_TRUE(model()->GetResourceExtension(2) != NULL);
-  string16 prefix = WideToUTF16Hack(l10n_util::GetStringF(
-      IDS_TASK_MANAGER_APP_PREFIX, L""));
+  string16 prefix = l10n_util::GetStringFUTF16(
+      IDS_TASK_MANAGER_APP_PREFIX, string16());
   ASSERT_TRUE(StartsWith(model()->GetResourceTitle(2), prefix, true));
 
   // Unload extension to avoid crash on Windows.
@@ -332,17 +332,20 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest,
 }
 
 // Regression test for http://crbug.com/18693.
-// Crashy, http://crbug.com/42315.
+//
+// This test is crashy. See http://crbug.com/42315.
 IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, DISABLED_ReloadExtension) {
   // Show the task manager. This populates the model, and helps with debugging
   // (you see the task manager).
   browser()->window()->ShowTaskManager();
 
+  LOG(INFO) << "loading extension";
   ASSERT_TRUE(LoadExtension(
       test_data_dir_.AppendASCII("common").AppendASCII("background_page")));
 
   // Wait until we see the loaded extension in the task manager (the three
   // resources are: the browser process, New Tab Page, and the extension).
+  LOG(INFO) << "waiting for resource change";
   WaitForResourceChange(3);
 
   EXPECT_TRUE(model()->GetResourceExtension(0) == NULL);
@@ -350,17 +353,23 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, DISABLED_ReloadExtension) {
   ASSERT_TRUE(model()->GetResourceExtension(2) != NULL);
 
   const Extension* extension = model()->GetResourceExtension(2);
+  ASSERT_TRUE(extension != NULL);
 
   // Reload the extension a few times and make sure our resource count
   // doesn't increase.
+  LOG(INFO) << "First extension reload";
   ReloadExtension(extension->id());
   WaitForResourceChange(3);
   extension = model()->GetResourceExtension(2);
+  ASSERT_TRUE(extension != NULL);
 
+  LOG(INFO) << "Second extension reload";
   ReloadExtension(extension->id());
   WaitForResourceChange(3);
   extension = model()->GetResourceExtension(2);
+  ASSERT_TRUE(extension != NULL);
 
+  LOG(INFO) << "Third extension reload";
   ReloadExtension(extension->id());
   WaitForResourceChange(3);
 }

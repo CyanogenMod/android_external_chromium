@@ -191,6 +191,7 @@ class Browser : public TabHandlerDelegate,
   ToolbarModel* toolbar_model() { return &toolbar_model_; }
   const SessionID& session_id() const { return session_id_; }
   CommandUpdater* command_updater() { return &command_updater_; }
+  bool block_command_execution() const { return block_command_execution_; }
 
   // Get the FindBarController for this browser, creating it if it does not
   // yet exist.
@@ -995,12 +996,6 @@ class Browser : public TabHandlerDelegate,
 
   // Opens view-source tab for given tab contents.
   void ViewSource(TabContentsWrapper* tab);
-
-  // Inserts contents dupe next to the original contents. This method is used
-  // to insert duplicate tab and view source tab next to the original tab.
-  void InsertContentsDupe(
-      TabContentsWrapper* original_content,
-      TabContentsWrapper* clone_content);
 
   // Data members /////////////////////////////////////////////////////////////
 

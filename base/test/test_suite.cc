@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,7 @@
 #include "base/base_paths.h"
 #include "base/base_switches.h"
 #include "base/command_line.h"
-#include "base/debug_on_start.h"
-#include "base/debug_util.h"
-#include "base/debug/debugger.h"
+#include "base/debug/debug_on_start_win.h"
 #include "base/debug/debugger.h"
 #include "base/file_path.h"
 #include "base/i18n/icu_util.h"
@@ -196,7 +194,7 @@ void TestSuite::Initialize() {
   if (!base::debug::BeingDebugged() &&
       !CommandLine::ForCurrentProcess()->HasSwitch("show-error-dialogs")) {
     SuppressErrorDialogs();
-    DebugUtil::SuppressDialogs();
+    base::debug::SetSuppressDebugUI(true);
     logging::SetLogAssertHandler(UnitTestAssertHandler);
   }
 

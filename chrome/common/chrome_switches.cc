@@ -146,6 +146,9 @@ const char kDisable3DAPIs[]                 = "disable-3d-apis";
 const char kDisableAcceleratedCompositing[] =
     "disable-accelerated-compositing";
 
+// Disables GPU accelerated video display.
+const char kDisableAcceleratedVideo[]       = "disable-accelerated-video";
+
 // Disables the alternate window station for the renderer.
 const char kDisableAltWinstation[]          = "disable-winsta";
 
@@ -167,8 +170,7 @@ const char kDisableAuthNegotiateCnameLookup[] =
     "disable-auth-negotiate-cname-lookup";
 
 // Disable background mode (background apps will not keep chrome running in the
-// background). This has priority over the kEnableBackgroundMode flag which is
-// settable via about:labs.
+// background).
 const char kDisableBackgroundMode[] = "disable-background-mode";
 
 // Disable several subsystems which run network requests in the background.
@@ -179,6 +181,11 @@ const char kDisableBackgroundNetworking[] = "disable-background-networking";
 // Disable limits on the number of backing stores. Can prevent blinking for
 // users with many windows/tabs and lots of memory.
 const char kDisableBackingStoreLimit[]      = "disable-backing-store-limit";
+
+// Disables blocked content warning animation. Currently shows animation for
+// blocked pop-ups only.
+const char kDisableBlockContentAnimation[]  =
+    "disable-blocked-content-animation";
 
 // Disables establishing a backup TCP connection if a specified timeout is
 // exceeded.
@@ -346,6 +353,9 @@ const char kDisableSyncThemes[]             = "disable-sync-themes";
 const char kEnableSyncNewAutofill[]     =
     "enable-sync-new-autofill-data-type";
 
+// Disable tabbed options, i.e., DOMUI version of options window.
+const char kDisableTabbedOptions[]           = "disable-tabbed-options";
+
 // TabCloseableStateWatcher disallows closing of tabs and browsers under certain
 // situations on ChromeOS.  Some tests expect tabs or browsers to close, so we
 // need a switch to disable the watcher.
@@ -399,7 +409,7 @@ extern const char kLogNetLog[]              = "log-net-log";
 // Enable gpu-accelerated 2d canvas.
 const char kEnableAccelerated2dCanvas[]     = "enable-accelerated-2d-canvas";
 
-// Enables the hardware acceleration of 3D CSS, Video and animation.
+// Enables the hardware acceleration of 3D CSS and animation.
 const char kEnableAcceleratedLayers[]       = "enable-accelerated-layers";
 
 // Enables WebKit accessibility within the renderer process.
@@ -413,17 +423,8 @@ const char kEnableAeroPeekTabs[]            = "enable-aero-peek-tabs";
 // for more background.
 const char kEnableAuthNegotiatePort[]       = "enable-auth-negotiate-port";
 
-// Enable background mode (background apps will keep chrome running in the
-// background and allow chrome to launch on startup). Has no effect on Windows
-// because background mode is enabled there by default.
-const char kEnableBackgroundMode[] = "enable-background-mode";
-
 // Enables the benchmarking extensions.
 const char kEnableBenchmarking[]            = "enable-benchmarking";
-
-// Enables blocked content warning animation. Currently shows animation for
-// blocked pop-ups only.
-const char kEnableBlockContentAnimation[] = "enable-blocked-content-animation";
 
 // In the browser process this switch is used to enable or disable the
 // client-side phishing detection.  In the renderer this switch is only enabled
@@ -570,9 +571,6 @@ const char kEnableSyncSessions[]            = "enable-sync-sessions";
 
 // Enable syncing browser typed urls.
 const char kEnableSyncTypedUrls[]           = "enable-sync-typed-urls";
-
-// Enable tabbed options, ie: dom-ui version of options window.
-const char kEnableTabbedOptions[]           = "enable-tabbed-options";
 
 // Enable use of experimental TCP sockets API for sending data in the
 // SYN packet.

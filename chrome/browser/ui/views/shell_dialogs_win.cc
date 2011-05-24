@@ -16,7 +16,7 @@
 #include "base/message_loop.h"
 #include "base/scoped_comptr_win.h"
 #include "base/string_split.h"
-#include "base/thread.h"
+#include "base/threading/thread.h"
 #include "base/utf_string_conversions.h"
 #include "base/win/registry.h"
 #include "base/win/windows_version.h"
@@ -104,7 +104,8 @@ std::wstring FormatFilterForExtensions(
     const std::vector<std::wstring>& ext_desc,
     bool include_all_files) {
   const std::wstring all_ext = L"*.*";
-  const std::wstring all_desc = l10n_util::GetString(IDS_APP_SAVEAS_ALL_FILES);
+  const std::wstring all_desc =
+      l10n_util::GetStringUTF16(IDS_APP_SAVEAS_ALL_FILES);
 
   DCHECK(file_ext.size() >= ext_desc.size());
 
@@ -141,9 +142,9 @@ std::wstring FormatFilterForExtensions(
         // based on the unknown extension type (i.e. if the extension is .qqq,
         // the we create a description "QQQ File (.qqq)").
         include_all_files = true;
-        desc = l10n_util::GetStringF(IDS_APP_SAVEAS_EXTENSION_FORMAT,
-                                     l10n_util::ToUpper(ext_name),
-                                     ext_name);
+        desc = l10n_util::GetStringFUTF16(IDS_APP_SAVEAS_EXTENSION_FORMAT,
+                                          l10n_util::ToUpper(ext_name),
+                                          ext_name);
       }
       if (desc.empty())
         desc = L"*." + ext_name;
@@ -238,7 +239,7 @@ bool SaveFileAsWithFilter(HWND owner,
   // Having an empty filter makes for a bad user experience. We should always
   // specify a filter when saving.
   DCHECK(!filter.empty());
-  std::wstring file_part = file_util::GetFilenameFromPath(suggested_name);
+  std::wstring file_part = FilePath(suggested_name).BaseName().value();
 
   // The size of the in/out buffer in number of characters we pass to win32
   // GetSaveFileName.  From MSDN "The buffer must be large enough to store the
@@ -269,7 +270,7 @@ bool SaveFileAsWithFilter(HWND owner,
   save_as.nMaxFileTitle = 0;
 
   // Set up the initial directory for the dialog.
-  std::wstring directory = file_util::GetDirectoryFromPath(suggested_name);
+  std::wstring directory = FilePath(suggested_name).DirName().value();
   save_as.lpstrInitialDir = directory.c_str();
   save_as.lpstrTitle = NULL;
   save_as.Flags = OFN_OVERWRITEPROMPT | OFN_EXPLORER | OFN_ENABLESIZING |

@@ -51,6 +51,7 @@ typedef std::map<std::string, std::string> SubstitutionMap;
 
 class Value;
 class GPUInfo;
+struct PP_Flash_NetAddress;
 class SkBitmap;
 struct ThumbnailScore;
 class WebCursor;
@@ -530,7 +531,8 @@ IPC_MESSAGE_ROUTED4(
     int /* selection_end */)
 
 // This message confirms an ongoing composition.
-IPC_MESSAGE_ROUTED0(ViewMsg_ImeConfirmComposition)
+IPC_MESSAGE_ROUTED1(ViewMsg_ImeConfirmComposition,
+                    string16 /* text */)
 
 // This passes a set of webkit preferences down to the renderer.
 IPC_MESSAGE_ROUTED1(ViewMsg_UpdateWebPreferences, WebPreferences)
@@ -1073,6 +1075,13 @@ IPC_MESSAGE_ROUTED1(ViewMsg_SelectPopupMenuItem,
 // Indicate whether speech input API is enabled or not.
 IPC_MESSAGE_CONTROL1(ViewMsg_SpeechInput_SetFeatureEnabled,
                      bool /* enabled */)
+
+// The response to ViewHostMsg_PepperConnectTcp(Address).
+IPC_MESSAGE_ROUTED4(ViewMsg_PepperConnectTcpACK,
+                    int /* request_id */,
+                    IPC::PlatformFileForTransit /* socket */,
+                    PP_Flash_NetAddress /* local_addr */,
+                    PP_Flash_NetAddress /* remote_addr */)
 
 //-----------------------------------------------------------------------------
 // TabContents messages
@@ -2401,17 +2410,6 @@ IPC_SYNC_MESSAGE_CONTROL1_1(
 //---------------------------------------------------------------------------
 // Geolocation services messages
 
-// A GeolocationServiceBridgeImpl in the renderer process has been created.
-// This is used to lazily initialize the host dispatchers and related
-// Geolocation infrastructure in the browser process.
-IPC_MESSAGE_CONTROL1(ViewHostMsg_Geolocation_RegisterDispatcher,
-                     int /* render_view_id */)
-
-// A GeolocationServiceBridgeImpl has been destroyed.
-// This is used to let the Geolocation infrastructure do its cleanup.
-IPC_MESSAGE_CONTROL1(ViewHostMsg_Geolocation_UnregisterDispatcher,
-                     int /* render_view_id */)
-
 // The |render_view_id| and |bridge_id| representing |host| is requesting
 // permission to access geolocation position.
 // This will be replied by ViewMsg_Geolocation_PermissionSet.
@@ -2427,38 +2425,20 @@ IPC_MESSAGE_CONTROL3(ViewHostMsg_Geolocation_CancelPermissionRequest,
                      int /* bridge_id */,
                      GURL /* GURL of the frame */)
 
-// The |render_view_id| and |bridge_id| requests Geolocation service to start
-// updating.
+// The |render_view_id| requests Geolocation service to start updating.
 // This is an asynchronous call, and the browser process may eventually reply
 // with the updated geoposition, or an error (access denied, location
 // unavailable, etc.)
-IPC_MESSAGE_CONTROL4(ViewHostMsg_Geolocation_StartUpdating,
+IPC_MESSAGE_CONTROL3(ViewHostMsg_Geolocation_StartUpdating,
                      int /* render_view_id */,
-                     int /* bridge_id */,
                      GURL /* GURL of the frame requesting geolocation */,
                      bool /* enable_high_accuracy */)
 
-// The |render_view_id| and |bridge_id| requests Geolocation service to stop
-// updating.
+// The |render_view_id| requests Geolocation service to stop updating.
 // Note that the geolocation service may continue to fetch geolocation data
 // for other origins.
-IPC_MESSAGE_CONTROL2(ViewHostMsg_Geolocation_StopUpdating,
-                     int /* render_view_id */,
-                     int /* bridge_id */)
-
-// The |render_view_id| and |bridge_id| requests Geolocation service to
-// suspend.
-// Note that the geolocation service may continue to fetch geolocation data
-// for other origins.
-IPC_MESSAGE_CONTROL2(ViewHostMsg_Geolocation_Suspend,
-                     int /* render_view_id */,
-                     int /* bridge_id */)
-
-// The |render_view_id| and |bridge_id| requests Geolocation service to
-// resume.
-IPC_MESSAGE_CONTROL2(ViewHostMsg_Geolocation_Resume,
-                     int /* render_view_id */,
-                     int /* bridge_id */)
+IPC_MESSAGE_CONTROL1(ViewHostMsg_Geolocation_StopUpdating,
+                     int /* render_view_id */)
 
 // Updates the minimum/maximum allowed zoom percent for this tab from the
 // default values.  If |remember| is true, then the zoom setting is applied to
@@ -2629,3 +2609,16 @@ IPC_MESSAGE_ROUTED2(ViewHostMsg_ScriptEvalResponse,
 // Updates the content restrictions, i.e. to disable print/copy.
 IPC_MESSAGE_ROUTED1(ViewHostMsg_UpdateContentRestrictions,
                     int /* restrictions */)
+
+// Pepper-related messages -----------------------------------------------------
+
+IPC_MESSAGE_CONTROL4(ViewHostMsg_PepperConnectTcp,
+                     int /* routing_id */,
+                     int /* request_id */,
+                     std::string /* host */,
+                     uint16 /* port */)
+
+IPC_MESSAGE_CONTROL3(ViewHostMsg_PepperConnectTcpAddress,
+                     int /* routing_id */,
+                     int /* request_id */,
+                     PP_Flash_NetAddress /* addr */)

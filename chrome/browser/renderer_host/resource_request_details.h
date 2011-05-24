@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,11 +12,9 @@
 
 #include <string>
 
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
-#include "chrome/browser/worker_host/worker_service.h"
 #include "googleurl/src/gurl.h"
 #include "net/url_request/url_request_status.h"
+#include "webkit/glue/resource_type.h"
 
 namespace net {
 class URLRequest;
@@ -38,7 +36,7 @@ class ResourceRequestDetails {
   bool has_upload() const { return has_upload_; }
   int load_flags() const { return load_flags_; }
   int origin_child_id() const { return origin_child_id_; }
-  const URLRequestStatus& status() const { return status_; }
+  const net::URLRequestStatus& status() const { return status_; }
   int ssl_cert_id() const { return ssl_cert_id_; }
   int ssl_cert_status() const { return ssl_cert_status_; }
   ResourceType::Type resource_type() const { return resource_type_; }
@@ -53,7 +51,7 @@ class ResourceRequestDetails {
   bool has_upload_;
   int load_flags_;
   int origin_child_id_;
-  URLRequestStatus status_;
+  net::URLRequestStatus status_;
   int ssl_cert_id_;
   int ssl_cert_status_;
   ResourceType::Type resource_type_;

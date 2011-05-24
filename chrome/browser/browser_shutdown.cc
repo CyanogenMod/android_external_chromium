@@ -15,8 +15,8 @@
 #include "base/process_util.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
-#include "base/thread.h"
-#include "base/thread_restrictions.h"
+#include "base/threading/thread.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/about_flags.h"
@@ -48,6 +48,7 @@
 #include "chrome/browser/chromeos/boot_times_loader.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/login_library.h"
+#include "chrome/browser/chromeos/wm_ipc.h"
 #endif
 
 using base::Time;
@@ -251,6 +252,7 @@ void Shutdown() {
   UnregisterURLRequestChromeJob();
 
 #if defined(OS_CHROMEOS)
+  chromeos::WmIpc::instance()->NotifyAboutSignout();
   if (chromeos::CrosLibrary::Get()->EnsureLoaded()) {
     chromeos::CrosLibrary::Get()->GetLoginLibrary()->StopSession("");
   }

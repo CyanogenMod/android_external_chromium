@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,7 +27,9 @@
 #include "chrome/browser/safe_browsing/safe_browsing_util.h"
 #include "chrome/common/net/url_fetcher.h"
 
+namespace net {
 class URLRequestStatus;
+}  // namespace net
 
 #if defined(COMPILER_GCC)
 // Allows us to use URLFetchers in a hash_map with gcc (MSVC is okay without
@@ -103,7 +105,7 @@ class SafeBrowsingProtocolManager : public URLFetcher::Delegate {
   // URLFetcher::Delegate interface.
   virtual void OnURLFetchComplete(const URLFetcher* source,
                                   const GURL& url,
-                                  const URLRequestStatus& status,
+                                  const net::URLRequestStatus& status,
                                   int response_code,
                                   const ResponseCookies& cookies,
                                   const std::string& data);
@@ -157,6 +159,37 @@ class SafeBrowsingProtocolManager : public URLFetcher::Delegate {
   const std::string& additional_query() const {
     return additional_query_;
   }
+
+  // Enumerate failures for histogramming purposes.  DO NOT CHANGE THE
+  // ORDERING OF THESE VALUES.
+  enum ResultType {
+    // 200 response code means that the server recognized the hash
+    // prefix, while 204 is an empty response indicating that the
+    // server did not recognize it.
+    GET_HASH_STATUS_200,
+    GET_HASH_STATUS_204,
+
+    // Subset of successful responses which returned no full hashes.
+    // This includes the 204 case, and also 200 responses for stale
+    // prefixes (deleted at the server but yet deleted on the client).
+    GET_HASH_FULL_HASH_EMPTY,
+
+    // Subset of successful responses for which one or more of the
+    // full hashes matched (should lead to an interstitial).
+    GET_HASH_FULL_HASH_HIT,
+
+    // Subset of successful responses which weren't empty and have no
+    // matches.  It means that there was a prefix collision which was
+    // cleared up by the full hashes.
+    GET_HASH_FULL_HASH_MISS,
+
+    // Memory space for histograms is determined by the max.  ALWAYS
+    // ADD NEW VALUES BEFORE THIS ONE.
+    GET_HASH_RESULT_MAX
+  };
+
+  // Record a GetHash result.
+  static void RecordGetHashResult(ResultType result_type);
 
  protected:
   // Constructs a SafeBrowsingProtocolManager for |sb_service| that issues

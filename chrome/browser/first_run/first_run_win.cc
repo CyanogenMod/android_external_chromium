@@ -16,13 +16,13 @@
 #include "app/resource_bundle.h"
 #include "base/environment.h"
 #include "base/file_util.h"
-#include "base/object_watcher.h"
 #include "base/path_service.h"
 #include "base/scoped_comptr_win.h"
 #include "base/scoped_ptr.h"
 #include "base/string_number_conversions.h"
 #include "base/string_split.h"
 #include "base/utf_string_conversions.h"
+#include "base/win/object_watcher.h"
 #include "base/win/registry.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -321,7 +321,7 @@ namespace {
 // process has ended and what was the result of the operation as reported by
 // the process exit code. This class executes in the context of the main chrome
 // process.
-class ImportProcessRunner : public base::ObjectWatcher::Delegate {
+class ImportProcessRunner : public base::win::ObjectWatcher::Delegate {
  public:
   // The constructor takes the importer process to watch and then it does a
   // message loop blocking wait until the process ends. This object now owns
@@ -350,7 +350,7 @@ class ImportProcessRunner : public base::ObjectWatcher::Delegate {
   }
 
  private:
-  base::ObjectWatcher watcher_;
+  base::win::ObjectWatcher watcher_;
   base::ProcessHandle import_process_;
   DWORD exit_code_;
 };
@@ -692,16 +692,17 @@ class TryChromeDialog : public views::ButtonListener,
     // The heading has two flavors of text, the alt one features extensions but
     // we only use it in the US until some international issues are fixed.
     const std::string app_locale = g_browser_process->GetApplicationLocale();
-    std::wstring heading;
+    int heading_id;
     switch (version_) {
-      case 0: heading = l10n_util::GetString(IDS_TRY_TOAST_HEADING); break;
-      case 1: heading = l10n_util::GetString(IDS_TRY_TOAST_HEADING2); break;
-      case 2: heading = l10n_util::GetString(IDS_TRY_TOAST_HEADING3); break;
-      case 3: heading = l10n_util::GetString(IDS_TRY_TOAST_HEADING4); break;
+      case 0: heading_id = IDS_TRY_TOAST_HEADING; break;
+      case 1: heading_id = IDS_TRY_TOAST_HEADING2; break;
+      case 2: heading_id = IDS_TRY_TOAST_HEADING3; break;
+      case 3: heading_id = IDS_TRY_TOAST_HEADING4; break;
       default:
         NOTREACHED() << "Cannot determine which headline to show.";
         return Upgrade::TD_DIALOG_ERROR;
     }
+    string16 heading = l10n_util::GetStringUTF16(heading_id);
     views::Label* label = new views::Label(heading);
     label->SetFont(rb.GetFont(ResourceBundle::MediumBoldFont));
     label->SetMultiLine(true);
@@ -720,23 +721,22 @@ class TryChromeDialog : public views::ButtonListener,
     layout->AddView(close_button);
 
     // Second row views.
-    const std::wstring try_it(l10n_util::GetString(IDS_TRY_TOAST_TRY_OPT));
+    const string16 try_it(l10n_util::GetStringUTF16(IDS_TRY_TOAST_TRY_OPT));
     layout->StartRowWithPadding(0, 1, 0, 10);
     try_chrome_ = new views::RadioButton(try_it, 1);
     layout->AddView(try_chrome_);
     try_chrome_->SetChecked(true);
 
     // Third row views.
-    const std::wstring
-        kill_it(l10n_util::GetString(IDS_UNINSTALL_CHROME));
+    const string16 kill_it(l10n_util::GetStringUTF16(IDS_UNINSTALL_CHROME));
     layout->StartRow(0, 2);
     kill_chrome_ = new views::RadioButton(kill_it, 1);
     layout->AddView(kill_chrome_);
 
     // Fourth row views.
-    const std::wstring ok_it(l10n_util::GetString(IDS_OK));
-    const std::wstring cancel_it(l10n_util::GetString(IDS_TRY_TOAST_CANCEL));
-    const std::wstring why_this(l10n_util::GetString(IDS_TRY_TOAST_WHY));
+    const string16 ok_it(l10n_util::GetStringUTF16(IDS_OK));
+    const string16 cancel_it(l10n_util::GetStringUTF16(IDS_TRY_TOAST_CANCEL));
+    const string16 why_this(l10n_util::GetStringUTF16(IDS_TRY_TOAST_WHY));
     layout->StartRowWithPadding(0, 3, 0, 10);
     views::Button* accept_button = new views::NativeButton(this, ok_it);
     accept_button->set_tag(BT_OK_BUTTON);

@@ -9,7 +9,7 @@
 #include "base/file_util.h"
 #include "base/perftimer.h"
 #include "base/string_util.h"
-#include "base/thread.h"
+#include "base/threading/thread.h"
 #include "base/test/test_file_util.h"
 #include "base/timer.h"
 #include "net/base/io_buffer.h"
@@ -169,7 +169,7 @@ TEST_F(DiskCacheTest, CacheBackendPerformance) {
   disk_cache::Backend* cache;
   int rv = disk_cache::CreateCacheBackend(
                net::DISK_CACHE, test_cache.path(), 0, false,
-               cache_thread.message_loop_proxy(), &cache, &cb);
+               cache_thread.message_loop_proxy(), NULL, &cache, &cb);
 
   ASSERT_EQ(net::OK, cb.GetResult(rv));
 
@@ -198,7 +198,7 @@ TEST_F(DiskCacheTest, CacheBackendPerformance) {
 
   rv = disk_cache::CreateCacheBackend(net::DISK_CACHE, test_cache.path(), 0,
                                       false, cache_thread.message_loop_proxy(),
-                                      &cache, &cb);
+                                      NULL, &cache, &cb);
   ASSERT_EQ(net::OK, cb.GetResult(rv));
 
   ret = TimeRead(num_entries, cache, entries, true);

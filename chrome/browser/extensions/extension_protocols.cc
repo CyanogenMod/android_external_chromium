@@ -12,7 +12,7 @@
 #include "base/message_loop.h"
 #include "base/path_service.h"
 #include "base/string_util.h"
-#include "base/thread_restrictions.h"
+#include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
@@ -23,7 +23,7 @@
 #include "chrome/common/extensions/extension_resource.h"
 #include "chrome/common/url_constants.h"
 #include "googleurl/src/url_util.h"
-#include "grit/bookmark_manager_resources_map.h"
+#include "grit/component_extension_resources_map.h"
 #include "net/base/mime_util.h"
 #include "net/base/net_errors.h"
 #include "net/url_request/url_request_error_job.h"
@@ -175,15 +175,15 @@ static net::URLRequestJob* CreateExtensionURLRequestJob(
     // TODO(tc): Make a map of FilePath -> resource ids so we don't have to
     // covert to FilePaths all the time.  This will be more useful as we add
     // more resources.
-    for (size_t i = 0; i < kBookmarkManagerResourcesSize; ++i) {
+    for (size_t i = 0; i < kComponentExtensionResourcesSize; ++i) {
       FilePath bm_resource_path =
-          FilePath().AppendASCII(kBookmarkManagerResources[i].name);
+          FilePath().AppendASCII(kComponentExtensionResources[i].name);
 #if defined(OS_WIN)
       bm_resource_path = bm_resource_path.NormalizeWindowsPathSeparators();
 #endif
       if (relative_path == bm_resource_path) {
         return new URLRequestResourceBundleJob(request, relative_path,
-            kBookmarkManagerResources[i].value);
+            kComponentExtensionResources[i].value);
       }
     }
   }

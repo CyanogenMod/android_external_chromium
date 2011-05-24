@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,8 @@
 #include <vector>
 
 #include "app/l10n_util.h"
-#include "app/win_util.h"
+#include "app/win/scoped_co_mem.h"
+#include "app/win/scoped_com_initializer.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/scoped_comptr_win.h"
@@ -26,6 +27,7 @@
 #include "base/values.h"
 #include "base/utf_string_conversions.h"
 #include "base/win/registry.h"
+#include "base/win/scoped_handle.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/importer/importer_bridge.h"
@@ -48,7 +50,7 @@ namespace {
 // Gets the creation time of the given file or directory.
 static Time GetFileCreationTime(const std::wstring& file) {
   Time creation_time;
-  ScopedHandle file_handle(
+  base::win::ScopedHandle file_handle(
       CreateFile(file.c_str(), GENERIC_READ,
                  FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                  NULL, OPEN_EXISTING,
@@ -78,7 +80,7 @@ void IEImporter::StartImport(const ProfileInfo& profile_info,
   bridge_->NotifyStarted();
 
   // Some IE settings (such as Protected Storage) are obtained via COM APIs.
-  win_util::ScopedCOMInitializer com_initializer;
+  app::win::ScopedCOMInitializer com_initializer;
 
   if ((items & importer::HOME_PAGE) && !cancelled())
     ImportHomepage();  // Doesn't have a UI item.
@@ -122,7 +124,7 @@ void IEImporter::ImportFavorites() {
 
   if (!bookmarks.empty() && !cancelled()) {
     const std::wstring& first_folder_name =
-        l10n_util::GetString(IDS_BOOKMARK_GROUP_FROM_IE);
+        UTF16ToWide(l10n_util::GetStringUTF16(IDS_BOOKMARK_GROUP_FROM_IE));
     int options = 0;
     if (import_to_bookmark_bar())
       options = ProfileWriter::IMPORT_TO_BOOKMARK_BAR;
@@ -487,7 +489,8 @@ bool IEImporter::GetFavoritesInfo(IEImporter::FavoritesInfo *info) {
 
 void IEImporter::ParseFavoritesFolder(const FavoritesInfo& info,
                                       BookmarkVector* bookmarks) {
-  std::wstring ie_folder = l10n_util::GetString(IDS_BOOKMARK_GROUP_FROM_IE);
+  std::wstring ie_folder =
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_BOOKMARK_GROUP_FROM_IE));
   BookmarkVector toolbar_bookmarks;
   FilePath file;
   std::vector<FilePath::StringType> file_list;
@@ -552,7 +555,7 @@ void IEImporter::ParseFavoritesFolder(const FavoritesInfo& info,
 }
 
 std::wstring IEImporter::ResolveInternetShortcut(const std::wstring& file) {
-  win_util::CoMemReleaser<wchar_t> url;
+  app::win::ScopedCoMem<wchar_t> url;
   ScopedComPtr<IUniformResourceLocator> url_locator;
   HRESULT result = url_locator.CreateInstance(CLSID_InternetShortcut, NULL,
                                               CLSCTX_INPROC_SERVER);

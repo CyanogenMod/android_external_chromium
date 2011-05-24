@@ -39,9 +39,9 @@
 #if defined(USE_X11)
 #include "app/x11_util.h"
 #elif defined(OS_MACOSX)
-#include "base/mac_util.h"
+#include "base/mac/mac_util.h"
 #elif defined(OS_WIN)
-#include "app/win_util.h"
+#include "app/win/win_util.h"
 #endif
 
 #if defined(TOOLKIT_VIEWS)
@@ -51,7 +51,7 @@
 #if defined(OS_CHROMEOS)
 #include "base/file_util.h"
 #include "base/path_service.h"
-#include "base/waitable_event.h"
+#include "base/synchronization/waitable_event.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/syslogs_library.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
@@ -173,9 +173,9 @@ void RefreshLastScreenshot(NSWindow* window) {
 #if defined(USE_X11)
   x11_util::GrabWindowSnapshot(window, last_screenshot_png);
 #elif defined(OS_MACOSX)
-  mac_util::GrabWindowSnapshot(window, last_screenshot_png, &width, &height);
+  base::mac::GrabWindowSnapshot(window, last_screenshot_png, &width, &height);
 #elif defined(OS_WIN)
-  win_util::GrabWindowSnapshot(window, last_screenshot_png);
+  app::win::GrabWindowSnapshot(window, last_screenshot_png);
 #endif
 
   screen_size.set_width(width);
@@ -653,6 +653,11 @@ void BugReportHandler::HandleRefreshSavedScreenshots(const ListValue*) {
 
 
 void BugReportHandler::HandleSendReport(const ListValue* list_value) {
+  if (!bug_report_) {
+    LOG(ERROR) << "Bug report hasn't been intialized yet.";
+    return;
+  }
+
   ListValue::const_iterator i = list_value->begin();
   if (i == list_value->end()) {
     LOG(ERROR) << "Incorrect data passed to sendReport.";

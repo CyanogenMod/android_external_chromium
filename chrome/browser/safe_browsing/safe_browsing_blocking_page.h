@@ -66,6 +66,7 @@ class SafeBrowsingBlockingPage : public InterstitialPage {
 
   // InterstitialPage method:
   virtual std::string GetHTMLContents();
+  virtual void SetReportingPreference(bool report);
   virtual void Proceed();
   virtual void DontProceed();
 
@@ -96,17 +97,17 @@ class SafeBrowsingBlockingPage : public InterstitialPage {
   // A helper method used by the Populate methods above used to populate common
   // fields.
   void PopulateStringDictionary(DictionaryValue* strings,
-                                const std::wstring& title,
-                                const std::wstring& headline,
-                                const std::wstring& description1,
-                                const std::wstring& description2,
-                                const std::wstring& description3);
+                                const string16& title,
+                                const string16& headline,
+                                const string16& description1,
+                                const string16& description2,
+                                const string16& description3);
 
   // Records a user action for this interstitial, using the form
   // SBInterstitial[Phishing|Malware|Multiple][Show|Proceed|DontProceed].
   void RecordUserAction(BlockingPageEvent event);
 
-  // See if we should even show the malware details option. For example, we
+  // Checks if we should even show the malware details option. For example, we
   // don't show it in incognito mode.
   bool CanShowMalwareDetailsOption();
 

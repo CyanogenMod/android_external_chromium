@@ -122,13 +122,6 @@ const Experiment kExperiments[] = {
     SINGLE_VALUE_TYPE(switches::kEnableVerticalTabs)
   },
   {
-    "tabbed-options",  // FLAGS:RECORD_UMA
-    IDS_FLAGS_TABBED_OPTIONS_NAME,
-    IDS_FLAGS_TABBED_OPTIONS_DESCRIPTION,
-    kOsWin | kOsLinux | kOsMac,  // Enabled by default on CrOS.
-    SINGLE_VALUE_TYPE(switches::kEnableTabbedOptions)
-  },
-  {
     "remoting",  // FLAGS:RECORD_UMA
     IDS_FLAGS_REMOTING_NAME,
 #if defined(OS_WIN)
@@ -150,13 +143,6 @@ const Experiment kExperiments[] = {
     IDS_FLAGS_XSS_AUDITOR_DESCRIPTION,
     kOsAll,
     SINGLE_VALUE_TYPE(switches::kEnableXSSAuditor)
-  },
-  {
-    "background-webapps",  // FLAGS:RECORD_UMA
-    IDS_FLAGS_BACKGROUND_WEBAPPS_NAME,
-    IDS_FLAGS_BACKGROUND_WEBAPPS_DESCRIPTION,
-    kOsLinux,  // Enabled by default on windows and mac, not available on CrOS.
-    SINGLE_VALUE_TYPE(switches::kEnableBackgroundMode)
   },
   {
     "conflicting-modules-check",  // FLAGS:RECORD_UMA
