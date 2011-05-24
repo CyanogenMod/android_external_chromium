@@ -23,7 +23,7 @@ class ProxyConfigServiceAndroid : public ProxyConfigService {
   virtual void OnLazyPoll() {}
 
   // For Android to update the proxy service config
-  void UpdateProxySettings(std::string& host);
+  void UpdateProxySettings(std::string& host, std::string& exclusionList);
 
 private:
   ObserverList<Observer> observers_;
