@@ -4,13 +4,7 @@
 
 #include "chrome/browser/autofill/address_field.h"
 
-<<<<<<< HEAD
-#ifdef ANDROID
 #include "app/l10n_util.h"
-#endif
-=======
-#include "app/l10n_util.h"
->>>>>>> chromium.org at r10.0.634.0
 #include "base/logging.h"
 #include "base/scoped_ptr.h"
 #include "base/string16.h"
@@ -215,11 +209,7 @@ bool AddressField::ParseAddressLines(
     if (!ParseText(iter, pattern, &address_field->address1_))
       return false;
   } else {
-<<<<<<< HEAD
-    string16 pattern = l10n_util::GetStringUTF16(IDS_AUTOFILL_ADDRESS_LINE_1_RE);
-=======
     pattern = l10n_util::GetStringUTF16(IDS_AUTOFILL_ADDRESS_LINE_1_RE);
->>>>>>> chromium.org at r10.0.634.0
     string16 label_pattern =
         l10n_util::GetStringUTF16(IDS_AUTOFILL_ADDRESS_LINE_1_LABEL_RE);
 
@@ -329,13 +319,8 @@ bool AddressField::ParseZipCode(
     // Look for a zip+4, whose field name will also often contain
     // the substring "zip".
     ParseText(iter,
-<<<<<<< HEAD
-             l10n_util::GetStringUTF16(IDS_AUTOFILL_ZIP_4_RE),
-             &address_field->zip4_);
-=======
               l10n_util::GetStringUTF16(IDS_AUTOFILL_ZIP_4_RE),
               &address_field->zip4_);
->>>>>>> chromium.org at r10.0.634.0
   }
 
   return true;

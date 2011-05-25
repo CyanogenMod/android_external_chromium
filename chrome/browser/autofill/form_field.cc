@@ -4,13 +4,7 @@
 
 #include "chrome/browser/autofill/form_field.h"
 
-<<<<<<< HEAD
-#ifdef ANDROID
 #include "app/l10n_util.h"
-#endif
-=======
-#include "app/l10n_util.h"
->>>>>>> chromium.org at r10.0.634.0
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/address_field.h"

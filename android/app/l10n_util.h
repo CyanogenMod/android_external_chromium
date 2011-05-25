@@ -70,9 +70,10 @@
 #define IDS_AUTOFILL_EXPIRATION_MONTH_RE 37
 #define IDS_AUTOFILL_EXPIRATION_DATE_RE 38
 #define IDS_AUTOFILL_CARD_IGNORED_RE 39
+#define IDS_AUTOFILL_FAX_RE 40
 // Don't forget to update the count if you add a new message ID!
 // (And also update frameworks/base/core/java/android/webkit/L10nUtils.java)
-#define ANDROID_L10N_IDS_MESSAGE_COUNT 40
+#define ANDROID_L10N_IDS_MESSAGE_COUNT 41
 
 namespace l10n_util {
 string16 GetStringUTF16(int message_id);
