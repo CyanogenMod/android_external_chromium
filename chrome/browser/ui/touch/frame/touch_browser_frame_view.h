@@ -7,18 +7,28 @@
 #pragma once
 
 #include "chrome/browser/ui/views/frame/opaque_browser_frame_view.h"
+#include "chrome/browser/tabs/tab_strip_model_observer.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
+#include "views/focus/focus_manager.h"
 
 class BrowserFrame;
 class BrowserView;
-class DOMView;
+class KeyboardContainerView;
 class NotificationDetails;
 class NotificationSource;
 
 class TouchBrowserFrameView : public OpaqueBrowserFrameView,
+                              public views::FocusChangeListener,
+                              public TabStripModelObserver,
                               public NotificationObserver {
  public:
+  enum VirtualKeyboardType {
+    NONE,
+    GENERIC,
+    URL,
+  };
+
   // Constructs a non-client view for an BrowserFrame.
   TouchBrowserFrameView(BrowserFrame* frame, BrowserView* browser_view);
   virtual ~TouchBrowserFrameView();
@@ -26,13 +36,25 @@ class TouchBrowserFrameView : public OpaqueBrowserFrameView,
   // Overridden from OpaqueBrowserFrameView
   virtual void Layout();
 
+  // views::FocusChangeListener implementation
+  virtual void FocusWillChange(views::View* focused_before,
+                               views::View* focused_now);
+
  protected:
   // Overridden from OpaqueBrowserFrameView
   virtual int GetReservedHeight() const;
+  virtual void ViewHierarchyChanged(bool is_add, View* parent, View* child);
 
  private:
   virtual void InitVirtualKeyboard();
   virtual void UpdateKeyboardAndLayout(bool should_show_keyboard);
+  virtual VirtualKeyboardType DecideKeyboardStateForView(views::View* view);
+
+  // Overrridden from TabStripModelObserver.
+  virtual void TabSelectedAt(TabContentsWrapper* old_contents,
+                             TabContentsWrapper* new_contents,
+                             int index,
+                             bool user_gesture);
 
   // Overridden from NotificationObserver.
   virtual void Observe(NotificationType type,
@@ -40,7 +62,8 @@ class TouchBrowserFrameView : public OpaqueBrowserFrameView,
                        const NotificationDetails& details);
 
   bool keyboard_showing_;
-  DOMView* keyboard_;
+  bool focus_listener_added_;
+  KeyboardContainerView* keyboard_;
   NotificationRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(TouchBrowserFrameView);

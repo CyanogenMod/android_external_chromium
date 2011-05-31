@@ -17,6 +17,7 @@ namespace views {
 class Label;
 class TextButton;
 class Widget;
+class WindowDelegate;
 }
 
 class DOMView;
@@ -64,6 +65,12 @@ class BackgroundView : public views::View,
       const GURL& background_url,
       BackgroundView** view);
 
+  // Create a modal popup view.
+  void CreateModalPopup(views::WindowDelegate* view);
+
+  // Overridden from StatusAreaHost:
+  virtual gfx::NativeWindow GetNativeWindow() const;
+
   // Toggles status area visibility.
   void SetStatusAreaVisible(bool visible);
 
@@ -100,13 +107,11 @@ class BackgroundView : public views::View,
 
   // Overridden from StatusAreaHost:
   virtual Profile* GetProfile() const { return NULL; }
-  virtual gfx::NativeWindow GetNativeWindow() const;
   virtual void ExecuteBrowserCommand(int id) const {}
   virtual bool ShouldOpenButtonOptions(
       const views::View* button_view) const;
   virtual void OpenButtonOptions(const views::View* button_view);
-  virtual bool IsBrowserMode() const;
-  virtual bool IsScreenLockerMode() const;
+  virtual ScreenMode GetScreenMode() const;
 
   // Overridden from LoginHtmlDialog::Delegate:
   virtual void OnDialogClosed() {}

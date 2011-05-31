@@ -20,12 +20,12 @@ class IOBuffer;
 
 class UploadDataStream {
  public:
+  ~UploadDataStream();
+
   // Returns a new instance of UploadDataStream if it can be created and
   // initialized successfully. If not, NULL will be returned and the error
   // code will be set if the output parameter error_code is not empty.
   static UploadDataStream* Create(UploadData* data, int* error_code);
-
-  ~UploadDataStream();
 
   // Returns the stream's buffer and buffer length.
   IOBuffer* buf() const { return buf_; }
@@ -34,7 +34,12 @@ class UploadDataStream {
   // Call to indicate that a portion of the stream's buffer was consumed.  This
   // call modifies the stream's buffer so that it contains the next segment of
   // the upload data to be consumed.
-  void DidConsume(size_t num_bytes);
+  void MarkConsumedAndFillBuffer(size_t num_bytes);
+
+  // Sets the callback to be invoked when new chunks are available to upload.
+  void set_chunk_callback(ChunkCallback* callback) {
+    data_->set_chunk_callback(callback);
+  }
 
   // Returns the total size of the data stream and the current position.
   // size() is not to be used to determine whether the stream has ended
@@ -43,11 +48,15 @@ class UploadDataStream {
   uint64 size() const { return total_size_; }
   uint64 position() const { return current_position_; }
 
+  bool is_chunked() const { return data_->is_chunked(); }
+
   // Returns whether there is no more data to read, regardless of whether
   // position < size.
   bool eof() const { return eof_; }
 
  private:
+  enum { kBufSize = 16384 };
+
   // Protects from public access since now we have a static creator function
   // which will do both creation and initialization and might return an error.
   explicit UploadDataStream(UploadData* data);
@@ -63,12 +72,11 @@ class UploadDataStream {
   // always at the front of the buffer.  If we cannot send all of the buffer at
   // once, then we memmove the remaining portion and back-fill the buffer for
   // the next "write" call.  buf_len_ indicates how much data is in the buffer.
-  enum { kBufSize = 16384 };
   scoped_refptr<IOBuffer> buf_;
   size_t buf_len_;
 
-  // Iterator to the upload element to be written to the send buffer next.
-  std::vector<UploadData::Element>::iterator next_element_;
+  // Index of the upload element to be written to the send buffer next.
+  size_t next_element_;
 
   // The byte offset into next_element_'s data buffer if the next element is
   // a TYPE_BYTES element.

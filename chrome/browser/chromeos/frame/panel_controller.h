@@ -8,8 +8,8 @@
 
 #include <gtk/gtk.h>
 
-#include "app/x11_util.h"
 #include "third_party/cros/chromeos_wm_ipc_enums.h"
+#include "ui/base/x/x11_util.h"
 #include "views/controls/button/button.h"
 
 class BrowserView;
@@ -43,6 +43,10 @@ class PanelController {
 
     // Retrieves the icon to use in the panel's titlebar.
     virtual SkBitmap GetPanelIcon() = 0;
+
+    // Can the panel be closed?  Called before ClosePanel() when the close
+    // button is pressed to give beforeunload handlers a chance to cancel.
+    virtual bool CanClosePanel() = 0;
 
     // Close the panel. Called when a close button is pressed.
     virtual void ClosePanel() = 0;

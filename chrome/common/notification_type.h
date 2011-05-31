@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -148,6 +148,12 @@ class NotificationType {
     // request was issued.  Details in the form of a ResourceRedirectDetails
     // are provided.
     RESOURCE_RECEIVED_REDIRECT,
+
+    // A new window is created in response to a request from a renderer. The
+    // source will be a Source<TabContents> corresponding to the tab the
+    // request originates from.  Details in the form of a
+    // ViewHostMsg_CreateWindow_Params object are provided.
+    CREATING_NEW_WINDOW,
 
     // SSL ---------------------------------------------------------------------
 
@@ -444,6 +450,35 @@ class NotificationType {
     // the RenderWidgetHost, the details are not used.
     RENDER_WIDGET_HOST_DESTROYED,
 
+    // Sent when the widget is about to paint. The source is the
+    // RenderWidgetHost, the details are not used.
+    RENDER_WIDGET_HOST_WILL_PAINT,
+
+    // Sent after the widget has painted. The source is the RenderWidgetHost,
+    // the details are not used.
+    RENDER_WIDGET_HOST_DID_PAINT,
+
+    // Indicates the RenderWidgetHost is about to destroy the backing store. The
+    // backing store will still be valid when this call is made. The source is
+    // the RenderWidgetHost, the details is the BackingStore.
+    RENDER_WIDGET_HOST_WILL_DESTROY_BACKING_STORE,
+
+    // Indicates that the RenderWidgetHost just updated the backing store. The
+    // source is the RenderWidgetHost, the details are not used.
+    RENDER_WIDGET_HOST_DID_UPDATE_BACKING_STORE,
+
+    // This notifies the observer that a PaintAtSizeACK was received. The source
+    // is the RenderWidgetHost, the details are an instance of
+    // RenderWidgetHost::PaintAtSizeAckDetails.
+    RENDER_WIDGET_HOST_DID_RECEIVE_PAINT_AT_SIZE_ACK,
+
+    // This notifies the observer that a HandleInputEventACK was received. The
+    // source is the RenderWidgetHost, the details are the type of event
+    // received.
+    // Note: The RenderWidgetHost may be deallocated at this point.
+    // Used only in testing.
+    RENDER_WIDGET_HOST_DID_RECEIVE_INPUT_EVENT_ACK,
+
     // Sent from ~RenderViewHost. The source is the TabContents.
     RENDER_VIEW_HOST_DELETED,
 
@@ -491,9 +526,10 @@ class NotificationType {
     // guaranteed to be valid after the notification.
     WEB_CACHE_STATS_OBSERVED,
 
-    // The focused element inside a page has changed.  The source is the render
-    // view host for the page.  The details are a Details<const bool> that
-    // indicates whether or not an editable node was focused.
+    // The focused element inside a page has changed.  The source is the
+    // TabContents containing the render view host for the page. The details is
+    // a Details<const bool> that indicates whether or not an editable node was
+    // focused.
     FOCUS_CHANGED_IN_PAGE,
 
     // Notification posted from ExecuteJavascriptInWebFrameNotifyResult. The
@@ -568,10 +604,6 @@ class NotificationType {
     // thread or the plugin thread. The source is the plugin that is disabling
     // interception.  No details are expected.
     CHROME_PLUGIN_UNLOADED,
-
-    // This is sent in the RenderView when previously blocked plugins on a page
-    // should be loaded. The source is the RenderView. No details are expected.
-    SHOULD_LOAD_PLUGINS,
 
     // Sent by the PluginUpdater when there is a change of plugin
     // enable/disable status.
@@ -752,18 +784,9 @@ class NotificationType {
 
     // Autocomplete ------------------------------------------------------------
 
-    // Sent by the autocomplete controller at least once per query, each time
-    // new matches are available, subject to rate-limiting/coalescing to reduce
-    // the number of updates.  The details hold the AutocompleteResult that
-    // observers should use if they want to see the updated matches.
+    // Sent by the autocomplete controller each time the result set updates.
+    // The details is a boolean indicating if the default match has changed.
     AUTOCOMPLETE_CONTROLLER_RESULT_UPDATED,
-
-    // Sent by the autocomplete controller immediately after synchronous matches
-    // become available, and thereafter at the same time that
-    // AUTOCOMPLETE_CONTROLLER_RESULT_UPDATED is sent.  The details hold the
-    // AutocompleteResult that observers should use if they want to see the
-    // up-to-date matches.
-    AUTOCOMPLETE_CONTROLLER_DEFAULT_MATCH_UPDATED,
 
     // This is sent when an item of the Omnibox popup is selected. The source
     // is the profile.
@@ -789,8 +812,9 @@ class NotificationType {
 
     // Shutdown ----------------------------------------------------------------
 
-    // Sent on the browser IO thread when an URLRequestContext is released by
-    // its owning Profile.  The source is a pointer to the URLRequestContext.
+    // Sent on the browser IO thread when an net::URLRequestContext is released
+    // by its owning Profile.  The source is a pointer to the
+    // net::URLRequestContext.
     URL_REQUEST_CONTEXT_RELEASED,
 
     // Sent when WM_ENDSESSION has been received, after the browsers have been
@@ -1136,20 +1160,6 @@ class NotificationType {
     // session data.
     FOREIGN_SESSION_DISABLED,
 
-    // The syncer requires a passphrase to decrypt sensitive updates. This
-    // notification is sent when the first sensitive data type is setup by the
-    // user as well as anytime any the passphrase is changed in another synced
-    // client.  The source is the SyncBackendHost wanting a passphrase.  The
-    // details are a boolean: true if the passphrase is required for decryption,
-    // false if only required for encryption.
-    SYNC_PASSPHRASE_REQUIRED,
-
-    // Sent when the passphrase provided by the user is accepted. After this
-    // notification is sent, updates to sensitive nodes are encrypted using the
-    // accepted passphrase.  The source is the SyncBackendHost that accepted
-    // the passphrase.  No details.
-    SYNC_PASSPHRASE_ACCEPTED,
-
     // Sent when the set of data types that should be synced has been modified
     // externally (eg. by the dom_ui options screen).
     // The source is the Profile, there are no details.
@@ -1293,6 +1303,9 @@ class NotificationType {
     // change type (ADD, UPDATE, or REMOVE) as well as the
     // |webkit_glue::PasswordForm|s that were affected.
     LOGINS_CHANGED,
+
+    // Sent when the applications in the NTP app launcher have been reordered.
+    EXTENSION_LAUNCHER_REORDERED,
 
     // Count (must be last) ----------------------------------------------------
     // Used to determine the number of notification types.  Not valid as

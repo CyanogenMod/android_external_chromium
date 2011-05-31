@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,13 @@
 #include "base/command_line.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
-#include "base/lock.h"
 #include "base/path_service.h"
 #include "base/scoped_ptr.h"
 #include "base/singleton.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
+#include "base/synchronization/lock.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
@@ -23,6 +24,7 @@
 #include "chrome/browser/chromeos/cros/login_library.h"
 #include "chrome/browser/chromeos/cros/network_library.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
+#include "chrome/browser/chromeos/login/background_view.h"
 #include "chrome/browser/chromeos/login/cookie_fetcher.h"
 #include "chrome/browser/chromeos/login/google_authenticator.h"
 #include "chrome/browser/chromeos/login/language_switch_menu.h"
@@ -36,6 +38,7 @@
 #include "chrome/browser/net/gaia/token_service.h"
 #include "chrome/browser/net/preconnect.h"
 #include "chrome/browser/net/pref_proxy_config_service.h"
+#include "chrome/browser/plugin_updater.h"
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -99,7 +102,8 @@ class ResetDefaultProxyConfigServiceTask : public Task {
 class LoginUtilsImpl : public LoginUtils {
  public:
   LoginUtilsImpl()
-      : browser_launch_enabled_(true) {
+      : browser_launch_enabled_(true),
+        background_view_(NULL) {
   }
 
   // Invoked after the user has successfully logged in. This launches a browser
@@ -143,12 +147,27 @@ class LoginUtilsImpl : public LoginUtils {
       Profile* profile,
       const GaiaAuthConsumer::ClientLoginResult& credentials);
 
+  // Sets the current background view.
+  virtual void SetBackgroundView(chromeos::BackgroundView* background_view);
+
+  // Gets the current background view.
+  virtual chromeos::BackgroundView* GetBackgroundView();
+
+ protected:
+  virtual std::string GetOffTheRecordCommandLine(
+      const GURL& start_url,
+      const CommandLine& base_command_line,
+      CommandLine *command_line);
+
  private:
   // Check user's profile for kApplicationLocale setting.
-  void RespectLocalePreference(PrefService* pref);
+  void RespectLocalePreference(Profile* pref);
 
   // Indicates if DoBrowserLaunch will actually launch the browser or not.
   bool browser_launch_enabled_;
+
+  // The current background view.
+  chromeos::BackgroundView* background_view_;
 
   DISALLOW_COPY_AND_ASSIGN(LoginUtilsImpl);
 };
@@ -160,7 +179,7 @@ class LoginUtilsWrapper {
   }
 
   LoginUtils* get() {
-    AutoLock create(create_lock_);
+    base::AutoLock create(create_lock_);
     if (!ptr_.get())
       reset(new LoginUtilsImpl);
     return ptr_.get();
@@ -175,7 +194,7 @@ class LoginUtilsWrapper {
 
   LoginUtilsWrapper() {}
 
-  Lock create_lock_;
+  base::Lock create_lock_;
   scoped_ptr<LoginUtils> ptr_;
 
   DISALLOW_COPY_AND_ASSIGN(LoginUtilsWrapper);
@@ -209,9 +228,15 @@ void LoginUtilsImpl::CompleteLogin(
   logging::RedirectChromeLogging(*(CommandLine::ForCurrentProcess()));
   btl->AddLoginTimeMarker("LoggingRedirected", false);
 
-  // The default profile will have been changed because the ProfileManager
-  // will process the notification that the UserManager sends out.
-  Profile* profile = profile_manager->GetDefaultProfile(user_data_dir);
+  Profile* profile = NULL;
+  {
+    // Loading user profile causes us to do blocking IO on UI thread.
+    // Temporarily allow it until we fix http://crosbug.com/11104
+    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    // The default profile will have been changed because the ProfileManager
+    // will process the notification that the UserManager sends out.
+    profile = profile_manager->GetDefaultProfile(user_data_dir);
+  }
   btl->AddLoginTimeMarker("UserProfileGotten", false);
 
   // Change the proxy configuration service of the default request context to
@@ -268,7 +293,9 @@ void LoginUtilsImpl::CompleteLogin(
 
   // Set the CrOS user by getting this constructor run with the
   // user's email on first retrieval.
-  profile->GetProfileSyncService(username)->SetPassphrase(password, false);
+  profile->GetProfileSyncService(username)->SetPassphrase(password,
+                                                          false,
+                                                          true);
   btl->AddLoginTimeMarker("SyncStarted", false);
 
   // Attempt to take ownership; this will fail if device is already owned.
@@ -288,11 +315,15 @@ void LoginUtilsImpl::CompleteLogin(
   }
   btl->AddLoginTimeMarker("TPMOwned", false);
 
-  RespectLocalePreference(profile->GetPrefs());
+  RespectLocalePreference(profile);
 
   if (first_login) {
     SetFirstLoginPrefs(profile->GetPrefs());
   }
+
+  // Enable/disable plugins based on user preferences.
+  PluginUpdater::GetInstance()->DisablePluginGroupsFromPrefs(profile);
+  btl->AddLoginTimeMarker("PluginsStateUpdated", false);
 
   // We suck. This is a hack since we do not have the enterprise feature
   // done yet to pull down policies from the domain admin. We'll take this
@@ -329,25 +360,20 @@ void LoginUtilsImpl::FetchTokens(
   }
 }
 
-void LoginUtilsImpl::RespectLocalePreference(PrefService* pref) {
-  std::string pref_locale = pref->GetString(prefs::kApplicationLocale);
-  if (pref_locale.empty()) {
-    // Profile synchronization takes time and is not completed at that moment
-    // at first login.  So we initialize locale preference in steps:
-    // (1) first save it to temporary backup;
-    // (2) on next login we assume that synchronization is already completed
-    //     and we may finalize initialization.
-    std::string pref_locale_backup =
-        pref->GetString(prefs::kApplicationLocaleBackup);
-    if (pref_locale_backup.empty()) {
-      pref->SetString(prefs::kApplicationLocaleBackup,
-                      g_browser_process->GetApplicationLocale());
-      return;
-    } else {
-      pref_locale.swap(pref_locale_backup);
-      pref->SetString(prefs::kApplicationLocale, pref_locale);
-    }
-  }
+void LoginUtilsImpl::RespectLocalePreference(Profile* profile) {
+  DCHECK(profile != NULL);
+  PrefService* prefs = profile->GetPrefs();
+  DCHECK(prefs != NULL);
+  if (g_browser_process == NULL)
+    return;
+
+  std::string pref_locale = prefs->GetString(prefs::kApplicationLocale);
+  if (pref_locale.empty())
+    pref_locale = prefs->GetString(prefs::kApplicationLocaleBackup);
+  if (pref_locale.empty())
+    pref_locale = g_browser_process->GetApplicationLocale();
+  DCHECK(!pref_locale.empty());
+  profile->ChangeAppLocale(pref_locale, Profile::APP_LOCALE_CHANGED_VIA_LOGIN);
   LanguageSwitchMenu::SwitchLanguage(pref_locale);
 }
 
@@ -359,56 +385,64 @@ void LoginUtilsImpl::CompleteOffTheRecordLogin(const GURL& start_url) {
   if (CrosLibrary::Get()->EnsureLoaded()) {
     // For guest session we ask session manager to restart Chrome with --bwsi
     // flag. We keep only some of the arguments of this process.
-    static const char* kForwardSwitches[] = {
-        switches::kEnableLogging,
-        switches::kUserDataDir,
-        switches::kScrollPixels,
-        switches::kEnableGView,
-        switches::kNoFirstRun,
-        switches::kLoginProfile,
-        switches::kCompressSystemFeedback,
-        switches::kDisableSeccompSandbox,
-#if defined(HAVE_XINPUT2)
-        switches::kTouchDevices,
-#endif
-    };
-    const CommandLine& browser_command_line =
-        *CommandLine::ForCurrentProcess();
+    const CommandLine& browser_command_line = *CommandLine::ForCurrentProcess();
     CommandLine command_line(browser_command_line.GetProgram());
-    command_line.CopySwitchesFrom(browser_command_line,
-                                  kForwardSwitches,
-                                  arraysize(kForwardSwitches));
-    command_line.AppendSwitch(switches::kGuestSession);
-    command_line.AppendSwitch(switches::kIncognito);
-    command_line.AppendSwitchASCII(switches::kLoggingLevel,
-                                   kGuestModeLoggingLevel);
-    command_line.AppendSwitchASCII(
-        switches::kLoginUser,
-        UserManager::Get()->logged_in_user().email());
-
-    if (start_url.is_valid())
-      command_line.AppendArg(start_url.spec());
-
-    // Override the value of the homepage that is set in first run mode.
-    // TODO(altimofeev): extend action of the |kNoFirstRun| to cover this case.
-    command_line.AppendSwitchASCII(
-        switches::kHomePage,
-        GURL(chrome::kChromeUINewTabURL).spec());
-
-    std::string cmd_line_str = command_line.command_line_string();
-    // Special workaround for the arguments that should be quoted.
-    // Copying switches won't be needed when Guest mode won't need restart
-    // http://crosbug.com/6924
-    if (browser_command_line.HasSwitch(switches::kRegisterPepperPlugins)) {
-      cmd_line_str += base::StringPrintf(
-          kSwitchFormatString,
-          switches::kRegisterPepperPlugins,
-          browser_command_line.GetSwitchValueNative(
-              switches::kRegisterPepperPlugins).c_str());
-    }
+    std::string cmd_line_str =
+        GetOffTheRecordCommandLine(start_url,
+                                   browser_command_line,
+                                   &command_line);
 
     CrosLibrary::Get()->GetLoginLibrary()->RestartJob(getpid(), cmd_line_str);
   }
+}
+
+std::string LoginUtilsImpl::GetOffTheRecordCommandLine(
+    const GURL& start_url,
+    const CommandLine& base_command_line,
+    CommandLine* command_line) {
+  static const char* kForwardSwitches[] = {
+      switches::kEnableLogging,
+      switches::kUserDataDir,
+      switches::kScrollPixels,
+      switches::kEnableGView,
+      switches::kNoFirstRun,
+      switches::kLoginProfile,
+      switches::kCompressSystemFeedback,
+      switches::kDisableSeccompSandbox,
+#if defined(HAVE_XINPUT2)
+      switches::kTouchDevices,
+#endif
+  };
+  command_line->CopySwitchesFrom(base_command_line,
+                                 kForwardSwitches,
+                                 arraysize(kForwardSwitches));
+  command_line->AppendSwitch(switches::kGuestSession);
+  command_line->AppendSwitch(switches::kIncognito);
+  command_line->AppendSwitchASCII(switches::kLoggingLevel,
+                                 kGuestModeLoggingLevel);
+
+  if (start_url.is_valid())
+    command_line->AppendArg(start_url.spec());
+
+  // Override the value of the homepage that is set in first run mode.
+  // TODO(altimofeev): extend action of the |kNoFirstRun| to cover this case.
+  command_line->AppendSwitchASCII(
+      switches::kHomePage,
+      GURL(chrome::kChromeUINewTabURL).spec());
+
+  std::string cmd_line_str = command_line->command_line_string();
+  // Special workaround for the arguments that should be quoted.
+  // Copying switches won't be needed when Guest mode won't need restart
+  // http://crosbug.com/6924
+  if (base_command_line.HasSwitch(switches::kRegisterPepperPlugins)) {
+    cmd_line_str += base::StringPrintf(
+        kSwitchFormatString,
+        switches::kRegisterPepperPlugins,
+        base_command_line.GetSwitchValueNative(
+            switches::kRegisterPepperPlugins).c_str());
+  }
+
+  return cmd_line_str;
 }
 
 void LoginUtilsImpl::SetFirstLoginPrefs(PrefService* prefs) {
@@ -502,6 +536,14 @@ void LoginUtilsImpl::PrewarmAuthentication() {
       new WarmingObserver();
     }
   }
+}
+
+void LoginUtilsImpl::SetBackgroundView(BackgroundView* background_view) {
+  background_view_ = background_view;
+}
+
+BackgroundView* LoginUtilsImpl::GetBackgroundView() {
+  return background_view_;
 }
 
 LoginUtils* LoginUtils::Get() {

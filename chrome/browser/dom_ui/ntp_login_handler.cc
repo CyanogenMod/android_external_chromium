@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <string>
 
 #include "base/values.h"
-#include "chrome/browser/dom_ui/dom_ui_util.h"
+#include "chrome/browser/dom_ui/web_ui_util.h"
 #include "chrome/browser/prefs/pref_notifier.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
@@ -22,15 +22,15 @@ NTPLoginHandler::NTPLoginHandler() {
 NTPLoginHandler::~NTPLoginHandler() {
 }
 
-DOMMessageHandler* NTPLoginHandler::Attach(DOMUI* dom_ui) {
-  PrefService* pref_service = dom_ui->GetProfile()->GetPrefs();
+WebUIMessageHandler* NTPLoginHandler::Attach(WebUI* web_ui) {
+  PrefService* pref_service = web_ui->GetProfile()->GetPrefs();
   username_pref_.Init(prefs::kGoogleServicesUsername, pref_service, this);
 
-  return DOMMessageHandler::Attach(dom_ui);
+  return WebUIMessageHandler::Attach(web_ui);
 }
 
 void NTPLoginHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("initializeLogin",
+  web_ui_->RegisterMessageCallback("initializeLogin",
       NewCallback(this, &NTPLoginHandler::HandleInitializeLogin));
 }
 
@@ -48,8 +48,8 @@ void NTPLoginHandler::HandleInitializeLogin(const ListValue* args) {
 }
 
 void NTPLoginHandler::UpdateLogin() {
-  std::string username = dom_ui_->GetProfile()->GetPrefs()->GetString(
+  std::string username = web_ui_->GetProfile()->GetPrefs()->GetString(
       prefs::kGoogleServicesUsername);
   StringValue string_value(username);
-  dom_ui_->CallJavascriptFunction(L"updateLogin", string_value);
+  web_ui_->CallJavascriptFunction(L"updateLogin", string_value);
 }

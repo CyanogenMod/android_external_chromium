@@ -6,9 +6,6 @@
 
 #include "chrome/browser/ui/toolbar/back_forward_menu_model.h"
 
-#include "app/l10n_util.h"
-#include "app/text_elider.h"
-#include "app/resource_bundle.h"
 #include "base/string_number_conversions.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
@@ -22,6 +19,9 @@
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "net/base/registry_controlled_domain.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/text/text_elider.h"
 
 const int BackForwardMenuModel::kMaxHistoryItems = 12;
 const int BackForwardMenuModel::kMaxChapterStops = 5;
@@ -59,7 +59,7 @@ int BackForwardMenuModel::GetItemCount() const {
   return items;
 }
 
-menus::MenuModel::ItemType BackForwardMenuModel::GetTypeAt(int index) const {
+ui::MenuModel::ItemType BackForwardMenuModel::GetTypeAt(int index) const {
   return IsSeparator(index) ? TYPE_SEPARATOR : TYPE_COMMAND;
 }
 
@@ -82,7 +82,7 @@ string16 BackForwardMenuModel::GetLabelAt(int index) const {
   string16 menu_text(entry->GetTitleForDisplay(
       GetTabContents()->profile()->GetPrefs()->
           GetString(prefs::kAcceptLanguages)));
-  menu_text = gfx::ElideText(menu_text, gfx::Font(), kMaxWidth, false);
+  menu_text = ui::ElideText(menu_text, gfx::Font(), kMaxWidth, false);
 
   for (size_t i = menu_text.find('&'); i != string16::npos;
        i = menu_text.find('&', i + 2)) {
@@ -98,7 +98,7 @@ bool BackForwardMenuModel::IsItemDynamicAt(int index) const {
 
 bool BackForwardMenuModel::GetAcceleratorAt(
     int index,
-    menus::Accelerator* accelerator) const {
+    ui::Accelerator* accelerator) const {
   return false;
 }
 
@@ -125,7 +125,7 @@ bool BackForwardMenuModel::GetIconAt(int index, SkBitmap* icon) const {
   return true;
 }
 
-menus::ButtonMenuItemModel* BackForwardMenuModel::GetButtonMenuItemAt(
+ui::ButtonMenuItemModel* BackForwardMenuModel::GetButtonMenuItemAt(
     int index) const {
   return NULL;
 }
@@ -134,7 +134,7 @@ bool BackForwardMenuModel::IsEnabledAt(int index) const {
   return index < GetItemCount() && !IsSeparator(index);
 }
 
-menus::MenuModel* BackForwardMenuModel::GetSubmenuModelAt(int index) const {
+ui::MenuModel* BackForwardMenuModel::GetSubmenuModelAt(int index) const {
   return NULL;
 }
 

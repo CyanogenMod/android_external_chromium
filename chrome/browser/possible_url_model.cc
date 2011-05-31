@@ -4,9 +4,6 @@
 
 #include "chrome/browser/possible_url_model.h"
 
-#include "app/resource_bundle.h"
-#include "app/table_model_observer.h"
-#include "app/text_elider.h"
 #include "base/callback.h"
 #include "base/i18n/rtl.h"
 #include "base/string_util.h"
@@ -16,10 +13,13 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
-#include "gfx/codec/png_codec.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/models/table_model_observer.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/text/text_elider.h"
+#include "ui/gfx/codec/png_codec.h"
 
 using base::Time;
 using base::TimeDelta;
@@ -43,7 +43,7 @@ struct PossibleURLModel::Result {
   // fav_icon_map_ to lookup the favicon for the url, as well as the index
   // into results_ when the favicon is received.
   size_t index;
-  gfx::SortedDisplayURL display_url;
+  ui::SortedDisplayURL display_url;
   std::wstring title;
 };
 
@@ -87,7 +87,7 @@ void PossibleURLModel::OnHistoryQueryComplete(HistoryService::Handle h,
     results_[i].url = (*result)[i].url();
     results_[i].index = i;
     results_[i].display_url =
-        gfx::SortedDisplayURL((*result)[i].url(), languages);
+        ui::SortedDisplayURL((*result)[i].url(), languages);
     results_[i].title = UTF16ToWide((*result)[i].title());
   }
 
@@ -180,7 +180,7 @@ int PossibleURLModel::CompareValues(int row1, int row2, int column_id) {
     return results_[row1].display_url.Compare(
         results_[row2].display_url, GetCollator());
   }
-  return TableModel::CompareValues(row1, row2, column_id);
+  return ui::TableModel::CompareValues(row1, row2, column_id);
 }
 
 void PossibleURLModel::OnFavIconAvailable(
@@ -205,6 +205,6 @@ void PossibleURLModel::OnFavIconAvailable(
   }
 }
 
-void PossibleURLModel::SetObserver(TableModelObserver* observer) {
+void PossibleURLModel::SetObserver(ui::TableModelObserver* observer) {
   observer_ = observer;
 }

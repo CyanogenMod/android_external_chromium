@@ -23,6 +23,8 @@ using testing::DoDefault;
 using testing::Invoke;
 using testing::Return;
 
+namespace {
+
 class MockLatLongReport : public ILatLongReport {
  public:
   MockLatLongReport() : ref_count_(1) {
@@ -293,9 +295,8 @@ class GeolocationApiWin7Tests : public testing::Test {
   Win7LocationApi* CreateMock() {
     MockLocation* locator = new MockLocation();
     locator_ = locator;
-    return new Win7LocationApi(NULL,
-                               &MockPropVariantToDoubleFunction,
-                               locator);
+    return Win7LocationApi::CreateForTesting(&MockPropVariantToDoubleFunction,
+                                             locator);
   }
 
   scoped_ptr<Win7LocationApi> api_;
@@ -332,3 +333,5 @@ TEST_F(GeolocationApiWin7Tests, GetInvalidPosition) {
   api_->GetPosition(&position);
   EXPECT_FALSE(position.IsValidFix());
 }
+
+}  // namespace

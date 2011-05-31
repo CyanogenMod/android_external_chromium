@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
+#include "chrome/common/notification_registrar.h"
 
 class Extension;
 
@@ -24,6 +25,10 @@ class Extension;
 // TODO(erikkay): There should also be a way to drive events in these tests.
 
 class ExtensionApiTest : public ExtensionBrowserTest {
+ public:
+  ExtensionApiTest();
+  virtual ~ExtensionApiTest();
+
  protected:
   // Helper class that observes tests failing or passing. Observation starts
   // when the class is constructed. Get the next result by calling

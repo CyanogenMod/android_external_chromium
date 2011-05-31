@@ -15,9 +15,12 @@
 
 class AutocompleteEditController;
 class AutocompletePopupViewMac;
-class Clipboard;
 class Profile;
 class ToolbarModel;
+
+namespace ui {
+class Clipboard;
+}
 
 // Implements AutocompleteEditView on an AutocompleteTextField.
 
@@ -43,43 +46,47 @@ class AutocompleteEditViewMac : public AutocompleteEditView,
                        PageTransition::Type transition,
                        const GURL& alternate_nav_url,
                        size_t selected_line,
-                       const std::wstring& keyword);
+                       const string16& keyword);
 
-  virtual std::wstring GetText() const;
+  virtual string16 GetText() const;
 
   virtual bool IsEditingOrEmpty() const;
   virtual int GetIcon() const;
 
-  virtual void SetUserText(const std::wstring& text);
-  virtual void SetUserText(const std::wstring& text,
-                           const std::wstring& display_text,
+  virtual void SetUserText(const string16& text);
+  virtual void SetUserText(const string16& text,
+                           const string16& display_text,
                            bool update_popup);
 
-  virtual void SetWindowTextAndCaretPos(const std::wstring& text,
+  virtual void SetWindowTextAndCaretPos(const string16& text,
                                         size_t caret_pos);
 
   virtual void SetForcedQuery();
 
   virtual bool IsSelectAll();
   virtual bool DeleteAtEndPressed();
-  virtual void GetSelectionBounds(std::wstring::size_type* start,
-                                  std::wstring::size_type* end);
+  virtual void GetSelectionBounds(string16::size_type* start,
+                                  string16::size_type* end);
 
   virtual void SelectAll(bool reversed);
   virtual void RevertAll();
   virtual void UpdatePopup();
   virtual void ClosePopup();
   virtual void SetFocus();
-  virtual void OnTemporaryTextMaybeChanged(const std::wstring& display_text,
+  virtual void OnTemporaryTextMaybeChanged(const string16& display_text,
                                            bool save_original_selection);
   virtual bool OnInlineAutocompleteTextMaybeChanged(
-      const std::wstring& display_text, size_t user_text_length);
+      const string16& display_text, size_t user_text_length);
   virtual void OnStartingIME();
   virtual void OnRevertTemporaryText();
   virtual void OnBeforePossibleChange();
   virtual bool OnAfterPossibleChange();
   virtual gfx::NativeView GetNativeView() const;
   virtual CommandUpdater* GetCommandUpdater();
+  virtual void SetInstantSuggestion(const string16& input);
+  virtual string16 GetInstantSuggestion() const;
+  virtual int TextWidth() const;
+  virtual bool IsImeComposing() const;
 
   // Implement the AutocompleteTextFieldObserver interface.
   virtual NSRange SelectionRangeForProposedRange(NSRange proposed_range);
@@ -98,16 +105,12 @@ class AutocompleteEditViewMac : public AutocompleteEditView,
   virtual void OnSetFocus(bool control_down);
   virtual void OnKillFocus();
 
-  // Suggest text should be in the model, but for now, it's here.
-  void SetSuggestText(const string16& suggest_text);
-  bool CommitSuggestText();
-
   // Helper for LocationBarViewMac.  Optionally selects all in |field_|.
   void FocusLocation(bool select_all);
 
   // Helper to get appropriate contents from |clipboard|.  Returns
   // empty string if no appropriate data is found on |clipboard|.
-  static std::wstring GetClipboardText(Clipboard* clipboard);
+  static string16 GetClipboardText(ui::Clipboard* clipboard);
 
   // Helper to get the font to use in the field, exposed for the
   // popup.
@@ -128,6 +131,10 @@ class AutocompleteEditViewMac : public AutocompleteEditView,
   // field has focus.
   NSRange GetSelectedRange() const;
 
+  // Returns the field's currently marked range. Only valid if the field has
+  // focus.
+  NSRange GetMarkedRange() const;
+
   // Returns true if |field_| is first-responder in the window.  Used
   // in various DCHECKS to make sure code is running in appropriate
   // situations.
@@ -139,18 +146,21 @@ class AutocompleteEditViewMac : public AutocompleteEditView,
 
   // Update the field with |display_text| and highlight the host and scheme (if
   // it's an URL or URL-fragment).  Resets any suggest text that may be present.
-  void SetText(const std::wstring& display_text);
+  void SetText(const string16& display_text);
 
   // Internal implementation of SetText.  Does not reset the suggest text before
   // setting the display text.  Most callers should use |SetText()| instead.
-  void SetTextInternal(const std::wstring& display_text);
+  void SetTextInternal(const string16& display_text);
 
   // Update the field with |display_text| and set the selection.
-  void SetTextAndSelectedRange(const std::wstring& display_text,
+  void SetTextAndSelectedRange(const string16& display_text,
                                const NSRange range);
 
   // Returns the non-suggest portion of |field_|'s string value.
   NSString* GetNonSuggestTextSubstring() const;
+
+  // Returns the suggest portion of |field_|'s string value.
+  NSString* GetSuggestTextSubstring() const;
 
   // Pass the current content of |field_| to SetText(), maintaining
   // any selection.  Named to be consistent with GTK and Windows,
@@ -159,8 +169,18 @@ class AutocompleteEditViewMac : public AutocompleteEditView,
 
   // Calculates text attributes according to |display_text| and applies them
   // to the given |as| object.
-  void ApplyTextAttributes(const std::wstring& display_text,
+  void ApplyTextAttributes(const string16& display_text,
                            NSMutableAttributedString* as);
+
+  // Return the number of UTF-16 units in the current buffer, excluding the
+  // suggested text.
+  NSUInteger GetTextLength() const;
+
+  // Places the caret at the given position. This clears any selection.
+  void PlaceCaretAt(NSUInteger pos);
+
+  // Returns true if the caret is at the end of the content.
+  bool IsCaretAtEnd() const;
 
   scoped_ptr<AutocompleteEditModel> model_;
   scoped_ptr<AutocompletePopupViewMac> popup_view_;
@@ -181,7 +201,8 @@ class AutocompleteEditViewMac : public AutocompleteEditView,
   // Tracking state before and after a possible change for reporting
   // to model_.
   NSRange selection_before_change_;
-  std::wstring text_before_change_;
+  string16 text_before_change_;
+  NSRange marked_range_before_change_;
 
   // Length of the suggest text.  The suggest text always appears at the end of
   // the field.

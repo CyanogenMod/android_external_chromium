@@ -10,13 +10,19 @@
 
 #include "chrome/common/net/gaia/gaia_auth_consumer.h"
 
+class CommandLine;
 class GURL;
 class Profile;
 class PrefService;
 
+namespace {
+class BrowserGuestSessionNavigatorTest;
+}  // namespace
+
 namespace chromeos {
 
 class Authenticator;
+class BackgroundView;
 class LoginStatusConsumer;
 
 class LoginUtils {
@@ -77,6 +83,21 @@ class LoginUtils {
       Profile* profile,
       const GaiaAuthConsumer::ClientLoginResult& credentials) = 0;
 
+  // Sets the current background view.
+  virtual void SetBackgroundView(BackgroundView* background_view) = 0;
+
+  // Gets the current background view.
+  virtual BackgroundView* GetBackgroundView() = 0;
+
+ protected:
+  friend class ::BrowserGuestSessionNavigatorTest;
+
+  // Returns command line string to be used for the OTR process. Also modifies
+  // given command line.
+  virtual std::string GetOffTheRecordCommandLine(
+      const GURL& start_url,
+      const CommandLine& base_command_line,
+      CommandLine* command_line) = 0;
 };
 
 }  // namespace chromeos

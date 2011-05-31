@@ -12,10 +12,11 @@
 #include "chrome/common/dx_diag_node.h"
 #include "chrome/common/gpu_create_command_buffer_config.h"
 #include "chrome/common/gpu_info.h"
-#include "gfx/native_widget_types.h"
-#include "gfx/rect.h"
-#include "gfx/size.h"
+#include "gpu/ipc/gpu_command_buffer_traits.h"
 #include "gpu/command_buffer/common/command_buffer.h"
+#include "ui/gfx/native_widget_types.h"
+#include "ui/gfx/rect.h"
+#include "ui/gfx/size.h"
 
 #if defined(OS_MACOSX)
 // Parameters for the GpuHostMsg_AcceleratedSurfaceSetIOSurface
@@ -72,16 +73,16 @@ struct ParamTraits<GPUInfo> {
 };
 
 template <>
-struct ParamTraits<DxDiagNode> {
-  typedef DxDiagNode param_type;
+struct ParamTraits<GPUInfo::Level> {
+  typedef GPUInfo::Level param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, void** iter, param_type* p);
   static void Log(const param_type& p, std::string* l);
 };
 
 template <>
-struct ParamTraits<gpu::CommandBuffer::State> {
-  typedef gpu::CommandBuffer::State param_type;
+struct ParamTraits<DxDiagNode> {
+  typedef DxDiagNode param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, void** iter, param_type* p);
   static void Log(const param_type& p, std::string* l);

@@ -1,8 +1,7 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/common/chrome_switches.h"
 #include "chrome/test/automation/browser_proxy.h"
 #include "chrome/test/automation/tab_proxy.h"
 #include "chrome/test/ui/ui_test.h"
@@ -62,7 +61,7 @@ TEST_F(NotificationsPermissionTest, FLAKY_TestNoUserGestureInfobar) {
                 "files/notifications/notifications_request_inline.html")));
   WaitUntilTabCount(1);
 
-  int info_bar_count;
+  size_t info_bar_count;
   ASSERT_TRUE(tab->GetInfoBarCount(&info_bar_count));
-  EXPECT_EQ(0, info_bar_count);
+  EXPECT_EQ(0U, info_bar_count);
 }

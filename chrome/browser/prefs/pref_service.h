@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,11 +38,12 @@ class PrefService : public base::NonThreadSafe {
    public:
 
     // The type of the preference is determined by the type with which it is
-    // registered. This type needs to be a boolean, integer, real, string,
+    // registered. This type needs to be a boolean, integer, double, string,
     // dictionary (a branch), or list.  You shouldn't need to construct this on
     // your own; use the PrefService::Register*Pref methods instead.
     Preference(const PrefService* service,
-               const char* name);
+               const char* name,
+               Value::ValueType type);
     ~Preference() {}
 
     // Returns the name of the Preference (i.e., the key, e.g.,
@@ -90,7 +91,13 @@ class PrefService : public base::NonThreadSafe {
    private:
     friend class PrefService;
 
+    PrefValueStore* pref_value_store() const {
+      return pref_service_->pref_value_store_.get();
+    }
+
     std::string name_;
+
+    Value::ValueType type_;
 
     // Reference to the PrefService in which this pref was created.
     const PrefService* pref_service_;
@@ -108,6 +115,12 @@ class PrefService : public base::NonThreadSafe {
   static PrefService* CreatePrefService(const FilePath& pref_filename,
                                         PrefStore* extension_pref_store,
                                         Profile* profile);
+
+  // Creates an incognito copy of the pref service that shares most pref stores
+  // but uses a fresh non-persistent overlay for the user pref store and an
+  // individual extension pref store (to cache the effective extension prefs for
+  // incognito windows).
+  PrefService* CreateIncognitoPrefService(PrefStore* incognito_extension_prefs);
 
   virtual ~PrefService();
 
@@ -133,19 +146,22 @@ class PrefService : public base::NonThreadSafe {
   // Make the PrefService aware of a pref.
   void RegisterBooleanPref(const char* path, bool default_value);
   void RegisterIntegerPref(const char* path, int default_value);
-  void RegisterRealPref(const char* path, double default_value);
+  void RegisterDoublePref(const char* path, double default_value);
   void RegisterStringPref(const char* path, const std::string& default_value);
   void RegisterFilePathPref(const char* path, const FilePath& default_value);
   void RegisterListPref(const char* path);
   void RegisterDictionaryPref(const char* path);
+  // These take ownership of the default_value:
+  void RegisterListPref(const char* path, ListValue* default_value);
+  void RegisterDictionaryPref(const char* path, DictionaryValue* default_value);
 
   // These variants use a default value from the locale dll instead.
   void RegisterLocalizedBooleanPref(const char* path,
                                     int locale_default_message_id);
   void RegisterLocalizedIntegerPref(const char* path,
                                     int locale_default_message_id);
-  void RegisterLocalizedRealPref(const char* path,
-                                 int locale_default_message_id);
+  void RegisterLocalizedDoublePref(const char* path,
+                                   int locale_default_message_id);
   void RegisterLocalizedStringPref(const char* path,
                                    int locale_default_message_id);
 
@@ -154,12 +170,13 @@ class PrefService : public base::NonThreadSafe {
   // value (set when the pref was registered) will be returned.
   bool GetBoolean(const char* path) const;
   int GetInteger(const char* path) const;
-  double GetReal(const char* path) const;
+  double GetDouble(const char* path) const;
   std::string GetString(const char* path) const;
   FilePath GetFilePath(const char* path) const;
 
-  // Returns the branch if it exists.  If it's not a branch or the branch does
-  // not exist, returns NULL.
+  // Returns the branch if it exists, or the registered default value otherwise.
+  // Note that |path| must point to a registered preference. In that case, these
+  // functions will never return NULL.
   const DictionaryValue* GetDictionary(const char* path) const;
   const ListValue* GetList(const char* path) const;
 
@@ -173,7 +190,7 @@ class PrefService : public base::NonThreadSafe {
   void Set(const char* path, const Value& value);
   void SetBoolean(const char* path, bool value);
   void SetInteger(const char* path, int value);
-  void SetReal(const char* path, double value);
+  void SetDouble(const char* path, double value);
   void SetString(const char* path, const std::string& value);
   void SetFilePath(const char* path, const FilePath& value);
 
@@ -202,14 +219,9 @@ class PrefService : public base::NonThreadSafe {
   // this checks if a value exists for the path.
   bool HasPrefPath(const char* path) const;
 
-  class PreferencePathComparator {
-   public:
-    bool operator() (Preference* lhs, Preference* rhs) const {
-      return lhs->name() < rhs->name();
-    }
-  };
-  typedef std::set<Preference*, PreferencePathComparator> PreferenceSet;
-  const PreferenceSet& preference_set() const { return prefs_; }
+  // Returns a dictionary with effective preference values. The ownership
+  // is passed to the caller.
+  DictionaryValue* GetPreferenceValues() const;
 
   // A helper method to quickly look up a preference.  Returns NULL if the
   // preference is not registered.
@@ -230,11 +242,13 @@ class PrefService : public base::NonThreadSafe {
   // PrefStore pointers. This constructor is what CreatePrefService() ends up
   // calling. It's also used for unit tests.
   PrefService(PrefStore* managed_platform_prefs,
-              PrefStore* device_management_prefs,
+              PrefStore* managed_cloud_prefs,
               PrefStore* extension_prefs,
               PrefStore* command_line_prefs,
               PersistentPrefStore* user_prefs,
-              PrefStore* recommended_prefs);
+              PrefStore* recommended_platform_prefs,
+              PrefStore* recommended_cloud_prefs,
+              DefaultPrefStore* default_store);
 
 #ifndef ANDROID
   // The PrefNotifier handles registering and notifying preference observers.
@@ -244,6 +258,14 @@ class PrefService : public base::NonThreadSafe {
 #endif
 
  private:
+  class PreferencePathComparator {
+   public:
+    bool operator() (Preference* lhs, Preference* rhs) const {
+      return lhs->name() < rhs->name();
+    }
+  };
+  typedef std::set<Preference*, PreferencePathComparator> PreferenceSet;
+
   friend class PrefServiceMockBuilder;
 
   // Registration of pref change observers must be done using the
@@ -255,7 +277,15 @@ class PrefService : public base::NonThreadSafe {
   friend class PrefChangeRegistrar;
   friend class subtle::PrefMemberBase;
 
+<<<<<<< HEAD
 #ifndef ANDROID
+=======
+  // Construct an incognito version of the pref service. Use
+  // CreateIncognitoPrefService() instead of calling this constructor directly.
+  PrefService(const PrefService& original,
+              PrefStore* incognito_extension_prefs);
+
+>>>>>>> chromium.org at r11.0.672.0
   // If the pref at the given path changes, we call the observer's Observe
   // method with PREF_CHANGED. Note that observers should not call these methods
   // directly but rather use a PrefChangeRegistrar to make sure the observer
@@ -264,8 +294,10 @@ class PrefService : public base::NonThreadSafe {
   virtual void RemovePrefObserver(const char* path, NotificationObserver* obs);
 #endif
 
-  // Add a preference to the PreferenceMap.  If the pref already exists, return
-  // false.  This method takes ownership of |default_value|.
+  // Registers a new preference at |path|. The |default_value| must not be
+  // NULL as it determines the preference value's type.
+  // RegisterPreference must not be called twice for the same path.
+  // This method takes ownership of |default_value|.
   void RegisterPreference(const char* path, Value* default_value);
 
   // Sets the value for this pref path in the user pref store and informs the
@@ -278,16 +310,16 @@ class PrefService : public base::NonThreadSafe {
 
   // The PrefValueStore provides prioritized preference values. It is created
   // and owned by this PrefService. Subclasses may access it for unit testing.
-  scoped_refptr<PrefValueStore> pref_value_store_;
+  scoped_ptr<PrefValueStore> pref_value_store_;
 
-  // The persistent pref store used for actual user data.
-  PersistentPrefStore* user_pref_store_;
+  // Pref Stores and profile that we passed to the PrefValueStore.
+  scoped_refptr<PersistentPrefStore> user_pref_store_;
+  scoped_refptr<DefaultPrefStore> default_store_;
 
-  // Points to the default pref store we passed to the PrefValueStore.
-  DefaultPrefStore* default_store_;
-
-  // A set of all the registered Preference objects.
-  PreferenceSet prefs_;
+  // Local cache of registered Preference objects. The default_store_
+  // is authoritative with respect to what the types and default values
+  // of registered preferences are.
+  mutable PreferenceSet prefs_;
 
   DISALLOW_COPY_AND_ASSIGN(PrefService);
 };

@@ -110,7 +110,7 @@ class BrowserList {
   // message.
   static void CloseAllBrowsers();
 
-  // Begins shutdown of the application when the session is ending.
+  // Begins shutdown of the application when the desktop session is ending.
   static void SessionEnding();
 
   // Returns true if there is at least one Browser with the specified profile.
@@ -130,6 +130,8 @@ class BrowserList {
   // closes.
   static bool WillKeepAlive();
 
+  // Browsers are added to |browsers_| before they have constructed windows,
+  // so the |window()| member function may return NULL.
   static const_iterator begin() { return browsers_.begin(); }
   static const_iterator end() { return browsers_.end(); }
 
@@ -159,16 +161,23 @@ class BrowserList {
   // Returns true if at least one off the record session is active.
   static bool IsOffTheRecordSessionActive();
 
+  // Send out notifications.
+  // For ChromeOS, also request session manager to end the session.
+  static void NotifyAndTerminate(bool fast_path);
+
   // Called once there are no more browsers open and the application is exiting.
   static void AllBrowsersClosedAndAppExiting();
 
  private:
   // Helper method to remove a browser instance from a list of browsers
   static void RemoveBrowserFrom(Browser* browser, BrowserVector* browser_list);
-  static void NotifyAndTerminate();
+  static void MarkAsCleanShutdown();
 #if defined(OS_CHROMEOS)
   static bool NeedBeforeUnloadFired();
   static bool PendingDownloads();
+  static void NotifyWindowManagerAboutSignout();
+
+  static bool signout_;
 #endif
 
   static BrowserVector browsers_;

@@ -1,18 +1,18 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/dropdown_bar_host.h"
+#include "chrome/browser/ui/views/dropdown_bar_host.h"
 
 #include <gdk/gdkkeysyms.h>
 
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
 #include "views/widget/widget_gtk.h"
 #include "views/controls/textfield/textfield.h"
 
 #if defined(TOUCH_UI)
-#include "app/keyboard_code_conversion_gtk.h"
+#include "ui/base/keycodes/keyboard_code_conversion_gtk.h"
 #endif
 
 views::Widget* DropdownBarHost::CreateHost() {
@@ -37,15 +37,15 @@ NativeWebKeyboardEvent DropdownBarHost::GetKeyboardEvent(
   // Refactor and eliminate the dup code.
   NativeWebKeyboardEvent wke;
   wke.type = WebKit::WebInputEvent::KeyDown;
-  wke.windowsKeyCode = key_event.GetKeyCode();
+  wke.windowsKeyCode = key_event.key_code();
   wke.setKeyIdentifierFromWindowsKeyCode();
 
   wke.text[0] = wke.unmodifiedText[0] =
     static_cast<unsigned short>(gdk_keyval_to_unicode(
-          app::GdkKeyCodeForWindowsKeyCode(key_event.GetKeyCode(),
+          ui::GdkKeyCodeForWindowsKeyCode(key_event.key_code(),
               key_event.IsShiftDown() ^ key_event.IsCapsLockDown())));
   return wke;
 #else
-  return NativeWebKeyboardEvent(key_event.native_event());
+  return NativeWebKeyboardEvent(&key_event.native_event()->key);
 #endif
 }

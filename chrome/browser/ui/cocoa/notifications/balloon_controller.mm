@@ -4,9 +4,7 @@
 
 #include "chrome/browser/ui/cocoa/notifications/balloon_controller.h"
 
-#include "app/l10n_util.h"
 #include "app/mac/nsimage_cache.h"
-#include "app/resource_bundle.h"
 #import "base/mac/cocoa_protocols.h"
 #include "base/mac/mac_util.h"
 #import "base/scoped_nsobject.h"
@@ -23,6 +21,8 @@
 #include "chrome/browser/ui/cocoa/notifications/balloon_view_host_mac.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 namespace {
 
@@ -121,10 +121,25 @@ const int kRightMargin = 2;
   [[closeButton_ cell] setHighlighted:NO];
 }
 
+- (void)closeBalloonNow:(bool)byUser {
+  if (!balloon_)
+    return;
+  [self close];
+  if (htmlContents_.get())
+    htmlContents_->Shutdown();
+  if (balloon_)
+    balloon_->OnClose(byUser);
+  balloon_ = NULL;
+}
+
 - (IBAction)optionsButtonPressed:(id)sender {
+  optionMenuIsActive_ = YES;
   [NSMenu popUpContextMenu:[menuController_ menu]
                  withEvent:[NSApp currentEvent]
                    forView:optionsButton_];
+  optionMenuIsActive_ = NO;
+  if (delayedClose_)
+    [self closeBalloonNow: false]; // always by script.
 }
 
 - (IBAction)permissionRevoked:(id)sender {
@@ -146,14 +161,14 @@ const int kRightMargin = 2;
 }
 
 - (void)closeBalloon:(bool)byUser {
-  if (!balloon_)
+  // Keep alive while user is interacting with popup menu.
+  // Otherwise the script can close the notification and underlying balloon
+  // will be destroyed while user select a menu command.
+  if (!byUser && optionMenuIsActive_) {
+    delayedClose_ = YES;
     return;
-  [self close];
-  if (htmlContents_.get())
-    htmlContents_->Shutdown();
-  if (balloon_)
-    balloon_->OnClose(byUser);
-  balloon_ = NULL;
+  }
+  [self closeBalloonNow: byUser];
 }
 
 - (void)updateContents {

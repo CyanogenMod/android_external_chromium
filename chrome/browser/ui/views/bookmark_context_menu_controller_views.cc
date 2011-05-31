@@ -1,8 +1,8 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/bookmark_context_menu_controller_views.h"
+#include "chrome/browser/ui/views/bookmark_context_menu_controller_views.h"
 
 #include "base/compiler_specific.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -231,10 +231,12 @@ bool BookmarkContextMenuControllerViews::IsCommandEnabled(int id) const {
        selection_[0]->GetParent() == model_->root_node());
   switch (id) {
     case IDC_BOOKMARK_BAR_OPEN_INCOGNITO:
-      return !profile_->IsOffTheRecord();
+      return !profile_->IsOffTheRecord() &&
+             profile_->GetPrefs()->GetBoolean(prefs::kIncognitoEnabled);
 
     case IDC_BOOKMARK_BAR_OPEN_ALL_INCOGNITO:
-      return HasURLs() && !profile_->IsOffTheRecord();
+      return HasURLs() && !profile_->IsOffTheRecord() &&
+             profile_->GetPrefs()->GetBoolean(prefs::kIncognitoEnabled);
 
     case IDC_BOOKMARK_BAR_OPEN_ALL:
     case IDC_BOOKMARK_BAR_OPEN_ALL_NEW_WINDOW:

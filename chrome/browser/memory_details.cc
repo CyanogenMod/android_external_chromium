@@ -4,7 +4,6 @@
 
 #include "chrome/browser/memory_details.h"
 
-#include "app/l10n_util.h"
 #include "base/file_version_info.h"
 #include "base/metrics/histogram.h"
 #include "base/process_util.h"
@@ -24,6 +23,7 @@
 #include "chrome/common/url_constants.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_LINUX)
 #include "chrome/browser/zygote_host_linux.h"
@@ -158,7 +158,7 @@ void MemoryDetails::CollectChildInfoOnUIThread() {
         RenderViewHostDelegate* host_delegate = host->delegate();
         GURL url = host_delegate->GetURL();
         ViewType::Type type = host_delegate->GetRenderViewType();
-        if (host->enabled_bindings() & BindingsPolicy::DOM_UI) {
+        if (host->enabled_bindings() & BindingsPolicy::WEB_UI) {
           // TODO(erikkay) the type for devtools doesn't actually appear to
           // be set.
           if (type == ViewType::DEV_TOOLS_UI)

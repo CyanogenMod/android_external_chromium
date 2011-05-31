@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,29 +7,30 @@
 #include <gdk/gdk.h>
 #include <gdk/gdkkeysyms.h>
 #include <gtk/gtk.h>
+
 #include <algorithm>
 
-#include "app/l10n_util.h"
 #include "base/logging.h"
 #include "base/string_util.h"
 #include "base/third_party/icu/icu_utf.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/gtk/gtk_util.h"
+#include "chrome/browser/ui/gtk/gtk_util.h"
 #if !defined(TOOLKIT_VIEWS)
-#include "chrome/browser/gtk/menu_gtk.h"
+#include "chrome/browser/ui/gtk/menu_gtk.h"
 #endif
 #include "chrome/browser/renderer_host/render_widget_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view_gtk.h"
 #include "chrome/common/native_web_keyboard_event.h"
 #include "chrome/common/render_messages.h"
-#include "gfx/gtk_util.h"
-#include "gfx/rect.h"
 #include "grit/generated_resources.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/gtk_util.h"
+#include "ui/gfx/rect.h"
 
 namespace {
-// Copied from third_party/WebKit/WebCore/page/EventHandler.cpp
+// Copied from third_party/WebKit/Source/WebCore/page/EventHandler.cpp
 //
 // Match key code of composition keydown event on windows.
 // IE sends VK_PROCESSKEY which has value 229;
@@ -55,7 +56,10 @@ GtkIMContextWrapper::GtkIMContextWrapper(RenderWidgetHostViewGtk* host_view)
       preedit_selection_start_(0),
       preedit_selection_end_(0),
       is_preedit_changed_(false),
-      suppress_next_commit_(false) {
+      suppress_next_commit_(false),
+      last_key_code_(0),
+      last_key_was_up_(false),
+      last_key_filtered_no_result_(false) {
   DCHECK(context_);
   DCHECK(context_simple_);
 
@@ -158,11 +162,19 @@ void GtkIMContextWrapper::ProcessKeyEvent(GdkEventKey* event) {
   // RenderView::UnhandledKeyboardEvent() from processing it.
   // Otherwise unexpected result may occur. For example if it's a
   // Backspace key event, the browser may go back to previous page.
-  if (filtered)
+  // We just send all keyup events to the browser to avoid breaking the
+  // browser's MENU key function, which is actually the only keyup event
+  // handled in the browser.
+  if (filtered && event->type == GDK_KEY_PRESS)
     wke.skip_in_browser = true;
 
+  const int key_code = wke.windowsKeyCode;
+  const bool has_result = HasInputMethodResult();
+
   // Send filtered keydown event before sending IME result.
-  if (event->type == GDK_KEY_PRESS && filtered)
+  // In order to workaround http://crosbug.com/6582, we only send a filtered
+  // keydown event if it generated any input method result.
+  if (event->type == GDK_KEY_PRESS && filtered && has_result)
     ProcessFilteredKeyPressEvent(&wke);
 
   // Send IME results. In most cases, it's only available if the key event
@@ -182,13 +194,26 @@ void GtkIMContextWrapper::ProcessKeyEvent(GdkEventKey* event) {
   //
   // In this case, the input box will be in a strange state if keydown
   // Backspace is sent to webkit before commit "a" and preedit end.
-  ProcessInputMethodResult(event, filtered);
+  if (has_result)
+    ProcessInputMethodResult(event, filtered);
 
   // Send unfiltered keydown and keyup events after sending IME result.
-  if (event->type == GDK_KEY_PRESS && !filtered)
+  if (event->type == GDK_KEY_PRESS && !filtered) {
     ProcessUnfilteredKeyPressEvent(&wke);
-  else if (event->type == GDK_KEY_RELEASE)
-    host_view_->ForwardKeyboardEvent(wke);
+  } else if (event->type == GDK_KEY_RELEASE) {
+    // In order to workaround http://crosbug.com/6582, we need to suppress
+    // the keyup event if corresponding keydown event was suppressed, or
+    // the last key event was a keyup event with the same keycode.
+    const bool suppress = (last_key_code_ == key_code) &&
+        (last_key_was_up_ || last_key_filtered_no_result_);
+
+    if (!suppress)
+      host_view_->ForwardKeyboardEvent(wke);
+  }
+
+  last_key_code_ = key_code;
+  last_key_was_up_ = (event->type == GDK_KEY_RELEASE);
+  last_key_filtered_no_result_ = (filtered && !has_result);
 }
 
 void GtkIMContextWrapper::UpdateInputMethodState(WebKit::WebTextInputType type,
@@ -228,6 +253,10 @@ void GtkIMContextWrapper::OnFocusIn() {
   // Tracks the focused state so that we can give focus to the
   // GtkIMContext object correctly later when IME is enabled by WebKit.
   is_focused_ = true;
+
+  last_key_code_ = 0;
+  last_key_was_up_ = false;
+  last_key_filtered_no_result_ = false;
 
   // Notify the GtkIMContext object of this focus-in event only if IME is
   // enabled by WebKit.
@@ -322,13 +351,17 @@ void GtkIMContextWrapper::CancelComposition() {
   is_in_key_event_handler_ = false;
 }
 
-bool GtkIMContextWrapper::NeedCommitByForwardingCharEvent() {
+bool GtkIMContextWrapper::NeedCommitByForwardingCharEvent() const {
   // If there is no composition text and has only one character to be
   // committed, then the character will be send to webkit as a Char event
   // instead of a confirmed composition text.
   // It should be fine to handle BMP character only, as non-BMP characters
   // can always be committed as confirmed composition text.
   return !is_composing_text_ && commit_text_.length() == 1;
+}
+
+bool GtkIMContextWrapper::HasInputMethodResult() const {
+  return commit_text_.length() || is_preedit_changed_;
 }
 
 void GtkIMContextWrapper::ProcessFilteredKeyPressEvent(

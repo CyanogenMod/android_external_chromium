@@ -4,14 +4,14 @@
 
 #include "chrome/browser/download/download_started_animation.h"
 
-#include "app/resource_bundle.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_source.h"
-#include "gfx/rect.h"
 #include "grit/theme_resources.h"
 #include "ui/base/animation/linear_animation.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/rect.h"
 #include "views/controls/image_view.h"
 #include "views/widget/widget_win.h"
 

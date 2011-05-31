@@ -13,9 +13,9 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
-#include "base/lock.h"
 #include "base/ref_counted.h"
 #include "base/ref_counted_memory.h"
+#include "base/synchronization/lock.h"
 #include "base/time.h"
 #include "base/timer.h"
 #include "chrome/browser/cancelable_request.h"
@@ -51,9 +51,6 @@ class TopSites
  public:
   explicit TopSites(Profile* profile);
 
-  // Returns whether top sites is enabled.
-  static bool IsEnabled();
-
   // Initializes TopSites.
   void Init(const FilePath& db_name);
 
@@ -81,6 +78,11 @@ class TopSites
   // upped before this method returns, so this takes a scoped_refptr*.
   bool GetPageThumbnail(const GURL& url,
                         scoped_refptr<RefCountedBytes>* bytes);
+
+  // Get a thumbnail score for a given page. Returns true iff we have the
+  // thumbnail score.  This may be invoked on any thread. The score will
+  // be copied to |score|.
+  virtual bool GetPageThumbnailScore(const GURL& url, ThumbnailScore* score);
 
   // Invoked from History if migration is needed. If this is invoked it will
   // be before HistoryLoaded is invoked.
@@ -147,6 +149,19 @@ class TopSites
 
   bool loaded() const { return loaded_; }
 
+  // Returns true if the given URL is known to the top sites service.
+  // This function also returns false if TopSites isn't loaded yet.
+  virtual bool IsKnownURL(const GURL& url);
+
+  // Returns true if the top sites list is full (i.e. we already have the
+  // maximum number of top sites).  This function also returns false if
+  // TopSites isn't loaded yet.
+  virtual bool IsFull();
+
+ protected:
+  // For allowing inheritance.
+  virtual ~TopSites();
+
  private:
   friend class base::RefCountedThreadSafe<TopSites>;
   friend class TopSitesTest;
@@ -179,8 +194,6 @@ class TopSites
     // Top sites is loaded.
     TOP_SITES_LOADED
   };
-
-  ~TopSites();
 
   // Sets the thumbnail without writing to the database. Useful when
   // reading last known top sites from the DB.
@@ -300,7 +313,7 @@ class TopSites
   Profile* profile_;
 
   // Lock used to access |thread_safe_cache_|.
-  mutable Lock lock_;
+  mutable base::Lock lock_;
 
   CancelableRequestConsumer cancelable_consumer_;
 

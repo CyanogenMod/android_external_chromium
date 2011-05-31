@@ -4,7 +4,6 @@
 
 #include "chrome/browser/importer/importer_list.h"
 
-#include "app/l10n_util.h"
 #include "base/file_util.h"
 #include "base/stl_util-inl.h"
 #include "base/values.h"
@@ -17,6 +16,7 @@
 #include "chrome/browser/importer/toolbar_importer.h"
 #include "chrome/browser/shell_integration.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_WIN)
 #include "chrome/browser/importer/ie_importer.h"
@@ -146,6 +146,7 @@ Importer* ImporterList::CreateImporterByType(importer::ProfileType type) {
 ImporterList::ImporterList()
     : source_thread_id_(BrowserThread::UI),
       observer_(NULL),
+      is_observed_(false),
       source_profiles_loaded_(false) {
 }
 
@@ -155,6 +156,7 @@ ImporterList::~ImporterList() {
 void ImporterList::DetectSourceProfiles(Observer* observer) {
   DCHECK(observer);
   observer_ = observer;
+  is_observed_ = true;
 
   BrowserThread::GetCurrentThreadIdentifier(&source_thread_id_);
 
@@ -162,6 +164,10 @@ void ImporterList::DetectSourceProfiles(Observer* observer) {
       BrowserThread::FILE,
       FROM_HERE,
       NewRunnableMethod(this, &ImporterList::DetectSourceProfilesWorker));
+}
+
+void ImporterList::SetObserver(Observer* observer) {
+  observer_ = observer;
 }
 
 void ImporterList::DetectSourceProfilesHack() {
@@ -205,8 +211,8 @@ bool ImporterList::source_profiles_loaded() const {
 
 void ImporterList::DetectSourceProfilesWorker() {
   // TODO(jhawkins): Remove this condition once DetectSourceProfileHack is
-  // removed. |observer_| is NULL when said method is called.
-  if (observer_)
+  // removed.
+  if (is_observed_)
     DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
   std::vector<importer::ProfileInfo*> profiles;
@@ -236,8 +242,8 @@ void ImporterList::DetectSourceProfilesWorker() {
 #endif
 
   // TODO(jhawkins): Remove this condition once DetectSourceProfileHack is
-  // removed. |observer_| is NULL when said method is called.
-  if (observer_) {
+  // removed.
+  if (is_observed_) {
     BrowserThread::PostTask(
         source_thread_id_,
         FROM_HERE,
@@ -250,7 +256,9 @@ void ImporterList::DetectSourceProfilesWorker() {
 
 void ImporterList::SourceProfilesLoaded(
     const std::vector<importer::ProfileInfo*>& profiles) {
-  DCHECK_NE(static_cast<Observer*>(NULL), observer_);
+  // |observer_| may be NULL if it removed itself before being notified.
+  if (!observer_)
+    return;
 
   BrowserThread::ID current_thread_id;
   BrowserThread::GetCurrentThreadIdentifier(&current_thread_id);
@@ -258,7 +266,11 @@ void ImporterList::SourceProfilesLoaded(
 
   source_profiles_->assign(profiles.begin(), profiles.end());
   source_profiles_loaded_ = true;
+  source_thread_id_ = BrowserThread::UI;
+
   observer_->SourceProfilesLoaded();
   observer_ = NULL;
-  source_thread_id_ = BrowserThread::UI;
+
+  // TODO(jhawkins): Remove once DetectSourceProfileHack is removed.
+  is_observed_ = false;
 }

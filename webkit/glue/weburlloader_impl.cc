@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,15 +18,15 @@
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
 #include "net/http/http_response_headers.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebHTTPHeaderVisitor.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebHTTPLoadInfo.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebSecurityPolicy.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURL.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLError.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLLoadTiming.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLLoaderClient.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLRequest.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLResponse.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebHTTPHeaderVisitor.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebHTTPLoadInfo.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebSecurityPolicy.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURL.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLError.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLLoadTiming.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLLoaderClient.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLRequest.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLResponse.h"
 #include "webkit/glue/ftp_directory_listing_response_delegate.h"
 #include "webkit/glue/multipart_response_delegate.h"
 #include "webkit/glue/resource_loader_bridge.h"
@@ -69,10 +69,8 @@ class HeaderFlattener : public WebHTTPHeaderVisitor {
     const std::string& value_utf8 = value.utf8();
 
     // Skip over referrer headers found in the header map because we already
-    // pulled it out as a separate parameter.  We likewise prune the UA since
-    // that will be added back by the network layer.
-    if (LowerCaseEqualsASCII(name_utf8, "referer") ||
-        LowerCaseEqualsASCII(name_utf8, "user-agent"))
+    // pulled it out as a separate parameter.
+    if (LowerCaseEqualsASCII(name_utf8, "referer"))
       return;
 
     // Skip over "Cache-Control: max-age=0" header if the corresponding
@@ -146,11 +144,12 @@ ResourceType::Type FromTargetType(WebURLRequest::TargetType type) {
 // Extracts the information from a data: url.
 bool GetInfoFromDataURL(const GURL& url,
                         ResourceResponseInfo* info,
-                        std::string* data, URLRequestStatus* status) {
+                        std::string* data,
+                        net::URLRequestStatus* status) {
   std::string mime_type;
   std::string charset;
   if (net::DataURL::Parse(url, &mime_type, &charset, data)) {
-    *status = URLRequestStatus(URLRequestStatus::SUCCESS, 0);
+    *status = net::URLRequestStatus(net::URLRequestStatus::SUCCESS, 0);
     info->request_time = Time::Now();
     info->response_time = Time::Now();
     info->headers = NULL;
@@ -162,7 +161,8 @@ bool GetInfoFromDataURL(const GURL& url,
     return true;
   }
 
-  *status = URLRequestStatus(URLRequestStatus::FAILED, net::ERR_INVALID_URL);
+  *status = net::URLRequestStatus(net::URLRequestStatus::FAILED,
+                                  net::ERR_INVALID_URL);
   return false;
 }
 
@@ -244,8 +244,8 @@ void PopulateURLResponse(
   // pass it to GetSuggestedFilename.
   std::string value;
   if (headers->EnumerateHeader(NULL, "content-disposition", &value)) {
-    response->setSuggestedFileName(FilePathToWebString(
-        net::GetSuggestedFilename(url, value, "", FilePath())));
+    response->setSuggestedFileName(
+        net::GetSuggestedFilename(url, value, "", string16()));
   }
 
   Time time_val;
@@ -294,10 +294,9 @@ class WebURLLoaderImpl::Context : public base::RefCounted<Context>,
   virtual void OnDownloadedData(int len);
   virtual void OnReceivedData(const char* data, int len);
   virtual void OnReceivedCachedMetadata(const char* data, int len);
-  virtual void OnCompletedRequest(
-      const URLRequestStatus& status,
-      const std::string& security_info,
-      const base::Time& completion_time);
+  virtual void OnCompletedRequest(const net::URLRequestStatus& status,
+                                  const std::string& security_info,
+                                  const base::Time& completion_time);
 
  private:
   friend class base::RefCounted<Context>;
@@ -404,12 +403,6 @@ void WebURLLoaderImpl::Context::Start(
   if (!request.allowStoredCredentials())
     load_flags |= net::LOAD_DO_NOT_SEND_AUTH_DATA;
 
-  // TODO(jcampan): in the non out-of-process plugin case the request does not
-  // have a requestor_pid. Find a better place to set this.
-  int requestor_pid = request.requestorProcessID();
-  if (requestor_pid == 0)
-    requestor_pid = base::GetCurrentProcId();
-
   HeaderFlattener flattener(load_flags);
   request.visitHTTPHeaderFields(&flattener);
 
@@ -430,7 +423,10 @@ void WebURLLoaderImpl::Context::Start(
   request_info.main_frame_origin = main_frame_origin;
   request_info.headers = flattener.GetBuffer();
   request_info.load_flags = load_flags;
-  request_info.requestor_pid = requestor_pid;
+  // requestor_pid only needs to be non-zero if the request originates outside
+  // the render process, so we can use requestorProcessID even for requests
+  // from in-process plugins.
+  request_info.requestor_pid = request.requestorProcessID();
   request_info.request_type = FromTargetType(request.targetType());
   request_info.appcache_host_id = request.appCacheHostID();
   request_info.routing_id = request.requestorID();
@@ -621,7 +617,7 @@ void WebURLLoaderImpl::Context::OnReceivedCachedMetadata(
 }
 
 void WebURLLoaderImpl::Context::OnCompletedRequest(
-    const URLRequestStatus& status,
+    const net::URLRequestStatus& status,
     const std::string& security_info,
     const base::Time& completion_time) {
   if (ftp_listing_delegate_.get()) {
@@ -638,9 +634,9 @@ void WebURLLoaderImpl::Context::OnCompletedRequest(
   completed_bridge_.swap(bridge_);
 
   if (client_) {
-    if (status.status() != URLRequestStatus::SUCCESS) {
+    if (status.status() != net::URLRequestStatus::SUCCESS) {
       int error_code;
-      if (status.status() == URLRequestStatus::HANDLED_EXTERNALLY) {
+      if (status.status() == net::URLRequestStatus::HANDLED_EXTERNALLY) {
         // By marking this request as aborted we insure that we don't navigate
         // to an error page.
         error_code = net::ERR_ABORTED;
@@ -691,7 +687,7 @@ bool WebURLLoaderImpl::Context::CanHandleDataURL(const GURL& url) const {
 
 void WebURLLoaderImpl::Context::HandleDataURL() {
   ResourceResponseInfo info;
-  URLRequestStatus status;
+  net::URLRequestStatus status;
   std::string data;
 
   if (GetInfoFromDataURL(request_.url(), &info, &data, &status)) {
@@ -724,9 +720,10 @@ void WebURLLoaderImpl::loadSynchronously(const WebURLRequest& request,
 
   // TODO(tc): For file loads, we may want to include a more descriptive
   // status code or status text.
-  const URLRequestStatus::Status& status = sync_load_response.status.status();
-  if (status != URLRequestStatus::SUCCESS &&
-      status != URLRequestStatus::HANDLED_EXTERNALLY) {
+  const net::URLRequestStatus::Status& status =
+      sync_load_response.status.status();
+  if (status != net::URLRequestStatus::SUCCESS &&
+      status != net::URLRequestStatus::HANDLED_EXTERNALLY) {
     response.setURL(final_url);
     error.domain = WebString::fromUTF8(net::kErrorDomain);
     error.reason = sync_load_response.status.os_error();

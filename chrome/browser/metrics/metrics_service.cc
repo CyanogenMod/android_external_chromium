@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -400,6 +400,12 @@ void MetricsService::RegisterPrefs(PrefService* local_state) {
                                    0);
   local_state->RegisterIntegerPref(prefs::kStabilityDebuggerPresent, 0);
   local_state->RegisterIntegerPref(prefs::kStabilityDebuggerNotPresent, 0);
+#if defined(OS_CHROMEOS)
+  local_state->RegisterIntegerPref(prefs::kStabilityOtherUserCrashCount, 0);
+  local_state->RegisterIntegerPref(prefs::kStabilityKernelCrashCount, 0);
+  local_state->RegisterIntegerPref(prefs::kStabilitySystemUncleanShutdownCount,
+                                   0);
+#endif  // OS_CHROMEOS
 
   local_state->RegisterDictionaryPref(prefs::kProfileMetrics);
   local_state->RegisterIntegerPref(prefs::kNumBookmarksOnBookmarkBar, 0);
@@ -865,9 +871,7 @@ void MetricsService::StopRecording(MetricsLogBase** log) {
   if (!current_log_)
     return;
 
-  MetricsLog* current_log = current_log_->AsMetricsLog();
-  DCHECK(current_log);
-  current_log->set_hardware_class(hardware_class_);  // Adds to ongoing logs.
+  current_log_->set_hardware_class(hardware_class_);  // Adds to ongoing logs.
 
   // TODO(jar): Integrate bounds on log recording more consistently, so that we
   // can stop recording logs that are too big much sooner.
@@ -884,13 +888,17 @@ void MetricsService::StopRecording(MetricsLogBase** log) {
   // end of all log transmissions (initial log handles this separately).
   // Don't bother if we're going to discard current_log_.
   if (log) {
+    // RecordIncrementalStabilityElements only exists on the derived
+    // MetricsLog class.
+    MetricsLog* current_log = current_log_->AsMetricsLog();
+    DCHECK(current_log);
     current_log->RecordIncrementalStabilityElements();
     RecordCurrentHistograms();
   }
 
   current_log_->CloseLog();
   if (log)
-    *log = current_log;
+    *log = current_log_;
   else
     delete current_log_;
   current_log_ = NULL;
@@ -1332,21 +1340,21 @@ void MetricsService::PrepareFetchWithPendingLog() {
   current_fetch_->set_upload_data(kMetricsType, compressed_log_);
 }
 
-static const char* StatusToString(const URLRequestStatus& status) {
+static const char* StatusToString(const net::URLRequestStatus& status) {
   switch (status.status()) {
-    case URLRequestStatus::SUCCESS:
+    case net::URLRequestStatus::SUCCESS:
       return "SUCCESS";
 
-    case URLRequestStatus::IO_PENDING:
+    case net::URLRequestStatus::IO_PENDING:
       return "IO_PENDING";
 
-    case URLRequestStatus::HANDLED_EXTERNALLY:
+    case net::URLRequestStatus::HANDLED_EXTERNALLY:
       return "HANDLED_EXTERNALLY";
 
-    case URLRequestStatus::CANCELED:
+    case net::URLRequestStatus::CANCELED:
       return "CANCELED";
 
-    case URLRequestStatus::FAILED:
+    case net::URLRequestStatus::FAILED:
       return "FAILED";
 
     default:
@@ -1357,7 +1365,7 @@ static const char* StatusToString(const URLRequestStatus& status) {
 
 void MetricsService::OnURLFetchComplete(const URLFetcher* source,
                                         const GURL& url,
-                                        const URLRequestStatus& status,
+                                        const net::URLRequestStatus& status,
                                         int response_code,
                                         const ResponseCookies& cookies,
                                         const std::string& data) {
@@ -1714,6 +1722,22 @@ void MetricsService::LogExtensionRendererCrash() {
 void MetricsService::LogRendererHang() {
   IncrementPrefValue(prefs::kStabilityRendererHangCount);
 }
+
+#if defined(OS_CHROMEOS)
+void MetricsService::LogChromeOSCrash(const std::string &crash_type) {
+  if (crash_type == "user")
+    IncrementPrefValue(prefs::kStabilityOtherUserCrashCount);
+  else if (crash_type == "kernel")
+    IncrementPrefValue(prefs::kStabilityKernelCrashCount);
+  else if (crash_type == "uncleanshutdown")
+    IncrementPrefValue(prefs::kStabilitySystemUncleanShutdownCount);
+  else
+    NOTREACHED() << "Unexpected Chrome OS crash type " << crash_type;
+  // Wake up metrics logs sending if necessary now that new
+  // log data is available.
+  HandleIdleSinceLastTransmission(false);
+}
+#endif  // OS_CHROMEOS
 
 void MetricsService::LogChildProcessChange(
     NotificationType type,

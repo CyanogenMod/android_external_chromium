@@ -1,21 +1,22 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/importer_view.h"
+#include "chrome/browser/ui/views/importer_view.h"
 
-#include "app/l10n_util.h"
 #include "base/compiler_specific.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/importer/importer_data_types.h"
+#include "chrome/browser/importer/importer_list.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "views/controls/button/checkbox.h"
 #include "views/controls/label.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/widget.h"
 #include "views/window/window.h"
 
@@ -42,9 +43,11 @@ ImporterView::ImporterView(Profile* profile, int initial_state)
       passwords_checkbox_(NULL),
       search_engines_checkbox_(NULL),
       profile_(profile),
-      ALLOW_THIS_IN_INITIALIZER_LIST(importer_host_(new ImporterHost(this))),
+      importer_host_(new ImporterHost),
+      importer_list_(new ImporterList),
       initial_state_(initial_state) {
   DCHECK(profile);
+  importer_list_->DetectSourceProfiles(this);
   SetupControl();
 }
 
@@ -58,7 +61,8 @@ void ImporterView::SetupControl() {
 
   profile_combobox_ = new views::Combobox(this);
   profile_combobox_->set_listener(this);
-  profile_combobox_->SetAccessibleName(import_from_label_->GetText());
+  profile_combobox_->SetAccessibleName(
+      WideToUTF16Hack(import_from_label_->GetText()));
 
   import_items_label_ = new views::Label(UTF16ToWide(
       l10n_util::GetStringUTF16(IDS_IMPORT_ITEMS_LABEL)));
@@ -78,12 +82,12 @@ void ImporterView::SetupControl() {
 
   // Arranges controls by using GridLayout.
   const int column_set_id = 0;
-  GridLayout* layout = CreatePanelGridLayout(this);
+  GridLayout* layout = GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
   ColumnSet* column_set = layout->AddColumnSet(column_set_id);
   column_set->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 0,
                         GridLayout::FIXED, 200, 0);
 
@@ -91,22 +95,22 @@ void ImporterView::SetupControl() {
   layout->AddView(import_from_label_);
   layout->AddView(profile_combobox_);
 
-  layout->AddPaddingRow(0, kUnrelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kUnrelatedControlVerticalSpacing);
   layout->StartRow(0, column_set_id);
   layout->AddView(import_items_label_, 3, 1);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   layout->StartRow(0, column_set_id);
   layout->AddView(favorites_checkbox_, 3, 1);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   layout->StartRow(0, column_set_id);
   layout->AddView(search_engines_checkbox_, 3, 1);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   layout->StartRow(0, column_set_id);
   layout->AddView(passwords_checkbox_, 3, 1);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   layout->StartRow(0, column_set_id);
   layout->AddView(history_checkbox_, 3, 1);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 }
 
 gfx::Size ImporterView::GetPreferredSize() {
@@ -157,7 +161,7 @@ bool ImporterView::Accept() {
   int selected_index = profile_combobox_->selected_item();
   StartImportingWithUI(GetWidget()->GetNativeView(), items,
                        importer_host_.get(),
-                       importer_host_->GetSourceProfileInfoAt(selected_index),
+                       importer_list_->GetSourceProfileInfoAt(selected_index),
                        profile_, this, false);
   // We return false here to prevent the window from being closed. We will be
   // notified back by our implementation of ImportObserver when the import is
@@ -184,22 +188,22 @@ int ImporterView::GetItemCount() {
 string16 ImporterView::GetItemAt(int index) {
   DCHECK(importer_host_.get());
 
-  if (!importer_host_->source_profiles_loaded())
+  if (!importer_list_->source_profiles_loaded())
     return l10n_util::GetStringUTF16(IDS_IMPORT_LOADING_PROFILES);
   else
-    return WideToUTF16Hack(importer_host_->GetSourceProfileNameAt(index));
+    return WideToUTF16Hack(importer_list_->GetSourceProfileNameAt(index));
 }
 
 void ImporterView::ItemChanged(views::Combobox* combobox,
                                int prev_index, int new_index) {
   DCHECK(combobox);
   DCHECK(checkbox_items_.size() >=
-      static_cast<size_t>(importer_host_->GetAvailableProfileCount()));
+      static_cast<size_t>(importer_list_->GetAvailableProfileCount()));
 
   if (prev_index == new_index)
     return;
 
-  if (!importer_host_->source_profiles_loaded()) {
+  if (!importer_list_->source_profiles_loaded()) {
     SetCheckedItemsState(0);
     return;
   }
@@ -209,7 +213,7 @@ void ImporterView::ItemChanged(views::Combobox* combobox,
   checkbox_items_[prev_index] = prev_items;
 
   // Enable/Disable the checkboxes for this Item
-  uint16 new_enabled_items = importer_host_->GetSourceProfileInfoAt(
+  uint16 new_enabled_items = importer_list_->GetSourceProfileInfoAt(
       new_index).services_supported;
   SetCheckedItemsState(new_enabled_items);
 
@@ -219,9 +223,9 @@ void ImporterView::ItemChanged(views::Combobox* combobox,
 }
 
 void ImporterView::SourceProfilesLoaded() {
-  DCHECK(importer_host_->source_profiles_loaded());
+  DCHECK(importer_list_->source_profiles_loaded());
   checkbox_items_.resize(
-      importer_host_->GetAvailableProfileCount(), initial_state_);
+      importer_list_->GetAvailableProfileCount(), initial_state_);
 
   // Reload the profile combobox.
   profile_combobox_->ModelChanged();

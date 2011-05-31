@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,8 +19,8 @@ class FontSettingsHandler : public OptionsPageUIHandler {
   virtual void GetLocalizedValues(DictionaryValue* localized_strings);
   virtual void Initialize();
 
-  // DOMMessageHandler implementation.
-  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+  // WebUIMessageHandler implementation.
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
 
   // NotificationObserver implementation.
   virtual void Observe(NotificationType type,
@@ -28,15 +28,15 @@ class FontSettingsHandler : public OptionsPageUIHandler {
                        const NotificationDetails& details);
 
  private:
-  void SetupSerifFontPreview();
-  void SetupSansSerifFontPreview();
-  void SetupFixedFontPreview();
+  void SetupSerifFontSample();
+  void SetupFixedFontSample();
+  void SetupMinimumFontSample();
 
   StringPrefMember serif_font_;
-  StringPrefMember sans_serif_font_;
   StringPrefMember fixed_font_;
   IntegerPrefMember default_font_size_;
   IntegerPrefMember default_fixed_font_size_;
+  IntegerPrefMember minimum_font_size_;
 
   DISALLOW_COPY_AND_ASSIGN(FontSettingsHandler);
 };

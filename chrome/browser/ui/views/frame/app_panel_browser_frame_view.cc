@@ -1,23 +1,23 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/frame/app_panel_browser_frame_view.h"
+#include "chrome/browser/ui/views/frame/app_panel_browser_frame_view.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/compiler_specific.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/views/frame/browser_frame.h"
-#include "chrome/browser/views/frame/browser_view.h"
-#include "gfx/canvas.h"
-#include "gfx/font.h"
-#include "gfx/path.h"
+#include "chrome/browser/ui/views/frame/browser_frame.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
 #include "grit/app_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/font.h"
+#include "ui/gfx/path.h"
 #include "views/controls/button/image_button.h"
 #include "views/window/window.h"
 #include "views/window/window_resources.h"
@@ -73,7 +73,7 @@ AppPanelBrowserFrameView::AppPanelBrowserFrameView(BrowserFrame* frame,
   close_button_->SetImage(views::CustomButton::BS_PUSHED,
                           rb.GetBitmapNamed(IDR_CLOSE_BAR_P));
   close_button_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_CLOSE)));
+      l10n_util::GetStringUTF16(IDS_ACCNAME_CLOSE));
   AddChildView(close_button_);
 
   window_icon_ = new TabIconView(this);
@@ -89,7 +89,7 @@ AppPanelBrowserFrameView::~AppPanelBrowserFrameView() {
 // AppPanelBrowserFrameView, BrowserNonClientFrameView implementation:
 
 gfx::Rect AppPanelBrowserFrameView::GetBoundsForTabStrip(
-    BaseTabStrip* tabstrip) const {
+    views::View* tabstrip) const {
   // App panels never show a tab strip.
   NOTREACHED();
   return gfx::Rect();
@@ -156,7 +156,7 @@ int AppPanelBrowserFrameView::NonClientHitTest(const gfx::Point& point) {
   // of Fitts' Law.
   if (frame_->GetWindow()->IsMaximized())
     sysmenu_rect.SetRect(0, 0, sysmenu_rect.right(), sysmenu_rect.bottom());
-  sysmenu_rect.set_x(MirroredLeftPointForRect(sysmenu_rect));
+  sysmenu_rect.set_x(GetMirroredXForRect(sysmenu_rect));
   if (sysmenu_rect.Contains(point))
     return (frame_component == HTCLIENT) ? HTCLIENT : HTSYSMENU;
 
@@ -165,7 +165,7 @@ int AppPanelBrowserFrameView::NonClientHitTest(const gfx::Point& point) {
 
   // Then see if the point is within any of the window controls.
   if (close_button_->IsVisible() &&
-      close_button_->GetBounds(APPLY_MIRRORING_TRANSFORMATION).Contains(point))
+      close_button_->GetMirroredBounds().Contains(point))
     return HTCLOSE;
 
   int window_component = GetHTComponentForFrame(point,
@@ -404,7 +404,7 @@ void AppPanelBrowserFrameView::PaintTitleBar(gfx::Canvas* canvas) {
   // The window icon is painted by the TabIconView.
   views::WindowDelegate* d = frame_->GetWindow()->GetDelegate();
   canvas->DrawStringInt(d->GetWindowTitle(), BrowserFrame::GetTitleFont(),
-      SK_ColorBLACK, MirroredLeftPointForRect(title_bounds_), title_bounds_.y(),
+      SK_ColorBLACK, GetMirroredXForRect(title_bounds_), title_bounds_.y(),
       title_bounds_.width(), title_bounds_.height());
 }
 
@@ -481,7 +481,7 @@ void AppPanelBrowserFrameView::LayoutWindowControls() {
 void AppPanelBrowserFrameView::LayoutTitleBar() {
   // Size the icon first; the window title is based on the icon position.
   gfx::Rect icon_bounds(IconBounds());
-  window_icon_->SetBounds(icon_bounds);
+  window_icon_->SetBoundsRect(icon_bounds);
 
   // Size the title.
   int title_x = icon_bounds.right() + kIconTitleSpacing;

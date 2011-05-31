@@ -1,17 +1,17 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/theme_helpers.h"
+#include "chrome/browser/ui/views/theme_helpers.h"
 
 #include <atlbase.h>
 #include <atlapp.h>
 #include <atltheme.h>
 
 #include "base/logging.h"
-#include "gfx/canvas_skia.h"
 #include "skia/ext/bitmap_platform_device_win.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
+#include "ui/gfx/canvas_skia.h"
 
 void GetRebarGradientColors(int width, int x1, int x2,
                             SkColor* c1, SkColor* c2) {

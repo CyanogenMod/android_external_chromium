@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,15 @@
 #pragma once
 
 #include "chrome/browser/prefs/pref_member.h"
-#include "chrome/browser/views/options/options_page_view.h"
+#include "chrome/browser/ui/views/options/options_page_view.h"
 #include "views/controls/combobox/combobox.h"
 #include "views/controls/button/button.h"
 #include "views/controls/table/table_view_observer.h"
 #include "views/view.h"
+
+class AddLanguageView;
+class LanguageComboboxModel;
+class LanguageOrderTableModel;
 
 namespace views {
 class Checkbox;
@@ -19,11 +23,6 @@ class Label;
 class NativeButton;
 class TableView;
 }
-
-class AddLanguageView;
-class LanguageComboboxModel;
-class LanguageOrderTableModel;
-class TableModel;
 
 ///////////////////////////////////////////////////////////////////////////////
 // LanguagesPageView

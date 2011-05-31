@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 #define CHROME_BROWSER_UI_VIEWS_TABS_SIDE_TAB_H_
 #pragma once
 
-#include "chrome/browser/views/tabs/base_tab.h"
-#include "gfx/font.h"
+#include "chrome/browser/ui/views/tabs/base_tab.h"
+#include "ui/gfx/font.h"
 
 class SideTab;
 class TabStripController;

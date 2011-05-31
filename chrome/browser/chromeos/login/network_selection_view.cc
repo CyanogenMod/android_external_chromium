@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,6 @@
 #include <sys/types.h>
 #include <string>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/keyboard_switch_menu.h"
@@ -19,15 +17,17 @@
 #include "chrome/browser/chromeos/login/rounded_rect_painter.h"
 #include "chrome/browser/chromeos/login/wizard_accessibility_helper.h"
 #include "chrome/browser/chromeos/status/network_dropdown_button.h"
-#include "gfx/size.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/size.h"
 #include "views/controls/label.h"
 #include "views/controls/throbber.h"
-#include "views/fill_layout.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/fill_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/widget.h"
 #include "views/widget/widget_gtk.h"
 #include "views/window/non_client_view.h"
@@ -263,7 +263,7 @@ void NetworkSelectionView::InitLayout() {
   column_set->AddPaddingColumn(1, h_padding);
   column_set->AddColumn(GridLayout::TRAILING, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 1,
                         GridLayout::USE_PREF, 0, 0);
   column_set->AddPaddingColumn(1, h_padding);
@@ -292,15 +292,18 @@ void NetworkSelectionView::Init() {
   welcome_label_->SetFont(welcome_label_font);
   welcome_label_->SetMultiLine(true);
 
+  gfx::Font select_label_font = rb.GetFont(ResourceBundle::MediumFont).
+      DeriveFont(kNetworkSelectionLabelFontDelta);
+
   select_language_label_ = new views::Label();
-  select_language_label_->SetFont(rb.GetFont(ResourceBundle::MediumFont));
+  select_language_label_->SetFont(select_label_font);
 
   languages_menubutton_ = new NotifyingMenuButton(
       NULL, std::wstring(), delegate_->language_switch_menu(), true, delegate_);
   InitMenuButtonProperties(languages_menubutton_);
 
   select_keyboard_label_ = new views::Label();
-  select_keyboard_label_->SetFont(rb.GetFont(ResourceBundle::MediumFont));
+  select_keyboard_label_->SetFont(select_label_font);
 
   keyboards_menubutton_ = new DropDownButton(
       NULL /* listener */, L"", delegate_->keyboard_switch_menu(),
@@ -308,7 +311,7 @@ void NetworkSelectionView::Init() {
   InitMenuButtonProperties(keyboards_menubutton_);
 
   select_network_label_ = new views::Label();
-  select_network_label_->SetFont(rb.GetFont(ResourceBundle::MediumFont));
+  select_network_label_->SetFont(select_label_font);
 
   network_dropdown_ = new NetworkControlReportOnActivate(false,
                                                          GetNativeWindow(),
@@ -371,18 +374,12 @@ void NetworkSelectionView::OnLocaleChanged() {
   SchedulePaint();
 }
 
-void NetworkSelectionView::ViewHierarchyChanged(bool is_add,
-                                                View* parent,
-                                                View* child) {
-  if (is_add && this == child)
-    WizardAccessibilityHelper::GetInstance()->MaybeEnableAccessibility(this);
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 // NetworkSelectionView, public:
 
 gfx::NativeWindow NetworkSelectionView::GetNativeWindow() const {
-  return GTK_WINDOW(static_cast<WidgetGtk*>(GetWidget())->GetNativeView());
+  return
+      GTK_WINDOW(static_cast<const WidgetGtk*>(GetWidget())->GetNativeView());
 }
 
 views::View* NetworkSelectionView::GetNetworkControlView() const {

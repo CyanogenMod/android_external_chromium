@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 
 #include "base/scoped_ptr.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_type.h"
@@ -40,7 +40,7 @@ class OptionsUIHTMLSource : public ChromeURLDataManager::DataSource {
 };
 
 // The base class handler of Javascript messages of options pages.
-class OptionsPageUIHandler : public DOMMessageHandler,
+class OptionsPageUIHandler : public WebUIMessageHandler,
                              public NotificationObserver {
  public:
   OptionsPageUIHandler();
@@ -53,12 +53,13 @@ class OptionsPageUIHandler : public DOMMessageHandler,
   virtual void GetLocalizedValues(DictionaryValue* localized_strings) = 0;
 
   // Initialize the page.  Called once the DOM is available for manipulation.
+  // This will be called only once.
   virtual void Initialize() {}
 
   // Uninitializes the page.  Called just before the object is destructed.
   virtual void Uninitialize() {}
 
-  // DOMMessageHandler implementation.
+  // WebUIMessageHandler implementation.
   virtual void RegisterMessages() {}
 
   // NotificationObserver implementation.
@@ -69,13 +70,32 @@ class OptionsPageUIHandler : public DOMMessageHandler,
   void UserMetricsRecordAction(const UserMetricsAction& action);
 
  protected:
+  struct OptionsStringResource {
+    // The name of the resource in templateData.
+    const char* name;
+    // The .grd ID for the resource (IDS_*).
+    int id;
+    // True if the trailing colon should be stripped on platforms that
+    // don't want trailing colons.
+    bool strip_colon;
+  };
+  // A helper for simplifying the process of registering strings in WebUI.
+  static void RegisterStrings(DictionaryValue* localized_strings,
+                              const OptionsStringResource* resources,
+                              size_t length);
+
+  // Registers string resources for a page's header and tab title.
+  static void RegisterTitle(DictionaryValue* localized_strings,
+                            const std::string& variable_name,
+                            int title_id);
+
   NotificationRegistrar registrar_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(OptionsPageUIHandler);
 };
 
-class OptionsUI : public DOMUI {
+class OptionsUI : public WebUI {
  public:
   explicit OptionsUI(TabContents* contents);
   virtual ~OptionsUI();
@@ -90,6 +110,8 @@ class OptionsUI : public DOMUI {
   // Adds OptionsPageUiHandler to the handlers list if handler is enabled.
   void AddOptionsPageUIHandler(DictionaryValue* localized_strings,
                                OptionsPageUIHandler* handler);
+
+  bool initialized_handlers_;
 
   DISALLOW_COPY_AND_ASSIGN(OptionsUI);
 };

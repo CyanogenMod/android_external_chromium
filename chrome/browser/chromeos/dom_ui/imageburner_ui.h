@@ -9,7 +9,6 @@
 #include <string>
 #include <vector>
 
-#include "app/download_file_interface.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/scoped_ptr.h"
@@ -19,47 +18,20 @@
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/mount_library.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/download/download_util.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/file_stream.h"
+#include "ui/base/dragdrop/download_file_interface.h"
 
 template <typename T> struct DefaultSingletonTraits;
-
-static const std::string kPropertyPath = "path";
-static const std::string kPropertyTitle = "title";
-static const std::string kPropertyDirectory = "isDirectory";
-static const std::string kImageBaseURL =
-    "http://chrome-master.mtv.corp.google.com/chromeos/dev-channel/";
-static const std::string kImageFetcherName = "LATEST-x86-generic";
-static const std::string kImageFileName = "chromeos_image.bin.gz";
-static const std::string kTempImageFolderName = "chromeos_image";
 
 class ImageBurnResourceManager;
 class TabContents;
 
-class ImageBurnUIHTMLSource : public ChromeURLDataManager::DataSource {
- public:
-  ImageBurnUIHTMLSource();
-
-  // Called when the network layer has requested a resource underneath
-  // the path we registered.
-  virtual void StartDataRequest(const std::string& path,
-                                 bool is_off_the_record,
-                                 int request_id);
-  virtual std::string GetMimeType(const std::string&) const {
-    return "text/html";
-  }
-
- private:
-  ~ImageBurnUIHTMLSource() {}
-
-  DISALLOW_COPY_AND_ASSIGN(ImageBurnUIHTMLSource);
-};
-
-class ImageBurnHandler : public DOMMessageHandler,
+class ImageBurnHandler : public WebUIMessageHandler,
                          public chromeos::MountLibrary::Observer,
                          public chromeos::BurnLibrary::Observer,
                          public DownloadManager::Observer,
@@ -69,8 +41,8 @@ class ImageBurnHandler : public DOMMessageHandler,
   explicit ImageBurnHandler(TabContents* contents);
   virtual ~ImageBurnHandler();
 
-  // DOMMessageHandler implementation.
-  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+  // WebUIMessageHandler implementation.
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
   virtual void RegisterMessages();
 
   // chromeos::MountLibrary::Observer interface
@@ -137,27 +109,6 @@ class ImageBurnHandler : public DOMMessageHandler,
   DISALLOW_COPY_AND_ASSIGN(ImageBurnHandler);
 };
 
-class ImageBurnTaskProxy
-    : public base::RefCountedThreadSafe<ImageBurnTaskProxy> {
- public:
-  explicit ImageBurnTaskProxy(const base::WeakPtr<ImageBurnHandler>& handler);
-
-  bool ReportDownloadInitialized();
-  bool CheckDownloadFinished();
-  void BurnImage();
-  void FinalizeBurn(bool success);
-
-  void CreateImageUrl(TabContents* tab_contents, ImageBurnHandler* downloader);
-
- private:
-  base::WeakPtr<ImageBurnHandler> handler_;
-  ImageBurnResourceManager* resource_manager_;
-
-  friend class base::RefCountedThreadSafe<ImageBurnTaskProxy>;
-
-  DISALLOW_COPY_AND_ASSIGN(ImageBurnTaskProxy);
-};
-
 class ImageBurnResourceManager : public DownloadManager::Observer,
                                  public DownloadItem::Observer {
  public:
@@ -216,11 +167,12 @@ class ImageBurnResourceManager : public DownloadManager::Observer,
   DISALLOW_COPY_AND_ASSIGN(ImageBurnResourceManager);
 };
 
-class ImageBurnUI : public DOMUI {
+class ImageBurnUI : public WebUI {
  public:
   explicit ImageBurnUI(TabContents* contents);
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ImageBurnUI);
 };
+
 #endif  // CHROME_BROWSER_CHROMEOS_DOM_UI_IMAGEBURNER_UI_H_

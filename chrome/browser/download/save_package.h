@@ -16,8 +16,8 @@
 #include "base/hash_tables.h"
 #include "base/ref_counted.h"
 #include "base/task.h"
-#include "chrome/browser/renderer_host/render_view_host_delegate.h"
-#include "chrome/browser/shell_dialogs.h"
+#include "chrome/browser/tab_contents/tab_contents_observer.h"
+#include "chrome/browser/ui/shell_dialogs.h"
 #include "googleurl/src/gurl.h"
 
 class SaveFileManager;
@@ -54,7 +54,7 @@ struct SavePackageParam;
 // by the SavePackage. SaveItems are created when a user initiates a page
 // saving job, and exist for the duration of one tab's life time.
 class SavePackage : public base::RefCountedThreadSafe<SavePackage>,
-                    public RenderViewHostDelegate::Save,
+                    public TabContentsObserver,
                     public SelectFileDialog::Listener {
  public:
   enum SavePackageType {
@@ -128,22 +128,6 @@ class SavePackage : public base::RefCountedThreadSafe<SavePackage>,
 
   void GetSaveInfo();
 
-  // RenderViewHostDelegate::Save ----------------------------------------------
-
-  // Process all of the current page's savable links of subresources, resources
-  // referrers and frames (including the main frame and subframes) from the
-  // render view host.
-  virtual void OnReceivedSavableResourceLinksForCurrentPage(
-      const std::vector<GURL>& resources_list,
-      const std::vector<GURL>& referrers_list,
-      const std::vector<GURL>& frames_list);
-
-  // Process the serialized html content data of a specified web page
-  // gotten from render process.
-  virtual void OnReceivedSerializedHtmlData(const GURL& frame_url,
-                                            const std::string& data,
-                                            int32 status);
-
   // Statics -------------------------------------------------------------------
 
   // Used to disable prompting the user for a directory/filename of the saved
@@ -179,6 +163,20 @@ class SavePackage : public base::RefCountedThreadSafe<SavePackage>,
   void SaveNextFile(bool process_all_remainder_items);
   void DoSavingProcess();
 
+  // TabContentsObserver implementation.
+  virtual bool OnMessageReceived(const IPC::Message& message);
+
+  // Return max length of a path for a specific base directory.
+  // This is needed on POSIX, which restrict the length of file names in
+  // addition to the restriction on the length of path names.
+  // |base_dir| is assumed to be a directory name with no trailing slash.
+  static uint32 GetMaxPathLengthForDirectory(const FilePath& base_dir);
+
+  static bool GetSafePureFileName(const FilePath& dir_path,
+                                  const FilePath::StringType& file_name_ext,
+                                  uint32 max_file_path_len,
+                                  FilePath::StringType* pure_file_name);
+
   // Create a file name based on the response from the server.
   bool GenerateFileName(const std::string& disposition,
                         const GURL& url,
@@ -204,6 +202,15 @@ class SavePackage : public base::RefCountedThreadSafe<SavePackage>,
   void ContinueGetSaveInfo(const FilePath& suggested_path,
                            bool can_save_as_complete);
   void ContinueSave(const FilePath& final_name, int index);
+
+  void OnReceivedSavableResourceLinksForCurrentPage(
+      const std::vector<GURL>& resources_list,
+      const std::vector<GURL>& referrers_list,
+      const std::vector<GURL>& frames_list);
+
+  void OnReceivedSerializedHtmlData(const GURL& frame_url,
+                                    const std::string& data,
+                                    int32 status);
 
 
   typedef base::hash_map<std::string, SaveItem*> SaveUrlItemMap;
@@ -315,6 +322,7 @@ class SavePackage : public base::RefCountedThreadSafe<SavePackage>,
 
   friend class SavePackageTest;
   FRIEND_TEST_ALL_PREFIXES(SavePackageTest, TestSuggestedSaveNames);
+  FRIEND_TEST_ALL_PREFIXES(SavePackageTest, TestLongSafePureFilename);
 
   ScopedRunnableMethodFactory<SavePackage> method_factory_;
 

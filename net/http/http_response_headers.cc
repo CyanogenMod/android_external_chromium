@@ -12,6 +12,7 @@
 #include <algorithm>
 
 #include "base/logging.h"
+#include "base/metrics/histogram.h"
 #include "base/pickle.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
@@ -85,13 +86,69 @@ bool ShouldUpdateHeader(const std::string::const_iterator& name_begin,
   return true;
 }
 
+// Functions for histogram initialization.  The code 0 is put in the
+// response map to track response codes that are invalid.
+// TODO(gavinp): Greatly prune the collected codes once we learn which
+// ones are not sent in practice, to reduce upload size & memory use.
+
+enum {
+  HISTOGRAM_MIN_HTTP_RESPONSE_CODE = 100,
+  HISTOGRAM_MAX_HTTP_RESPONSE_CODE = 599,
+};
+
+std::vector<int> GetAllHttpResponseCodes() {
+  std::vector<int> codes;
+  codes.reserve(
+      HISTOGRAM_MAX_HTTP_RESPONSE_CODE - HISTOGRAM_MIN_HTTP_RESPONSE_CODE + 2);
+  codes.push_back(0);
+  for (int i = HISTOGRAM_MIN_HTTP_RESPONSE_CODE;
+       i <= HISTOGRAM_MAX_HTTP_RESPONSE_CODE; ++i)
+    codes.push_back(i);
+  return codes;
+}
+
+int MapHttpResponseCode(int code) {
+  if (HISTOGRAM_MIN_HTTP_RESPONSE_CODE <= code &&
+      code <= HISTOGRAM_MAX_HTTP_RESPONSE_CODE)
+    return code;
+  return 0;
+}
+
 }  // namespace
+
+struct HttpResponseHeaders::ParsedHeader {
+  // A header "continuation" contains only a subsequent value for the
+  // preceding header.  (Header values are comma separated.)
+  bool is_continuation() const { return name_begin == name_end; }
+
+  std::string::const_iterator name_begin;
+  std::string::const_iterator name_end;
+  std::string::const_iterator value_begin;
+  std::string::const_iterator value_end;
+};
 
 //-----------------------------------------------------------------------------
 
 HttpResponseHeaders::HttpResponseHeaders(const std::string& raw_input)
     : response_code_(-1) {
   Parse(raw_input);
+
+  // The most important thing to do with this histogram is find out
+  // the existence of unusual HTTP response codes.  As it happens
+  // right now, there aren't double-constructions of response headers
+  // using this constructor, so our counts should also be accurate,
+  // without instantiating the histogram in two places.  It is also
+  // important that this histogram not collect data in the other
+  // constructor, which rebuilds an histogram from a pickle, since
+  // that would actually create a double call between the original
+  // HttpResponseHeader that was serialized, and initialization of the
+  // new object from that pickle.
+  UMA_HISTOGRAM_CUSTOM_ENUMERATION("Net.HttpResponseCode",
+                                   MapHttpResponseCode(response_code_),
+                                   // Note the third argument is only
+                                   // evaluated once, see macro
+                                   // definition for details.
+                                   GetAllHttpResponseCodes());
 }
 
 HttpResponseHeaders::HttpResponseHeaders(const Pickle& pickle, void** iter)
@@ -359,30 +416,6 @@ void HttpResponseHeaders::GetNormalizedHeaders(std::string* output) const {
   output->push_back('\n');
 }
 
-void HttpResponseHeaders::GetRawHeaders(std::string* output) const {
-  if (!output)
-    return;
-  output->erase();
-  const char* headers_string = raw_headers().c_str();
-  size_t headers_length = raw_headers().length();
-  if (!headers_string)
-    return;
-  // The headers_string is a NULL-terminated status line, followed by NULL-
-  // terminated headers.
-  std::string raw_string = headers_string;
-  size_t current_length = strlen(headers_string) + 1;
-  while (headers_length > current_length) {
-    // Move to the next header, and append it.
-    headers_string += current_length;
-    headers_length -= current_length;
-    raw_string += "\n";
-    raw_string += headers_string;
-    // Get the next header location.
-    current_length = strlen(headers_string) + 1;
-  }
-  *output = raw_string;
-}
-
 bool HttpResponseHeaders::GetNormalizedHeader(const std::string& name,
                                               std::string* value) const {
   // If you hit this assertion, please use EnumerateHeader instead!
@@ -494,7 +527,7 @@ bool HttpResponseHeaders::HasHeader(const std::string& name) const {
   return FindHeader(0, name) != std::string::npos;
 }
 
-HttpResponseHeaders::HttpResponseHeaders() {
+HttpResponseHeaders::HttpResponseHeaders() : response_code_(-1) {
 }
 
 HttpResponseHeaders::~HttpResponseHeaders() {

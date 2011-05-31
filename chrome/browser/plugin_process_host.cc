@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,21 +36,23 @@
 #include "chrome/common/net/url_request_context_getter.h"
 #include "chrome/common/plugin_messages.h"
 #include "chrome/common/render_messages.h"
-#include "gfx/native_widget_types.h"
+#include "chrome/common/render_messages_params.h"
 #include "ipc/ipc_switches.h"
 #include "net/base/cookie_store.h"
 #include "net/base/io_buffer.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
+#include "ui/base/ui_base_switches.h"
+#include "ui/gfx/native_widget_types.h"
 
 #if defined(USE_X11)
-#include "gfx/gtk_native_view_id_manager.h"
+#include "ui/gfx/gtk_native_view_id_manager.h"
 #endif
 
 #if defined(OS_MACOSX)
 #include "base/mac/mac_util.h"
 #include "chrome/common/plugin_carbon_interpose_constants_mac.h"
-#include "gfx/rect.h"
+#include "ui/gfx/rect.h"
 #endif
 
 static const char kDefaultPluginFinderURL[] =
@@ -59,17 +61,17 @@ static const char kDefaultPluginFinderURL[] =
 namespace {
 
 // Helper class that we pass to ResourceMessageFilter so that it can find the
-// right URLRequestContext for a request.
+// right net::URLRequestContext for a request.
 class PluginURLRequestContextOverride
     : public ResourceMessageFilter::URLRequestContextOverride {
  public:
   PluginURLRequestContextOverride() {
   }
 
-  virtual URLRequestContext* GetRequestContext(
-      uint32 request_id, ResourceType::Type resource_type) {
+  virtual net::URLRequestContext* GetRequestContext(
+      const ViewHostMsg_Resource_Request& resource_request) {
     return CPBrowsingContextManager::GetInstance()->ToURLRequestContext(
-        request_id);
+        resource_request.request_context);
   }
 
  private:
@@ -380,7 +382,7 @@ void PluginProcessHost::OpenChannelToPlugin(Client* client) {
 void PluginProcessHost::OnGetCookies(uint32 request_context,
                                      const GURL& url,
                                      std::string* cookies) {
-  URLRequestContext* context = CPBrowsingContextManager::GetInstance()->
+  net::URLRequestContext* context = CPBrowsingContextManager::GetInstance()->
         ToURLRequestContext(request_context);
   // TODO(mpcomplete): remove fallback case when Gears support is prevalent.
   if (!context)

@@ -17,8 +17,10 @@ namespace {
 void SimulateRendererCrash(Browser* browser) {
   browser->OpenURL(GURL(chrome::kAboutCrashURL), GURL(), CURRENT_TAB,
                    PageTransition::TYPED);
+  LOG(ERROR) << "SimulateRendererCrash, before WaitForNotification";
   ui_test_utils::WaitForNotification(
       NotificationType::TAB_CONTENTS_DISCONNECTED);
+  LOG(ERROR) << "SimulateRendererCrash, after WaitForNotification";
 }
 
 }  // namespace
@@ -26,16 +28,9 @@ void SimulateRendererCrash(Browser* browser) {
 class CrashRecoveryBrowserTest : public InProcessBrowserTest {
 };
 
-// http://crbug.com/29331 - Causes an OS crash dialog in release mode, needs to
-// be fixed before it can be enabled to not cause the bots issues.
-#if defined(OS_MACOSX)
-#define MAYBE_Reload DISABLED_Reload
-#else
-#define MAYBE_Reload Reload
-#endif
-
 // Test that reload works after a crash.
-IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, MAYBE_Reload) {
+// Disabled, http://crbug.com/29331, http://crbug.com/69637.
+IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, Reload) {
   // The title of the active tab should change each time this URL is loaded.
   GURL url(
       "data:text/html,<script>document.title=new Date().valueOf()</script>");
@@ -48,7 +43,9 @@ IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, MAYBE_Reload) {
                                                 &title_before_crash));
   SimulateRendererCrash(browser());
   browser()->Reload(CURRENT_TAB);
+  LOG(ERROR) << "Before WaitForNavigationInCurrentTab";
   ASSERT_TRUE(ui_test_utils::WaitForNavigationInCurrentTab(browser()));
+  LOG(ERROR) << "After WaitForNavigationInCurrentTab";
   ASSERT_TRUE(ui_test_utils::GetCurrentTabTitle(browser(),
                                                 &title_after_crash));
   EXPECT_NE(title_before_crash, title_after_crash);
@@ -59,7 +56,7 @@ IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, MAYBE_Reload) {
 // ID of the RenderProcessHost was stale, so the NavigationEntry in the new tab
 // was not committed.  This prevents regression of that bug.
 // http://crbug.com/57158 - Times out sometimes on all platforms.
-IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, DISABLED_LoadInNewTab) {
+IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, LoadInNewTab) {
   const FilePath::CharType* kTitle2File = FILE_PATH_LITERAL("title2.html");
 
   ui_test_utils::NavigateToURL(browser(),
@@ -73,7 +70,9 @@ IN_PROC_BROWSER_TEST_F(CrashRecoveryBrowserTest, DISABLED_LoadInNewTab) {
                                                 &title_before_crash));
   SimulateRendererCrash(browser());
   browser()->Reload(CURRENT_TAB);
+  LOG(ERROR) << "Before WaitForNavigationInCurrentTab";
   ASSERT_TRUE(ui_test_utils::WaitForNavigationInCurrentTab(browser()));
+  LOG(ERROR) << "After WaitForNavigationInCurrentTab";
   ASSERT_TRUE(ui_test_utils::GetCurrentTabTitle(browser(),
                                                 &title_after_crash));
   EXPECT_EQ(title_before_crash, title_after_crash);

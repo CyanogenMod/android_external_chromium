@@ -23,7 +23,7 @@ namespace safe_browsing {
 class ClientSideDetectionService;
 }
 
-class Clipboard;
+class ChromeNetLog;
 class DevToolsManager;
 class DownloadRequestLimiter;
 class DownloadStatusUpdater;
@@ -54,6 +54,10 @@ namespace policy {
 class ConfigurationPolicyProviderKeeper;
 }
 
+namespace ui {
+class Clipboard;
+}
+
 // NOT THREAD SAFE, call only from the main thread.
 // These functions shouldn't return NULL unless otherwise noted.
 class BrowserProcess {
@@ -75,7 +79,7 @@ class BrowserProcess {
   virtual PrefService* local_state() = 0;
   virtual DevToolsManager* devtools_manager() = 0;
   virtual SidebarManager* sidebar_manager() = 0;
-  virtual Clipboard* clipboard() = 0;
+  virtual ui::Clipboard* clipboard() = 0;
 
   // Returns the manager for desktop notifications.
   virtual NotificationUIManager* notification_ui_manager() = 0;
@@ -120,7 +124,12 @@ class BrowserProcess {
 
   virtual AutomationProviderList* InitAutomationProviderList() = 0;
 
-  virtual void InitDebuggerWrapper(int port, bool useHttp) = 0;
+  virtual void InitDevToolsHttpProtocolHandler(
+      const std::string& ip,
+      int port,
+      const std::string& frontend_url) = 0;
+
+  virtual void InitDevToolsLegacyProtocolHandler(int port) = 0;
 
   virtual unsigned int AddRefModule() = 0;
   virtual unsigned int ReleaseModule() = 0;
@@ -177,6 +186,8 @@ class BrowserProcess {
   // case, we default to returning true.
   virtual bool have_inspector_files() const = 0;
 
+  virtual ChromeNetLog* net_log() = 0;
+
 #if defined(IPC_MESSAGE_LOG_ENABLED)
   // Enable or disable IPC logging for the browser, all processes
   // derived from ChildProcess (plugin etc), and all
@@ -184,9 +195,20 @@ class BrowserProcess {
   virtual void SetIPCLoggingEnabled(bool enable) = 0;
 #endif
 
+  const std::string& plugin_data_remover_mime_type() const {
+    return plugin_data_remover_mime_type_;
+  }
+
+  void set_plugin_data_remover_mime_type(const std::string& mime_type) {
+    plugin_data_remover_mime_type_ = mime_type;
+  }
+
  private:
   // User-data-dir based profiles.
   std::vector<std::wstring> user_data_dir_profiles_;
+
+  // Used for testing plugin data removal at shutdown.
+  std::string plugin_data_remover_mime_type_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserProcess);
 };

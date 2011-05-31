@@ -158,13 +158,13 @@ class ClientSocketPoolBaseHelper
     : public ConnectJob::Delegate,
       public NetworkChangeNotifier::Observer {
  public:
+  typedef uint32 Flags;
+
   // Used to specify specific behavior for the ClientSocketPool.
   enum Flag {
     NORMAL = 0,  // Normal behavior.
     NO_IDLE_SOCKETS = 0x1,  // Do not return an idle socket. Create a new one.
   };
-
-  typedef uint32 Flags;
 
   class Request {
    public:
@@ -270,12 +270,6 @@ class ClientSocketPoolBaseHelper
     return ClientSocketPool::kMaxConnectRetryIntervalMs;
   }
 
-  // ConnectJob::Delegate methods:
-  virtual void OnConnectJobComplete(int result, ConnectJob* job);
-
-  // NetworkChangeNotifier::Observer methods:
-  virtual void OnIPAddressChanged();
-
   int NumConnectJobsInGroup(const std::string& group_name) const {
     return group_map_.find(group_name)->second->jobs().size();
   }
@@ -301,14 +295,18 @@ class ClientSocketPoolBaseHelper
   static void set_connect_backup_jobs_enabled(bool enabled);
   void EnableConnectBackupJobs();
 
+  // ConnectJob::Delegate methods:
+  virtual void OnConnectJobComplete(int result, ConnectJob* job);
+
+  // NetworkChangeNotifier::Observer methods:
+  virtual void OnIPAddressChanged();
+
  private:
   friend class base::RefCounted<ClientSocketPoolBaseHelper>;
 
   // Entry for a persistent socket which became idle at time |start_time|.
   struct IdleSocket {
     IdleSocket() : socket(NULL) {}
-    ClientSocket* socket;
-    base::TimeTicks start_time;
 
     // An idle socket should be removed if it can't be reused, or has been idle
     // for too long. |now| is the current time value (TimeTicks::Now()).
@@ -319,6 +317,9 @@ class ClientSocketPoolBaseHelper
     // mistaken for the beginning of the next response if we were to reuse the
     // socket for a new request.
     bool ShouldCleanup(base::TimeTicks now, base::TimeDelta timeout) const;
+
+    ClientSocket* socket;
+    base::TimeTicks start_time;
   };
 
   typedef std::deque<const Request* > RequestQueue;

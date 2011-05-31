@@ -1,10 +1,11 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/dom_ui/options/import_data_handler.h"
 
-#include "app/l10n_util.h"
+#include <string>
+
 #include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/scoped_ptr.h"
@@ -14,16 +15,19 @@
 #include "base/threading/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "chrome/browser/importer/importer_data_types.h"
+#include "ui/base/l10n/l10n_util.h"
 
 ImportDataHandler::ImportDataHandler() : importer_host_(NULL) {
 }
 
 ImportDataHandler::~ImportDataHandler() {
+  if (importer_list_)
+    importer_list_->SetObserver(NULL);
+
   if (importer_host_)
     importer_host_->SetObserver(NULL);
 }
@@ -31,8 +35,8 @@ ImportDataHandler::~ImportDataHandler() {
 void ImportDataHandler::GetLocalizedValues(
     DictionaryValue* localized_strings) {
   DCHECK(localized_strings);
-  localized_strings->SetString("importDataTitle",
-      l10n_util::GetStringUTF16(IDS_IMPORT_SETTINGS_TITLE));
+  RegisterTitle(localized_strings, "importDataOverlay",
+                IDS_IMPORT_SETTINGS_TITLE);
   localized_strings->SetString("importFromLabel",
       l10n_util::GetStringUTF16(IDS_IMPORT_FROM_LABEL));
   localized_strings->SetString("importLoading",
@@ -59,7 +63,7 @@ void ImportDataHandler::Initialize() {
 }
 
 void ImportDataHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "importData", NewCallback(this, &ImportDataHandler::ImportData));
 }
 
@@ -94,7 +98,7 @@ void ImportDataHandler::ImportData(const ListValue* args) {
   uint16 import_services = (selected_items & supported_items);
   if (import_services) {
     FundamentalValue state(true);
-    dom_ui_->CallJavascriptFunction(
+    web_ui_->CallJavascriptFunction(
         L"ImportDataOverlay.setImportingState", state);
 
     // TODO(csilv): Out-of-process import has only been qualified on MacOS X,
@@ -102,12 +106,12 @@ void ImportDataHandler::ImportData(const ListValue* args) {
     // conditional logic once oop import is qualified for Linux/Windows.
     // http://crbug.com/22142
 #if defined(OS_MACOSX)
-    importer_host_ = new ExternalProcessImporterHost(this);
+    importer_host_ = new ExternalProcessImporterHost;
 #else
-    importer_host_ = new ImporterHost(this);
+    importer_host_ = new ImporterHost;
 #endif
     importer_host_->SetObserver(this);
-    Profile* profile = dom_ui_->GetProfile();
+    Profile* profile = web_ui_->GetProfile();
     importer_host_->StartImportSettings(source_profile, profile,
                                         import_services,
                                         new ProfileWriter(profile), false);
@@ -132,7 +136,7 @@ void ImportDataHandler::ImportEnded() {
   importer_host_->SetObserver(NULL);
   importer_host_ = NULL;
 
-  dom_ui_->CallJavascriptFunction(L"ImportDataOverlay.dismiss");
+  web_ui_->CallJavascriptFunction(L"ImportDataOverlay.dismiss");
 }
 
 void ImportDataHandler::SourceProfilesLoaded() {
@@ -159,7 +163,7 @@ void ImportDataHandler::SourceProfilesLoaded() {
     browser_profiles.Append(browser_profile);
   }
 
-  dom_ui_->CallJavascriptFunction(
+  web_ui_->CallJavascriptFunction(
       L"options.ImportDataOverlay.updateSupportedBrowsers",
       browser_profiles);
 }

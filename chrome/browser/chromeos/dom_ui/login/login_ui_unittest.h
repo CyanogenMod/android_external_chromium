@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,26 +8,22 @@
 
 #include <string>
 
-#if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/dom_ui/login/mock_authenticator_facade_cros.h"
-#else
-#include "chrome/browser/chromeos/dom_ui/login/mock_authenticator_facade_stub.h"
-#endif
 #include "chrome/browser/chromeos/dom_ui/login/mock_login_ui_helpers.h"
 #include "chrome/test/testing_profile.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 namespace chromeos {
 
-class MockDOMUI : public DOMUI {
+class MockWebUI : public WebUI {
  public:
-  MockDOMUI() : DOMUI(NULL) {}
+  MockWebUI() : WebUI(NULL) {}
   MOCK_METHOD2(RegisterMessageCallback,
                void(const std::string& message,
                     MessageCallback* callback));
 
  private:
-  DISALLOW_COPY_AND_ASSIGN(MockDOMUI);
+  DISALLOW_COPY_AND_ASSIGN(MockWebUI);
 };
 
 class LoginUIHandlerHarness : public LoginUIHandler {
@@ -35,31 +31,18 @@ class LoginUIHandlerHarness : public LoginUIHandler {
   explicit LoginUIHandlerHarness(const std::string& expected_username,
                                  const std::string& expected_password)
       : LoginUIHandler() {
-#if defined(OS_CHROMEOS)
     facade_.reset(new MockAuthenticatorFacadeCros(this,
                                                   expected_username,
                                                   expected_password));
-#else
-    facade_.reset(new MockAuthenticatorFacadeStub(this,
-                                                  expected_username,
-                                                  expected_password));
-#endif
     profile_operations_.reset(new MockProfileOperationsInterface());
     browser_operations_.reset(new MockBrowserOperationsInterface());
   }
 
-  DOMUI* GetDOMUI() const { return dom_ui_;}
-#if defined(OS_CHROMEOS)
+  WebUI* GetWebUI() const { return web_ui_;}
   MockAuthenticatorFacadeCros* GetMockFacade() const {
     return static_cast<MockAuthenticatorFacadeCros*>
         (facade_.get());
   }
-#else
-  MockAuthenticatorFacadeStub* GetMockFacade() const {
-    return static_cast<MockAuthenticatorFacadeStub*>
-        (facade_.get());
-  }
-#endif
   MockProfileOperationsInterface* GetMockProfileOperations() const {
     return static_cast<MockProfileOperationsInterface*>
         (profile_operations_.get());

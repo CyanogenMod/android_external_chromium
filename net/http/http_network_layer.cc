@@ -10,121 +10,14 @@
 #include "base/string_util.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_network_transaction.h"
-#include "net/socket/client_socket_factory.h"
 #include "net/spdy/spdy_framer.h"
 #include "net/spdy/spdy_session.h"
-#include "net/spdy/spdy_session_pool.h"
 
 namespace net {
 
 //-----------------------------------------------------------------------------
-
-// static
-HttpTransactionFactory* HttpNetworkLayer::CreateFactory(
-    HostResolver* host_resolver,
-    CertVerifier* cert_verifier,
-    DnsRRResolver* dnsrr_resolver,
-    DnsCertProvenanceChecker* dns_cert_checker,
-    SSLHostInfoFactory* ssl_host_info_factory,
-    ProxyService* proxy_service,
-    SSLConfigService* ssl_config_service,
-    HttpAuthHandlerFactory* http_auth_handler_factory,
-    HttpNetworkDelegate* network_delegate,
-    NetLog* net_log) {
-  DCHECK(proxy_service);
-
-  return new HttpNetworkLayer(ClientSocketFactory::GetDefaultFactory(),
-                              host_resolver, cert_verifier, dnsrr_resolver,
-                              dns_cert_checker,
-                              ssl_host_info_factory, proxy_service,
-                              ssl_config_service, http_auth_handler_factory,
-                              network_delegate,
-                              net_log);
-}
-
-// static
-HttpTransactionFactory* HttpNetworkLayer::CreateFactory(
-    HttpNetworkSession* session) {
-  DCHECK(session);
-
-  return new HttpNetworkLayer(session);
-}
-
-//-----------------------------------------------------------------------------
-HttpNetworkLayer::HttpNetworkLayer(
-    ClientSocketFactory* socket_factory,
-    HostResolver* host_resolver,
-    CertVerifier* cert_verifier,
-    DnsRRResolver* dnsrr_resolver,
-    DnsCertProvenanceChecker* dns_cert_checker,
-    SSLHostInfoFactory* ssl_host_info_factory,
-    ProxyService* proxy_service,
-    SSLConfigService* ssl_config_service,
-    HttpAuthHandlerFactory* http_auth_handler_factory,
-    HttpNetworkDelegate* network_delegate,
-    NetLog* net_log)
-    : socket_factory_(socket_factory),
-      host_resolver_(host_resolver),
-      cert_verifier_(cert_verifier),
-      dnsrr_resolver_(dnsrr_resolver),
-      dns_cert_checker_(dns_cert_checker),
-      ssl_host_info_factory_(ssl_host_info_factory),
-      proxy_service_(proxy_service),
-      ssl_config_service_(ssl_config_service),
-      session_(NULL),
-      spdy_session_pool_(NULL),
-      http_auth_handler_factory_(http_auth_handler_factory),
-      network_delegate_(network_delegate),
-      net_log_(net_log),
-      suspended_(false) {
-  DCHECK(proxy_service_);
-  DCHECK(ssl_config_service_.get());
-}
-
-HttpNetworkLayer::HttpNetworkLayer(
-    ClientSocketFactory* socket_factory,
-    HostResolver* host_resolver,
-    CertVerifier* cert_verifier,
-    DnsRRResolver* dnsrr_resolver,
-    DnsCertProvenanceChecker* dns_cert_checker,
-    SSLHostInfoFactory* ssl_host_info_factory,
-    ProxyService* proxy_service,
-    SSLConfigService* ssl_config_service,
-    SpdySessionPool* spdy_session_pool,
-    HttpAuthHandlerFactory* http_auth_handler_factory,
-    HttpNetworkDelegate* network_delegate,
-    NetLog* net_log)
-    : socket_factory_(socket_factory),
-      host_resolver_(host_resolver),
-      cert_verifier_(cert_verifier),
-      dnsrr_resolver_(dnsrr_resolver),
-      dns_cert_checker_(dns_cert_checker),
-      ssl_host_info_factory_(ssl_host_info_factory),
-      proxy_service_(proxy_service),
-      ssl_config_service_(ssl_config_service),
-      session_(NULL),
-      spdy_session_pool_(spdy_session_pool),
-      http_auth_handler_factory_(http_auth_handler_factory),
-      network_delegate_(network_delegate),
-      net_log_(net_log),
-      suspended_(false) {
-  DCHECK(proxy_service_);
-  DCHECK(ssl_config_service_.get());
-}
-
 HttpNetworkLayer::HttpNetworkLayer(HttpNetworkSession* session)
-    : socket_factory_(ClientSocketFactory::GetDefaultFactory()),
-      host_resolver_(NULL),
-      cert_verifier_(NULL),
-      dnsrr_resolver_(NULL),
-      dns_cert_checker_(NULL),
-      ssl_host_info_factory_(NULL),
-      ssl_config_service_(NULL),
-      session_(session),
-      spdy_session_pool_(NULL),
-      http_auth_handler_factory_(NULL),
-      network_delegate_(NULL),
-      net_log_(NULL),
+    : session_(session),
       suspended_(false) {
   DCHECK(session_.get());
 }
@@ -132,56 +25,14 @@ HttpNetworkLayer::HttpNetworkLayer(HttpNetworkSession* session)
 HttpNetworkLayer::~HttpNetworkLayer() {
 }
 
-int HttpNetworkLayer::CreateTransaction(scoped_ptr<HttpTransaction>* trans) {
-  if (suspended_)
-    return ERR_NETWORK_IO_SUSPENDED;
+//-----------------------------------------------------------------------------
 
-  trans->reset(new HttpNetworkTransaction(GetSession()));
-  return OK;
-}
+// static
+HttpTransactionFactory* HttpNetworkLayer::CreateFactory(
+    HttpNetworkSession* session) {
+  DCHECK(session);
 
-HttpCache* HttpNetworkLayer::GetCache() {
-  return NULL;
-}
-
-void HttpNetworkLayer::Suspend(bool suspend) {
-  suspended_ = suspend;
-
-  if (suspend && session_)
-    session_->tcp_socket_pool()->CloseIdleSockets();
-}
-
-HttpNetworkSession* HttpNetworkLayer::GetSession() {
-  if (!session_) {
-    DCHECK(proxy_service_);
-    if (!spdy_session_pool_.get())
-      spdy_session_pool_.reset(new SpdySessionPool(ssl_config_service_));
-    session_ = new HttpNetworkSession(
-        host_resolver_,
-        cert_verifier_,
-        dnsrr_resolver_,
-        dns_cert_checker_,
-        ssl_host_info_factory_,
-        proxy_service_,
-        socket_factory_,
-        ssl_config_service_,
-        spdy_session_pool_.release(),
-        http_auth_handler_factory_,
-        network_delegate_,
-        net_log_);
-    // These were just temps for lazy-initializing HttpNetworkSession.
-    host_resolver_ = NULL;
-    cert_verifier_ = NULL;
-    dnsrr_resolver_ = NULL;
-    dns_cert_checker_ = NULL;
-    ssl_host_info_factory_ = NULL;
-    proxy_service_ = NULL;
-    socket_factory_ = NULL;
-    http_auth_handler_factory_ = NULL;
-    net_log_ = NULL;
-    network_delegate_ = NULL;
-  }
-  return session_;
+  return new HttpNetworkLayer(session);
 }
 
 // static
@@ -277,4 +128,30 @@ void HttpNetworkLayer::EnableSpdy(const std::string& mode) {
     }
   }
 }
+
+//-----------------------------------------------------------------------------
+
+int HttpNetworkLayer::CreateTransaction(scoped_ptr<HttpTransaction>* trans) {
+  if (suspended_)
+    return ERR_NETWORK_IO_SUSPENDED;
+
+  trans->reset(new HttpNetworkTransaction(GetSession()));
+  return OK;
+}
+
+HttpCache* HttpNetworkLayer::GetCache() {
+  return NULL;
+}
+
+HttpNetworkSession* HttpNetworkLayer::GetSession() {
+  return session_;
+}
+
+void HttpNetworkLayer::Suspend(bool suspend) {
+  suspended_ = suspend;
+
+  if (suspend && session_)
+    session_->tcp_socket_pool()->CloseIdleSockets();
+}
+
 }  // namespace net

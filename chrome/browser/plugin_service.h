@@ -14,17 +14,26 @@
 #include "base/basictypes.h"
 #include "base/file_path.h"
 #include "base/hash_tables.h"
+#include "base/scoped_vector.h"
 #include "base/singleton.h"
+#include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event_watcher.h"
+#include "build/build_config.h"
 #include "chrome/browser/plugin_process_host.h"
+#include "chrome/browser/ppapi_plugin_process_host.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "googleurl/src/gurl.h"
 #include "ipc/ipc_channel_handle.h"
+#include "webkit/plugins/npapi/webplugininfo.h"
 
 #if defined(OS_WIN)
 #include "base/scoped_ptr.h"
 #include "base/win/registry.h"
+#endif
+
+#if defined(OS_LINUX)
+#include "chrome/browser/file_path_watcher/file_path_watcher.h"
 #endif
 
 #if defined(OS_CHROMEOS)
@@ -38,6 +47,8 @@ class Message;
 }
 
 class MessageLoop;
+struct PepperPluginInfo;
+class PluginDirWatcherDelegate;
 class Profile;
 class ResourceDispatcherHost;
 
@@ -45,18 +56,19 @@ namespace net {
 class URLRequestContext;
 }  // namespace net
 
-namespace webkit {
-namespace npapi {
-struct WebPluginInfo;
-}
-}
-
 // This must be created on the main thread but it's only called on the IO/file
 // thread.
 class PluginService
     : public base::WaitableEventWatcher::Delegate,
       public NotificationObserver {
  public:
+  struct OverriddenPlugin {
+    int render_process_id;
+    int render_view_id;
+    GURL url;
+    webkit::npapi::WebPluginInfo plugin;
+  };
+
   // Initializes the global instance; should be called on startup from the main
   // thread.
   static void InitGlobalInstance(Profile* profile);
@@ -79,24 +91,34 @@ class PluginService
   // Returns the plugin process host corresponding to the plugin process that
   // has been started by this service. Returns NULL if no process has been
   // started.
-  PluginProcessHost* FindPluginProcess(const FilePath& plugin_path);
+  PluginProcessHost* FindNpapiPluginProcess(const FilePath& plugin_path);
+  PpapiPluginProcessHost* FindPpapiPluginProcess(const FilePath& plugin_path);
 
   // Returns the plugin process host corresponding to the plugin process that
   // has been started by this service. This will start a process to host the
   // 'plugin_path' if needed. If the process fails to start, the return value
   // is NULL. Must be called on the IO thread.
-  PluginProcessHost* FindOrStartPluginProcess(const FilePath& plugin_path);
+  PluginProcessHost* FindOrStartNpapiPluginProcess(
+      const FilePath& plugin_path);
+  PpapiPluginProcessHost* FindOrStartPpapiPluginProcess(
+      const FilePath& plugin_path);
 
   // Opens a channel to a plugin process for the given mime type, starting
   // a new plugin process if necessary.  This must be called on the IO thread
   // or else a deadlock can occur.
-  void OpenChannelToPlugin(const GURL& url,
-                           const std::string& mime_type,
-                           PluginProcessHost::Client* client);
+  void OpenChannelToNpapiPlugin(int render_process_id,
+                                int render_view_id,
+                                const GURL& url,
+                                const std::string& mime_type,
+                                PluginProcessHost::Client* client);
+  void OpenChannelToPpapiPlugin(const FilePath& path,
+                                PpapiPluginProcessHost::Client* client);
 
   // Gets the first allowed plugin in the list of plugins that matches
   // the given url and mime type.  Must be called on the FILE thread.
-  bool GetFirstAllowedPluginInfo(const GURL& url,
+  bool GetFirstAllowedPluginInfo(int render_process_id,
+                                 int render_view_id,
+                                 const GURL& url,
                                  const std::string& mime_type,
                                  webkit::npapi::WebPluginInfo* info,
                                  std::string* actual_mime_type);
@@ -104,6 +126,9 @@ class PluginService
   // Returns true if the given plugin is allowed to be used by a page with
   // the given URL.
   bool PrivatePluginAllowedForURL(const FilePath& plugin_path, const GURL& url);
+
+  // Safe to be called from any thread.
+  void OverridePluginForTab(OverriddenPlugin plugin);
 
   // The UI thread's message loop
   MessageLoop* main_message_loop() { return main_message_loop_; }
@@ -133,6 +158,8 @@ class PluginService
 
   // Helper so we can do the plugin lookup on the FILE thread.
   void GetAllowedPluginForOpenChannelToPlugin(
+      int render_process_id,
+      int render_view_id,
       const GURL& url,
       const std::string& mime_type,
       PluginProcessHost::Client* client);
@@ -143,9 +170,13 @@ class PluginService
       const FilePath& plugin_path,
       PluginProcessHost::Client* client);
 
-  // mapping between plugin path and PluginProcessHost
-  typedef base::hash_map<FilePath, PluginProcessHost*> PluginMap;
-  PluginMap plugin_hosts_;
+#if defined(OS_LINUX)
+  // Registers a new FilePathWatcher for a given path.
+  static void RegisterFilePathWatcher(
+      FilePathWatcher* watcher,
+      const FilePath& path,
+      FilePathWatcher::Delegate* delegate);
+#endif
 
   // The main thread's message loop.
   MessageLoop* main_message_loop_;
@@ -180,8 +211,18 @@ class PluginService
   base::WaitableEventWatcher hklm_watcher_;
 #endif
 
+#if defined(OS_LINUX)
+  ScopedVector<FilePathWatcher> file_watchers_;
+  scoped_refptr<PluginDirWatcherDelegate> file_watcher_delegate_;
+#endif
+
+  std::vector<PepperPluginInfo> ppapi_plugins_;
+
   // Set to true if chrome plugins are enabled. Defaults to true.
   static bool enable_chrome_plugins_;
+
+  std::vector<OverriddenPlugin> overridden_plugins_;
+  base::Lock overridden_plugins_lock_;
 
   DISALLOW_COPY_AND_ASSIGN(PluginService);
 };

@@ -15,9 +15,9 @@
 #include <vector>
 
 #include "base/hash_tables.h"
-#include "base/lock.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
+#include "base/synchronization/lock.h"
 #include "base/time.h"
 #include "chrome/browser/safe_browsing/safe_browsing_util.h"
 #include "googleurl/src/gurl.h"
@@ -84,6 +84,7 @@ class SafeBrowsingService
 
     GURL url;
     GURL original_url;
+    std::vector<GURL> redirect_urls;
     ResourceType::Type resource_type;
     UrlCheckResult threat_type;
     Client* client;
@@ -117,6 +118,10 @@ class SafeBrowsingService
   // Create an instance of the safe browsing service.
   static SafeBrowsingService* CreateSafeBrowsingService();
 
+  // Called on UI thread to decide if safe browsing related stats
+  // could be reported.
+  bool CanReportStats() const;
+
   // Called on the UI thread to initialize the service.
   void Initialize();
 
@@ -125,6 +130,10 @@ class SafeBrowsingService
 
   // Returns true if the url's scheme can be checked.
   bool CanCheckUrl(const GURL& url) const;
+
+  // Called on UI thread to decide if the download file's sha256 hash
+  // should be calculated for safebrowsing.
+  bool DownloadBinHashNeeded() const;
 
   // Called on the IO thread to check if the given url is safe or not.  If we
   // can synchronously determine that the url is safe, CheckUrl returns true.
@@ -147,6 +156,7 @@ class SafeBrowsingService
   // chain). Otherwise, |original_url| = |url|.
   void DisplayBlockingPage(const GURL& url,
                            const GURL& original_url,
+                           const std::vector<GURL>& redirect_urls,
                            ResourceType::Type resource_type,
                            UrlCheckResult result,
                            Client* client,
@@ -340,12 +350,12 @@ class SafeBrowsingService
   // Used for issuing only one GetHash request for a given prefix.
   GetHashRequests gethash_requests_;
 
-  // The sqlite database.  We don't use a scoped_ptr because it needs to be
-  // destructed on a different thread than this object.
+  // The persistent database.  We don't use a scoped_ptr because it
+  // needs to be destructed on a different thread than this object.
   SafeBrowsingDatabase* database_;
 
   // Lock used to prevent possible data races due to compiler optimizations.
-  mutable Lock database_lock_;
+  mutable base::Lock database_lock_;
 
   // Handles interaction with SafeBrowsing servers.
   SafeBrowsingProtocolManager* protocol_manager_;

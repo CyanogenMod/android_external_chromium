@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/dom_ui/options/password_manager_handler.h"
 
-#include "app/l10n_util.h"
 #include "base/callback.h"
 #include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
@@ -17,6 +16,7 @@
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "net/base/net_util.h"
+#include "ui/base/l10n/l10n_util.h"
 
 PasswordManagerHandler::PasswordManagerHandler()
     : ALLOW_THIS_IN_INITIALIZER_LIST(populater_(this)),
@@ -30,12 +30,16 @@ void PasswordManagerHandler::GetLocalizedValues(
     DictionaryValue* localized_strings) {
   DCHECK(localized_strings);
 
-  localized_strings->SetString("passwordsTitle",
-      l10n_util::GetStringUTF16(IDS_PASSWORDS_EXCEPTIONS_WINDOW_TITLE));
+  RegisterTitle(localized_strings, "passwordsPage",
+                IDS_PASSWORDS_EXCEPTIONS_WINDOW_TITLE);
   localized_strings->SetString("savedPasswordsTitle",
       l10n_util::GetStringUTF16(IDS_PASSWORDS_SHOW_PASSWORDS_TAB_TITLE));
   localized_strings->SetString("passwordExceptionsTitle",
       l10n_util::GetStringUTF16(IDS_PASSWORDS_EXCEPTIONS_TAB_TITLE));
+  localized_strings->SetString("passwordShowButton",
+      l10n_util::GetStringUTF16(IDS_PASSWORDS_PAGE_VIEW_SHOW_BUTTON));
+  localized_strings->SetString("passwordHideButton",
+      l10n_util::GetStringUTF16(IDS_PASSWORDS_PAGE_VIEW_HIDE_BUTTON));
   localized_strings->SetString("passwordsSiteColumn",
       l10n_util::GetStringUTF16(IDS_PASSWORDS_PAGE_VIEW_SITE_COLUMN));
   localized_strings->SetString("passwordsUsernameColumn",
@@ -44,10 +48,6 @@ void PasswordManagerHandler::GetLocalizedValues(
       l10n_util::GetStringUTF16(IDS_PASSWORDS_PAGE_VIEW_REMOVE_BUTTON));
   localized_strings->SetString("passwordsRemoveAllButton",
       l10n_util::GetStringUTF16(IDS_PASSWORDS_PAGE_VIEW_REMOVE_ALL_BUTTON));
-  localized_strings->SetString("passwordsShowButton",
-      l10n_util::GetStringUTF16(IDS_PASSWORDS_PAGE_VIEW_SHOW_BUTTON));
-  localized_strings->SetString("passwordsHideButton",
-      l10n_util::GetStringUTF16(IDS_PASSWORDS_PAGE_VIEW_HIDE_BUTTON));
   localized_strings->SetString("passwordsRemoveAllTitle",
       l10n_util::GetStringUTF16(
           IDS_PASSWORDS_PAGE_VIEW_CAPTION_DELETE_ALL_PASSWORDS));
@@ -57,31 +57,31 @@ void PasswordManagerHandler::GetLocalizedValues(
 }
 
 void PasswordManagerHandler::Initialize() {
-  // We should not cache dom_ui_->GetProfile(). See crosbug.com/6304.
+  // We should not cache web_ui_->GetProfile(). See crosbug.com/6304.
 }
 
 void PasswordManagerHandler::RegisterMessages() {
-  DCHECK(dom_ui_);
+  DCHECK(web_ui_);
 
-  dom_ui_->RegisterMessageCallback("updatePasswordLists",
+  web_ui_->RegisterMessageCallback("updatePasswordLists",
       NewCallback(this, &PasswordManagerHandler::UpdatePasswordLists));
-  dom_ui_->RegisterMessageCallback("removeSavedPassword",
+  web_ui_->RegisterMessageCallback("removeSavedPassword",
       NewCallback(this, &PasswordManagerHandler::RemoveSavedPassword));
-  dom_ui_->RegisterMessageCallback("removePasswordException",
+  web_ui_->RegisterMessageCallback("removePasswordException",
       NewCallback(this, &PasswordManagerHandler::RemovePasswordException));
-  dom_ui_->RegisterMessageCallback("removeAllSavedPasswords",
+  web_ui_->RegisterMessageCallback("removeAllSavedPasswords",
       NewCallback(this, &PasswordManagerHandler::RemoveAllSavedPasswords));
-  dom_ui_->RegisterMessageCallback("removeAllPasswordExceptions", NewCallback(
+  web_ui_->RegisterMessageCallback("removeAllPasswordExceptions", NewCallback(
       this, &PasswordManagerHandler::RemoveAllPasswordExceptions));
 }
 
 PasswordStore* PasswordManagerHandler::GetPasswordStore() {
-  return dom_ui_->GetProfile()->GetPasswordStore(Profile::EXPLICIT_ACCESS);
+  return web_ui_->GetProfile()->GetPasswordStore(Profile::EXPLICIT_ACCESS);
 }
 
 void PasswordManagerHandler::UpdatePasswordLists(const ListValue* args) {
   languages_ =
-      dom_ui_->GetProfile()->GetPrefs()->GetString(prefs::kAcceptLanguages);
+      web_ui_->GetProfile()->GetPrefs()->GetString(prefs::kAcceptLanguages);
   populater_.Populate();
   exception_populater_.Populate();
 }
@@ -138,7 +138,7 @@ void PasswordManagerHandler::SetPasswordList() {
     entries.Append(entry);
   }
 
-  dom_ui_->CallJavascriptFunction(
+  web_ui_->CallJavascriptFunction(
       L"PasswordManager.setSavedPasswordsList", entries);
 }
 
@@ -149,8 +149,23 @@ void PasswordManagerHandler::SetPasswordExceptionList() {
         net::FormatUrl(password_exception_list_[i]->origin, languages_)));
   }
 
-  dom_ui_->CallJavascriptFunction(
+  web_ui_->CallJavascriptFunction(
       L"PasswordManager.setPasswordExceptionsList", entries);
+}
+
+PasswordManagerHandler::ListPopulater::ListPopulater(
+    PasswordManagerHandler* page) : page_(page),
+                                    pending_login_query_(0) {
+}
+
+PasswordManagerHandler::ListPopulater::~ListPopulater() {
+  PasswordStore* store = page_->GetPasswordStore();
+  if (store)
+    store->CancelLoginsQuery(pending_login_query_);
+}
+
+PasswordManagerHandler::PasswordListPopulater::PasswordListPopulater(
+    PasswordManagerHandler* page) : ListPopulater(page) {
 }
 
 void PasswordManagerHandler::PasswordListPopulater::Populate() {
@@ -169,6 +184,11 @@ void PasswordManagerHandler::PasswordListPopulater::
   pending_login_query_ = 0;
   page_->password_list_ = result;
   page_->SetPasswordList();
+}
+
+PasswordManagerHandler::PasswordExceptionListPopulater::
+    PasswordExceptionListPopulater(PasswordManagerHandler* page)
+        : ListPopulater(page) {
 }
 
 void PasswordManagerHandler::PasswordExceptionListPopulater::Populate() {

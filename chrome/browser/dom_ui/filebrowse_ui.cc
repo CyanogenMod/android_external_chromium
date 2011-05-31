@@ -1,11 +1,12 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/dom_ui/filebrowse_ui.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
+#include <algorithm>
+#include <vector>
+
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/file_util.h"
@@ -22,8 +23,8 @@
 #include "base/weak_ptr.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/dom_ui/dom_ui_favicon_source.h"
 #include "chrome/browser/dom_ui/mediaplayer_ui.h"
+#include "chrome/browser/dom_ui/web_ui_favicon_source.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/download/download_util.h"
@@ -48,6 +49,8 @@
 #include "grit/locale_settings.h"
 #include "net/base/escape.h"
 #include "net/url_request/url_request_file_job.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/cros/cros_library.h"
@@ -94,7 +97,7 @@ class TaskProxy;
 
 // The handler for Javascript messages related to the "filebrowse" view.
 class FilebrowseHandler : public net::DirectoryLister::DirectoryListerDelegate,
-                          public DOMMessageHandler,
+                          public WebUIMessageHandler,
 #if defined(OS_CHROMEOS)
                           public chromeos::MountLibrary::Observer,
 #endif
@@ -114,8 +117,8 @@ class FilebrowseHandler : public net::DirectoryLister::DirectoryListerDelegate,
       const net::DirectoryLister::DirectoryListerData& data);
   virtual void OnListDone(int error);
 
-  // DOMMessageHandler implementation.
-  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+  // WebUIMessageHandler implementation.
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
   virtual void RegisterMessages();
 
 #if defined(OS_CHROMEOS)
@@ -126,7 +129,7 @@ class FilebrowseHandler : public net::DirectoryLister::DirectoryListerDelegate,
 
   // DownloadItem::Observer interface
   virtual void OnDownloadUpdated(DownloadItem* download);
-  virtual void OnDownloadFileCompleted(DownloadItem* download) { }
+  virtual void OnDownloadFileCompleted(DownloadItem* download);
   virtual void OnDownloadOpened(DownloadItem* download) { }
 
   // DownloadManager::Observer interface
@@ -135,25 +138,25 @@ class FilebrowseHandler : public net::DirectoryLister::DirectoryListerDelegate,
   // Callback for the "getRoots" message.
   void HandleGetRoots(const ListValue* args);
 
-  void GetChildrenForPath(FilePath& path, bool is_refresh);
+  void GetChildrenForPath(const FilePath& path, bool is_refresh);
 
   void OnURLFetchComplete(const URLFetcher* source,
                           const GURL& url,
-                          const URLRequestStatus& status,
+                          const net::URLRequestStatus& status,
                           int response_code,
                           const ResponseCookies& cookies,
                           const std::string& data);
 
   // Callback for the "getChildren" message.
   void HandleGetChildren(const ListValue* args);
- // Callback for the "refreshDirectory" message.
+  // Callback for the "refreshDirectory" message.
   void HandleRefreshDirectory(const ListValue* args);
   void HandleIsAdvancedEnabled(const ListValue* args);
 
   // Callback for the "getMetadata" message.
   void HandleGetMetadata(const ListValue* args);
 
- // Callback for the "openNewWindow" message.
+  // Callback for the "openNewWindow" message.
   void OpenNewFullWindow(const ListValue* args);
   void OpenNewPopupWindow(const ListValue* args);
 
@@ -170,8 +173,8 @@ class FilebrowseHandler : public net::DirectoryLister::DirectoryListerDelegate,
 
   void HandleDeleteFile(const ListValue* args);
   void HandleCopyFile(const ListValue* value);
-  void CopyFile(const FilePath& src, const FilePath& dest);
-  void DeleteFile(const FilePath& path);
+  void CopyFile(const FilePath& src, const FilePath& dest, TaskProxy* task);
+  void DeleteFile(const FilePath& path, TaskProxy* task);
   void FireDeleteComplete(const FilePath& path);
   void FireCopyComplete(const FilePath& src, const FilePath& dest);
 
@@ -179,6 +182,8 @@ class FilebrowseHandler : public net::DirectoryLister::DirectoryListerDelegate,
 
   void HandleCancelDownload(const ListValue* args);
   void HandleAllowDownload(const ListValue* args);
+
+  void CreateNewFolder(const FilePath& path) const;
 
   void ReadInFile();
   void FireUploadComplete();
@@ -189,12 +194,15 @@ class FilebrowseHandler : public net::DirectoryLister::DirectoryListerDelegate,
   void HandleValidateSavePath(const ListValue* args);
 
   // Validate a save path on file thread.
-  void ValidateSavePathOnFileThread(const FilePath& save_path);
+  void ValidateSavePathOnFileThread(const FilePath& save_path, TaskProxy* task);
 
   // Fire save path validation result to JS onValidatedSavePath.
   void FireOnValidatedSavePathOnUIThread(bool valid, const FilePath& save_path);
 
  private:
+
+  // Retrieves downloads from the DownloadManager and updates the page.
+  void UpdateDownloadList();
 
   void OpenNewWindow(const ListValue* args, bool popup);
 
@@ -205,6 +213,9 @@ class FilebrowseHandler : public net::DirectoryLister::DirectoryListerDelegate,
   void SendCurrentDownloads();
 
   void SendNewDownload(DownloadItem* download);
+
+  bool ValidateSaveDir(const FilePath& save_dir, bool exists) const;
+  bool AccessDisabled(const FilePath& path) const;
 
   scoped_ptr<ListValue> filelist_value_;
   FilePath currentpath_;
@@ -237,56 +248,71 @@ class TaskProxy : public base::RefCountedThreadSafe<TaskProxy> {
             const FilePath& path)
       : handler_(handler),
         src_(path) {}
-  void ReadInFileProxy() {
-    if (handler_) {
-      handler_->ReadInFile();
-    }
+
+  // TaskProxy is created on the UI thread, so in some cases,
+  // we need to post back to the UI thread for destruction.
+  void DeleteOnUIThread() {
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
+        NewRunnableMethod(this, &TaskProxy::DoNothing));
   }
+
+  void DoNothing() {}
+
+  void ReadInFileProxy() {
+    if (handler_)
+      handler_->ReadInFile();
+    DeleteOnUIThread();
+  }
+
   void DeleteFetcher(URLFetcher* fetch) {
     delete fetch;
   }
+
   void SendPicasawebRequestProxy() {
-    if (handler_) {
+    if (handler_)
       handler_->SendPicasawebRequest();
-    }
+    DeleteOnUIThread();
   }
+
   void FireUploadCompleteProxy() {
-    if (handler_) {
+    if (handler_)
       handler_->FireUploadComplete();
-    }
   }
 
   void DeleteFileProxy() {
-    if (handler_) {
-      handler_->DeleteFile(src_);
-    }
+    if (handler_)
+      handler_->DeleteFile(src_, this);
   }
 
   void CopyFileProxy() {
-    if (handler_) {
-      handler_->CopyFile(src_, dest_);
-    }
+    if (handler_)
+      handler_->CopyFile(src_, dest_, this);
+  }
+
+  void CreateNewFolderProxy() {
+    if (handler_)
+      handler_->CreateNewFolder(src_);
+    DeleteOnUIThread();
   }
 
   void FireDeleteCompleteProxy() {
-    if (handler_) {
+    if (handler_)
       handler_->FireDeleteComplete(src_);
-    }
   }
   void FireCopyCompleteProxy() {
-    if (handler_) {
+    if (handler_)
       handler_->FireCopyComplete(src_, dest_);
-    }
   }
 
   void ValidateSavePathOnFileThread() {
     if (handler_)
-      handler_->ValidateSavePathOnFileThread(src_);
+      handler_->ValidateSavePathOnFileThread(src_, this);
   }
-  void FireOnValidatedSavePathOnUIThread(bool valid,
-                                         const FilePath& save_path) {
+
+  void FireOnValidatedSavePathOnUIThread(bool valid) {
     if (handler_)
-      handler_->FireOnValidatedSavePathOnUIThread(valid, save_path);
+      handler_->FireOnValidatedSavePathOnUIThread(valid, src_);
   }
 
  private:
@@ -408,82 +434,76 @@ FilebrowseHandler::~FilebrowseHandler() {
   download_manager_->RemoveObserver(this);
   URLFetcher* fetch = fetch_.release();
   if (fetch) {
-    TaskProxy* task = new TaskProxy(AsWeakPtr(), currentpath_);
-    task->AddRef();
+    scoped_refptr<TaskProxy> task = new TaskProxy(AsWeakPtr(), currentpath_);
     BrowserThread::PostTask(
         BrowserThread::FILE, FROM_HERE,
         NewRunnableMethod(
-            task, &TaskProxy::DeleteFetcher, fetch));
+            task.get(), &TaskProxy::DeleteFetcher, fetch));
   }
 }
 
-DOMMessageHandler* FilebrowseHandler::Attach(DOMUI* dom_ui) {
+WebUIMessageHandler* FilebrowseHandler::Attach(WebUI* web_ui) {
   // Create our favicon data source.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(
-          ChromeURLDataManager::GetInstance(),
-          &ChromeURLDataManager::AddDataSource,
-          make_scoped_refptr(new DOMUIFavIconSource(dom_ui->GetProfile()))));
-  profile_ = dom_ui->GetProfile();
-  tab_contents_ = dom_ui->tab_contents();
-  return DOMMessageHandler::Attach(dom_ui);
+  profile_ = web_ui->GetProfile();
+  profile_->GetChromeURLDataManager()->AddDataSource(
+      new WebUIFavIconSource(profile_));
+  tab_contents_ = web_ui->tab_contents();
+  return WebUIMessageHandler::Attach(web_ui);
 }
 
 void FilebrowseHandler::Init() {
   download_manager_ = profile_->GetDownloadManager();
   download_manager_->AddObserver(this);
-  TaskProxy* task = new TaskProxy(AsWeakPtr(), currentpath_);
-  task->AddRef();
-  current_task_ = task;
   static bool sent_request = false;
   if (!sent_request) {
     // If we have not sent a request before, we should do one in order to
     // ensure that we have the correct cookies. This is for uploads.
+    scoped_refptr<TaskProxy> task = new TaskProxy(AsWeakPtr(), currentpath_);
+    current_task_ = task;
     BrowserThread::PostTask(
         BrowserThread::FILE, FROM_HERE,
         NewRunnableMethod(
-            task, &TaskProxy::SendPicasawebRequestProxy));
+            task.get(), &TaskProxy::SendPicasawebRequestProxy));
     sent_request = true;
   }
 }
 
 void FilebrowseHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("getRoots",
+  web_ui_->RegisterMessageCallback("getRoots",
       NewCallback(this, &FilebrowseHandler::HandleGetRoots));
-  dom_ui_->RegisterMessageCallback("getChildren",
+  web_ui_->RegisterMessageCallback("getChildren",
       NewCallback(this, &FilebrowseHandler::HandleGetChildren));
-  dom_ui_->RegisterMessageCallback("getMetadata",
+  web_ui_->RegisterMessageCallback("getMetadata",
       NewCallback(this, &FilebrowseHandler::HandleGetMetadata));
-  dom_ui_->RegisterMessageCallback("openNewPopupWindow",
+  web_ui_->RegisterMessageCallback("openNewPopupWindow",
       NewCallback(this, &FilebrowseHandler::OpenNewPopupWindow));
-  dom_ui_->RegisterMessageCallback("openNewFullWindow",
+  web_ui_->RegisterMessageCallback("openNewFullWindow",
       NewCallback(this, &FilebrowseHandler::OpenNewFullWindow));
-  dom_ui_->RegisterMessageCallback("uploadToPicasaweb",
+  web_ui_->RegisterMessageCallback("uploadToPicasaweb",
       NewCallback(this, &FilebrowseHandler::UploadToPicasaweb));
-  dom_ui_->RegisterMessageCallback("getDownloads",
+  web_ui_->RegisterMessageCallback("getDownloads",
       NewCallback(this, &FilebrowseHandler::HandleGetDownloads));
-  dom_ui_->RegisterMessageCallback("createNewFolder",
+  web_ui_->RegisterMessageCallback("createNewFolder",
       NewCallback(this, &FilebrowseHandler::HandleCreateNewFolder));
-  dom_ui_->RegisterMessageCallback("playMediaFile",
+  web_ui_->RegisterMessageCallback("playMediaFile",
       NewCallback(this, &FilebrowseHandler::PlayMediaFile));
-  dom_ui_->RegisterMessageCallback("enqueueMediaFile",
+  web_ui_->RegisterMessageCallback("enqueueMediaFile",
       NewCallback(this, &FilebrowseHandler::EnqueueMediaFile));
-  dom_ui_->RegisterMessageCallback("pauseToggleDownload",
+  web_ui_->RegisterMessageCallback("pauseToggleDownload",
       NewCallback(this, &FilebrowseHandler::HandlePauseToggleDownload));
-  dom_ui_->RegisterMessageCallback("deleteFile",
+  web_ui_->RegisterMessageCallback("deleteFile",
       NewCallback(this, &FilebrowseHandler::HandleDeleteFile));
-  dom_ui_->RegisterMessageCallback("copyFile",
+  web_ui_->RegisterMessageCallback("copyFile",
       NewCallback(this, &FilebrowseHandler::HandleCopyFile));
-  dom_ui_->RegisterMessageCallback("cancelDownload",
+  web_ui_->RegisterMessageCallback("cancelDownload",
       NewCallback(this, &FilebrowseHandler::HandleCancelDownload));
-  dom_ui_->RegisterMessageCallback("allowDownload",
+  web_ui_->RegisterMessageCallback("allowDownload",
       NewCallback(this, &FilebrowseHandler::HandleAllowDownload));
-  dom_ui_->RegisterMessageCallback("refreshDirectory",
+  web_ui_->RegisterMessageCallback("refreshDirectory",
       NewCallback(this, &FilebrowseHandler::HandleRefreshDirectory));
-  dom_ui_->RegisterMessageCallback("isAdvancedEnabled",
+  web_ui_->RegisterMessageCallback("isAdvancedEnabled",
       NewCallback(this, &FilebrowseHandler::HandleIsAdvancedEnabled));
-  dom_ui_->RegisterMessageCallback("validateSavePath",
+  web_ui_->RegisterMessageCallback("validateSavePath",
       NewCallback(this, &FilebrowseHandler::HandleValidateSavePath));
 }
 
@@ -514,18 +534,18 @@ void FilebrowseHandler::FireUploadComplete() {
     LOG(ERROR) << "Unable to get username";
     return;
   }
-  int location = username.find_first_of('@',0);
+  int location = username.find_first_of('@', 0);
   if (location <= 0) {
     LOG(ERROR) << "Username not formatted correctly";
     return;
   }
-  username = username.erase(username.find_first_of('@',0));
+  username = username.erase(username.find_first_of('@', 0));
   std::string picture_url = kPicasawebBaseUrl;
   picture_url += username;
   picture_url += kPicasawebDropBox;
   info_value.SetString("url", picture_url);
   info_value.SetInteger("status_code", upload_response_code_);
-  dom_ui_->CallJavascriptFunction(L"uploadComplete", info_value);
+  web_ui_->CallJavascriptFunction(L"uploadComplete", info_value);
 #endif
 }
 
@@ -535,14 +555,14 @@ void FilebrowseHandler::MountChanged(chromeos::MountLibrary* obj,
                                      const std::string& path) {
   if (evt == chromeos::DISK_REMOVED ||
       evt == chromeos::DISK_CHANGED) {
-    dom_ui_->CallJavascriptFunction(L"rootsChanged");
+    web_ui_->CallJavascriptFunction(L"rootsChanged");
   }
 }
 #endif
 
 void FilebrowseHandler::OnURLFetchComplete(const URLFetcher* source,
                                            const GURL& url,
-                                           const URLRequestStatus& status,
+                                           const net::URLRequestStatus& status,
                                            int response_code,
                                            const ResponseCookies& cookies,
                                            const std::string& data) {
@@ -583,7 +603,6 @@ void FilebrowseHandler::HandleGetRoots(const ListValue* args) {
   page_value->SetString(kPropertyPath, "/media");
   page_value->SetString(kPropertyTitle, "Removeable");
   page_value->SetBoolean(kPropertyDirectory, true);
-
   results_value.Append(page_value);
 #endif
   FilePath default_download_path;
@@ -601,7 +620,7 @@ void FilebrowseHandler::HandleGetRoots(const ListValue* args) {
 
   info_value.SetString("functionCall", "getRoots");
   info_value.SetString(kPropertyPath, "");
-  dom_ui_->CallJavascriptFunction(L"browseFileResult",
+  web_ui_->CallJavascriptFunction(L"browseFileResult",
                                   info_value, results_value);
 }
 
@@ -610,9 +629,18 @@ void FilebrowseHandler::HandleCreateNewFolder(const ListValue* args) {
   std::string path = WideToUTF8(ExtractStringValue(args));
   FilePath currentpath(path);
 
-  if (!file_util::CreateDirectory(currentpath))
-    LOG(ERROR) << "unable to create directory";
+  scoped_refptr<TaskProxy> task = new TaskProxy(AsWeakPtr(), currentpath);
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
+      NewRunnableMethod(
+          task.get(), &TaskProxy::CreateNewFolderProxy));
 #endif
+}
+
+void FilebrowseHandler::CreateNewFolder(const FilePath& currentpath) const {
+  if (!ValidateSaveDir(currentpath, false) ||
+      !file_util::CreateDirectory(currentpath))
+    LOG(ERROR) << "Unable to create directory " << currentpath.value();
 }
 
 void FilebrowseHandler::PlayMediaFile(const ListValue* args) {
@@ -648,7 +676,7 @@ void FilebrowseHandler::HandleIsAdvancedEnabled(const ListValue* args) {
   DictionaryValue info_value;
   info_value.SetBoolean("enabled", is_enabled);
   info_value.SetBoolean("mpEnabled", mp_enabled);
-  dom_ui_->CallJavascriptFunction(L"enabledResult",
+  web_ui_->CallJavascriptFunction(L"enabledResult",
                                   info_value);
 
 #endif
@@ -666,7 +694,7 @@ void FilebrowseHandler::HandlePauseToggleDownload(const ListValue* args) {
 #if defined(OS_CHROMEOS)
   int id;
   ExtractIntegerValue(args, &id);
-  if ((id - 1) >= (int)active_download_items_.size()) {
+  if ((id - 1) >= static_cast<int>(active_download_items_.size())) {
     return;
   }
   DownloadItem* item = active_download_items_[id];
@@ -678,7 +706,7 @@ void FilebrowseHandler::HandleAllowDownload(const ListValue* args) {
 #if defined(OS_CHROMEOS)
   int id;
   ExtractIntegerValue(args, &id);
-  if ((id - 1) >= (int)active_download_items_.size()) {
+  if ((id - 1) >= static_cast<int>(active_download_items_.size())) {
     return;
   }
 
@@ -691,7 +719,7 @@ void FilebrowseHandler::HandleCancelDownload(const ListValue* args) {
 #if defined(OS_CHROMEOS)
   int id;
   ExtractIntegerValue(args, &id);
-  if ((id - 1) >= (int)active_download_items_.size()) {
+  if ((id - 1) >= static_cast<int>(active_download_items_.size())) {
     return;
   }
   DownloadItem* item = active_download_items_[id];
@@ -758,12 +786,12 @@ void FilebrowseHandler::ReadInFile() {
     LOG(ERROR) << "Unable to get username";
     return;
   }
-  int location = username.find_first_of('@',0);
+  int location = username.find_first_of('@', 0);
   if (location <= 0) {
     LOG(ERROR) << "Username not formatted correctly";
     return;
   }
-  username = username.erase(username.find_first_of('@',0));
+  username = username.erase(username.find_first_of('@', 0));
   std::string url = kPicasawebUserPrefix;
   url += username;
   url += kPicasawebDefault;
@@ -799,17 +827,17 @@ void FilebrowseHandler::UploadToPicasaweb(const ListValue* args) {
   current_file_uploaded_ = search_string;
   //  ReadInFile();
   FilePath current_path(search_string);
-  TaskProxy* task = new TaskProxy(AsWeakPtr(), current_path);
-  task->AddRef();
+  scoped_refptr<TaskProxy> task = new TaskProxy(AsWeakPtr(), current_path);
   current_task_ = task;
   BrowserThread::PostTask(
       BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(
-          task, &TaskProxy::ReadInFileProxy));
+          task.get(), &TaskProxy::ReadInFileProxy));
 #endif
 }
 
-void FilebrowseHandler::GetChildrenForPath(FilePath& path, bool is_refresh) {
+void FilebrowseHandler::GetChildrenForPath(const FilePath& path,
+                                           bool is_refresh) {
   filelist_value_.reset(new ListValue());
   currentpath_ = path;
 
@@ -823,15 +851,16 @@ void FilebrowseHandler::GetChildrenForPath(FilePath& path, bool is_refresh) {
 
 #if defined(OS_CHROMEOS)
   // Don't allow listing files in inaccessible dirs.
-  if (net::URLRequestFileJob::AccessDisabled(path))
+  if (AccessDisabled(path))
     return;
-#endif  // OS_CHROMEOS
+#endif
 
   FilePath default_download_path;
   if (!PathService::Get(chrome::DIR_DEFAULT_DOWNLOADS,
                         &default_download_path)) {
     NOTREACHED();
   }
+
   if (currentpath_ == default_download_path) {
     lister_ = new net::DirectoryLister(currentpath_,
                                        false,
@@ -863,6 +892,14 @@ void FilebrowseHandler::OnListFile(
   if (data.info.filename[0] == '.') {
     return;
   }
+
+  // Suppress .crdownload files.
+  static const char crdownload[] = (".crdownload");
+  static const size_t crdownload_size = arraysize(crdownload);
+  const std::string& filename = data.info.filename;
+  if ((filename.size() > crdownload_size) &&
+      (filename.rfind(crdownload) == (filename.size() - crdownload_size)))
+    return;
 #endif
 
   DictionaryValue* file_value = new DictionaryValue();
@@ -892,19 +929,25 @@ void FilebrowseHandler::OnListDone(int error) {
     info_value.SetString("functionCall", "getChildren");
   }
   info_value.SetString(kPropertyPath, currentpath_.value());
-  dom_ui_->CallJavascriptFunction(L"browseFileResult",
+  web_ui_->CallJavascriptFunction(L"browseFileResult",
                                   info_value, *(filelist_value_.get()));
-  SendCurrentDownloads();
 }
 
 void FilebrowseHandler::HandleGetMetadata(const ListValue* args) {
 }
 
 void FilebrowseHandler::HandleGetDownloads(const ListValue* args) {
-  ModelChanged();
+  UpdateDownloadList();
 }
 
 void FilebrowseHandler::ModelChanged() {
+  if (!currentpath_.empty())
+    GetChildrenForPath(currentpath_, true);
+  else
+    UpdateDownloadList();
+}
+
+void FilebrowseHandler::UpdateDownloadList() {
   ClearDownloadItems();
 
   std::vector<DownloadItem*> downloads;
@@ -938,19 +981,21 @@ void FilebrowseHandler::ModelChanged() {
 void FilebrowseHandler::SendNewDownload(DownloadItem* download) {
   ListValue results_value;
   results_value.Append(download_util::CreateDownloadItemValue(download, -1));
-  dom_ui_->CallJavascriptFunction(L"newDownload", results_value);
+  web_ui_->CallJavascriptFunction(L"newDownload", results_value);
 }
 
-void FilebrowseHandler::DeleteFile(const FilePath& path) {
+void FilebrowseHandler::DeleteFile(const FilePath& path, TaskProxy* task) {
   if (!file_util::Delete(path, true)) {
     LOG(ERROR) << "unable to delete directory";
   }
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
-      NewRunnableMethod(current_task_, &TaskProxy::FireDeleteCompleteProxy));
+      NewRunnableMethod(task, &TaskProxy::FireDeleteCompleteProxy));
 }
 
-void FilebrowseHandler::CopyFile(const FilePath& src, const FilePath& dest) {
+void FilebrowseHandler::CopyFile(const FilePath& src,
+                                 const FilePath& dest,
+                                 TaskProxy* task) {
   if (file_util::DirectoryExists(src)) {
     if (!file_util::CopyDirectory(src, dest, true)) {
       LOG(ERROR) << "unable to copy directory:" << src.value();
@@ -962,7 +1007,7 @@ void FilebrowseHandler::CopyFile(const FilePath& src, const FilePath& dest) {
   }
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
-      NewRunnableMethod(current_task_, &TaskProxy::FireCopyCompleteProxy));
+      NewRunnableMethod(task, &TaskProxy::FireCopyCompleteProxy));
 }
 
 void FilebrowseHandler::HandleDeleteFile(const ListValue* args) {
@@ -971,7 +1016,7 @@ void FilebrowseHandler::HandleDeleteFile(const ListValue* args) {
   FilePath currentpath(path);
 
   // Don't allow file deletion in inaccessible dirs.
-  if (net::URLRequestFileJob::AccessDisabled(currentpath))
+  if (AccessDisabled(currentpath))
     return;
 
   for (unsigned int x = 0; x < active_download_items_.size(); x++) {
@@ -984,13 +1029,11 @@ void FilebrowseHandler::HandleDeleteFile(const ListValue* args) {
       return;
     }
   }
-  TaskProxy* task = new TaskProxy(AsWeakPtr(), currentpath);
-  task->AddRef();
-  current_task_ = task;
+  scoped_refptr<TaskProxy> task = new TaskProxy(AsWeakPtr(), currentpath);
   BrowserThread::PostTask(
       BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(
-          task, &TaskProxy::DeleteFileProxy));
+          task.get(), &TaskProxy::DeleteFileProxy));
 #endif
 }
 
@@ -1008,16 +1051,15 @@ void FilebrowseHandler::HandleCopyFile(const ListValue* value) {
       FilePath DestPath = FilePath(dest);
 
       // Don't allow file copy to inaccessible dirs.
-      if (net::URLRequestFileJob::AccessDisabled(DestPath))
+      if (AccessDisabled(DestPath))
         return;
 
-      TaskProxy* task = new TaskProxy(AsWeakPtr(), SrcPath, DestPath);
-      task->AddRef();
-      current_task_ = task;
+      scoped_refptr<TaskProxy> task = new TaskProxy(AsWeakPtr(),
+                                                    SrcPath, DestPath);
       BrowserThread::PostTask(
           BrowserThread::FILE, FROM_HERE,
           NewRunnableMethod(
-              task, &TaskProxy::CopyFileProxy));
+              task.get(), &TaskProxy::CopyFileProxy));
     } else {
       LOG(ERROR) << "Unable to get string";
       return;
@@ -1046,29 +1088,39 @@ void FilebrowseHandler::HandleValidateSavePath(const ListValue* args) {
 }
 
 void FilebrowseHandler::ValidateSavePathOnFileThread(
-    const FilePath& save_path) {
+    const FilePath& save_path, TaskProxy* task) {
 #if defined(OS_CHROMEOS)
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
+  const bool valid = ValidateSaveDir(save_path.DirName(), true);
+
+  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+      NewRunnableMethod(task,
+                        &TaskProxy::FireOnValidatedSavePathOnUIThread,
+                        valid));
+#endif
+}
+
+bool FilebrowseHandler::ValidateSaveDir(const FilePath& save_dir,
+                                        bool exists) const {
+#if defined(OS_CHROMEOS)
   FilePath default_download_path;
   if (!PathService::Get(chrome::DIR_DEFAULT_DOWNLOADS,
                         &default_download_path)) {
     NOTREACHED();
   }
 
-  // Get containing folder of save_path.
-  FilePath save_dir = save_path.DirName();
-
-  // Valid save path must be inside default download dir.
-  bool valid = default_download_path == save_dir ||
-               file_util::ContainsPath(default_download_path, save_dir);
-
-  scoped_refptr<TaskProxy> task = new TaskProxy(AsWeakPtr(), save_path);
-  BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
-      NewRunnableMethod(task.get(),
-                        &TaskProxy::FireOnValidatedSavePathOnUIThread,
-                        valid, save_path));
+  // Valid save dir must be inside default download dir.
+  if (default_download_path == save_dir)
+    return true;
+  if (exists) {
+      DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+      return file_util::ContainsPath(default_download_path, save_dir);
+  } else {
+    return default_download_path.IsParent(save_dir);
+  }
 #endif
+  return false;
 }
 
 void FilebrowseHandler::FireOnValidatedSavePathOnUIThread(bool valid,
@@ -1077,7 +1129,7 @@ void FilebrowseHandler::FireOnValidatedSavePathOnUIThread(bool valid,
 
   FundamentalValue valid_value(valid);
   StringValue path_value(save_path.value());
-  dom_ui_->CallJavascriptFunction(L"onValidatedSavePath",
+  web_ui_->CallJavascriptFunction(L"onValidatedSavePath",
       valid_value, path_value);
 }
 
@@ -1091,7 +1143,7 @@ void FilebrowseHandler::OnDownloadUpdated(DownloadItem* download) {
 
   scoped_ptr<DictionaryValue> download_item(
       download_util::CreateDownloadItemValue(download, id));
-  dom_ui_->CallJavascriptFunction(L"downloadUpdated", *download_item.get());
+  web_ui_->CallJavascriptFunction(L"downloadUpdated", *download_item.get());
 }
 
 void FilebrowseHandler::ClearDownloadItems() {
@@ -1110,7 +1162,16 @@ void FilebrowseHandler::SendCurrentDownloads() {
     results_value.Append(download_util::CreateDownloadItemValue(*it, index));
   }
 
-  dom_ui_->CallJavascriptFunction(L"downloadsList", results_value);
+  web_ui_->CallJavascriptFunction(L"downloadsList", results_value);
+}
+
+void FilebrowseHandler::OnDownloadFileCompleted(DownloadItem* download) {
+  GetChildrenForPath(currentpath_, true);
+}
+
+bool FilebrowseHandler::AccessDisabled(const FilePath& path) const {
+  return !ValidateSaveDir(path, false) &&
+        net::URLRequestFileJob::AccessDisabled(path);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1126,12 +1187,7 @@ FileBrowseUI::FileBrowseUI(TabContents* contents) : HtmlDialogUI(contents) {
   FileBrowseUIHTMLSource* html_source = new FileBrowseUIHTMLSource();
 
   // Set up the chrome://filebrowse/ source.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(
-          ChromeURLDataManager::GetInstance(),
-          &ChromeURLDataManager::AddDataSource,
-          make_scoped_refptr(html_source)));
+  contents->profile()->GetChromeURLDataManager()->AddDataSource(html_source);
 }
 
 // static

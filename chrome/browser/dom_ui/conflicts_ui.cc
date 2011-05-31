@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,13 @@
 
 #include <string>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/enumerate_modules_model_win.h"
 #include "chrome/browser/metrics/user_metrics.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/notification_observer.h"
@@ -26,6 +25,8 @@
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 namespace {
 
@@ -109,13 +110,13 @@ void ConflictsUIHTMLSource::StartDataRequest(const std::string& path,
 ////////////////////////////////////////////////////////////////////////////////
 
 // The handler for JavaScript messages for the about:flags page.
-class ConflictsDOMHandler : public DOMMessageHandler,
+class ConflictsDOMHandler : public WebUIMessageHandler,
                             public NotificationObserver {
  public:
   ConflictsDOMHandler() {}
   virtual ~ConflictsDOMHandler() {}
 
-  // DOMMessageHandler implementation.
+  // WebUIMessageHandler implementation.
   virtual void RegisterMessages();
 
   // Callback for the "requestModuleList" message.
@@ -134,7 +135,7 @@ class ConflictsDOMHandler : public DOMMessageHandler,
 };
 
 void ConflictsDOMHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("requestModuleList",
+  web_ui_->RegisterMessageCallback("requestModuleList",
       NewCallback(this, &ConflictsDOMHandler::HandleRequestModuleList));
 }
 
@@ -168,7 +169,7 @@ void ConflictsDOMHandler::SendModuleList() {
   }
   results.SetString("modulesTableTitle", table_title);
 
-  dom_ui_->CallJavascriptFunction(L"returnModuleList", results);
+  web_ui_->CallJavascriptFunction(L"returnModuleList", results);
 }
 
 void ConflictsDOMHandler::Observe(NotificationType type,
@@ -193,7 +194,7 @@ void ConflictsDOMHandler::Observe(NotificationType type,
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-ConflictsUI::ConflictsUI(TabContents* contents) : DOMUI(contents) {
+ConflictsUI::ConflictsUI(TabContents* contents) : WebUI(contents) {
   UserMetrics::RecordAction(
       UserMetricsAction("ViewAboutConflicts"), contents->profile());
 
@@ -202,11 +203,7 @@ ConflictsUI::ConflictsUI(TabContents* contents) : DOMUI(contents) {
   ConflictsUIHTMLSource* html_source = new ConflictsUIHTMLSource();
 
   // Set up the about:conflicts source.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(ChromeURLDataManager::GetInstance(),
-                        &ChromeURLDataManager::AddDataSource,
-                        make_scoped_refptr(html_source)));
+  contents->profile()->GetChromeURLDataManager()->AddDataSource(html_source);
 }
 
 // static

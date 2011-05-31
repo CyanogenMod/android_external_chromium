@@ -36,9 +36,19 @@ enum ProxyMode {
   kModeCount
 };
 
+// Constants for string values used to specify the proxy mode through externally
+// visible APIs, e.g. through policy or the proxy extension API.
+extern const char kDirectProxyModeName[];
+extern const char kAutoDetectProxyModeName[];
+extern const char kPacScriptProxyModeName[];
+extern const char kFixedServersProxyModeName[];
+extern const char kSystemProxyModeName[];
+
 bool IntToProxyMode(int in_value, ProxyMode* out_value);
 bool StringToProxyMode(const std::string& in_value,
                        ProxyMode* out_value);
+// Ownership of the return value is NOT passed to the caller.
+const char* ProxyModeToString(ProxyMode mode);
 
 }  // namespace ProxyPrefs
 

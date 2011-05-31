@@ -1,14 +1,13 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/file_path.h"
+#include "base/test/test_timeouts.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/chrome_switches.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/automation/tab_proxy.h"
 #include "chrome/test/automation/browser_proxy.h"
@@ -25,13 +24,17 @@
 #define MAYBE_BasicRestoreFromClosedWindow BasicRestoreFromClosedWindow
 #endif
 
-// http://crbug.com/
+// http://crbug.com/48911
 #if defined(OS_CHROMEOS) && !defined(NDEBUG)
 #define MAYBE_RestoreWindowAndTab DISABLED_RestoreWindowAndTab
 #define MAYBE_RestoreWindow DISABLED_RestoreWindow
+#define MAYBE_RestoreToDifferentWindow DISABLED_RestoreToDifferentWindow
+#define MAYBE_RestoreIntoSameWindow DISABLED_RestoreIntoSameWindow
 #else
 #define MAYBE_RestoreWindowAndTab RestoreWindowAndTab
 #define MAYBE_RestoreWindow RestoreWindow
+#define MAYBE_RestoreToDifferentWindow RestoreToDifferentWindow
+#define MAYBE_RestoreIntoSameWindow RestoreIntoSameWindow
 #endif
 
 class TabRestoreUITest : public UITest {
@@ -93,7 +96,7 @@ class TabRestoreUITest : public UITest {
     ASSERT_TRUE(restored_tab_proxy.get());
     // Wait for the restored tab to finish loading.
     ASSERT_TRUE(restored_tab_proxy->WaitForTabToBeRestored(
-        action_max_timeout_ms()));
+        TestTimeouts::action_max_timeout_ms()));
 
     // Ensure that the tab and window are active.
     CheckActiveWindow(browser_proxy.get());
@@ -208,8 +211,7 @@ TEST_F(TabRestoreUITest, MiddleTab) {
 
 // Close a tab, switch windows, then restore the tab. The tab should be in its
 // original window and position, and active.
-// This test is flaky. See http://crbug.com/54894
-TEST_F(TabRestoreUITest, FLAKY_RestoreToDifferentWindow) {
+TEST_F(TabRestoreUITest, MAYBE_RestoreToDifferentWindow) {
   scoped_refptr<BrowserProxy> browser_proxy(automation()->GetBrowserWindow(0));
   ASSERT_TRUE(browser_proxy.get());
 
@@ -397,8 +399,7 @@ TEST_F(TabRestoreUITest, MAYBE_RestoreWindowAndTab) {
 
 // Open a window with two tabs, close both (closing the window), then restore
 // both. Make sure both restored tabs are in the same window.
-// http://crbug.com/39925
-TEST_F(TabRestoreUITest, FLAKY_RestoreIntoSameWindow) {
+TEST_F(TabRestoreUITest, MAYBE_RestoreIntoSameWindow) {
   scoped_refptr<BrowserProxy> browser_proxy(automation()->GetBrowserWindow(0));
   ASSERT_TRUE(browser_proxy.get());
   CheckActiveWindow(browser_proxy.get());
@@ -600,14 +601,16 @@ TEST_F(TabRestoreUITest, MAYBE_RestoreWindow) {
   scoped_refptr<TabProxy> restored_tab_proxy(
         browser_proxy->GetTab(initial_tab_count));
   ASSERT_TRUE(restored_tab_proxy.get());
-  ASSERT_TRUE(restored_tab_proxy->WaitForTabToBeRestored(action_timeout_ms()));
+  ASSERT_TRUE(restored_tab_proxy->WaitForTabToBeRestored(
+      TestTimeouts::action_timeout_ms()));
   GURL url;
   ASSERT_TRUE(restored_tab_proxy->GetCurrentURL(&url));
   EXPECT_TRUE(url == url1_);
 
   restored_tab_proxy = browser_proxy->GetTab(initial_tab_count + 1);
   ASSERT_TRUE(restored_tab_proxy.get());
-  ASSERT_TRUE(restored_tab_proxy->WaitForTabToBeRestored(action_timeout_ms()));
+  ASSERT_TRUE(restored_tab_proxy->WaitForTabToBeRestored(
+      TestTimeouts::action_timeout_ms()));
   ASSERT_TRUE(restored_tab_proxy->GetCurrentURL(&url));
   EXPECT_TRUE(url == url2_);
 }
@@ -632,7 +635,7 @@ TEST_F(TabRestoreUITest, RestoreTabWithSpecialURL) {
   RestoreTab(0, 1);
   tab = browser->GetTab(1);
   ASSERT_TRUE(tab.get());
-  ASSERT_TRUE(tab->WaitForTabToBeRestored(action_timeout_ms()));
+  ASSERT_TRUE(tab->WaitForTabToBeRestored(TestTimeouts::action_timeout_ms()));
 
   // See if content is as expected.
   EXPECT_TRUE(tab->FindInPage(std::wstring(L"webkit"), FWD, IGNORE_CASE, false,
@@ -668,7 +671,7 @@ TEST_F(TabRestoreUITest, RestoreTabWithSpecialURLOnBack) {
   RestoreTab(0, 1);
   tab = browser->GetTab(1);
   ASSERT_TRUE(tab.get());
-  ASSERT_TRUE(tab->WaitForTabToBeRestored(action_timeout_ms()));
+  ASSERT_TRUE(tab->WaitForTabToBeRestored(TestTimeouts::action_timeout_ms()));
   GURL url;
   ASSERT_TRUE(tab->GetCurrentURL(&url));
   ASSERT_EQ(http_url, url);

@@ -46,10 +46,11 @@ cr.define('cr.ui', function() {
     if (!opt_item)
       list.appendChild(item);
 
+    var rect = item.getBoundingClientRect();
     var cs = getComputedStyle(item);
     var mt = parseFloat(cs.marginTop);
     var mb = parseFloat(cs.marginBottom);
-    var h = item.offsetHeight;
+    var h = rect.height;
 
     // Handle margin collapsing.
     if (mt < 0 && mb < 0) {
@@ -273,6 +274,8 @@ cr.define('cr.ui', function() {
       this.addEventListener('mousedown', this.handleMouseDownUp_);
       this.addEventListener('mouseup', this.handleMouseDownUp_);
       this.addEventListener('keydown', this.handleKeyDown);
+      this.addEventListener('focus', this.handleElementFocus_, true);
+      this.addEventListener('blur', this.handleElementBlur_, true);
       this.addEventListener('scroll', this.redraw.bind(this));
 
       // Make list focusable
@@ -281,7 +284,7 @@ cr.define('cr.ui', function() {
     },
 
     /**
-     * Returns the height of an item, measuring it if necessary.
+     * @return {number} The height of an item, measuring it if necessary.
      * @private
      */
     getItemHeight_: function() {
@@ -324,6 +327,56 @@ cr.define('cr.ui', function() {
 
       var index = target ? this.getIndexOfListItem(target) : -1;
       this.selectionController_.handleMouseDownUp(e, index);
+    },
+
+    /**
+     * Called when an element in the list is focused. Marks the list as having
+     * a focused element, and dispatches an event if it didn't have focus.
+     * @param {Event} e The focus event.
+     * @private
+     */
+    handleElementFocus_: function(e) {
+      if (!this.hasElementFocus) {
+        this.hasElementFocus = true;
+        // Force styles based on hasElementFocus to take effect.
+        this.forceRepaint_();
+      }
+    },
+
+    /**
+     * Called when an element in the list is blurred. If focus moves outside
+     * the list, marks the list as no longer having focus and dispatches an
+     * event.
+     * @param {Event} e The blur event.
+     * @private
+     */
+    handleElementBlur_: function(e) {
+      // When the blur event happens we do not know who is getting focus so we
+      // delay this a bit until we know if the new focus node is outside the
+      // list.
+      var list = this;
+      var doc = e.target.ownerDocument;
+      window.setTimeout(function() {
+        var activeElement = doc.activeElement;
+        if (!list.contains(activeElement)) {
+          list.hasElementFocus = false;
+          // Force styles based on hasElementFocus to take effect.
+          list.forceRepaint_();
+        }
+      });
+    },
+
+    /**
+     * Forces a repaint of the list. Changing custom attributes, even if there
+     * are style rules depending on them, doesn't cause a repaint
+     * (<https://bugs.webkit.org/show_bug.cgi?id=12519>), so this can be called
+     * to force the list to repaint.
+     * @private
+     */
+    forceRepaint_: function(e) {
+      var dummyElement = document.createElement('div');
+      this.appendChild(dummyElement);
+      this.removeChild(dummyElement);
     },
 
     /**
@@ -485,11 +538,13 @@ cr.define('cr.ui', function() {
       var paddingTop = parseFloat(getComputedStyle(this).paddingTop);
       var cs = getComputedStyle(item);
       var top = item.offsetTop - parseFloat(cs.marginTop) - paddingTop;
-      var index = Math.floor(top / this.getItemHeight_());
+      var itemHeight = this.getItemHeight_();
+      var index = Math.floor((top + itemHeight / 2) / itemHeight);
       var childIndex = index - this.firstIndex_ + 1;
       if (childIndex >= 0 && childIndex < this.children.length &&
-          this.children[childIndex] == item)
+          this.children[childIndex] == item) {
         return index;
+      }
       return -1;
     },
 
@@ -525,7 +580,6 @@ cr.define('cr.ui', function() {
         return;
       }
 
-      console.time('redraw');
       var scrollTop = this.scrollTop;
       var clientHeight = this.clientHeight;
 
@@ -580,8 +634,6 @@ cr.define('cr.ui', function() {
 
       this.cachedItems_ = newCachedItems;
 
-      console.timeEnd('redraw');
-
       // Measure again in case the item height has change due to a page zoom.
       //
       // The measure above is only done the first time but this measure is done
@@ -608,9 +660,25 @@ cr.define('cr.ui', function() {
         this.redraw();
       }
     },
+
+    /**
+     * Called when a list item is activated, currently only by a double click
+     * event.
+     * @param {number} index The index of the activated item.
+     */
+    activateItemAtIndex: function(index) {
+    },
   };
 
   cr.defineProperty(List, 'disabled', cr.PropertyKind.BOOL_ATTR);
+
+  /**
+   * Whether the list or one of its descendents has focus. This is necessary
+   * because list items can contain controls that can be focused, and for some
+   * purposes (e.g., styling), the list can still be conceptually focused at
+   * that point even though it doesn't actually have the page focus.
+   */
+  cr.defineProperty(List, 'hasElementFocus', cr.PropertyKind.BOOL_ATTR);
 
   return {
     List: List

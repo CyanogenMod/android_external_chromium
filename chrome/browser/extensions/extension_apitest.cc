@@ -19,6 +19,10 @@ const char kTestServerPort[] = "testServer.port";
 
 };  // namespace
 
+ExtensionApiTest::ExtensionApiTest() {}
+
+ExtensionApiTest::~ExtensionApiTest() {}
+
 ExtensionApiTest::ResultCatcher::ResultCatcher()
     : profile_restriction_(NULL),
       waiting_(false) {
@@ -152,7 +156,6 @@ bool ExtensionApiTest::RunExtensionTestImpl(const char* extension_name,
       url = extension->GetResourceURL(page_url);
     }
 
-    LOG(ERROR) << "Loading page url: " << url.spec();
     ui_test_utils::NavigateToURL(browser(), url);
   }
 

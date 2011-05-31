@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,6 +29,7 @@ SafeBrowsingResourceHandler::SafeBrowsingResourceHandler(
     ResourceDispatcherHost* resource_dispatcher_host)
     : state_(STATE_NONE),
       defer_state_(DEFERRED_NONE),
+      safe_browsing_result_(SafeBrowsingService::URL_SAFE),
       deferred_request_id_(-1),
       next_handler_(handler),
       render_process_host_id_(render_process_host_id),
@@ -54,6 +55,9 @@ bool SafeBrowsingResourceHandler::OnRequestRedirected(
     bool* defer) {
   CHECK(state_ == STATE_NONE);
   CHECK(defer_state_ == DEFERRED_NONE);
+
+  // Save the redirect urls for possible malware detail reporting later.
+  redirect_urls_.push_back(new_url);
 
   // We need to check the new URL before following the redirect.
   if (CheckUrl(new_url)) {
@@ -121,7 +125,7 @@ bool SafeBrowsingResourceHandler::OnReadCompleted(int request_id,
 }
 
 bool SafeBrowsingResourceHandler::OnResponseCompleted(
-    int request_id, const URLRequestStatus& status,
+    int request_id, const net::URLRequestStatus& status,
     const std::string& security_info) {
   Shutdown();
   return next_handler_->OnResponseCompleted(request_id, status, security_info);
@@ -180,8 +184,8 @@ void SafeBrowsingResourceHandler::StartDisplayingBlockingPage(
     original_url = url;
 
   safe_browsing_->DisplayBlockingPage(
-      url, original_url, resource_type_, result, this, render_process_host_id_,
-      render_view_id_);
+      url, original_url, redirect_urls_, resource_type_,
+      result, this, render_process_host_id_, render_view_id_);
 }
 
 // SafeBrowsingService::Client implementation, called on the IO thread when

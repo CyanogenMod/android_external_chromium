@@ -8,6 +8,7 @@
         <td class="option-value">
         <select id="timezone-select" class="control"
              i18n-options="timezoneList"
+             dataType="string"
              pref="cros.system.timezone"></select>
         </td>
       </tr>
@@ -21,6 +22,14 @@
         <td class="option-value">
           <input id="sensitivity-range" type="range" min="1" max="5"
               pref="settings.touchpad.sensitivity2" class="touch-slider">
+        </td>
+      </tr>
+      <tr>
+        <td></td>
+        <td>
+          <span i18n-content="sensitivity_less"></span>
+          <span i18n-content="sensitivity_more"
+              class="touchpad-sensitivity-more"></span>
         </td>
       </tr>
       <tr>
@@ -54,8 +63,7 @@
       <tr>
         <td class="option-name">
           <label class="checkbox">
-            <input id="accesibility-check"
-                pref="settings.accessibility" type="checkbox">
+            <input id="accesibility-check" type="checkbox">
             <span i18n-content="accessibility"></span>
           </label>
         </td>

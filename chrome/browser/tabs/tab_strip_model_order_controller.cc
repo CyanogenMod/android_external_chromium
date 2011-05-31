@@ -74,6 +74,8 @@ int TabStripModelOrderController::DetermineNewSelectedIndex(
   // group of the removed tab.
   NavigationController* removed_controller =
       &tabstrip_->GetTabContentsAt(removing_index)->controller();
+  // The parent opener should never be the same as the controller being removed.
+  DCHECK(parent_opener != removed_controller);
   int index = tabstrip_->GetIndexOfNextTabContentsOpenedBy(removed_controller,
                                                            removing_index,
                                                            false);

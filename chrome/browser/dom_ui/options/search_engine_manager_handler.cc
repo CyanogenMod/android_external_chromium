@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/dom_ui/options/search_engine_manager_handler.h"
 
-#include "app/l10n_util.h"
 #include "base/callback.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
@@ -17,6 +16,7 @@
 #include "chrome/common/url_constants.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
@@ -37,7 +37,7 @@ SearchEngineManagerHandler::~SearchEngineManagerHandler() {
 }
 
 void SearchEngineManagerHandler::Initialize() {
-  list_controller_.reset(new KeywordEditorController(dom_ui_->GetProfile()));
+  list_controller_.reset(new KeywordEditorController(web_ui_->GetProfile()));
   if (list_controller_.get()) {
     list_controller_->table_model()->SetObserver(this);
     OnModelChanged();
@@ -48,60 +48,52 @@ void SearchEngineManagerHandler::GetLocalizedValues(
     DictionaryValue* localized_strings) {
   DCHECK(localized_strings);
 
-  localized_strings->SetString("searchEngineManagerPage",
-      l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_WINDOW_TITLE));
+  RegisterTitle(localized_strings, "searchEngineManagerPage",
+                IDS_SEARCH_ENGINES_EDITOR_WINDOW_TITLE);
+  localized_strings->SetString("defaultSearchEngineListTitle",
+      l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_MAIN_SEPARATOR));
+  localized_strings->SetString("otherSearchEngineListTitle",
+      l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_OTHER_SEPARATOR));
   localized_strings->SetString("searchEngineTableNameHeader",
       l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_DESCRIPTION_COLUMN));
   localized_strings->SetString("searchEngineTableKeywordHeader",
       l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_KEYWORD_COLUMN));
-  localized_strings->SetString("addSearchEngineButton",
-      l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_NEW_BUTTON));
-  localized_strings->SetString("editSearchEngineButton",
+  localized_strings->SetString("searchEngineTableURLHeader",
       l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_EDIT_BUTTON));
   localized_strings->SetString("makeDefaultSearchEngineButton",
       l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_MAKE_DEFAULT_BUTTON));
-  // Overlay strings.
-  localized_strings->SetString("editSearchEngineTitle",
-      l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_EDIT_WINDOW_TITLE));
-  localized_strings->SetString("editSearchEngineNameLabel",
-      l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_DESCRIPTION_LABEL));
-  localized_strings->SetString("editSearchEngineKeywordLabel",
-      l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_KEYWORD_LABEL));
-  localized_strings->SetString("editSearchEngineURLLabel",
-      l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_URL_LABEL));
+  localized_strings->SetString("searchEngineTableNamePlaceholder",
+      l10n_util::GetStringUTF16(IDS_SEARCH_ENGINE_ADD_NEW_NAME_PLACEHOLDER));
+  localized_strings->SetString("searchEngineTableKeywordPlaceholder",
+      l10n_util::GetStringUTF16(IDS_SEARCH_ENGINE_ADD_NEW_KEYWORD_PLACEHOLDER));
+  localized_strings->SetString("searchEngineTableURLPlaceholder",
+      l10n_util::GetStringUTF16(IDS_SEARCH_ENGINE_ADD_NEW_URL_PLACEHOLDER));
   localized_strings->SetString("editSearchEngineInvalidTitleToolTip",
       l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_INVALID_TITLE_TT));
   localized_strings->SetString("editSearchEngineInvalidKeywordToolTip",
       l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_INVALID_KEYWORD_TT));
   localized_strings->SetString("editSearchEngineInvalidURLToolTip",
       l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_INVALID_URL_TT));
-  localized_strings->SetString("editSearchEngineURLExplanation",
-      l10n_util::GetStringUTF16(
-          IDS_SEARCH_ENGINES_EDITOR_URL_DESCRIPTION_LABEL));
-  localized_strings->SetString("editSearchEngineOkayButton",
-      l10n_util::GetStringUTF16(IDS_OK));
-  localized_strings->SetString("editSearchEngineCancelButton",
-      l10n_util::GetStringUTF16(IDS_CANCEL));
 }
 
 void SearchEngineManagerHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "managerSetDefaultSearchEngine",
       NewCallback(this, &SearchEngineManagerHandler::SetDefaultSearchEngine));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "removeSearchEngine",
       NewCallback(this, &SearchEngineManagerHandler::RemoveSearchEngine));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "editSearchEngine",
       NewCallback(this, &SearchEngineManagerHandler::EditSearchEngine));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "checkSearchEngineInfoValidity",
       NewCallback(this,
                   &SearchEngineManagerHandler::CheckSearchEngineInfoValidity));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "searchEngineEditCancelled",
       NewCallback(this, &SearchEngineManagerHandler::EditCancelled));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "searchEngineEditCompleted",
       NewCallback(this, &SearchEngineManagerHandler::EditCompleted));
 }
@@ -110,33 +102,31 @@ void SearchEngineManagerHandler::OnModelChanged() {
   if (!list_controller_->loaded())
     return;
 
-  ListValue engine_list;
-
   // Find the default engine.
   const TemplateURL* default_engine =
       list_controller_->url_model()->GetDefaultSearchProvider();
   int default_index = list_controller_->table_model()->IndexOfTemplateURL(
       default_engine);
 
-  // Add the first group (default search engine options).
-  engine_list.Append(CreateDictionaryForHeading(0));
+  // Build the first list (default search engine options).
+  ListValue defaults_list;
   int last_default_engine_index =
       list_controller_->table_model()->last_search_engine_index();
   for (int i = 0; i < last_default_engine_index; ++i) {
-    engine_list.Append(CreateDictionaryForEngine(i, i == default_index));
+    defaults_list.Append(CreateDictionaryForEngine(i, i == default_index));
   }
 
-  // Add the second group (other search templates).
-  engine_list.Append(CreateDictionaryForHeading(1));
+  // Build the second list (other search templates).
+  ListValue others_list;
   if (last_default_engine_index < 0)
     last_default_engine_index = 0;
   int engine_count = list_controller_->table_model()->RowCount();
   for (int i = last_default_engine_index; i < engine_count; ++i) {
-    engine_list.Append(CreateDictionaryForEngine(i, i == default_index));
+    others_list.Append(CreateDictionaryForEngine(i, i == default_index));
   }
 
-  dom_ui_->CallJavascriptFunction(L"SearchEngineManager.updateSearchEngineList",
-                                  engine_list);
+  web_ui_->CallJavascriptFunction(L"SearchEngineManager.updateSearchEngineList",
+                                  defaults_list, others_list);
 }
 
 void SearchEngineManagerHandler::OnItemsChanged(int start, int length) {
@@ -151,15 +141,6 @@ void SearchEngineManagerHandler::OnItemsRemoved(int start, int length) {
   OnModelChanged();
 }
 
-DictionaryValue* SearchEngineManagerHandler::CreateDictionaryForHeading(
-    int group_index) {
-  TableModel::Groups groups = list_controller_->table_model()->GetGroups();
-
-  DictionaryValue* dict = new DictionaryValue();
-  dict->SetString("heading", groups[group_index].title);
-  return dict;
-}
-
 DictionaryValue* SearchEngineManagerHandler::CreateDictionaryForEngine(
     int index, bool is_default) {
   TemplateURLTableModel* table_model = list_controller_->table_model();
@@ -170,6 +151,8 @@ DictionaryValue* SearchEngineManagerHandler::CreateDictionaryForEngine(
   dict->SetString("keyword", table_model->GetText(
     index, IDS_SEARCH_ENGINES_EDITOR_KEYWORD_COLUMN));
   const TemplateURL* template_url = list_controller_->GetTemplateURL(index);
+  dict->SetString("url", template_url->url()->DisplayURL());
+  dict->SetBoolean("urlLocked", template_url->prepopulate_id() > 0);
   GURL icon_url = template_url->GetFavIconURL();
   if (icon_url.is_valid())
     dict->SetString("iconURL", icon_url.spec());
@@ -224,18 +207,7 @@ void SearchEngineManagerHandler::EditSearchEngine(const ListValue* args) {
   if (index != -1)
     edit_url = list_controller_->GetTemplateURL(index);
   edit_controller_.reset(
-      new EditSearchEngineController(edit_url, this, dom_ui_->GetProfile()));
-
-  if (edit_url) {
-    DictionaryValue engine_details;
-    engine_details.SetString("name", WideToUTF16Hack(edit_url->short_name()));
-    engine_details.SetString("keyword", WideToUTF16Hack(edit_url->keyword()));
-    engine_details.SetString("url",
-                             WideToUTF16Hack(edit_url->url()->DisplayURL()));
-    engine_details.SetBoolean("urlLocked", edit_url->prepopulate_id() > 0);
-    dom_ui_->CallJavascriptFunction(L"EditSearchEngineOverlay.setEditDetails",
-                                    engine_details);
-  }
+      new EditSearchEngineController(edit_url, this, web_ui_->GetProfile()));
 }
 
 void SearchEngineManagerHandler::OnEditedKeyword(
@@ -259,9 +231,11 @@ void SearchEngineManagerHandler::CheckSearchEngineInfoValidity(
   string16 name;
   string16 keyword;
   std::string url;
+  std::string modelIndex;
   if (!args->GetString(ENGINE_NAME, &name) ||
       !args->GetString(ENGINE_KEYWORD, &keyword) ||
-      !args->GetString(ENGINE_URL, &url)) {
+      !args->GetString(ENGINE_URL, &url) ||
+      !args->GetString(3, &modelIndex)) {
     NOTREACHED();
     return;
   }
@@ -270,8 +244,9 @@ void SearchEngineManagerHandler::CheckSearchEngineInfoValidity(
   validity.SetBoolean("name", edit_controller_->IsTitleValid(name));
   validity.SetBoolean("keyword", edit_controller_->IsKeywordValid(keyword));
   validity.SetBoolean("url", edit_controller_->IsURLValid(url));
-  dom_ui_->CallJavascriptFunction(
-      L"EditSearchEngineOverlay.validityCheckCallback", validity);
+  StringValue indexValue(modelIndex);
+  web_ui_->CallJavascriptFunction(
+      L"SearchEngineManager.validityCheckCallback", validity, indexValue);
 }
 
 void SearchEngineManagerHandler::EditCancelled(const ListValue* args) {

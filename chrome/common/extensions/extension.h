@@ -20,12 +20,13 @@
 #include "chrome/common/extensions/extension_icon_set.h"
 #include "chrome/common/extensions/user_script.h"
 #include "chrome/common/extensions/url_pattern.h"
-#include "gfx/size.h"
 #include "googleurl/src/gurl.h"
+#include "ui/gfx/size.h"
 
 class DictionaryValue;
 class ExtensionAction;
 class ExtensionResource;
+class ExtensionSidebarDefaults;
 class SkBitmap;
 class Version;
 
@@ -151,6 +152,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // Max size (both dimensions) for browser and page actions.
   static const int kPageActionIconMaxSize;
   static const int kBrowserActionIconMaxSize;
+  static const int kSidebarIconMaxSize;
 
   // Each permission is a module that the extension is permitted to use.
   //
@@ -306,22 +308,9 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // ExtensionService::IsDownloadFromGallery
   static std::string ChromeStoreLaunchURL();
 
-  // Helper function that consolidates the check for whether the script can
-  // execute into one location. |page_url| is the page that is the candidate
-  // for running the script, |can_execute_script_everywhere| specifies whether
-  // the extension is on the whitelist, |allowed_pages| is a vector of
-  // URLPatterns, listing what access the extension has, |script| is the script
-  // pointer (if content script) and |error| is an optional parameter, which
-  // will receive the error string listing why access was denied.
-  static bool CanExecuteScriptOnPage(
-      const GURL& page_url,
-      bool can_execute_script_everywhere,
-      const std::vector<URLPattern>* allowed_pages,
-      UserScript* script,
-      std::string* error);
-
   // Adds an extension to the scripting whitelist. Used for testing only.
   static void SetScriptingWhitelist(const ScriptingWhitelist& whitelist);
+  static const ScriptingWhitelist* GetScriptingWhitelist();
 
   // Returns true if the extension has the specified API permission.
   static bool HasApiPermission(const std::set<std::string>& api_permissions,
@@ -362,6 +351,9 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // having an NPAPI plugin).
   bool HasFullPermissions() const;
 
+  // Whether context menu should be shown for page and browser actions.
+  bool ShowConfigureContextMenus() const;
+
   // Returns the Homepage URL for this extension. If homepage_url was not
   // specified in the manifest, this returns the Google Gallery URL. For
   // third-party extensions, this returns a blank GURL.
@@ -378,6 +370,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
 
   // Gets the fully resolved absolute launch URL.
   GURL GetFullLaunchURL() const;
+
   // Image cache related methods. These are only valid on the UI thread and
   // not maintained by this class. See ImageLoadingTracker for usage. The
   // |original_size| parameter should be the size of the image at |source|
@@ -389,6 +382,18 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
                       const gfx::Size& max_size) const;
   SkBitmap GetCachedImage(const ExtensionResource& source,
                           const gfx::Size& max_size) const;
+
+  // Returns true if this extension can execute script on a page. If a
+  // UserScript object is passed, permission to run that specific script is
+  // checked (using its matches list). Otherwise, permission to execute script
+  // programmatically is checked (using the extension's host permission).
+  //
+  // This method is also aware of certain special pages that extensions are
+  // usually not allowed to run script on.
+  bool CanExecuteScriptOnPage(const GURL& page_url,
+                              UserScript* script,
+                              std::string* error) const;
+
   // Returns true if this extension is a COMPONENT extension, or if it is
   // on the whitelist of extensions that can script all pages.
   bool CanExecuteScriptEverywhere() const;
@@ -414,6 +419,9 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   const UserScriptList& content_scripts() const { return content_scripts_; }
   ExtensionAction* page_action() const { return page_action_.get(); }
   ExtensionAction* browser_action() const { return browser_action_.get(); }
+  ExtensionSidebarDefaults* sidebar_defaults() const {
+    return sidebar_defaults_.get();
+  }
   const std::vector<PluginInfo>& plugins() const { return plugins_; }
   const GURL& background_url() const { return background_url_; }
   const GURL& options_url() const { return options_url_; }
@@ -533,6 +541,11 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   ExtensionAction* LoadExtensionActionHelper(
       const DictionaryValue* extension_action, std::string* error);
 
+  // Helper method to load an ExtensionSidebarDefaults from the sidebar manifest
+  // entry.
+  ExtensionSidebarDefaults* LoadExtensionSidebarDefaults(
+      const DictionaryValue* sidebar, std::string* error);
+
   // Calculates the effective host permissions from the permissions and content
   // script petterns.
   void InitEffectiveHostPermissions();
@@ -626,6 +639,9 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // The extension's browser action, if any.
   scoped_ptr<ExtensionAction> browser_action_;
 
+  // The extension's sidebar, if any.
+  scoped_ptr<ExtensionSidebarDefaults> sidebar_defaults_;
+
   // Optional list of NPAPI plugins and associated properties.
   std::vector<PluginInfo> plugins_;
 
@@ -687,7 +703,11 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // absolute. If relative, it is relative to web_origin.
   std::string launch_web_url_;
 
-  // The type of container to launch into.
+  // The window type that an app's manifest specifies to launch into.
+  // This is not always the window type an app will open into, because
+  // users can override the way each app launches.  See
+  // ExtensionPrefs::GetLaunchContainer(), which looks at a per-app pref
+  // to decide what container an app will launch in.
   extension_misc::LaunchContainer launch_container_;
 
   // The default size of the container when launching. Only respected for

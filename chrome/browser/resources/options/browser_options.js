@@ -1,18 +1,19 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 cr.define('options', function() {
   const OptionsPage = options.OptionsPage;
   const ArrayDataModel = cr.ui.ArrayDataModel;
-  const ListSelectionModel = cr.ui.ListSelectionModel;
 
   //
   // BrowserOptions class
   // Encapsulated handling of browser options page.
   //
   function BrowserOptions() {
-    OptionsPage.call(this, 'browser', templateData.browserPage, 'browserPage');
+    OptionsPage.call(this, 'browser',
+                     templateData.browserPageTabTitle,
+                     'browserPage');
   }
 
   cr.addSingletonGetter(BrowserOptions);
@@ -44,11 +45,11 @@ cr.define('options', function() {
       $('startupUseCurrentButton').onclick = function(event) {
         chrome.send('setStartupPagesToCurrentPages');
       };
-      $('startupPageManagerButton').onclick = function(event) {
-        OptionsPage.showPageByName('startupPages');
+      $('startupAddButton').onclick = function(event) {
+        OptionsPage.navigateToPage('addStartupPageOverlay');
       };
       $('defaultSearchManageEnginesButton').onclick = function(event) {
-        OptionsPage.showPageByName('searchEngines');
+        OptionsPage.navigateToPage('searchEngines');
         chrome.send('coreOptionsUserMetricsAction',
             ['Options_ManageSearchEngines']);
       };
@@ -59,23 +60,29 @@ cr.define('options', function() {
           // Leave disabled for now. The PrefCheckbox handler already set it to
           // true so undo that.
           Preferences.setBooleanPref(this.pref, false, this.metric);
-          OptionsPage.showOverlay('instantConfirmOverlay');
+          OptionsPage.navigateToPage('instantConfirmOverlay');
         }
       };
+      $('defaultSearchEngine').onchange = this.setDefaultSearchEngine;
 
       var homepageField = $('homepageURL');
       $('homepageUseNTPButton').onchange =
           this.handleHomepageUseNTPButtonChange_.bind(this);
       $('homepageUseURLButton').onchange =
           this.handleHomepageUseURLButtonChange_.bind(this);
-      homepageField.onchange =
-          this.handleHomepageURLChange_.bind(this);
+      homepageField.onchange = this.handleHomepageURLChange_.bind(this);
+      homepageField.oninput = this.handleHomepageURLChange_.bind(this);
 
       // Ensure that changes are committed when closing the page.
       window.addEventListener('unload', function() {
-          if (document.activeElement == homepageField)
-            homepageField.blur();
-          });
+        if (document.activeElement == homepageField)
+          homepageField.blur();
+      });
+
+      // Remove Windows-style accelerators from button labels.
+      // TODO(stuartmorgan): Remove this once the strings are updated.
+      $('startupAddButton').textContent =
+          localStrings.getStringWithoutAccelerator('startupAddButton');
 
       if (!cr.isChromeOS) {
         $('defaultBrowserUseAsDefaultButton').onclick = function(event) {
@@ -83,10 +90,9 @@ cr.define('options', function() {
         };
       }
 
-      var list = $('startupPagesShortList');
+      var list = $('startupPagesList');
       options.browser_options.StartupPageList.decorate(list);
       list.autoExpands = true;
-      list.selectionModel = new ListSelectionModel;
 
       // Check if we are in the guest mode.
       if (cr.commandLine.options['--bwsi']) {
@@ -133,7 +139,7 @@ cr.define('options', function() {
     /**
      * Updates the search engine popup with the given entries.
      * @param {Array} engines List of available search engines.
-     * @param {Integer} defaultValue The value of the current default engine.
+     * @param {number} defaultValue The value of the current default engine.
      */
     updateSearchEngines_: function(engines, defaultValue) {
       this.clearSearchEngines_();
@@ -154,11 +160,10 @@ cr.define('options', function() {
     /**
      * Returns true if the custom startup page control block should
      * be enabled.
-     * @private
      * @returns {boolean} Whether the startup page controls should be
      *     enabled.
      */
-    shouldEnableCustomStartupPageControls_: function(pages) {
+    shouldEnableCustomStartupPageControls: function(pages) {
       return $('startupShowPagesButton').checked;
     },
 
@@ -168,19 +173,7 @@ cr.define('options', function() {
      * @param {Array} pages List of startup pages.
      */
     updateStartupPages_: function(pages) {
-      var list = $('startupPagesShortList');
-      list.dataModel = new ArrayDataModel(pages);
-      if (pages.length > 0 && pages.length <= 10) {
-        list.classList.remove("hidden");
-        $('startupPageManagement').classList.add('settings-list');
-        $('startupShowPagesLabel').textContent =
-            localStrings.getStringWithoutAccelerator('startupShowPages');
-      } else {
-        list.classList.add("hidden");
-        $('startupPageManagement').classList.remove('settings-list');
-        $('startupShowPagesLabel').textContent =
-            localStrings.getStringWithoutAccelerator('startupShowManyPages');
-      }
+      $('startupPagesList').dataModel = new ArrayDataModel(pages);
     },
 
     /**
@@ -202,12 +195,13 @@ cr.define('options', function() {
     },
 
     /**
-     * Handles change events of the text field 'homepageURL'.
+     * Handles input and change events of the text field 'homepageURL'.
      * @private
-     * @param {event} change event.
+     * @param {event} input/change event.
      */
     handleHomepageURLChange_: function(event) {
-      Preferences.setStringPref('homepage', $('homepageURL').value);
+      var doFixup = event.type == 'change' ? '1' : '0';
+      chrome.send('setHomePage', [$('homepageURL').value, doFixup]);
     },
 
     /**
@@ -341,10 +335,10 @@ cr.define('options', function() {
      * @private
      */
     updateCustomStartupPageControlStates_: function() {
-      var disable = !this.shouldEnableCustomStartupPageControls_();
-      $('startupPagesShortList').disabled = disable;
+      var disable = !this.shouldEnableCustomStartupPageControls();
+      $('startupPagesList').disabled = disable;
       $('startupUseCurrentButton').disabled = disable;
-      $('startupPageManagerButton').disabled = disable;
+      $('startupAddButton').disabled = disable;
     },
 
     /**
@@ -357,6 +351,16 @@ cr.define('options', function() {
         var selection = engineSelect.options[selectedIndex];
         chrome.send('setDefaultSearchEngine', [String(selection.value)]);
       }
+    },
+
+    /**
+     * Adds the given startup page at the current selection point.
+     * @private
+     */
+    addStartupPage_: function(url) {
+      var selectedIndex =
+          $('startupPagesList').selectionModel.selectedIndex;
+      chrome.send('addStartupPage', [url, String(selectedIndex)]);
     },
   };
 
@@ -375,7 +379,10 @@ cr.define('options', function() {
 
   BrowserOptions.updateStartupPages = function(pages) {
     BrowserOptions.getInstance().updateStartupPages_(pages);
-    StartupPageManager.getInstance().updateStartupPages_(pages);
+  };
+
+  BrowserOptions.addStartupPage = function(url) {
+    BrowserOptions.getInstance().addStartupPage_(url);
   };
 
   // Export

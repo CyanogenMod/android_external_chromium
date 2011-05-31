@@ -34,12 +34,25 @@ struct DownloadCreateInfo;
 // One DownloadItem per download. This is the model class that stores all the
 // state for a download. Multiple views, such as a tab's download shelf and the
 // Destination tab's download view, may refer to a given DownloadItem.
+//
+// This is intended to be used only on the UI thread.
 class DownloadItem {
  public:
   enum DownloadState {
     IN_PROGRESS,
+
+    // Note that COMPLETE indicates that the download has gotten all of its
+    // data, has figured out its final destination file, has been entered
+    // into the history store, and has been shown in the UI.  The only
+    // operations remaining are acceptance by the user of
+    // a dangerous download (if dangerous), renaming the file
+    // to the final name, and auto-opening it (if it auto-opens).
     COMPLETE,
+
     CANCELLED,
+
+    // This state indicates that the download item is about to be destroyed,
+    // and observers seeing this state should release all references.
     REMOVING
   };
 
@@ -126,8 +139,12 @@ class DownloadItem {
   // when resuming a download (assuming the server supports byte ranges).
   void Cancel(bool update_history);
 
-  // Called when all data has been saved.
+  // Called when all data has been saved.  Only has display effects.
   void OnAllDataSaved(int64 size);
+
+  // Called when ready to consider the data received and move on to the
+  // next stage.
+  void MarkAsComplete();
 
   // Called when the entire download operation (including renaming etc)
   // is finished.
@@ -149,6 +166,9 @@ class DownloadItem {
   // Rough percent complete, -1 means we don't know (since we didn't receive a
   // total size).
   int PercentComplete() const;
+
+  // Whether or not this download has saved all of its data.
+  bool all_data_saved() const { return all_data_saved_; }
 
   // Update the fields that may have changed in DownloadCreateInfo as a
   // result of analyzing the file and figuring out its type, location, etc.
@@ -186,6 +206,7 @@ class DownloadItem {
   FilePath full_path() const { return full_path_; }
   void set_path_uniquifier(int uniquifier) { path_uniquifier_ = uniquifier; }
   GURL url() const { return url_; }
+  GURL original_url() const { return original_url_; }
   GURL referrer_url() const { return referrer_url_; }
   std::string mime_type() const { return mime_type_; }
   std::string original_mime_type() const { return original_mime_type_; }
@@ -254,8 +275,12 @@ class DownloadItem {
   // path should be used as is.
   int path_uniquifier_;
 
-  // The URL from whence we came.
+  // The URL from which we are downloading. This is the final URL after any
+  // redirection by the server for |original_url_|.
   GURL url_;
+
+  // The original URL before any redirection by the server for this URL.
+  GURL original_url_;
 
   // The URL of the page that initiated the download.
   GURL referrer_url_;
@@ -332,6 +357,9 @@ class DownloadItem {
 
   // True if the item was downloaded temporarily.
   bool is_temporary_;
+
+  // True if we've saved all the data for the download.
+  bool all_data_saved_;
 
   // Did the user open the item either directly or indirectly (such as by
   // setting always open files of this type)? The shelf also sets this field

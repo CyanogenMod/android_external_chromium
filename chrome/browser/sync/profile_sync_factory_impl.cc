@@ -6,10 +6,8 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/glue/app_data_type_controller.h"
 #include "chrome/browser/sync/glue/autofill_change_processor.h"
-#include "chrome/browser/sync/glue/autofill_change_processor2.h"
 #include "chrome/browser/sync/glue/autofill_data_type_controller.h"
 #include "chrome/browser/sync/glue/autofill_model_associator.h"
-#include "chrome/browser/sync/glue/autofill_model_associator2.h"
 #include "chrome/browser/sync/glue/autofill_profile_change_processor.h"
 #include "chrome/browser/sync/glue/autofill_profile_data_type_controller.h"
 #include "chrome/browser/sync/glue/autofill_profile_model_associator.h"
@@ -41,16 +39,13 @@
 #include "chrome/browser/sync/profile_sync_factory_impl.h"
 #include "chrome/browser/webdata/web_data_service.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/pref_names.h"
 
 using browser_sync::AppDataTypeController;
 using browser_sync::AutofillChangeProcessor;
-using browser_sync::AutofillChangeProcessor2;
 using browser_sync::AutofillProfileChangeProcessor;
 using browser_sync::AutofillDataTypeController;
 using browser_sync::AutofillProfileDataTypeController;
 using browser_sync::AutofillModelAssociator;
-using browser_sync::AutofillModelAssociator2;
 using browser_sync::AutofillProfileModelAssociator;
 using browser_sync::BookmarkChangeProcessor;
 using browser_sync::BookmarkDataTypeController;
@@ -121,7 +116,7 @@ ProfileSyncService* ProfileSyncFactoryImpl::CreateProfileSyncService(
 
   // Password sync is disabled by default.  Register only if
   // explicitly enabled.
-  if (command_line_->HasSwitch(switches::kEnableSyncPasswords)) {
+  if (!command_line_->HasSwitch(switches::kDisableSyncPasswords)) {
     pss->RegisterDataTypeController(
         new PasswordDataTypeController(this, profile_, pss));
   }
@@ -153,8 +148,7 @@ ProfileSyncService* ProfileSyncFactoryImpl::CreateProfileSyncService(
         new SessionDataTypeController(this, pss));
   }
 
-  if (!command_line_->HasSwitch(switches::kDisableSyncAutofillProfile) &&
-      command_line_->HasSwitch(switches::kEnableSyncNewAutofill)) {
+  if (!command_line_->HasSwitch(switches::kDisableSyncAutofillProfile)) {
     pss->RegisterDataTypeController(new AutofillProfileDataTypeController(
         this, profile_, pss));
   }
@@ -189,29 +183,16 @@ ProfileSyncFactoryImpl::CreateAutofillSyncComponents(
     PersonalDataManager* personal_data,
     browser_sync::UnrecoverableErrorHandler* error_handler) {
 
-  if (command_line_->HasSwitch(switches::kEnableSyncNewAutofill)) {
-    AutofillModelAssociator* model_associator =
-        new AutofillModelAssociator(profile_sync_service,
-                                    web_database,
-                                    personal_data);
-    AutofillChangeProcessor* change_processor =
-        new AutofillChangeProcessor(model_associator,
-                                    web_database,
-                                    personal_data,
-                                    error_handler);
-    return SyncComponents(model_associator, change_processor);
-  } else {
-    AutofillModelAssociator2* model_associator =
-        new AutofillModelAssociator2(profile_sync_service,
-                                    web_database,
-                                    personal_data);
-    AutofillChangeProcessor2* change_processor =
-        new AutofillChangeProcessor2(model_associator,
-                                    web_database,
-                                    personal_data,
-                                    error_handler);
-    return SyncComponents(model_associator, change_processor);
-  }
+  AutofillModelAssociator* model_associator =
+      new AutofillModelAssociator(profile_sync_service,
+                                  web_database,
+                                  personal_data);
+  AutofillChangeProcessor* change_processor =
+      new AutofillChangeProcessor(model_associator,
+                                  web_database,
+                                  personal_data,
+                                  error_handler);
+  return SyncComponents(model_associator, change_processor);
 }
 
 ProfileSyncFactory::SyncComponents

@@ -1,8 +1,8 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/tabs/browser_tab_strip_controller.h"
+#include "chrome/browser/ui/views/tabs/browser_tab_strip_controller.h"
 
 #include "base/auto_reset.h"
 #include "base/command_line.h"
@@ -16,7 +16,6 @@
 #include "chrome/browser/ui/tabs/tab_menu_model.h"
 #include "chrome/browser/ui/views/tabs/base_tab_strip.h"
 #include "chrome/browser/ui/views/tabs/tab_renderer_data.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
 #include "views/controls/menu/menu_2.h"
@@ -32,7 +31,7 @@ static TabRendererData::NetworkState TabContentsNetworkState(
 }
 
 class BrowserTabStripController::TabContextMenuContents
-    : public menus::SimpleMenuModel::Delegate {
+    : public ui::SimpleMenuModel::Delegate {
  public:
   TabContextMenuContents(BaseTab* tab,
                          BrowserTabStripController* controller)
@@ -58,7 +57,7 @@ class BrowserTabStripController::TabContextMenuContents
     // We could be gone now. Assume |this| is junk!
   }
 
-  // Overridden from menus::SimpleMenuModel::Delegate:
+  // Overridden from ui::SimpleMenuModel::Delegate:
   virtual bool IsCommandIdChecked(int command_id) const {
     return controller_->IsCommandCheckedForTab(
         static_cast<TabStripModel::ContextMenuCommand>(command_id),
@@ -71,7 +70,7 @@ class BrowserTabStripController::TabContextMenuContents
   }
   virtual bool GetAcceleratorForCommandId(
       int command_id,
-      menus::Accelerator* accelerator) {
+      ui::Accelerator* accelerator) {
     int browser_cmd;
     return TabStripModel::ContextMenuCommandToBrowserCommand(command_id,
                                                              &browser_cmd) ?
@@ -336,7 +335,8 @@ void BrowserTabStripController::TabChangedAt(TabContentsWrapper* contents,
   SetTabDataAt(contents, model_index);
 }
 
-void BrowserTabStripController::TabReplacedAt(TabContentsWrapper* old_contents,
+void BrowserTabStripController::TabReplacedAt(TabStripModel* tab_strip_model,
+                                              TabContentsWrapper* old_contents,
                                               TabContentsWrapper* new_contents,
                                               int model_index) {
   SetTabDataAt(new_contents, model_index);
@@ -386,7 +386,7 @@ void BrowserTabStripController::SetTabRendererDataFromModel(
   data->network_state = TabContentsNetworkState(contents);
   data->title = contents->GetTitle();
   data->loading = contents->is_loading();
-  data->crashed = contents->is_crashed();
+  data->crashed_status = contents->crashed_status();
   data->off_the_record = contents->profile()->IsOffTheRecord();
   data->show_icon = contents->ShouldDisplayFavIcon();
   data->mini = model_->IsMiniTab(model_index);

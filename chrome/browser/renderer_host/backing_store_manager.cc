@@ -9,9 +9,9 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/browser/renderer_host/backing_store.h"
 #include "chrome/browser/renderer_host/render_widget_host.h"
-#include "chrome/browser/renderer_host/render_widget_host_painting_observer.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/mru_cache.h"
+#include "chrome/common/notification_service.h"
 
 namespace {
 
@@ -69,12 +69,10 @@ static size_t MaxBackingStoreMemory() {
 // Expires the given |backing_store| from |cache|.
 void ExpireBackingStoreAt(BackingStoreCache* cache,
                           BackingStoreCache::iterator backing_store) {
-  RenderWidgetHost* rwh = backing_store->second->render_widget_host();
-  if (rwh->painting_observer()) {
-    rwh->painting_observer()->WidgetWillDestroyBackingStore(
-        backing_store->first,
-        backing_store->second);
-  }
+  NotificationService::current()->Notify(
+      NotificationType::RENDER_WIDGET_HOST_WILL_DESTROY_BACKING_STORE,
+      Source<RenderWidgetHost>(backing_store->first),
+      Details<BackingStore>(backing_store->second));
   cache->Erase(backing_store);
 }
 
@@ -148,7 +146,8 @@ BackingStore* CreateBackingStore(RenderWidgetHost* host,
     cache = small_cache;
   }
   BackingStore* backing_store = host->AllocBackingStore(backing_store_size);
-  cache->Put(host, backing_store);
+  if (backing_store)
+    cache->Put(host, backing_store);
   return backing_store;
 }
 
@@ -203,14 +202,14 @@ void BackingStoreManager::PrepareBackingStore(
     // don't have a previous snapshot.
     if (bitmap_rect.size() != backing_store_size ||
         bitmap_rect.x() != 0 || bitmap_rect.y() != 0 ||
-        ComputeTotalArea(copy_rects) != backing_store_size.GetArea()) {
+        ComputeTotalArea(copy_rects) != backing_store_size.GetArea() ||
+        !(backing_store = CreateBackingStore(host, backing_store_size))) {
       DCHECK(needs_full_paint != NULL);
       *needs_full_paint = true;
       // Makes no sense to paint the transport dib if we are going
       // to request a full paint.
       return;
     }
-    backing_store = CreateBackingStore(host, backing_store_size);
   }
 
   backing_store->PaintToBackingStore(host->process(), bitmap,

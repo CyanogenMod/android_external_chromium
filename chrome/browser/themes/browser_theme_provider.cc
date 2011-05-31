@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/themes/browser_theme_provider.h"
 
-#include "app/resource_bundle.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -18,9 +17,10 @@
 #include "chrome/common/pref_names.h"
 #include "grit/app_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_WIN)
-#include "app/win/hwnd_util.h"
+#include "views/widget/widget_win.h"
 #endif
 
 // Strings used in alignment properties.
@@ -255,7 +255,7 @@ bool BrowserThemeProvider::ShouldUseNativeFrame() const {
   if (HasCustomImage(IDR_THEME_FRAME))
     return false;
 #if defined(OS_WIN)
-  return app::win::ShouldUseVistaFrame();
+  return views::WidgetWin::IsAeroGlassEnabled();
 #else
   return false;
 #endif

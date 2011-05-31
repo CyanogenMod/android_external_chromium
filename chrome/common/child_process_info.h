@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,7 +37,7 @@ class ChildProcessInfo {
   enum RendererProcessType {
     RENDERER_UNKNOWN = 0,
     RENDERER_NORMAL,
-    RENDERER_CHROME,        // DOMUI (chrome:// URL)
+    RENDERER_CHROME,        // WebUI (chrome:// URL)
     RENDERER_EXTENSION,     // chrome-extension://
     RENDERER_DEVTOOLS,      // Web inspector
     RENDERER_INTERSTITIAL,  // malware/phishing interstitial
@@ -67,6 +67,9 @@ class ChildProcessInfo {
 
   // Getter to the process handle.
   base::ProcessHandle handle() const { return process_.handle(); }
+
+  // Getter to the process ID.
+  int pid() const { return process_.pid(); }
 
   // The unique identifier for this child process. This identifier is NOT a
   // process ID, and will be unique for all types of child process for

@@ -1,22 +1,22 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/frame/glass_browser_frame_view.h"
+#include "chrome/browser/ui/views/frame/glass_browser_frame_view.h"
 
-#include "app/resource_bundle.h"
-#include "app/theme_provider.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
-#include "chrome/browser/views/frame/browser_view.h"
-#include "chrome/browser/views/tabs/side_tab_strip.h"
-#include "chrome/browser/views/tabs/tab.h"
-#include "chrome/browser/views/tabs/tab_strip.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/icon_util.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/tabs/side_tab_strip.h"
+#include "chrome/browser/ui/views/tabs/tab.h"
+#include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "grit/app_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/theme_provider.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/icon_util.h"
 #include "views/window/client_view.h"
 #include "views/window/window_resources.h"
 
@@ -77,14 +77,15 @@ GlassBrowserFrameView::~GlassBrowserFrameView() {
 // GlassBrowserFrameView, BrowserNonClientFrameView implementation:
 
 gfx::Rect GlassBrowserFrameView::GetBoundsForTabStrip(
-    BaseTabStrip* tabstrip) const {
+    views::View* tabstrip) const {
   if (browser_view_->UseVerticalTabs()) {
     gfx::Size ps = tabstrip->GetPreferredSize();
     return gfx::Rect(NonClientBorderThickness(),
         NonClientTopBorderHeight(false, false), ps.width(),
         browser_view_->height());
   }
-  int minimize_button_offset = frame_->GetMinimizeButtonOffset();
+  int minimize_button_offset =
+      std::min(frame_->GetMinimizeButtonOffset(), width());
   int tabstrip_x = browser_view_->ShouldShowOffTheRecordAvatar() ?
       (otr_avatar_bounds_.right() + kOTRSideSpacing) :
       NonClientBorderThickness();
@@ -104,7 +105,7 @@ gfx::Rect GlassBrowserFrameView::GetBoundsForTabStrip(
           kNewTabCaptionMaximizedSpacing : kNewTabCaptionRestoredSpacing);
   return gfx::Rect(tabstrip_x, GetHorizontalTabStripVerticalOffset(false),
                    std::max(0, tabstrip_width),
-                   tabstrip->GetPreferredHeight());
+                   tabstrip->GetPreferredSize().height());
 }
 
 int GlassBrowserFrameView::GetHorizontalTabStripVerticalOffset(
@@ -243,7 +244,7 @@ int GlassBrowserFrameView::NonClientTopBorderHeight(
 }
 
 void GlassBrowserFrameView::PaintToolbarBackground(gfx::Canvas* canvas) {
-  ThemeProvider* tp = GetThemeProvider();
+  ui::ThemeProvider* tp = GetThemeProvider();
 
   gfx::Rect toolbar_bounds(browser_view_->GetToolbarBounds());
   gfx::Point toolbar_origin(toolbar_bounds.origin());
@@ -360,7 +361,7 @@ void GlassBrowserFrameView::PaintOTRAvatar(gfx::Canvas* canvas) {
 }
 
 void GlassBrowserFrameView::PaintRestoredClientEdge(gfx::Canvas* canvas) {
-  ThemeProvider* tp = GetThemeProvider();
+  ui::ThemeProvider* tp = GetThemeProvider();
   gfx::Rect client_area_bounds = CalculateClientAreaBounds(width(), height());
 
   // The client edges start below the toolbar upper corner images regardless

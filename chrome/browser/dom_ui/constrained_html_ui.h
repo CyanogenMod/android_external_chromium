@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include <vector>
 
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 #include "chrome/browser/tab_contents/constrained_window.h"
 #include "chrome/common/property_bag.h"
 
@@ -25,13 +25,13 @@ class ConstrainedHtmlUIDelegate {
   virtual void OnDialogClose() = 0;
 };
 
-// ConstrainedHtmlUI is a facility to show HTML DOM_UI content
+// ConstrainedHtmlUI is a facility to show HTML WebUI content
 // in a tab-modal constrained dialog.  It is implemented as an adapter
 // between an HtmlDialogUI object and a ConstrainedWindow object.
 //
 // Since ConstrainedWindow requires platform-specific delegate
 // implementations, this class is just a factory stub.
-class ConstrainedHtmlUI : public DOMUI {
+class ConstrainedHtmlUI : public WebUI {
  public:
   explicit ConstrainedHtmlUI(TabContents* contents);
   virtual ~ConstrainedHtmlUI();
@@ -51,6 +51,8 @@ class ConstrainedHtmlUI : public DOMUI {
       GetPropertyAccessor();
 
  private:
+  // Returns the TabContents' PropertyBag's ConstrainedHtmlUIDelegate.
+  // Returns NULL if that property is not set.
   ConstrainedHtmlUIDelegate* GetConstrainedDelegate();
 
   // JS Message Handler

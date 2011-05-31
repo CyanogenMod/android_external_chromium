@@ -1,23 +1,17 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/autofill/autofill_cc_infobar_delegate.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/metrics/histogram.h"
 #include "chrome/browser/autofill/autofill_cc_infobar.h"
 #include "chrome/browser/autofill/autofill_manager.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_delegate.h"
-#include "chrome/common/pref_names.h"
-#include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
-#include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 AutoFillCCInfoBarDelegate::AutoFillCCInfoBarDelegate(TabContents* tab_contents,
                                                      AutoFillManager* host)
@@ -44,29 +38,22 @@ void AutoFillCCInfoBarDelegate::InfoBarClosed() {
   delete this;
 }
 
-string16 AutoFillCCInfoBarDelegate::GetMessageText() const {
-  return l10n_util::GetStringUTF16(IDS_AUTOFILL_CC_INFOBAR_TEXT);
-}
-
 SkBitmap* AutoFillCCInfoBarDelegate::GetIcon() const {
   return ResourceBundle::GetSharedInstance().GetBitmapNamed(
       IDR_INFOBAR_AUTOFILL);
 }
 
-int AutoFillCCInfoBarDelegate::GetButtons() const {
-  return BUTTON_OK | BUTTON_CANCEL;
+InfoBarDelegate::Type AutoFillCCInfoBarDelegate::GetInfoBarType() const {
+  return PAGE_ACTION_TYPE;
 }
 
-string16 AutoFillCCInfoBarDelegate::GetButtonLabel(
-    ConfirmInfoBarDelegate::InfoBarButton button) const {
-  if (button == BUTTON_OK)
-    return l10n_util::GetStringUTF16(IDS_AUTOFILL_CC_INFOBAR_ACCEPT);
-  else if (button == BUTTON_CANCEL)
-    return l10n_util::GetStringUTF16(IDS_AUTOFILL_CC_INFOBAR_DENY);
-  else
-    NOTREACHED();
+string16 AutoFillCCInfoBarDelegate::GetMessageText() const {
+  return l10n_util::GetStringUTF16(IDS_AUTOFILL_CC_INFOBAR_TEXT);
+}
 
-  return string16();
+string16 AutoFillCCInfoBarDelegate::GetButtonLabel(InfoBarButton button) const {
+  return l10n_util::GetStringUTF16((button == BUTTON_OK) ?
+      IDS_AUTOFILL_CC_INFOBAR_ACCEPT : IDS_AUTOFILL_CC_INFOBAR_DENY);
 }
 
 bool AutoFillCCInfoBarDelegate::Accept() {
@@ -80,10 +67,6 @@ bool AutoFillCCInfoBarDelegate::Accept() {
 
 bool AutoFillCCInfoBarDelegate::Cancel() {
   UMA_HISTOGRAM_COUNTS("AutoFill.CCInfoBarDenied", 1);
-  if (host_) {
-    host_->OnInfoBarClosed(false);
-    host_ = NULL;
-  }
   return true;
 }
 
@@ -103,7 +86,3 @@ InfoBar* AutoFillCCInfoBarDelegate::CreateInfoBar() {
   return CreateAutofillCcInfoBar(this);
 }
 #endif  // defined(OS_WIN)
-
-InfoBarDelegate::Type AutoFillCCInfoBarDelegate::GetInfoBarType() {
-  return PAGE_ACTION_TYPE;
-}

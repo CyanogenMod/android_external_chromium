@@ -6,7 +6,9 @@
 #include <list>
 #include <map>
 
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_thread.h"
+#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/login/login_prompt.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
@@ -55,7 +57,8 @@ void LoginPromptBrowserTest::SetAuthFor(LoginHandler* handler) {
   EXPECT_TRUE(auth_map_.end() != i);
   if (i != auth_map_.end()) {
     const AuthInfo& info = i->second;
-    handler->SetAuth(info.username_, info.password_);
+    handler->SetAuth(WideToUTF16Hack(info.username_),
+                     WideToUTF16Hack(info.password_));
   }
 }
 
@@ -162,12 +165,57 @@ typedef WindowedNavigationObserver<NotificationType::AUTH_CANCELLED>
 typedef WindowedNavigationObserver<NotificationType::AUTH_SUPPLIED>
     WindowedAuthSuppliedObserver;
 
+const char* kPrefetchAuthPage = "files/login/prefetch.html";
+
 const char* kMultiRealmTestPage = "files/login/multi_realm.html";
 const int   kMultiRealmTestRealmCount = 2;
 const int   kMultiRealmTestResourceCount = 4;
 
 const char* kSingleRealmTestPage = "files/login/single_realm.html";
 const int   kSingleRealmTestResourceCount = 6;
+
+// Confirm that <link rel="prefetch"> targetting an auth required
+// resource does not provide a login dialog.  These types of requests
+// should instead just cancel the auth.
+
+// Unfortunately, this test doesn't assert on anything for its
+// correctness.  Instead, it relies on the auth dialog blocking the
+// browser, and triggering a timeout to cause failure when the
+// prefetch resource requires authorization.
+IN_PROC_BROWSER_TEST_F(LoginPromptBrowserTest, PrefetchAuthCancels) {
+  ASSERT_TRUE(test_server()->Start());
+
+  GURL test_page = test_server()->GetURL(kPrefetchAuthPage);
+
+  class SetPrefetchForTest {
+   public:
+    explicit SetPrefetchForTest(bool prefetch)
+        : old_prefetch_state_(ResourceDispatcherHost::is_prefetch_enabled()) {
+      ResourceDispatcherHost::set_is_prefetch_enabled(prefetch);
+    }
+
+    ~SetPrefetchForTest() {
+      ResourceDispatcherHost::set_is_prefetch_enabled(old_prefetch_state_);
+    }
+   private:
+    bool old_prefetch_state_;
+  } set_prefetch_for_test(true);
+
+  TabContentsWrapper* contents =
+      browser()->GetSelectedTabContentsWrapper();
+  ASSERT_TRUE(contents);
+  NavigationController* controller = &contents->controller();
+  LoginPromptBrowserTestObserver observer;
+
+  observer.Register(Source<NavigationController>(controller));
+
+  WindowedLoadStopObserver load_stop_waiter(controller);
+  browser()->OpenURL(test_page, GURL(), CURRENT_TAB, PageTransition::TYPED);
+
+  load_stop_waiter.Wait();
+  EXPECT_TRUE(observer.handlers_.empty());
+  EXPECT_TRUE(test_server()->Stop());
+}
 
 // Test handling of resources that require authentication even though
 // the page they are included on doesn't.  In this case we should only
@@ -225,7 +273,14 @@ IN_PROC_BROWSER_TEST_F(LoginPromptBrowserTest, MultipleRealmCancellation) {
 
 // Similar to the MultipleRealmCancellation test above, but tests
 // whether supplying credentials work as exepcted.
-IN_PROC_BROWSER_TEST_F(LoginPromptBrowserTest, MultipleRealmConfirmation) {
+#if defined(OS_WIN)
+// See http://crbug.com/70960
+#define MAYBE_MultipleRealmConfirmation DISABLED_MultipleRealmConfirmation
+#else
+#define MAYBE_MultipleRealmConfirmation MultipleRealmConfirmation
+#endif
+IN_PROC_BROWSER_TEST_F(LoginPromptBrowserTest,
+                       MAYBE_MultipleRealmConfirmation) {
   ASSERT_TRUE(test_server()->Start());
   GURL test_page = test_server()->GetURL(kMultiRealmTestPage);
 
@@ -276,8 +331,9 @@ IN_PROC_BROWSER_TEST_F(LoginPromptBrowserTest, MultipleRealmConfirmation) {
 
 // Testing for recovery from an incorrect password for the case where
 // there are multiple authenticated resources.
-// Marked as flaky.  See crbug.com/68860
-IN_PROC_BROWSER_TEST_F(LoginPromptBrowserTest, FLAKY_IncorrectConfirmation) {
+// Marked as flaky.  See http://crbug.com/69266 and http://crbug.com/68860
+// TODO(asanka): Remove logging when timeout issues are resolved.
+IN_PROC_BROWSER_TEST_F(LoginPromptBrowserTest, DISABLED_IncorrectConfirmation) {
   ASSERT_TRUE(test_server()->Start());
   GURL test_page = test_server()->GetURL(kSingleRealmTestPage);
 
@@ -292,9 +348,13 @@ IN_PROC_BROWSER_TEST_F(LoginPromptBrowserTest, FLAKY_IncorrectConfirmation) {
 
   WindowedLoadStopObserver load_stop_waiter(controller);
 
+  LOG(INFO) <<
+      "Begin test run "
+      "(tracing for potential hang. crbug.com/69266)";
   {
     WindowedAuthNeededObserver auth_needed_waiter(controller);
     browser()->OpenURL(test_page, GURL(), CURRENT_TAB, PageTransition::TYPED);
+    LOG(INFO) << "Waiting for initial AUTH_NEEDED";
     auth_needed_waiter.Wait();
   }
 
@@ -306,12 +366,15 @@ IN_PROC_BROWSER_TEST_F(LoginPromptBrowserTest, FLAKY_IncorrectConfirmation) {
     LoginHandler* handler = *observer.handlers_.begin();
 
     ASSERT_TRUE(handler);
-    handler->SetAuth(bad_username_, bad_password_);
+    handler->SetAuth(WideToUTF16Hack(bad_username_),
+                     WideToUTF16Hack(bad_password_));
+    LOG(INFO) << "Waiting for initial AUTH_SUPPLIED";
     auth_supplied_waiter.Wait();
 
     // The request should be retried after the incorrect password is
     // supplied.  This should result in a new AUTH_NEEDED notification
     // for the same realm.
+    LOG(INFO) << "Waiting for secondary AUTH_NEEDED";
     auth_needed_waiter.Wait();
   }
 
@@ -327,21 +390,25 @@ IN_PROC_BROWSER_TEST_F(LoginPromptBrowserTest, FLAKY_IncorrectConfirmation) {
       ASSERT_TRUE(handler);
       n_handlers++;
       SetAuthFor(handler);
+      LOG(INFO) << "Waiting for secondary AUTH_SUPPLIED";
       auth_supplied_waiter.Wait();
     }
 
-    if (n_handlers < 1)
+    if (n_handlers < 1) {
+      LOG(INFO) << "Waiting for additional AUTH_NEEDED";
       auth_needed_waiter.Wait();
+    }
   }
-
-  load_stop_waiter.Wait();
 
   // The single realm test has only one realm, and thus only one login
   // prompt.
   EXPECT_EQ(1, n_handlers);
   EXPECT_LT(0, observer.auth_needed_count_);
-  EXPECT_LT(0, observer.auth_supplied_count_);
   EXPECT_EQ(0, observer.auth_cancelled_count_);
+  EXPECT_EQ(observer.auth_needed_count_, observer.auth_supplied_count_);
+  LOG(INFO) << "Waiting for LOAD_STOP";
+  load_stop_waiter.Wait();
   EXPECT_TRUE(test_server()->Stop());
+  LOG(INFO) << "Done with test";
 }
-} // namespace
+}  // namespace

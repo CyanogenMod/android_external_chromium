@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,6 @@
 #include <string>
 #include <vector>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
 #include "base/singleton.h"
@@ -18,6 +16,7 @@
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/plugin_updater.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -32,6 +31,8 @@
 #include "grit/browser_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "webkit/plugins/npapi/plugin_list.h"
 
 namespace {
@@ -83,8 +84,6 @@ void PluginsUIHTMLSource::StartDataRequest(const std::string& path,
       l10n_util::GetStringUTF16(IDS_PLUGINS_DOWNLOAD));
   localized_strings.SetString("pluginName",
       l10n_util::GetStringUTF16(IDS_PLUGINS_NAME));
-  localized_strings.SetString("pluginPriority",
-      l10n_util::GetStringUTF16(IDS_PLUGINS_PRIORITY));
   localized_strings.SetString("pluginVersion",
       l10n_util::GetStringUTF16(IDS_PLUGINS_VERSION));
   localized_strings.SetString("pluginDescription",
@@ -131,13 +130,14 @@ void PluginsUIHTMLSource::StartDataRequest(const std::string& path,
 // TODO(viettrungluu): Make plugin list updates notify, and then observe
 // changes; maybe replumb plugin list through plugin service?
 // <http://crbug.com/39101>
-class PluginsDOMHandler : public DOMMessageHandler,
+class PluginsDOMHandler : public WebUIMessageHandler,
                           public NotificationObserver {
  public:
   explicit PluginsDOMHandler();
   virtual ~PluginsDOMHandler() {}
 
-  // DOMMessageHandler implementation.
+  // WebUIMessageHandler implementation.
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
   virtual void RegisterMessages();
 
   // Callback for the "requestPluginsData" message.
@@ -150,6 +150,12 @@ class PluginsDOMHandler : public DOMMessageHandler,
   // window with about:terms. Flash can't link directly to about:terms due to
   // the security model.
   void HandleShowTermsOfServiceMessage(const ListValue* args);
+
+  // Callback for the "saveShowDetailsToPrefs" message.
+  void HandleSaveShowDetailsToPrefs(const ListValue* args);
+
+  // Calback for the "getShowDetails" message.
+  void HandleGetShowDetails(const ListValue* args);
 
   // NotificationObserver method overrides
   void Observe(NotificationType type,
@@ -179,6 +185,10 @@ class PluginsDOMHandler : public DOMMessageHandler,
 
   ScopedRunnableMethodFactory<PluginsDOMHandler> get_plugins_factory_;
 
+  // This pref guards the value whether about:plugins is in the details mode or
+  // not.
+  BooleanPrefMember show_details_;
+
   DISALLOW_COPY_AND_ASSIGN(PluginsDOMHandler);
 };
 
@@ -189,13 +199,25 @@ PluginsDOMHandler::PluginsDOMHandler()
                  NotificationService::AllSources());
 }
 
+WebUIMessageHandler* PluginsDOMHandler::Attach(WebUI* web_ui) {
+  PrefService* prefs = web_ui->GetProfile()->GetPrefs();
+
+  show_details_.Init(prefs::kPluginsShowDetails, prefs, this);
+
+  return WebUIMessageHandler::Attach(web_ui);
+}
+
 void PluginsDOMHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("requestPluginsData",
+  web_ui_->RegisterMessageCallback("requestPluginsData",
       NewCallback(this, &PluginsDOMHandler::HandleRequestPluginsData));
-  dom_ui_->RegisterMessageCallback("enablePlugin",
+  web_ui_->RegisterMessageCallback("enablePlugin",
       NewCallback(this, &PluginsDOMHandler::HandleEnablePluginMessage));
-  dom_ui_->RegisterMessageCallback("showTermsOfService",
+  web_ui_->RegisterMessageCallback("showTermsOfService",
       NewCallback(this, &PluginsDOMHandler::HandleShowTermsOfServiceMessage));
+  web_ui_->RegisterMessageCallback("saveShowDetailsToPrefs",
+      NewCallback(this, &PluginsDOMHandler::HandleSaveShowDetailsToPrefs));
+  web_ui_->RegisterMessageCallback("getShowDetails",
+      NewCallback(this, &PluginsDOMHandler::HandleGetShowDetails));
 }
 
 void PluginsDOMHandler::HandleRequestPluginsData(const ListValue* args) {
@@ -237,21 +259,35 @@ void PluginsDOMHandler::HandleEnablePluginMessage(const ListValue* args) {
     if (!args->GetString(0, &file_path))
       return;
 
-    plugin_updater->EnablePluginFile(enable, file_path);
+    plugin_updater->EnablePlugin(enable, file_path);
   }
 
   // TODO(viettrungluu): We might also want to ensure that the plugins
   // list is always written to prefs even when the user hasn't disabled a
   // plugin. <http://crbug.com/39101>
-  plugin_updater->UpdatePreferences(dom_ui_->GetProfile(), 0);
+  plugin_updater->UpdatePreferences(web_ui_->GetProfile(), 0);
 }
 
 void PluginsDOMHandler::HandleShowTermsOfServiceMessage(const ListValue* args) {
   // Show it in a new browser window....
-  Browser* browser = Browser::Create(dom_ui_->GetProfile());
+  Browser* browser = Browser::Create(web_ui_->GetProfile());
   browser->OpenURL(GURL(chrome::kAboutTermsURL),
                    GURL(), NEW_FOREGROUND_TAB, PageTransition::LINK);
   browser->window()->Show();
+}
+
+void PluginsDOMHandler::HandleSaveShowDetailsToPrefs(const ListValue* args) {
+  std::string details_mode;
+  if (!args->GetString(0, &details_mode)) {
+    NOTREACHED();
+    return;
+  }
+  show_details_.SetValue(details_mode == "true");
+}
+
+void PluginsDOMHandler::HandleGetShowDetails(const ListValue* args) {
+  FundamentalValue show_details(show_details_.GetValue());
+  web_ui_->CallJavascriptFunction(L"loadShowDetailsFromPrefs", show_details);
 }
 
 void PluginsDOMHandler::Observe(NotificationType type,
@@ -296,7 +332,7 @@ void PluginsDOMHandler::PluginsLoaded(ListWrapper* wrapper) {
   DictionaryValue results;
   results.Set("plugins", wrapper->list);
   wrapper->list = NULL;  // So it doesn't get deleted.
-  dom_ui_->CallJavascriptFunction(L"returnPluginsData", results);
+  web_ui_->CallJavascriptFunction(L"returnPluginsData", results);
 }
 
 }  // namespace
@@ -307,17 +343,13 @@ void PluginsDOMHandler::PluginsLoaded(ListWrapper* wrapper) {
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-PluginsUI::PluginsUI(TabContents* contents) : DOMUI(contents) {
+PluginsUI::PluginsUI(TabContents* contents) : WebUI(contents) {
   AddMessageHandler((new PluginsDOMHandler())->Attach(this));
 
   PluginsUIHTMLSource* html_source = new PluginsUIHTMLSource();
 
   // Set up the chrome://plugins/ source.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(ChromeURLDataManager::GetInstance(),
-                        &ChromeURLDataManager::AddDataSource,
-                        make_scoped_refptr(html_source)));
+  contents->profile()->GetChromeURLDataManager()->AddDataSource(html_source);
 }
 
 
@@ -337,4 +369,6 @@ void PluginsUI::RegisterUserPrefs(PrefService* prefs) {
   prefs->RegisterListPref(prefs::kPluginsPluginsBlacklist);
   prefs->RegisterListPref(prefs::kPluginsPluginsList);
   prefs->RegisterBooleanPref(prefs::kPluginsEnabledInternalPDF, false);
+  prefs->RegisterBooleanPref(prefs::kPluginsShowDetails, false);
+  prefs->RegisterBooleanPref(prefs::kPluginsShowSetReaderDefaultInfobar, true);
 }

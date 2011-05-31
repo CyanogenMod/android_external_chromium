@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/scoped_callback_factory.h"
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_manager.h"
 
@@ -17,7 +17,7 @@ class ListValue;
 
 // The handler for Javascript messages related to the "downloads" view,
 // also observes changes to the download manager.
-class DownloadsDOMHandler : public DOMMessageHandler,
+class DownloadsDOMHandler : public WebUIMessageHandler,
                             public DownloadManager::Observer,
                             public DownloadItem::Observer {
  public:
@@ -26,7 +26,7 @@ class DownloadsDOMHandler : public DOMMessageHandler,
 
   void Init();
 
-  // DOMMessageHandler implementation.
+  // WebUIMessageHandler implementation.
   virtual void RegisterMessages();
 
   // DownloadItem::Observer interface

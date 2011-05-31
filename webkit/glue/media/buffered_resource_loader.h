@@ -8,16 +8,15 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/lock.h"
 #include "base/scoped_ptr.h"
 #include "base/timer.h"
 #include "googleurl/src/gurl.h"
 #include "media/base/seekable_buffer.h"
 #include "net/base/file_stream.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebFrame.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLLoader.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLLoaderClient.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLRequest.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebFrame.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLLoader.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLLoaderClient.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLRequest.h"
 #include "webkit/glue/media/web_data_source.h"
 #include "webkit/glue/webmediaplayer_impl.h"
 
@@ -140,6 +139,8 @@ class BufferedResourceLoader :
       WebKit::WebURLLoader* loader,
       const WebKit::WebURLError&);
 
+  bool HasSingleOrigin() const;
+
  protected:
   friend class base::RefCountedThreadSafe<BufferedResourceLoader>;
 
@@ -213,6 +214,7 @@ class BufferedResourceLoader :
   GURL url_;
   int64 first_byte_position_;
   int64 last_byte_position_;
+  bool single_origin_;
 
   // Callback method that listens to network events.
   scoped_ptr<NetworkEventCallback> event_callback_;

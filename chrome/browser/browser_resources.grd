@@ -24,7 +24,6 @@ without changes to the corresponding grd file. etaa -->
         <include name="IDR_ABOUT_MEMORY_HTML" file="resources\about_memory.html" flattenhtml="true" type="BINDATA" />
       </if>
       <include name="IDR_ABOUT_STATS_HTML" file="resources\about_stats.html" flattenhtml="true" type="BINDATA" />
-      <include name="IDR_ABOUT_SYNC_HTML" file="sync\resources\about_sync.html" flattenhtml="true" type="BINDATA" />
       <include name="IDR_ABOUT_VERSION_HTML" file="resources\about_version.html" flattenhtml="true" type="BINDATA" />
       <include name="IDR_BOOKMARKS_MANIFEST" file="resources\bookmark_manager\manifest.json" type="BINDATA" />
       <include name="IDR_CREDITS_HTML" file="resources\about_credits.html" flattenhtml="true" type="BINDATA" />
@@ -53,13 +52,14 @@ without changes to the corresponding grd file. etaa -->
       <include name="IDR_NOTIFICATION_ICON_HTML" file="resources\notification_icon.html" type="BINDATA" />
       <include name="IDR_OPTIONS_HTML" file="resources\options\options.html" flattenhtml="true" type="BINDATA" />
       <include name="IDR_PLUGINS_HTML" file="resources\plugins.html" flattenhtml="true" type="BINDATA" />
+      <include name="IDR_READER_OUT_OF_DATE_HTML" file="resources\reader_out_of_date.html" flattenhtml="true" type="BINDATA" />
       <include name="IDR_PRINT_PREVIEW_HTML" file="resources\print_preview.html" flattenhtml="true" type="BINDATA" />
       <include name="IDR_SAFE_BROWSING_MALWARE_BLOCK" file="resources\safe_browsing_malware_block.html" flattenhtml="true" type="BINDATA" />
       <include name="IDR_SAFE_BROWSING_MULTIPLE_THREAT_BLOCK" file="resources\safe_browsing_multiple_threat_block.html" flattenhtml="true" type="BINDATA" />
       <include name="IDR_SAFE_BROWSING_PHISHING_BLOCK" file="resources\safe_browsing_phishing_block.html" flattenhtml="true" type="BINDATA" />
       <include name="IDR_SIGNIN_HTML" file="resources\browser_signin.html" flattenhtml="true" type="BINDATA" />
-      <include name="IDR_SSL_ERROR_HTML" file="security\resources\ssl_error.html" flattenhtml="true" type="BINDATA" />
-      <include name="IDR_SSL_ROAD_BLOCK_HTML" file="security\resources\ssl_roadblock.html" flattenhtml="true" type="BINDATA" />
+      <include name="IDR_SSL_ERROR_HTML" file="resources\ssl_error.html" flattenhtml="true" type="BINDATA" />
+      <include name="IDR_SSL_ROAD_BLOCK_HTML" file="resources\ssl_roadblock.html" flattenhtml="true" type="BINDATA" />
       <include name="IDR_SYNC_CONFIGURE_HTML" file="sync\resources\configure.html" flattenhtml="true" type="BINDATA" />
       <include name="IDR_SYNC_ENCRYPTION_LOGIN_HTML" file="sync\resources\encryption_login.html" flattenhtml="true" type="BINDATA" />
       <include name="IDR_SYNC_PASSPHRASE_HTML" file="sync\resources\passphrase.html" flattenhtml="true" type="BINDATA" />
@@ -70,6 +70,7 @@ without changes to the corresponding grd file. etaa -->
       <include name="IDR_REMOTING_SETUP_FLOW_HTML" file="remoting\resources\remoting_setup_flow.html" flattenhtml="true" type="BINDATA" />
       <include name="IDR_REMOTING_SETUP_DONE_HTML" file="remoting\resources\remoting_setup_done.html" flattenhtml="true" type="BINDATA" />
       <include name="IDR_REMOTING_SETUP_ERROR_HTML" file="remoting\resources\remoting_setup_error.html" flattenhtml="true" type="BINDATA" />
+      <include name="IDR_REMOTING_SETTING_UP_HTML" file="remoting\resources\remoting_setting_up.html" flattenhtml="true" type="BINDATA" />
       <include name="IDR_CLOUD_PRINT_SETUP_FLOW_HTML" file="printing\cloud_print\resources\cloud_print_setup_flow.html" flattenhtml="true" type="BINDATA" />
       <include name="IDR_CLOUD_PRINT_SETUP_LOGIN_HTML" file="printing\cloud_print\resources\cloud_print_setup_login.html" flattenhtml="true" type="BINDATA" />
       <include name="IDR_CLOUD_PRINT_SETUP_DONE_HTML" file="printing\cloud_print\resources\cloud_print_setup_done.html" flattenhtml="true" type="BINDATA" />
@@ -100,6 +101,13 @@ without changes to the corresponding grd file. etaa -->
         <include name="IDR_NETWORK_MENU_JS" file="resources\network_menu.js" flattenhtml="true" type="BINDATA" />
         <include name="IDR_WRENCH_MENU_JS" file="resources\wrench_menu.js" flattenhtml="true" type="BINDATA" />
         <include name="IDR_WRENCH_MENU_CSS" file="resources\wrench_menu.css" flattenhtml="true" type="BINDATA" />
+        <include name="IDR_MOBILE_MANIFEST" file="resources\mobile_app\manifest.json" type="BINDATA" />
+        <!-- manifest file of ChromeVox accessibility extension -->
+        <include name="IDR_CHROMEVOX_MANIFEST" file="resources\access_chromevox\manifest.json" type="BINDATA" />
+      </if>
+      <if expr="pp_ifdef('chromeos') and pp_ifdef('_google_chrome')">
+        <include name="IDR_HELP_MANIFEST" file="resources\help_app\manifest.json" type="BINDATA" />
+        <include name="IDR_GETSTARTED_MANIFEST" file="resources\getstarted\manifest.json" type="BINDATA" />
       </if>
     </includes>
   </release>

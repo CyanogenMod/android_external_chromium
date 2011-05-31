@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,15 +11,16 @@
 
 #import "base/mac/scoped_nsautorelease_pool.h"
 #include "base/sys_string_conversions.h"
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 #include "chrome/browser/dom_ui/html_dialog_ui.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/cocoa/cocoa_test_helper.h"
 #include "chrome/test/browser_with_test_window_test.h"
 #include "chrome/test/testing_profile.h"
-#include "gfx/size.h"
 #include "googleurl/src/gurl.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/gfx/size.h"
 
 namespace {
 
@@ -28,8 +29,8 @@ public:
   MOCK_CONST_METHOD0(IsDialogModal, bool());
   MOCK_CONST_METHOD0(GetDialogTitle, std::wstring());
   MOCK_CONST_METHOD0(GetDialogContentURL, GURL());
-  MOCK_CONST_METHOD1(GetDOMMessageHandlers,
-                     void(std::vector<DOMMessageHandler*>*));
+  MOCK_CONST_METHOD1(GetWebUIMessageHandlers,
+                     void(std::vector<WebUIMessageHandler*>*));
   MOCK_CONST_METHOD1(GetDialogSize, void(gfx::Size*));
   MOCK_CONST_METHOD0(GetDialogArgs, std::string());
   MOCK_METHOD1(OnDialogClosed, void(const std::string& json_retval));
@@ -62,8 +63,8 @@ using ::testing::Return;
 using ::testing::SetArgumentPointee;
 
 // TODO(akalin): We can't test much more than the below without a real browser.
-// In particular, GetDOMMessageHandlers() and GetDialogArgs() are never called.
-// This should be fixed.
+// In particular, GetWebUIMessageHandlers() and GetDialogArgs() are never
+// called. This should be fixed.
 
 TEST_F(HtmlDialogWindowControllerTest, showDialog) {
   // We want to make sure html_dialog_window_controller below gets

@@ -28,7 +28,8 @@
 
 class ChromeNetLog;
 class CommandLine;
-class DebuggerWrapper;
+class DevToolsHttpProtocolHandler;
+class DevToolsProtocolHandler;
 class FilePath;
 class NotificationService;
 class PluginDataRemover;
@@ -59,14 +60,18 @@ class BrowserProcessImpl : public BrowserProcess,
   virtual PrefService* local_state();
   virtual DevToolsManager* devtools_manager();
   virtual SidebarManager* sidebar_manager();
-  virtual Clipboard* clipboard();
+  virtual ui::Clipboard* clipboard();
   virtual NotificationUIManager* notification_ui_manager();
   virtual policy::ConfigurationPolicyProviderKeeper*
       configuration_policy_provider_keeper();
   virtual IconManager* icon_manager();
   virtual ThumbnailGenerator* GetThumbnailGenerator();
   virtual AutomationProviderList* InitAutomationProviderList();
-  virtual void InitDebuggerWrapper(int port, bool useHttp);
+  virtual void InitDevToolsHttpProtocolHandler(
+      const std::string& ip,
+      int port,
+      const std::string& frontend_url);
+  virtual void InitDevToolsLegacyProtocolHandler(int port);
   virtual unsigned int AddRefModule();
   virtual unsigned int ReleaseModule();
   virtual bool IsShuttingDown();
@@ -93,6 +98,8 @@ class BrowserProcessImpl : public BrowserProcess,
 #endif
 
   virtual bool have_inspector_files() const;
+
+  virtual ChromeNetLog* net_log();
 
 #if defined(IPC_MESSAGE_LOG_ENABLED)
   virtual void SetIPCLoggingEnabled(bool enable);
@@ -121,7 +128,6 @@ class BrowserProcessImpl : public BrowserProcess,
   void CreateLocalState();
   void CreateViewedPageTracker();
   void CreateIconManager();
-  void CreateDebuggerWrapper(int port, bool useHttp);
   void CreateDevToolsManager();
   void CreateSidebarManager();
   void CreateGoogleURLTracker();
@@ -172,8 +178,9 @@ class BrowserProcessImpl : public BrowserProcess,
   bool created_icon_manager_;
   scoped_ptr<IconManager> icon_manager_;
 
-  bool created_debugger_wrapper_;
-  scoped_refptr<DebuggerWrapper> debugger_wrapper_;
+  scoped_refptr<DevToolsHttpProtocolHandler> devtools_http_handler_;
+
+  scoped_refptr<DevToolsProtocolHandler> devtools_legacy_handler_;
 
   bool created_devtools_manager_;
   scoped_refptr<DevToolsManager> devtools_manager_;
@@ -188,7 +195,7 @@ class BrowserProcessImpl : public BrowserProcess,
   scoped_refptr<printing::PrintPreviewTabController>
       print_preview_tab_controller_;
 
-  scoped_ptr<Clipboard> clipboard_;
+  scoped_ptr<ui::Clipboard> clipboard_;
 
   // Manager for desktop notification UI.
   bool created_notification_ui_manager_;

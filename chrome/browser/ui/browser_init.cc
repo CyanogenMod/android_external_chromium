@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,6 @@
 
 #include <algorithm>   // For max().
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/environment.h"
 #include "base/event_recorder.h"
 #include "base/file_path.h"
@@ -66,6 +64,8 @@
 #include "grit/theme_resources.h"
 #include "net/base/net_util.h"
 #include "net/url_request/url_request.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "webkit/glue/webkit_glue.h"
 
 #if defined(OS_MACOSX)
@@ -73,7 +73,7 @@
 #endif
 
 #if defined(TOOLKIT_GTK)
-#include "chrome/browser/gtk/gtk_util.h"
+#include "chrome/browser/ui/gtk/gtk_util.h"
 #endif
 
 #if defined(OS_CHROMEOS)
@@ -101,90 +101,53 @@
 
 namespace {
 
+// SetAsDefaultBrowserTask ----------------------------------------------------
+
 class SetAsDefaultBrowserTask : public Task {
  public:
-  SetAsDefaultBrowserTask() { }
-  virtual void Run() {
-    ShellIntegration::SetAsDefaultBrowser();
-  }
+  SetAsDefaultBrowserTask();
+  virtual ~SetAsDefaultBrowserTask();
 
  private:
+  virtual void Run();
+
   DISALLOW_COPY_AND_ASSIGN(SetAsDefaultBrowserTask);
 };
+
+SetAsDefaultBrowserTask::SetAsDefaultBrowserTask() {
+}
+
+SetAsDefaultBrowserTask::~SetAsDefaultBrowserTask() {
+}
+
+void SetAsDefaultBrowserTask::Run() {
+  ShellIntegration::SetAsDefaultBrowser();
+}
+
+
+// DefaultBrowserInfoBarDelegate ----------------------------------------------
 
 // The delegate for the infobar shown when Chrome is not the default browser.
 class DefaultBrowserInfoBarDelegate : public ConfirmInfoBarDelegate {
  public:
-  explicit DefaultBrowserInfoBarDelegate(TabContents* contents)
-      : ConfirmInfoBarDelegate(contents),
-        profile_(contents->profile()),
-        action_taken_(false),
-        should_expire_(false),
-        ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
-    // We want the info-bar to stick-around for few seconds and then be hidden
-    // on the next navigation after that.
-    MessageLoop::current()->PostDelayedTask(FROM_HERE,
-        method_factory_.NewRunnableMethod(
-            &DefaultBrowserInfoBarDelegate::Expire),
-        8000);  // 8 seconds.
-  }
-
-  virtual bool ShouldExpire(
-      const NavigationController::LoadCommittedDetails& details) const {
-    return should_expire_;
-  }
-
-  // Overridden from ConfirmInfoBarDelegate:
-  virtual void InfoBarClosed() {
-    if (!action_taken_)
-      UMA_HISTOGRAM_COUNTS("DefaultBrowserWarning.Ignored", 1);
-    delete this;
-  }
-
-  virtual string16 GetMessageText() const {
-    return l10n_util::GetStringUTF16(IDS_DEFAULT_BROWSER_INFOBAR_SHORT_TEXT);
-  }
-
-  virtual SkBitmap* GetIcon() const {
-    return ResourceBundle::GetSharedInstance().GetBitmapNamed(
-       IDR_PRODUCT_ICON_32);
-  }
-
-  virtual int GetButtons() const {
-    return BUTTON_OK | BUTTON_CANCEL | BUTTON_OK_DEFAULT;
-  }
-
-  virtual string16 GetButtonLabel(InfoBarButton button) const {
-    return button == BUTTON_OK ?
-        l10n_util::GetStringUTF16(IDS_SET_AS_DEFAULT_INFOBAR_BUTTON_LABEL) :
-        l10n_util::GetStringUTF16(IDS_DONT_ASK_AGAIN_INFOBAR_BUTTON_LABEL);
-  }
-
-  virtual bool NeedElevation(InfoBarButton button) const {
-    return button == BUTTON_OK;
-  }
-
-  virtual bool Accept() {
-    action_taken_ = true;
-    UMA_HISTOGRAM_COUNTS("DefaultBrowserWarning.SetAsDefault", 1);
-    g_browser_process->file_thread()->message_loop()->PostTask(FROM_HERE,
-        new SetAsDefaultBrowserTask());
-    return true;
-  }
-
-  virtual bool Cancel() {
-    action_taken_ = true;
-    UMA_HISTOGRAM_COUNTS("DefaultBrowserWarning.DontSetAsDefault", 1);
-    // User clicked "Don't ask me again", remember that.
-    profile_->GetPrefs()->SetBoolean(prefs::kCheckDefaultBrowser, false);
-    return true;
-  }
-
-  void Expire() {
-    should_expire_ = true;
-  }
+  explicit DefaultBrowserInfoBarDelegate(TabContents* contents);
 
  private:
+  virtual ~DefaultBrowserInfoBarDelegate();
+
+  void AllowExpiry() { should_expire_ = true; }
+
+  // ConfirmInfoBarDelegate:
+  virtual bool ShouldExpire(
+      const NavigationController::LoadCommittedDetails& details) const;
+  virtual void InfoBarClosed();
+  virtual SkBitmap* GetIcon() const;
+  virtual string16 GetMessageText() const;
+  virtual string16 GetButtonLabel(InfoBarButton button) const;
+  virtual bool NeedElevation(InfoBarButton button) const;
+  virtual bool Accept();
+  virtual bool Cancel();
+
   // The Profile that we restore sessions from.
   Profile* profile_;
 
@@ -200,87 +163,204 @@ class DefaultBrowserInfoBarDelegate : public ConfirmInfoBarDelegate {
   DISALLOW_COPY_AND_ASSIGN(DefaultBrowserInfoBarDelegate);
 };
 
+DefaultBrowserInfoBarDelegate::DefaultBrowserInfoBarDelegate(
+    TabContents* contents)
+    : ConfirmInfoBarDelegate(contents),
+      profile_(contents->profile()),
+      action_taken_(false),
+      should_expire_(false),
+      ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
+  // We want the info-bar to stick-around for few seconds and then be hidden
+  // on the next navigation after that.
+  MessageLoop::current()->PostDelayedTask(FROM_HERE,
+      method_factory_.NewRunnableMethod(
+          &DefaultBrowserInfoBarDelegate::AllowExpiry), 8000);  // 8 seconds.
+}
+
+DefaultBrowserInfoBarDelegate::~DefaultBrowserInfoBarDelegate() {
+}
+
+bool DefaultBrowserInfoBarDelegate::ShouldExpire(
+    const NavigationController::LoadCommittedDetails& details) const {
+  return should_expire_;
+}
+
+void DefaultBrowserInfoBarDelegate::InfoBarClosed() {
+  if (!action_taken_)
+    UMA_HISTOGRAM_COUNTS("DefaultBrowserWarning.Ignored", 1);
+  delete this;
+}
+
+SkBitmap* DefaultBrowserInfoBarDelegate::GetIcon() const {
+  return ResourceBundle::GetSharedInstance().GetBitmapNamed(
+     IDR_PRODUCT_ICON_32);
+}
+
+string16 DefaultBrowserInfoBarDelegate::GetMessageText() const {
+  return l10n_util::GetStringUTF16(IDS_DEFAULT_BROWSER_INFOBAR_SHORT_TEXT);
+}
+
+string16 DefaultBrowserInfoBarDelegate::GetButtonLabel(
+    InfoBarButton button) const {
+  return l10n_util::GetStringUTF16((button == BUTTON_OK) ?
+      IDS_SET_AS_DEFAULT_INFOBAR_BUTTON_LABEL :
+      IDS_DONT_ASK_AGAIN_INFOBAR_BUTTON_LABEL);
+}
+
+bool DefaultBrowserInfoBarDelegate::NeedElevation(InfoBarButton button) const {
+  return button == BUTTON_OK;
+}
+
+bool DefaultBrowserInfoBarDelegate::Accept() {
+  action_taken_ = true;
+  UMA_HISTOGRAM_COUNTS("DefaultBrowserWarning.SetAsDefault", 1);
+  g_browser_process->file_thread()->message_loop()->PostTask(FROM_HERE,
+      new SetAsDefaultBrowserTask());
+  return true;
+}
+
+bool DefaultBrowserInfoBarDelegate::Cancel() {
+  action_taken_ = true;
+  UMA_HISTOGRAM_COUNTS("DefaultBrowserWarning.DontSetAsDefault", 1);
+  // User clicked "Don't ask me again", remember that.
+  profile_->GetPrefs()->SetBoolean(prefs::kCheckDefaultBrowser, false);
+  return true;
+}
+
+
+// NotifyNotDefaultBrowserTask ------------------------------------------------
+
 class NotifyNotDefaultBrowserTask : public Task {
  public:
-  NotifyNotDefaultBrowserTask() { }
-
-  virtual void Run() {
-    Browser* browser = BrowserList::GetLastActive();
-    if (!browser) {
-      // Reached during ui tests.
-      return;
-    }
-    TabContents* tab = browser->GetSelectedTabContents();
-    // Don't show the info-bar if there are already info-bars showing.
-    // In ChromeBot tests, there might be a race. This line appears to get
-    // called during shutdown and |tab| can be NULL.
-    if (!tab || tab->infobar_delegate_count() > 0)
-      return;
-    tab->AddInfoBar(new DefaultBrowserInfoBarDelegate(tab));
-  }
+  NotifyNotDefaultBrowserTask();
+  virtual ~NotifyNotDefaultBrowserTask();
 
  private:
+  virtual void Run();
+
   DISALLOW_COPY_AND_ASSIGN(NotifyNotDefaultBrowserTask);
 };
 
+NotifyNotDefaultBrowserTask::NotifyNotDefaultBrowserTask() {
+}
+
+NotifyNotDefaultBrowserTask::~NotifyNotDefaultBrowserTask() {
+}
+
+void NotifyNotDefaultBrowserTask::Run() {
+  Browser* browser = BrowserList::GetLastActive();
+  if (!browser)
+    return;  // Reached during ui tests.
+  // Don't show the info-bar if there are already info-bars showing.
+  // In ChromeBot tests, there might be a race. This line appears to get
+  // called during shutdown and |tab| can be NULL.
+  TabContents* tab = browser->GetSelectedTabContents();
+  if (!tab || tab->infobar_count() > 0)
+    return;
+  tab->AddInfoBar(new DefaultBrowserInfoBarDelegate(tab));
+}
+
+
+// CheckDefaultBrowserTask ----------------------------------------------------
+
 class CheckDefaultBrowserTask : public Task {
  public:
-  CheckDefaultBrowserTask() {
-  }
-
-  virtual void Run() {
-    if (ShellIntegration::IsDefaultBrowser())
-      return;
-#if defined(OS_WIN)
-    if (!BrowserDistribution::GetDistribution()->CanSetAsDefault())
-      return;
-#endif
-
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE, new NotifyNotDefaultBrowserTask());
-  }
+  CheckDefaultBrowserTask();
+  virtual ~CheckDefaultBrowserTask();
 
  private:
+  virtual void Run();
+
   DISALLOW_COPY_AND_ASSIGN(CheckDefaultBrowserTask);
 };
 
-// A delegate for the InfoBar shown when the previous session has crashed. The
-// bar deletes itself automatically after it is closed.
+CheckDefaultBrowserTask::CheckDefaultBrowserTask() {
+}
+
+CheckDefaultBrowserTask::~CheckDefaultBrowserTask() {
+}
+
+void CheckDefaultBrowserTask::Run() {
+  if (ShellIntegration::IsDefaultBrowser())
+    return;
+#if defined(OS_WIN)
+  if (!BrowserDistribution::GetDistribution()->CanSetAsDefault())
+    return;
+#endif
+  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+                          new NotifyNotDefaultBrowserTask());
+}
+
+
+// SessionCrashedInfoBarDelegate ----------------------------------------------
+
+// A delegate for the InfoBar shown when the previous session has crashed.
 class SessionCrashedInfoBarDelegate : public ConfirmInfoBarDelegate {
  public:
-  explicit SessionCrashedInfoBarDelegate(TabContents* contents)
-      : ConfirmInfoBarDelegate(contents),
-        profile_(contents->profile()) {
-  }
-
-  // Overridden from ConfirmInfoBarDelegate:
-  virtual void InfoBarClosed() {
-    delete this;
-  }
-  virtual string16 GetMessageText() const {
-    return l10n_util::GetStringUTF16(IDS_SESSION_CRASHED_VIEW_MESSAGE);
-  }
-  virtual SkBitmap* GetIcon() const {
-    return ResourceBundle::GetSharedInstance().GetBitmapNamed(
-        IDR_INFOBAR_RESTORE_SESSION);
-  }
-  virtual int GetButtons() const { return BUTTON_OK; }
-  virtual string16 GetButtonLabel(InfoBarButton button) const {
-    return l10n_util::GetStringUTF16(IDS_SESSION_CRASHED_VIEW_RESTORE_BUTTON);
-  }
-  virtual bool Accept() {
-    // Restore the session.
-    SessionRestore::RestoreSession(profile_, NULL, true, false,
-                                   std::vector<GURL>());
-    return true;
-  }
+  explicit SessionCrashedInfoBarDelegate(TabContents* contents);
 
  private:
+  virtual ~SessionCrashedInfoBarDelegate();
+
+  // ConfirmInfoBarDelegate:
+  virtual void InfoBarClosed();
+  virtual SkBitmap* GetIcon() const;
+  virtual Type GetInfoBarType() const;
+  virtual string16 GetMessageText() const;
+  virtual int GetButtons() const;
+  virtual string16 GetButtonLabel(InfoBarButton button) const;
+  virtual bool Accept();
+
   // The Profile that we restore sessions from.
   Profile* profile_;
 
   DISALLOW_COPY_AND_ASSIGN(SessionCrashedInfoBarDelegate);
 };
+
+SessionCrashedInfoBarDelegate::SessionCrashedInfoBarDelegate(
+    TabContents* contents)
+    : ConfirmInfoBarDelegate(contents),
+      profile_(contents->profile()) {
+}
+
+SessionCrashedInfoBarDelegate::~SessionCrashedInfoBarDelegate() {
+}
+
+void SessionCrashedInfoBarDelegate::InfoBarClosed() {
+  delete this;
+}
+
+SkBitmap* SessionCrashedInfoBarDelegate::GetIcon() const {
+  return ResourceBundle::GetSharedInstance().GetBitmapNamed(
+      IDR_INFOBAR_RESTORE_SESSION);
+}
+
+InfoBarDelegate::Type SessionCrashedInfoBarDelegate::GetInfoBarType() const {
+  return PAGE_ACTION_TYPE;
+}
+
+string16 SessionCrashedInfoBarDelegate::GetMessageText() const {
+  return l10n_util::GetStringUTF16(IDS_SESSION_CRASHED_VIEW_MESSAGE);
+}
+
+int SessionCrashedInfoBarDelegate::GetButtons() const {
+  return BUTTON_OK;
+}
+
+string16 SessionCrashedInfoBarDelegate::GetButtonLabel(
+    InfoBarButton button) const {
+  DCHECK_EQ(BUTTON_OK, button);
+  return l10n_util::GetStringUTF16(IDS_SESSION_CRASHED_VIEW_RESTORE_BUTTON);
+}
+
+bool SessionCrashedInfoBarDelegate::Accept() {
+  SessionRestore::RestoreSession(profile_, NULL, true, false,
+                                 std::vector<GURL>());
+  return true;
+}
+
+
+// Utility functions ----------------------------------------------------------
 
 SessionStartupPref GetSessionStartupPref(const CommandLine& command_line,
                                          Profile* profile) {
@@ -288,7 +368,8 @@ SessionStartupPref GetSessionStartupPref(const CommandLine& command_line,
   if (command_line.HasSwitch(switches::kRestoreLastSession))
     pref.type = SessionStartupPref::LAST;
   if (command_line.HasSwitch(switches::kIncognito) &&
-      pref.type == SessionStartupPref::LAST) {
+      pref.type == SessionStartupPref::LAST &&
+      profile->GetPrefs()->GetBoolean(prefs::kIncognitoEnabled)) {
     // We don't store session information when incognito. If the user has
     // chosen to restore last session and launched incognito, fallback to
     // default launch behavior.
@@ -367,6 +448,9 @@ void UrlsToTabs(const std::vector<GURL>& urls,
 
 }  // namespace
 
+
+// BrowserInit ----------------------------------------------------------------
+
 BrowserInit::BrowserInit() {}
 
 BrowserInit::~BrowserInit() {}
@@ -399,11 +483,15 @@ bool BrowserInit::LaunchBrowser(const CommandLine& command_line,
 #endif
 
   // Continue with the off-the-record profile from here on if --incognito
-  if (command_line.HasSwitch(switches::kIncognito))
+  if (command_line.HasSwitch(switches::kIncognito) &&
+      profile->GetPrefs()->GetBoolean(prefs::kIncognitoEnabled)) {
     profile = profile->GetOffTheRecordProfile();
+  }
 
   BrowserInit::LaunchWithProfile lwp(cur_dir, command_line, this);
-  bool launched = lwp.Launch(profile, process_startup);
+  std::vector<GURL> urls_to_launch = BrowserInit::GetURLsFromCommandLine(
+      command_line, cur_dir, profile);
+  bool launched = lwp.Launch(profile, urls_to_launch, process_startup);
   in_startup = false;
 
   if (!launched) {
@@ -472,13 +560,15 @@ bool BrowserInit::LaunchBrowser(const CommandLine& command_line,
   return true;
 }
 
-// Tab ------------------------------------------------------------------------
+
+// BrowserInit::LaunchWithProfile::Tab ----------------------------------------
 
 BrowserInit::LaunchWithProfile::Tab::Tab() : is_app(false), is_pinned(true) {}
 
 BrowserInit::LaunchWithProfile::Tab::~Tab() {}
 
-// LaunchWithProfile ----------------------------------------------------------
+
+// BrowserInit::LaunchWithProfile ---------------------------------------------
 
 BrowserInit::LaunchWithProfile::LaunchWithProfile(
     const FilePath& cur_dir,
@@ -502,8 +592,10 @@ BrowserInit::LaunchWithProfile::LaunchWithProfile(
 BrowserInit::LaunchWithProfile::~LaunchWithProfile() {
 }
 
-bool BrowserInit::LaunchWithProfile::Launch(Profile* profile,
-                                            bool process_startup) {
+bool BrowserInit::LaunchWithProfile::Launch(
+    Profile* profile,
+    const std::vector<GURL>& urls_to_open,
+    bool process_startup) {
   DCHECK(profile);
   profile_ = profile;
 
@@ -519,18 +611,24 @@ bool BrowserInit::LaunchWithProfile::Launch(Profile* profile,
     std::string port_str =
         command_line_.GetSwitchValueASCII(switches::kRemoteShellPort);
     int64 port;
-    if (base::StringToInt64(port_str, &port) && port > 0 && port < 65535)
-      g_browser_process->InitDebuggerWrapper(static_cast<int>(port), false);
-    else
+    if (base::StringToInt64(port_str, &port) && port > 0 && port < 65535) {
+      g_browser_process->InitDevToolsLegacyProtocolHandler(
+          static_cast<int>(port));
+    } else {
       DLOG(WARNING) << "Invalid remote shell port number " << port;
+    }
   } else if (command_line_.HasSwitch(switches::kRemoteDebuggingPort)) {
     std::string port_str =
         command_line_.GetSwitchValueASCII(switches::kRemoteDebuggingPort);
     int64 port;
-    if (base::StringToInt64(port_str, &port) && port > 0 && port < 65535)
-      g_browser_process->InitDebuggerWrapper(static_cast<int>(port), true);
-    else
+    if (base::StringToInt64(port_str, &port) && port > 0 && port < 65535) {
+      g_browser_process->InitDevToolsHttpProtocolHandler(
+          "127.0.0.1",
+          static_cast<int>(port),
+          "");
+    } else {
       DLOG(WARNING) << "Invalid http debugger port number " << port;
+    }
   }
 
   if (command_line_.HasSwitch(switches::kUserAgent)) {
@@ -541,7 +639,6 @@ bool BrowserInit::LaunchWithProfile::Launch(Profile* profile,
   // Open the required browser windows and tabs.
   // First, see if we're being run as an application window.
   if (!OpenApplicationWindow(profile)) {
-    std::vector<GURL> urls_to_open = GetURLsFromCommandLine(profile_);
     RecordLaunchModeHistogram(urls_to_open.empty()?
                               LM_TO_BE_DECIDED : LM_WITH_URLS);
     ProcessLaunchURLs(process_startup, urls_to_open);
@@ -843,10 +940,13 @@ void BrowserInit::LaunchWithProfile::AddBadFlagsInfoBarIfNecessary(
   // Unsupported flags for which to display a warning that "stability and
   // security will suffer".
   static const char* kBadFlags[] = {
-    // All imply disabling the sandbox.
+    // These imply disabling the sandbox.
     switches::kSingleProcess,
     switches::kNoSandbox,
     switches::kInProcessWebGL,
+    // These are scary features for developers that shouldn't be turned on
+    // persistently.
+    switches::kEnableNaCl,
     NULL
   };
 
@@ -859,63 +959,11 @@ void BrowserInit::LaunchWithProfile::AddBadFlagsInfoBarIfNecessary(
   }
 
   if (bad_flag) {
-    tab->AddInfoBar(new SimpleAlertInfoBarDelegate(tab,
+    tab->AddInfoBar(new SimpleAlertInfoBarDelegate(tab, NULL,
         l10n_util::GetStringFUTF16(IDS_BAD_FLAGS_WARNING_MESSAGE,
                                    UTF8ToUTF16(std::string("--") + bad_flag)),
-        NULL, false));
+        false));
   }
-}
-
-std::vector<GURL> BrowserInit::LaunchWithProfile::GetURLsFromCommandLine(
-    Profile* profile) {
-  std::vector<GURL> urls;
-  const std::vector<CommandLine::StringType>& params = command_line_.args();
-
-  for (size_t i = 0; i < params.size(); ++i) {
-    FilePath param = FilePath(params[i]);
-    // Handle Vista way of searching - "? <search-term>"
-    if (param.value().find(FILE_PATH_LITERAL("? ")) == 0) {
-      const TemplateURL* default_provider =
-          profile->GetTemplateURLModel()->GetDefaultSearchProvider();
-      if (!default_provider || !default_provider->url()) {
-        // No search provider available. Just treat this as regular URL.
-        urls.push_back(URLFixerUpper::FixupRelativeFile(cur_dir_, param));
-        continue;
-      }
-      const TemplateURLRef* search_url = default_provider->url();
-      DCHECK(search_url->SupportsReplacement());
-      std::wstring search_term = param.ToWStringHack().substr(2);
-      urls.push_back(GURL(search_url->ReplaceSearchTerms(
-          *default_provider, search_term,
-          TemplateURLRef::NO_SUGGESTIONS_AVAILABLE, std::wstring())));
-    } else {
-      // This will create a file URL or a regular URL.
-      // This call can (in rare circumstances) block the UI thread.
-      // Allow it until this bug is fixed.
-      //  http://code.google.com/p/chromium/issues/detail?id=60641
-      GURL url;
-      {
-        base::ThreadRestrictions::ScopedAllowIO allow_io;
-        url = URLFixerUpper::FixupRelativeFile(cur_dir_, param);
-      }
-      // Exclude dangerous schemes.
-      if (url.is_valid()) {
-        ChildProcessSecurityPolicy *policy =
-            ChildProcessSecurityPolicy::GetInstance();
-        if (policy->IsWebSafeScheme(url.scheme()) ||
-            url.SchemeIs(chrome::kFileScheme) ||
-#if defined(OS_CHROMEOS)
-            // In ChromeOS, allow a settings page to be specified on the
-            // command line. See ExistingUserController::OnLoginSuccess.
-            (url.spec().find(chrome::kChromeUISettingsURL) == 0) ||
-#endif
-            (url.spec().compare(chrome::kAboutBlankURL) == 0)) {
-          urls.push_back(url);
-        }
-      }
-    }
-  }
-  return urls;
 }
 
 void BrowserInit::LaunchWithProfile::AddStartupURLs(
@@ -962,12 +1010,80 @@ void BrowserInit::LaunchWithProfile::CheckDefaultBrowser(Profile* profile) {
   // We do not check if we are the default browser if:
   // - the user said "don't ask me again" on the infobar earlier.
   // - this is the first launch after the first run flow.
+  // - There is a policy in control of this setting.
   if (!profile->GetPrefs()->GetBoolean(prefs::kCheckDefaultBrowser) ||
       FirstRun::IsChromeFirstRun()) {
     return;
   }
+  if (g_browser_process->local_state()->IsManagedPreference(
+      prefs::kDefaultBrowserSettingEnabled)) {
+    if (g_browser_process->local_state()->GetBoolean(
+        prefs::kDefaultBrowserSettingEnabled)) {
+      BrowserThread::PostTask(
+          BrowserThread::FILE, FROM_HERE, NewRunnableFunction(
+              &ShellIntegration::SetAsDefaultBrowser));
+    } else {
+      // TODO(pastarmovj): We can't really do anything meaningful here yet but
+      // just prevent showing the infobar.
+    }
+    return;
+  }
   BrowserThread::PostTask(
       BrowserThread::FILE, FROM_HERE, new CheckDefaultBrowserTask());
+}
+
+std::vector<GURL> BrowserInit::GetURLsFromCommandLine(
+    const CommandLine& command_line,
+    const FilePath& cur_dir,
+    Profile* profile) {
+  std::vector<GURL> urls;
+  const std::vector<CommandLine::StringType>& params = command_line.args();
+
+  for (size_t i = 0; i < params.size(); ++i) {
+    FilePath param = FilePath(params[i]);
+    // Handle Vista way of searching - "? <search-term>"
+    if (param.value().find(FILE_PATH_LITERAL("? ")) == 0) {
+      const TemplateURL* default_provider =
+          profile->GetTemplateURLModel()->GetDefaultSearchProvider();
+      if (!default_provider || !default_provider->url()) {
+        // No search provider available. Just treat this as regular URL.
+        urls.push_back(URLFixerUpper::FixupRelativeFile(cur_dir, param));
+        continue;
+      }
+      const TemplateURLRef* search_url = default_provider->url();
+      DCHECK(search_url->SupportsReplacement());
+      std::wstring search_term = param.ToWStringHack().substr(2);
+      urls.push_back(GURL(search_url->ReplaceSearchTerms(
+          *default_provider, WideToUTF16Hack(search_term),
+          TemplateURLRef::NO_SUGGESTIONS_AVAILABLE, string16())));
+    } else {
+      // This will create a file URL or a regular URL.
+      // This call can (in rare circumstances) block the UI thread.
+      // Allow it until this bug is fixed.
+      //  http://code.google.com/p/chromium/issues/detail?id=60641
+      GURL url;
+      {
+        base::ThreadRestrictions::ScopedAllowIO allow_io;
+        url = URLFixerUpper::FixupRelativeFile(cur_dir, param);
+      }
+      // Exclude dangerous schemes.
+      if (url.is_valid()) {
+        ChildProcessSecurityPolicy *policy =
+            ChildProcessSecurityPolicy::GetInstance();
+        if (policy->IsWebSafeScheme(url.scheme()) ||
+            url.SchemeIs(chrome::kFileScheme) ||
+#if defined(OS_CHROMEOS)
+            // In ChromeOS, allow a settings page to be specified on the
+            // command line. See ExistingUserController::OnLoginSuccess.
+            (url.spec().find(chrome::kChromeUISettingsURL) == 0) ||
+#endif
+            (url.spec().compare(chrome::kAboutBlankURL) == 0)) {
+          urls.push_back(url);
+        }
+      }
+    }
+  }
+  return urls;
 }
 
 bool BrowserInit::ProcessCmdLineImpl(const CommandLine& command_line,
@@ -992,13 +1108,21 @@ bool BrowserInit::ProcessCmdLineImpl(const CommandLine& command_line,
       int expected_tab_count = 1;
       if (command_line.HasSwitch(switches::kNoStartupWindow)) {
         expected_tab_count = 0;
+#if defined(OS_CHROMEOS)
+      // kLoginManager will cause Chrome to start up with the ChromeOS login
+      // screen instead of a browser window, so it won't load any tabs.
+      } else if (command_line.HasSwitch(switches::kLoginManager)) {
+        expected_tab_count = 0;
+#endif
       } else if (command_line.HasSwitch(switches::kRestoreLastSession)) {
         std::string restore_session_value(
             command_line.GetSwitchValueASCII(switches::kRestoreLastSession));
         base::StringToInt(restore_session_value, &expected_tab_count);
       } else {
+        std::vector<GURL> urls_to_open = GetURLsFromCommandLine(
+            command_line, cur_dir, profile);
         expected_tab_count =
-            std::max(1, static_cast<int>(command_line.args().size()));
+            std::max(1, static_cast<int>(urls_to_open.size()));
       }
       if (!CreateAutomationProvider<TestingAutomationProvider>(
           testing_channel_id,
@@ -1015,8 +1139,10 @@ bool BrowserInit::ProcessCmdLineImpl(const CommandLine& command_line,
         switches::kAutomationClientChannelID);
     // If there are any extra parameters, we expect each one to generate a
     // new tab; if there are none then we have no tabs
+    std::vector<GURL> urls_to_open = GetURLsFromCommandLine(
+        command_line, cur_dir, profile);
     size_t expected_tabs =
-        std::max(static_cast<int>(command_line.args().size()), 0);
+        std::max(static_cast<int>(urls_to_open.size()), 0);
     if (expected_tabs == 0)
       silent_launch = true;
 
@@ -1037,6 +1163,12 @@ bool BrowserInit::ProcessCmdLineImpl(const CommandLine& command_line,
     silent_launch = true;
     profile->GetCloudPrintProxyService()->ShowTokenExpiredNotification();
   }
+  // If we are just displaying a print dialog we shouldn't open browser
+  // windows.
+  if (!command_line.GetSwitchValuePath(switches::kCloudPrintFile).empty()) {
+    silent_launch = true;
+  }
+
 
   if (command_line.HasSwitch(switches::kExplicitlyAllowedPorts)) {
     std::string allowed_ports =

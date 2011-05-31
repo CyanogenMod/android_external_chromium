@@ -13,7 +13,7 @@
 #include "chrome/browser/chromeos/frame/panel_controller.h"
 #include "chrome/browser/chromeos/notifications/balloon_collection_impl.h"
 #include "chrome/common/notification_registrar.h"
-#include "gfx/rect.h"
+#include "ui/gfx/rect.h"
 
 class Balloon;
 class Notification;
@@ -97,9 +97,10 @@ class NotificationPanel : public PanelController::Delegate,
                                   const gfx::Size& size);
   virtual void SetActiveView(BalloonViewImpl* view);
 
-  // PanelController overrides.
+  // PanelController::Delegate overrides.
   virtual string16 GetPanelTitle();
   virtual SkBitmap GetPanelIcon();
+  virtual bool CanClosePanel();
   virtual void ClosePanel();
 
   // NotificationObserver overrides:

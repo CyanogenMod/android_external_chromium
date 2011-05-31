@@ -9,36 +9,55 @@
 
 #include "chrome/browser/extensions/extension_function.h"
 
+namespace net {
+class ProxyServer;
+}
+
 class DictionaryValue;
 
-class UseCustomProxySettingsFunction : public SyncExtensionFunction {
+class ProxySettingsFunction : public SyncExtensionFunction {
  public:
-  ~UseCustomProxySettingsFunction() {}
+  virtual ~ProxySettingsFunction() {}
+  virtual bool RunImpl() = 0;
+ protected:
+  // Takes ownership of |pref_value|.
+  void ApplyPreference(
+      const char* pref_path, Value* pref_value, bool incognito);
+  void RemovePreference(const char* pref_path, bool incognito);
+};
+
+class UseCustomProxySettingsFunction : public ProxySettingsFunction {
+ public:
+  virtual ~UseCustomProxySettingsFunction() {}
   virtual bool RunImpl();
 
   DECLARE_EXTENSION_FUNCTION_NAME("experimental.proxy.useCustomProxySettings")
+};
 
+class RemoveCustomProxySettingsFunction : public ProxySettingsFunction {
+ public:
+  virtual ~RemoveCustomProxySettingsFunction() {}
+  virtual bool RunImpl();
+
+  DECLARE_EXTENSION_FUNCTION_NAME(
+      "experimental.proxy.removeCustomProxySettings")
+};
+
+class GetCurrentProxySettingsFunction : public ProxySettingsFunction {
+ public:
+  virtual ~GetCurrentProxySettingsFunction() {}
+  virtual bool RunImpl();
+
+  DECLARE_EXTENSION_FUNCTION_NAME(
+      "experimental.proxy.getCurrentProxySettings")
  private:
-  struct ProxyServer {
-    enum {
-      INVALID_PORT = -1
-    };
-    ProxyServer() : scheme("http"), host(""), port(INVALID_PORT) {}
-
-    // The scheme of the proxy URI itself.
-    std::string scheme;
-    std::string host;
-    int port;
-  };
-
-  bool GetProxyServer(const DictionaryValue* dict, ProxyServer* proxy_server);
-
-  bool ApplyMode(const std::string& mode);
-  bool ApplyPacScript(DictionaryValue* pac_dict);
-  bool ApplyProxyRules(DictionaryValue* proxy_rules);
-
-  // Takes ownership of |pref_value|.
-  void ApplyPreference(const char* pref_path, Value* pref_value);
+  // Convert the representation of a proxy configuration from the format
+  // that is stored in the pref stores to the format that is used by the API.
+  // See ProxyServer type defined in |experimental.proxy|.
+  bool ConvertToApiFormat(const DictionaryValue* proxy_prefs,
+                          DictionaryValue* api_proxy_config) const;
+  bool ParseRules(const std::string& rules, DictionaryValue* out) const;
+  DictionaryValue* ConvertToDictionary(const net::ProxyServer& proxy) const;
 };
 
 #endif  // CHROME_BROWSER_EXTENSIONS_EXTENSION_PROXY_API_H_

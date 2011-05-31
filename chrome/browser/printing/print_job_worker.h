@@ -10,9 +10,9 @@
 #include "base/scoped_ptr.h"
 #include "base/task.h"
 #include "base/threading/thread.h"
-#include "gfx/native_widget_types.h"
 #include "printing/page_number.h"
 #include "printing/printing_context.h"
+#include "ui/gfx/native_widget_types.h"
 
 namespace printing {
 
@@ -56,9 +56,6 @@ class PrintJobWorker : public base::Thread {
 
   // This is the only function that can be called in a thread.
   void Cancel();
-
-  // Cancels the Print... dialog box if shown, noop otherwise.
-  void DismissDialog();
 
  protected:
   // Retrieves the context for testing only.

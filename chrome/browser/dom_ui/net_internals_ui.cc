@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,6 @@
 #include <utility>
 #include <vector>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/message_loop.h"
@@ -30,6 +28,9 @@
 #include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/tab_contents/tab_contents_view.h"
+#include "chrome/browser/ui/shell_dialogs.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/jstemplate_builder.h"
@@ -43,11 +44,16 @@
 #include "net/base/net_util.h"
 #include "net/base/sys_addrinfo.h"
 #include "net/disk_cache/disk_cache.h"
+#include "net/http/http_alternate_protocols.h"
 #include "net/http/http_cache.h"
+#include "net/http/http_stream_factory.h"
 #include "net/http/http_network_layer.h"
 #include "net/http/http_network_session.h"
 #include "net/proxy/proxy_service.h"
 #include "net/url_request/url_request_context.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+
 #ifdef OS_WIN
 #include "chrome/browser/net/service_providers_win.h"
 #endif
@@ -61,7 +67,7 @@ const int kNetLogEventDelayMilliseconds = 100;
 
 // Returns the HostCache for |context|'s primary HostResolver, or NULL if
 // there is none.
-net::HostCache* GetHostResolverCache(URLRequestContext* context) {
+net::HostCache* GetHostResolverCache(net::URLRequestContext* context) {
   net::HostResolverImpl* host_resolver_impl =
       context->host_resolver()->GetAsHostResolverImpl();
 
@@ -72,7 +78,7 @@ net::HostCache* GetHostResolverCache(URLRequestContext* context) {
 }
 
 // Returns the disk cache backend for |context| if there is one, or NULL.
-disk_cache::Backend* GetDiskCacheBackend(URLRequestContext* context) {
+disk_cache::Backend* GetDiskCacheBackend(net::URLRequestContext* context) {
   if (!context->http_transaction_factory())
     return NULL;
 
@@ -85,7 +91,8 @@ disk_cache::Backend* GetDiskCacheBackend(URLRequestContext* context) {
 
 // Returns the http network session for |context| if there is one.
 // Otherwise, returns NULL.
-net::HttpNetworkSession* GetHttpNetworkSession(URLRequestContext* context) {
+net::HttpNetworkSession* GetHttpNetworkSession(
+    net::URLRequestContext* context) {
   if (!context->http_transaction_factory())
     return NULL;
 
@@ -124,7 +131,7 @@ class NetInternalsHTMLSource : public ChromeURLDataManager::DataSource {
 };
 
 // This class receives javascript messages from the renderer.
-// Note that the DOMUI infrastructure runs on the UI thread, therefore all of
+// Note that the WebUI infrastructure runs on the UI thread, therefore all of
 // this class's methods are expected to run on the UI thread.
 //
 // Since the network code we want to run lives on the IO thread, we proxy
@@ -133,14 +140,15 @@ class NetInternalsHTMLSource : public ChromeURLDataManager::DataSource {
 //
 // TODO(eroman): Can we start on the IO thread to begin with?
 class NetInternalsMessageHandler
-    : public DOMMessageHandler,
+    : public WebUIMessageHandler,
+      public SelectFileDialog::Listener,
       public base::SupportsWeakPtr<NetInternalsMessageHandler> {
  public:
   NetInternalsMessageHandler();
   virtual ~NetInternalsMessageHandler();
 
-  // DOMMessageHandler implementation.
-  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+  // WebUIMessageHandler implementation.
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
   virtual void RegisterMessages();
 
   // Executes the javascript function |function_name| in the renderer, passing
@@ -148,20 +156,51 @@ class NetInternalsMessageHandler
   void CallJavascriptFunction(const std::wstring& function_name,
                               const Value* value);
 
+  // SelectFileDialog::Listener implementation
+  virtual void FileSelected(const FilePath& path, int index, void* params);
+  virtual void FileSelectionCanceled(void* params);
+
+  // The only callback handled on the UI thread.  As it needs to access fields
+  // from |web_ui_|, it can't be called on the IO thread.
+  void OnLoadLogFile(const ListValue* list);
+
  private:
   class IOThreadImpl;
 
+  // Task run on the FILE thread to read the contents of a log file.  The result
+  // is then passed to IOThreadImpl's CallJavascriptFunction, which sends it
+  // back to the web page.  IOThreadImpl is used instead of the
+  // NetInternalsMessageHandler directly because it checks if the message
+  // handler has been destroyed in the meantime.
+  class ReadLogFileTask : public Task {
+   public:
+    ReadLogFileTask(IOThreadImpl* proxy, const FilePath& path);
+
+    virtual void Run();
+
+   private:
+    // IOThreadImpl implements existence checks already.  Simpler to reused them
+    // then to reimplement them.
+    scoped_refptr<IOThreadImpl> proxy_;
+
+    // Path of the file to open.
+    const FilePath path_;
+  };
+
   // This is the "real" message handler, which lives on the IO thread.
   scoped_refptr<IOThreadImpl> proxy_;
+
+  // Used for loading log files.
+  scoped_refptr<SelectFileDialog> select_log_file_dialog_;
 
   DISALLOW_COPY_AND_ASSIGN(NetInternalsMessageHandler);
 };
 
 // This class is the "real" message handler. It is allocated and destroyed on
-// the UI thread.  With the exception of OnAddEntry, OnDOMUIDeleted, and
+// the UI thread.  With the exception of OnAddEntry, OnWebUIDeleted, and
 // CallJavascriptFunction, its methods are all expected to be called from the IO
 // thread.  OnAddEntry and CallJavascriptFunction can be called from any thread,
-// and OnDOMUIDeleted can only be called from the UI thread.
+// and OnWebUIDeleted can only be called from the UI thread.
 class NetInternalsMessageHandler::IOThreadImpl
     : public base::RefCountedThreadSafe<
           NetInternalsMessageHandler::IOThreadImpl,
@@ -173,10 +212,10 @@ class NetInternalsMessageHandler::IOThreadImpl
   typedef void (IOThreadImpl::*MessageHandler)(const ListValue*);
 
   // Creates a proxy for |handler| that will live on the IO thread.
-  // |handler| is a weak pointer, since it is possible for the DOMMessageHandler
-  // to be deleted on the UI thread while we were executing on the IO thread.
-  // |io_thread| is the global IOThread (it is passed in as an argument since
-  // we need to grab it from the UI thread).
+  // |handler| is a weak pointer, since it is possible for the
+  // WebUIMessageHandler to be deleted on the UI thread while we were executing
+  // on the IO thread. |io_thread| is the global IOThread (it is passed in as
+  // an argument since we need to grab it from the UI thread).
   IOThreadImpl(
       const base::WeakPtr<NetInternalsMessageHandler>& handler,
       IOThread* io_thread,
@@ -186,11 +225,11 @@ class NetInternalsMessageHandler::IOThreadImpl
 
   // Creates a callback that will run |method| on the IO thread.
   //
-  // This can be used with DOMUI::RegisterMessageCallback() to bind to a method
+  // This can be used with WebUI::RegisterMessageCallback() to bind to a method
   // on the IO thread.
-  DOMUI::MessageCallback* CreateCallback(MessageHandler method);
+  WebUI::MessageCallback* CreateCallback(MessageHandler method);
 
-  // Called once the DOMUI has been deleted (i.e. renderer went away), on the
+  // Called once the WebUI has been deleted (i.e. renderer went away), on the
   // IO thread.
   void Detach();
 
@@ -198,9 +237,9 @@ class NetInternalsMessageHandler::IOThreadImpl
   // handler, called on the IO thread.
   void SendPassiveLogEntries(const ChromeNetLog::EntryList& passive_entries);
 
-  // Called when the DOMUI is deleted.  Prevents calling Javascript functions
+  // Called when the WebUI is deleted.  Prevents calling Javascript functions
   // afterwards.  Called on UI thread.
-  void OnDOMUIDeleted();
+  void OnWebUIDeleted();
 
   //--------------------------------
   // Javascript message handlers:
@@ -219,6 +258,8 @@ class NetInternalsMessageHandler::IOThreadImpl
   void OnGetHttpCacheInfo(const ListValue* list);
   void OnGetSocketPoolInfo(const ListValue* list);
   void OnGetSpdySessionInfo(const ListValue* list);
+  void OnGetSpdyStatus(const ListValue* list);
+  void OnGetSpdyAlternateProtocolMappings(const ListValue* list);
 #ifdef OS_WIN
   void OnGetServiceProviders(const ListValue* list);
 #endif
@@ -241,16 +282,16 @@ class NetInternalsMessageHandler::IOThreadImpl
       int result);
   virtual void OnCompletedConnectionTestSuite();
 
+  // Helper that executes |function_name| in the attached renderer.
+  // The function takes ownership of |arg|.  Note that this can be called from
+  // any thread.
+  void CallJavascriptFunction(const std::wstring& function_name, Value* arg);
+
  private:
   class CallbackHelper;
 
   // Helper that runs |method| with |arg|, and deletes |arg| on completion.
   void DispatchToMessageHandler(ListValue* arg, MessageHandler method);
-
-  // Helper that executes |function_name| in the attached renderer.
-  // The function takes ownership of |arg|.  Note that this can be called from
-  // any thread.
-  void CallJavascriptFunction(const std::wstring& function_name, Value* arg);
 
   // Adds |entry| to the queue of pending log entries to be sent to the page via
   // Javascript.  Must be called on the IO Thread.  Also creates a delayed task
@@ -275,13 +316,13 @@ class NetInternalsMessageHandler::IOThreadImpl
   // Helper that runs the suite of connection tests.
   scoped_ptr<ConnectionTester> connection_tester_;
 
-  // True if the DOM UI has been deleted.  This is used to prevent calling
-  // Javascript functions after the DOM UI is destroyed.  On refresh, the
+  // True if the Web UI has been deleted.  This is used to prevent calling
+  // Javascript functions after the Web UI is destroyed.  On refresh, the
   // messages can end up being sent to the refreshed page, causing duplicate
   // or partial entries.
   //
   // This is only read and written to on the UI thread.
-  bool was_domui_deleted_;
+  bool was_webui_deleted_;
 
   // True if we have attached an observer to the NetLog already.
   bool is_observing_log_;
@@ -293,10 +334,10 @@ class NetInternalsMessageHandler::IOThreadImpl
   scoped_ptr<ListValue> pending_entries_;
 };
 
-// Helper class for a DOMUI::MessageCallback which when excuted calls
+// Helper class for a WebUI::MessageCallback which when excuted calls
 // instance->*method(value) on the IO thread.
 class NetInternalsMessageHandler::IOThreadImpl::CallbackHelper
-    : public DOMUI::MessageCallback {
+    : public WebUI::MessageCallback {
  public:
   CallbackHelper(IOThreadImpl* instance, IOThreadImpl::MessageHandler method)
       : instance_(instance),
@@ -391,67 +432,103 @@ NetInternalsMessageHandler::NetInternalsMessageHandler() {}
 
 NetInternalsMessageHandler::~NetInternalsMessageHandler() {
   if (proxy_) {
-    proxy_.get()->OnDOMUIDeleted();
+    proxy_.get()->OnWebUIDeleted();
     // Notify the handler on the IO thread that the renderer is gone.
     BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
         NewRunnableMethod(proxy_.get(), &IOThreadImpl::Detach));
   }
+  if (select_log_file_dialog_)
+    select_log_file_dialog_->ListenerDestroyed();
 }
 
-DOMMessageHandler* NetInternalsMessageHandler::Attach(DOMUI* dom_ui) {
+WebUIMessageHandler* NetInternalsMessageHandler::Attach(WebUI* web_ui) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   proxy_ = new IOThreadImpl(this->AsWeakPtr(), g_browser_process->io_thread(),
-                            dom_ui->GetProfile()->GetRequestContext());
-  DOMMessageHandler* result = DOMMessageHandler::Attach(dom_ui);
+                            web_ui->GetProfile()->GetRequestContext());
+  WebUIMessageHandler* result = WebUIMessageHandler::Attach(web_ui);
   return result;
+}
+
+void NetInternalsMessageHandler::FileSelected(
+    const FilePath& path, int index, void* params) {
+  select_log_file_dialog_.release();
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
+      new ReadLogFileTask(proxy_.get(), path));
+}
+
+void NetInternalsMessageHandler::FileSelectionCanceled(void* params) {
+  select_log_file_dialog_.release();
+}
+
+void NetInternalsMessageHandler::OnLoadLogFile(const ListValue* list) {
+  // Only allow a single dialog at a time.
+  if (select_log_file_dialog_.get())
+    return;
+  select_log_file_dialog_ = SelectFileDialog::Create(this);
+  select_log_file_dialog_->SelectFile(
+      SelectFileDialog::SELECT_OPEN_FILE, string16(), FilePath(), NULL, 0,
+      FILE_PATH_LITERAL(""),
+      web_ui_->tab_contents()->view()->GetTopLevelNativeWindow(), NULL);
 }
 
 void NetInternalsMessageHandler::RegisterMessages() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  // Only callback handled on UI thread.
+  web_ui_->RegisterMessageCallback(
+      "loadLogFile",
+      NewCallback(this, &NetInternalsMessageHandler::OnLoadLogFile));
 
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "notifyReady",
       proxy_->CreateCallback(&IOThreadImpl::OnRendererReady));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "getProxySettings",
       proxy_->CreateCallback(&IOThreadImpl::OnGetProxySettings));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "reloadProxySettings",
       proxy_->CreateCallback(&IOThreadImpl::OnReloadProxySettings));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "getBadProxies",
       proxy_->CreateCallback(&IOThreadImpl::OnGetBadProxies));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "clearBadProxies",
       proxy_->CreateCallback(&IOThreadImpl::OnClearBadProxies));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "getHostResolverInfo",
       proxy_->CreateCallback(&IOThreadImpl::OnGetHostResolverInfo));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "clearHostResolverCache",
       proxy_->CreateCallback(&IOThreadImpl::OnClearHostResolverCache));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "enableIPv6",
       proxy_->CreateCallback(&IOThreadImpl::OnEnableIPv6));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "startConnectionTests",
       proxy_->CreateCallback(&IOThreadImpl::OnStartConnectionTests));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "getHttpCacheInfo",
       proxy_->CreateCallback(&IOThreadImpl::OnGetHttpCacheInfo));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "getSocketPoolInfo",
       proxy_->CreateCallback(&IOThreadImpl::OnGetSocketPoolInfo));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "getSpdySessionInfo",
       proxy_->CreateCallback(&IOThreadImpl::OnGetSpdySessionInfo));
+  web_ui_->RegisterMessageCallback(
+      "getSpdyStatus",
+      proxy_->CreateCallback(&IOThreadImpl::OnGetSpdyStatus));
+  web_ui_->RegisterMessageCallback(
+      "getSpdyAlternateProtocolMappings",
+      proxy_->CreateCallback(
+          &IOThreadImpl::OnGetSpdyAlternateProtocolMappings));
 #ifdef OS_WIN
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "getServiceProviders",
       proxy_->CreateCallback(&IOThreadImpl::OnGetServiceProviders));
 #endif
 
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "setLogLevel",
       proxy_->CreateCallback(&IOThreadImpl::OnSetLogLevel));
 }
@@ -461,10 +538,29 @@ void NetInternalsMessageHandler::CallJavascriptFunction(
     const Value* value) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (value) {
-    dom_ui_->CallJavascriptFunction(function_name, *value);
+    web_ui_->CallJavascriptFunction(function_name, *value);
   } else {
-    dom_ui_->CallJavascriptFunction(function_name);
+    web_ui_->CallJavascriptFunction(function_name);
   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// NetInternalsMessageHandler::ReadLogFileTask
+//
+////////////////////////////////////////////////////////////////////////////////
+
+NetInternalsMessageHandler::ReadLogFileTask::ReadLogFileTask(
+    IOThreadImpl* proxy, const FilePath& path)
+    : proxy_(proxy), path_(path) {
+}
+
+void NetInternalsMessageHandler::ReadLogFileTask::Run() {
+  std::string file_contents;
+  if (!file_util::ReadFileToString(path_, &file_contents))
+    return;
+  proxy_->CallJavascriptFunction(L"g_browser.loadedLogFile",
+                                 new StringValue(file_contents));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -481,7 +577,7 @@ NetInternalsMessageHandler::IOThreadImpl::IOThreadImpl(
       handler_(handler),
       io_thread_(io_thread),
       context_getter_(context_getter),
-      was_domui_deleted_(false),
+      was_webui_deleted_(false),
       is_observing_log_(false) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 }
@@ -490,7 +586,7 @@ NetInternalsMessageHandler::IOThreadImpl::~IOThreadImpl() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 }
 
-DOMUI::MessageCallback*
+WebUI::MessageCallback*
 NetInternalsMessageHandler::IOThreadImpl::CreateCallback(
     MessageHandler method) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
@@ -524,9 +620,9 @@ void NetInternalsMessageHandler::IOThreadImpl::SendPassiveLogEntries(
   CallJavascriptFunction(L"g_browser.receivedPassiveLogEntries", dict_list);
 }
 
-void NetInternalsMessageHandler::IOThreadImpl::OnDOMUIDeleted() {
+void NetInternalsMessageHandler::IOThreadImpl::OnWebUIDeleted() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  was_domui_deleted_ = true;
+  was_webui_deleted_ = true;
 }
 
 void NetInternalsMessageHandler::IOThreadImpl::OnRendererReady(
@@ -691,7 +787,7 @@ void NetInternalsMessageHandler::IOThreadImpl::OnRendererReady(
 
 void NetInternalsMessageHandler::IOThreadImpl::OnGetProxySettings(
     const ListValue* list) {
-  URLRequestContext* context = context_getter_->GetURLRequestContext();
+  net::URLRequestContext* context = context_getter_->GetURLRequestContext();
   net::ProxyService* proxy_service = context->proxy_service();
 
   DictionaryValue* dict = new DictionaryValue();
@@ -705,7 +801,7 @@ void NetInternalsMessageHandler::IOThreadImpl::OnGetProxySettings(
 
 void NetInternalsMessageHandler::IOThreadImpl::OnReloadProxySettings(
     const ListValue* list) {
-  URLRequestContext* context = context_getter_->GetURLRequestContext();
+  net::URLRequestContext* context = context_getter_->GetURLRequestContext();
   context->proxy_service()->ForceReloadProxyConfig();
 
   // Cause the renderer to be notified of the new values.
@@ -714,7 +810,7 @@ void NetInternalsMessageHandler::IOThreadImpl::OnReloadProxySettings(
 
 void NetInternalsMessageHandler::IOThreadImpl::OnGetBadProxies(
     const ListValue* list) {
-  URLRequestContext* context = context_getter_->GetURLRequestContext();
+  net::URLRequestContext* context = context_getter_->GetURLRequestContext();
 
   const net::ProxyRetryInfoMap& bad_proxies_map =
       context->proxy_service()->proxy_retry_info();
@@ -739,7 +835,7 @@ void NetInternalsMessageHandler::IOThreadImpl::OnGetBadProxies(
 
 void NetInternalsMessageHandler::IOThreadImpl::OnClearBadProxies(
     const ListValue* list) {
-  URLRequestContext* context = context_getter_->GetURLRequestContext();
+  net::URLRequestContext* context = context_getter_->GetURLRequestContext();
   context->proxy_service()->ClearBadProxiesCache();
 
   // Cause the renderer to be notified of the new values.
@@ -748,7 +844,7 @@ void NetInternalsMessageHandler::IOThreadImpl::OnClearBadProxies(
 
 void NetInternalsMessageHandler::IOThreadImpl::OnGetHostResolverInfo(
     const ListValue* list) {
-  URLRequestContext* context = context_getter_->GetURLRequestContext();
+  net::URLRequestContext* context = context_getter_->GetURLRequestContext();
   net::HostResolverImpl* host_resolver_impl =
       context->host_resolver()->GetAsHostResolverImpl();
   net::HostCache* cache = GetHostResolverCache(context);
@@ -830,7 +926,7 @@ void NetInternalsMessageHandler::IOThreadImpl::OnClearHostResolverCache(
 
 void NetInternalsMessageHandler::IOThreadImpl::OnEnableIPv6(
     const ListValue* list) {
-  URLRequestContext* context = context_getter_->GetURLRequestContext();
+  net::URLRequestContext* context = context_getter_->GetURLRequestContext();
   net::HostResolverImpl* host_resolver_impl =
       context->host_resolver()->GetAsHostResolverImpl();
 
@@ -904,6 +1000,57 @@ void NetInternalsMessageHandler::IOThreadImpl::OnGetSpdySessionInfo(
   }
 
   CallJavascriptFunction(L"g_browser.receivedSpdySessionInfo", spdy_info);
+}
+
+void NetInternalsMessageHandler::IOThreadImpl::OnGetSpdyStatus(
+    const ListValue* list) {
+  DictionaryValue* status_dict = new DictionaryValue();
+
+  status_dict->Set("spdy_enabled",
+                   Value::CreateBooleanValue(
+                       net::HttpStreamFactory::spdy_enabled()));
+  status_dict->Set("use_alternate_protocols",
+                   Value::CreateBooleanValue(
+                       net::HttpStreamFactory::use_alternate_protocols()));
+  status_dict->Set("force_spdy_over_ssl",
+                   Value::CreateBooleanValue(
+                       net::HttpStreamFactory::force_spdy_over_ssl()));
+  status_dict->Set("force_spdy_always",
+                   Value::CreateBooleanValue(
+                       net::HttpStreamFactory::force_spdy_always()));
+  status_dict->Set("next_protos",
+                   Value::CreateStringValue(
+                       *net::HttpStreamFactory::next_protos()));
+
+  CallJavascriptFunction(L"g_browser.receivedSpdyStatus", status_dict);
+}
+
+void
+NetInternalsMessageHandler::IOThreadImpl::OnGetSpdyAlternateProtocolMappings(
+    const ListValue* list) {
+  net::HttpNetworkSession* http_network_session =
+      GetHttpNetworkSession(context_getter_->GetURLRequestContext());
+
+  ListValue* dict_list = new ListValue();
+
+  if (http_network_session) {
+    const net::HttpAlternateProtocols& http_alternate_protocols =
+        http_network_session->alternate_protocols();
+    const net::HttpAlternateProtocols::ProtocolMap& map =
+        http_alternate_protocols.protocol_map();
+
+    for (net::HttpAlternateProtocols::ProtocolMap::const_iterator it =
+             map.begin();
+         it != map.end(); ++it) {
+      DictionaryValue* dict = new DictionaryValue();
+      dict->SetString("host_port_pair", it->first.ToString());
+      dict->SetString("alternate_protocol", it->second.ToString());
+      dict_list->Append(dict);
+    }
+  }
+
+  CallJavascriptFunction(L"g_browser.receivedSpdyAlternateProtocolMappings",
+                         dict_list);
 }
 
 #ifdef OS_WIN
@@ -1042,7 +1189,7 @@ void NetInternalsMessageHandler::IOThreadImpl::CallJavascriptFunction(
     const std::wstring& function_name,
     Value* arg) {
   if (BrowserThread::CurrentlyOn(BrowserThread::UI)) {
-    if (handler_ && !was_domui_deleted_) {
+    if (handler_ && !was_webui_deleted_) {
       // We check |handler_| in case it was deleted on the UI thread earlier
       // while we were running on the IO thread.
       handler_->CallJavascriptFunction(function_name, arg);
@@ -1071,16 +1218,11 @@ void NetInternalsMessageHandler::IOThreadImpl::CallJavascriptFunction(
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-NetInternalsUI::NetInternalsUI(TabContents* contents) : DOMUI(contents) {
+NetInternalsUI::NetInternalsUI(TabContents* contents) : WebUI(contents) {
   AddMessageHandler((new NetInternalsMessageHandler())->Attach(this));
 
   NetInternalsHTMLSource* html_source = new NetInternalsHTMLSource();
 
   // Set up the chrome://net-internals/ source.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(
-          ChromeURLDataManager::GetInstance(),
-          &ChromeURLDataManager::AddDataSource,
-          make_scoped_refptr(html_source)));
+  contents->profile()->GetChromeURLDataManager()->AddDataSource(html_source);
 }

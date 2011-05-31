@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #pragma once
 
 #include "base/scoped_ptr.h"
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 #include "chrome/browser/extensions/extension_install_ui.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/common/notification_observer.h"
@@ -18,6 +18,7 @@ class ExtensionPrefs;
 class ExtensionService;
 class NotificationRegistrar;
 class PrefChangeRegistrar;
+class Profile;
 
 namespace gfx {
   class Rect;
@@ -25,7 +26,7 @@ namespace gfx {
 
 // The handler for Javascript messages related to the "apps" view.
 class AppLauncherHandler
-    : public DOMMessageHandler,
+    : public WebUIMessageHandler,
       public ExtensionInstallUI::Delegate,
       public NotificationObserver {
  public:
@@ -38,10 +39,10 @@ class AppLauncherHandler
                             DictionaryValue* value);
 
   // Callback for pings related to launching apps on the NTP.
-  static bool HandlePing(const std::string& path);
+  static bool HandlePing(Profile* profile, const std::string& path);
 
-  // DOMMessageHandler implementation.
-  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+  // WebUIMessageHandler implementation.
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
   virtual void RegisterMessages();
 
   // NotificationObserver
@@ -70,6 +71,9 @@ class AppLauncherHandler
   // Callback for the "createAppShortcut" message.
   void HandleCreateAppShortcut(const ListValue* args);
 
+  // Callback for the 'reorderApps" message.
+  void HandleReorderApps(const ListValue* args);
+
  private:
   // Records a web store launch in the appropriate histograms. |promo_active|
   // specifies if the web store promotion was active.
@@ -88,8 +92,8 @@ class AppLauncherHandler
   // needed.
   ExtensionInstallUI* GetExtensionInstallUI();
 
-  // Starts the animation of the app icon.
-  void AnimateAppIcon(const Extension* extension, const gfx::Rect& rect);
+  // Helper that uninstalls all the default apps.
+  void UninstallDefaultApps();
 
   // The apps are represented in the extensions model.
   scoped_refptr<ExtensionService> extensions_service_;
@@ -98,7 +102,7 @@ class AppLauncherHandler
   // when necessary.
   NotificationRegistrar registrar_;
 
-  // Monitor extension preference changes so that the DOM UI can be notified.
+  // Monitor extension preference changes so that the Web UI can be notified.
   PrefChangeRegistrar pref_change_registrar_;
 
   // Used to show confirmation UI for uninstalling/enabling extensions in
@@ -110,6 +114,10 @@ class AppLauncherHandler
 
   // Whether the promo is currently being shown.
   bool promo_active_;
+
+  // When true, we ignore changes to the underlying data rather than immediately
+  // refreshing. This is useful when making many batch updates to avoid flicker.
+  bool ignore_changes_;
 
   DISALLOW_COPY_AND_ASSIGN(AppLauncherHandler);
 };

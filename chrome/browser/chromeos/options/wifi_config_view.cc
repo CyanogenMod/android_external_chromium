@@ -1,11 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/chromeos/options/wifi_config_view.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
@@ -15,11 +13,13 @@
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "views/controls/button/image_button.h"
 #include "views/controls/button/native_button.h"
 #include "views/controls/label.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/window/window.h"
 
 namespace chromeos {
@@ -152,7 +152,7 @@ void WifiConfigView::ContentsChanged(views::Textfield* sender,
 bool WifiConfigView::HandleKeyEvent(views::Textfield* sender,
                                     const views::KeyEvent& key_event) {
   if (sender == passphrase_textfield_ &&
-      key_event.GetKeyCode() == app::VKEY_RETURN) {
+      key_event.key_code() == ui::VKEY_RETURN) {
     parent_->GetDialogClientView()->AcceptWindow();
   }
   return false;
@@ -194,8 +194,10 @@ void WifiConfigView::ItemChanged(views::Combobox* combo_box,
 void WifiConfigView::FileSelected(const FilePath& path,
                                    int index, void* params) {
   certificate_path_ = path.value();
-  if (certificate_browse_button_)
-    certificate_browse_button_->SetLabel(path.BaseName().ToWStringHack());
+  if (certificate_browse_button_) {
+    certificate_browse_button_->SetLabel(
+        UTF16ToWide(path.BaseName().LossyDisplayName()));
+  }
   UpdateCanLogin();  // TODO(njw) Check if the passphrase decrypts the key.
 }
 
@@ -282,7 +284,7 @@ const std::string WifiConfigView::GetPassphrase() const {
 }
 
 void WifiConfigView::Init() {
-  views::GridLayout* layout = CreatePanelGridLayout(this);
+  views::GridLayout* layout = views::GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
 
   int column_view_set_id = 0;
@@ -310,7 +312,7 @@ void WifiConfigView::Init() {
     label->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
     layout->AddView(label);
   }
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   // Certificate input
   // Loaded certificates (i.e. stored in a pkcs11 device) do not require
@@ -333,7 +335,7 @@ void WifiConfigView::Init() {
     if (!wifi_->identity().empty())
       identity_textfield_->SetText(UTF8ToUTF16(wifi_->identity()));
     layout->AddView(identity_textfield_);
-    layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+    layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
     layout->StartRow(0, column_view_set_id);
     layout->AddView(new views::Label(UTF16ToWide(l10n_util::GetStringUTF16(
         IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_CERT))));
@@ -357,7 +359,7 @@ void WifiConfigView::Init() {
       certificate_browse_button_ = new views::NativeButton(this, label);
       layout->AddView(certificate_browse_button_);
     }
-    layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+    layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   }
 
   // Security select
@@ -368,7 +370,7 @@ void WifiConfigView::Init() {
     security_combobox_ = new views::Combobox(new SecurityComboboxModel());
     security_combobox_->set_listener(this);
     layout->AddView(security_combobox_);
-    layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+    layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   }
 
   // Passphrase input
@@ -400,7 +402,7 @@ void WifiConfigView::Init() {
   passphrase_visible_button_->SetImageAlignment(
       views::ImageButton::ALIGN_CENTER, views::ImageButton::ALIGN_MIDDLE);
   layout->AddView(passphrase_visible_button_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   // Create an error label.
   layout->StartRow(0, column_view_set_id);
@@ -409,7 +411,7 @@ void WifiConfigView::Init() {
   error_label_->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
   error_label_->SetColor(SK_ColorRED);
   layout->AddView(error_label_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   // Set or hide the error text.
   UpdateErrorLabel(false);
 }

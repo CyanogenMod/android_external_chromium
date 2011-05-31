@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <vector>
 
-#include "app/l10n_util.h"
 #include "base/logging.h"
 #include "base/string16.h"
 #include "base/string_number_conversions.h"
@@ -14,11 +13,12 @@
 #include "base/values.h"
 #include "chrome/browser/autofill/autofill_profile.h"
 #include "chrome/browser/autofill/credit_card.h"
-#include "chrome/browser/dom_ui/dom_ui_util.h"
+#include "chrome/browser/dom_ui/web_ui_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/guid.h"
 #include "grit/generated_resources.h"
 #include "grit/webkit_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
@@ -63,8 +63,8 @@ void AutoFillOptionsHandler::GetLocalizedValues(
     DictionaryValue* localized_strings) {
   DCHECK(localized_strings);
 
-  localized_strings->SetString("autoFillOptionsTitle",
-      l10n_util::GetStringUTF16(IDS_AUTOFILL_OPTIONS_TITLE));
+  RegisterTitle(localized_strings, "autoFillOptionsPage",
+                IDS_AUTOFILL_OPTIONS_TITLE);
   localized_strings->SetString("autoFillAddresses",
       l10n_util::GetStringUTF16(IDS_AUTOFILL_ADDRESSES_GROUP_NAME));
   localized_strings->SetString("autoFillCreditCards",
@@ -84,34 +84,39 @@ void AutoFillOptionsHandler::GetLocalizedValues(
   localized_strings->SetString("editCreditCardTitle",
       l10n_util::GetStringUTF16(IDS_AUTOFILL_EDIT_CREDITCARD_CAPTION));
 
+#if defined(OS_MACOSX)
+  localized_strings->SetString("auxiliaryProfilesEnabled",
+      l10n_util::GetStringUTF16(IDS_AUTOFILL_USE_MAC_ADDRESS_BOOK));
+#endif  // defined(OS_MACOSX)
+
   SetAddressOverlayStrings(localized_strings);
   SetCreditCardOverlayStrings(localized_strings);
 }
 
 void AutoFillOptionsHandler::Initialize() {
-  personal_data_ = dom_ui_->GetProfile()->GetPersonalDataManager();
+  personal_data_ = web_ui_->GetProfile()->GetPersonalDataManager();
   personal_data_->SetObserver(this);
 
   LoadAutoFillData();
 }
 
 void AutoFillOptionsHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "removeAddress",
       NewCallback(this, &AutoFillOptionsHandler::RemoveAddress));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "removeCreditCard",
       NewCallback(this, &AutoFillOptionsHandler::RemoveCreditCard));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "loadAddressEditor",
       NewCallback(this, &AutoFillOptionsHandler::LoadAddressEditor));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "loadCreditCardEditor",
       NewCallback(this, &AutoFillOptionsHandler::LoadCreditCardEditor));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "setAddress",
       NewCallback(this, &AutoFillOptionsHandler::SetAddress));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "setCreditCard",
       NewCallback(this, &AutoFillOptionsHandler::SetCreditCard));
 }
@@ -182,7 +187,7 @@ void AutoFillOptionsHandler::LoadAutoFillData() {
     addresses.Append(entry);
   }
 
-  dom_ui_->CallJavascriptFunction(L"AutoFillOptions.setAddressList",
+  web_ui_->CallJavascriptFunction(L"AutoFillOptions.setAddressList",
                                   addresses);
 
   ListValue credit_cards;
@@ -194,11 +199,11 @@ void AutoFillOptionsHandler::LoadAutoFillData() {
     entry->Append(new StringValue((*i)->PreviewSummary()));
     int res = CreditCardTypeToResourceID((*i)->type());
     entry->Append(
-        new StringValue(dom_ui_util::GetImageDataUrlFromResource(res)));
+        new StringValue(web_ui_util::GetImageDataUrlFromResource(res)));
     credit_cards.Append(entry);
   }
 
-  dom_ui_->CallJavascriptFunction(L"AutoFillOptions.setCreditCardList",
+  web_ui_->CallJavascriptFunction(L"AutoFillOptions.setCreditCardList",
                                   credit_cards);
 }
 
@@ -236,41 +241,43 @@ void AutoFillOptionsHandler::LoadAddressEditor(const ListValue* args) {
   }
 
   AutoFillProfile* profile = personal_data_->GetProfileByGUID(guid);
-  DCHECK(profile);
+  if (!profile) {
+    // There is a race where a user can click once on the close button and
+    // quickly click again on the list item before the item is removed (since
+    // the list is not updated until the model tells the list an item has been
+    // removed). This will activate the editor for a profile that has been
+    // removed. Do nothing in that case.
+    return;
+  }
 
-  // TODO(jhawkins): This is hacky because we can't send DictionaryValue
-  // directly to CallJavascriptFunction().
-  ListValue addressList;
-  DictionaryValue* address = new DictionaryValue();
-  address->SetString("guid", profile->guid());
-  address->SetString("fullName",
-                     profile->GetFieldText(AutoFillType(NAME_FULL)));
-  address->SetString("companyName",
-                     profile->GetFieldText(AutoFillType(COMPANY_NAME)));
-  address->SetString("addrLine1",
-                     profile->GetFieldText(AutoFillType(ADDRESS_HOME_LINE1)));
-  address->SetString("addrLine2",
-                     profile->GetFieldText(AutoFillType(ADDRESS_HOME_LINE2)));
-  address->SetString("city",
-                     profile->GetFieldText(AutoFillType(ADDRESS_HOME_CITY)));
-  address->SetString("state",
-                     profile->GetFieldText(AutoFillType(ADDRESS_HOME_STATE)));
-  address->SetString("zipCode",
-                     profile->GetFieldText(AutoFillType(ADDRESS_HOME_ZIP)));
-  address->SetString("country",
+  DictionaryValue address;
+  address.SetString("guid", profile->guid());
+  address.SetString("fullName",
+                    profile->GetFieldText(AutoFillType(NAME_FULL)));
+  address.SetString("companyName",
+                    profile->GetFieldText(AutoFillType(COMPANY_NAME)));
+  address.SetString("addrLine1",
+                    profile->GetFieldText(AutoFillType(ADDRESS_HOME_LINE1)));
+  address.SetString("addrLine2",
+                    profile->GetFieldText(AutoFillType(ADDRESS_HOME_LINE2)));
+  address.SetString("city",
+                    profile->GetFieldText(AutoFillType(ADDRESS_HOME_CITY)));
+  address.SetString("state",
+                    profile->GetFieldText(AutoFillType(ADDRESS_HOME_STATE)));
+  address.SetString("zipCode",
+                    profile->GetFieldText(AutoFillType(ADDRESS_HOME_ZIP)));
+  address.SetString("country",
                      profile->GetFieldText(AutoFillType(ADDRESS_HOME_COUNTRY)));
-  address->SetString(
+  address.SetString(
       "phone",
       profile->GetFieldText(AutoFillType(PHONE_HOME_WHOLE_NUMBER)));
-  address->SetString(
+  address.SetString(
       "fax",
       profile->GetFieldText(AutoFillType(PHONE_FAX_WHOLE_NUMBER)));
-  address->SetString("email",
+  address.SetString("email",
                      profile->GetFieldText(AutoFillType(EMAIL_ADDRESS)));
-  addressList.Append(address);
 
-  dom_ui_->CallJavascriptFunction(L"AutoFillOptions.editAddress",
-                                  addressList);
+  web_ui_->CallJavascriptFunction(L"AutoFillOptions.editAddress", address);
 }
 
 void AutoFillOptionsHandler::LoadCreditCardEditor(const ListValue* args) {
@@ -283,29 +290,34 @@ void AutoFillOptionsHandler::LoadCreditCardEditor(const ListValue* args) {
   }
 
   CreditCard* credit_card = personal_data_->GetCreditCardByGUID(guid);
-  DCHECK(credit_card);
+  if (!credit_card) {
+    // There is a race where a user can click once on the close button and
+    // quickly click again on the list item before the item is removed (since
+    // the list is not updated until the model tells the list an item has been
+    // removed). This will activate the editor for a profile that has been
+    // removed. Do nothing in that case.
+    return;
+  }
 
-  // TODO(jhawkins): This is hacky because we can't send DictionaryValue
-  // directly to CallJavascriptFunction().
-  ListValue credit_card_list;
-  DictionaryValue* credit_card_data = new DictionaryValue();
-  credit_card_data->SetString("guid", credit_card->guid());
-  credit_card_data->SetString(
+  DictionaryValue credit_card_data;
+  credit_card_data.SetString("guid", credit_card->guid());
+  credit_card_data.SetString(
       "nameOnCard",
       credit_card->GetFieldText(AutoFillType(CREDIT_CARD_NAME)));
-  credit_card_data->SetString(
+  credit_card_data.SetString(
       "creditCardNumber",
       credit_card->GetFieldText(AutoFillType(CREDIT_CARD_NUMBER)));
-  credit_card_data->SetString(
+  credit_card_data.SetString("obfuscatedCardNumber",
+                             credit_card->ObfuscatedNumber());
+  credit_card_data.SetString(
       "expirationMonth",
       credit_card->GetFieldText(AutoFillType(CREDIT_CARD_EXP_MONTH)));
-  credit_card_data->SetString(
+  credit_card_data.SetString(
       "expirationYear",
       credit_card->GetFieldText(AutoFillType(CREDIT_CARD_EXP_4_DIGIT_YEAR)));
-  credit_card_list.Append(credit_card_data);
 
-  dom_ui_->CallJavascriptFunction(L"AutoFillOptions.editCreditCard",
-                                  credit_card_list);
+  web_ui_->CallJavascriptFunction(L"AutoFillOptions.editCreditCard",
+                                  credit_card_data);
 }
 
 void AutoFillOptionsHandler::SetAddress(const ListValue* args) {

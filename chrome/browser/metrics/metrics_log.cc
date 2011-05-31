@@ -109,10 +109,9 @@ void MetricsLog::RecordIncrementalStabilityElements() {
   }
 }
 
-void MetricsLog::WriteStabilityElement() {
+void MetricsLog::WriteStabilityElement(PrefService* pref) {
   DCHECK(!locked_);
 
-  PrefService* pref = g_browser_process->local_state();
   DCHECK(pref);
 
   // Get stability attributes out of Local State, zeroing out stored values.
@@ -232,6 +231,38 @@ void MetricsLog::WriteRealtimeStabilityAttributes(PrefService* pref) {
     pref->SetInteger(prefs::kStabilityChildProcessCrashCount, 0);
   }
 
+#if defined(OS_CHROMEOS)
+  count = pref->GetInteger(prefs::kStabilityOtherUserCrashCount);
+  if (count) {
+    // TODO(kmixter): Write attribute once log server supports it
+    // and remove warning log.
+    // WriteIntAttribute("otherusercrashcount", count);
+    LOG(WARNING) << "Not yet able to send otherusercrashcount="
+                 << count;
+    pref->SetInteger(prefs::kStabilityOtherUserCrashCount, 0);
+  }
+
+  count = pref->GetInteger(prefs::kStabilityKernelCrashCount);
+  if (count) {
+    // TODO(kmixter): Write attribute once log server supports it
+    // and remove warning log.
+    // WriteIntAttribute("kernelcrashcount", count);
+    LOG(WARNING) << "Not yet able to send kernelcrashcount="
+                 << count;
+    pref->SetInteger(prefs::kStabilityKernelCrashCount, 0);
+  }
+
+  count = pref->GetInteger(prefs::kStabilitySystemUncleanShutdownCount);
+  if (count) {
+    // TODO(kmixter): Write attribute once log server supports it
+    // and remove warning log.
+    // WriteIntAttribute("systemuncleanshutdowns", count);
+    LOG(WARNING) << "Not yet able to send systemuncleanshutdowns="
+                 << count;
+    pref->SetInteger(prefs::kStabilitySystemUncleanShutdownCount, 0);
+  }
+#endif  // OS_CHROMEOS
+
   int64 recent_duration = GetIncrementalUptime(pref);
   if (recent_duration)
     WriteInt64Attribute("uptimesec", recent_duration);
@@ -251,8 +282,13 @@ void MetricsLog::WritePluginList(
     // Plugin name and filename are hashed for the privacy of those
     // testing unreleased new extensions.
     WriteAttribute("name", CreateBase64Hash(UTF16ToUTF8(iter->name)));
-    WriteAttribute("filename",
-        CreateBase64Hash(WideToUTF8(iter->path.BaseName().ToWStringHack())));
+    std::string filename_bytes =
+#if defined(OS_WIN)
+        UTF16ToUTF8(iter->path.BaseName().value());
+#else
+        iter->path.BaseName().value();
+#endif
+    WriteAttribute("filename", CreateBase64Hash(filename_bytes));
     WriteAttribute("version", UTF16ToUTF8(iter->version));
   }
 }
@@ -277,7 +313,7 @@ void MetricsLog::RecordEnvironment(
 
   WritePluginList(plugin_list);
 
-  WriteStabilityElement();
+  WriteStabilityElement(pref);
 
   {
     OPEN_ELEMENT_FOR_SCOPE("cpu");

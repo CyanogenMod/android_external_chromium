@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,6 @@
 #include <string>
 #include <vector>
 
-#include "app/hi_res_timer_manager.h"
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
-#include "app/system_monitor.h"
 #include "base/at_exit.h"
 #include "base/command_line.h"
 #include "base/debug/trace_event.h"
@@ -21,13 +17,13 @@
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
 #include "base/path_service.h"
-#include "base/threading/platform_thread.h"
 #include "base/process_util.h"
 #include "base/string_number_conversions.h"
 #include "base/string_piece.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
+#include "base/threading/platform_thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
@@ -35,12 +31,12 @@
 #include "build/build_config.h"
 #include "chrome/browser/about_flags.h"
 #include "chrome/browser/browser_main_win.h"
-#include "chrome/browser/prefs/browser_prefs.h"
+#include "chrome/browser/defaults.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_impl.h"
 #include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/dom_ui/chrome_url_data_manager.h"
+#include "chrome/browser/dom_ui/chrome_url_data_manager_backend.h"
 #include "chrome/browser/extensions/extension_protocols.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extensions_startup.h"
@@ -52,14 +48,18 @@
 #include "chrome/browser/net/blob_url_request_job_factory.h"
 #include "chrome/browser/net/chrome_dns_cert_provenance_checker.h"
 #include "chrome/browser/net/chrome_dns_cert_provenance_checker_factory.h"
+#include "chrome/browser/net/file_system_url_request_job_factory.h"
 #include "chrome/browser/net/metadata_url_request.h"
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/net/sdch_dictionary_fetcher.h"
 #include "chrome/browser/net/websocket_experiment/websocket_experiment_runner.h"
 #include "chrome/browser/plugin_service.h"
+#include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/pref_value_store.h"
+#include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_proxy_service.h"
+#include "chrome/browser/printing/print_dialog_cloud.h"
 #include "chrome/browser/process_singleton.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -78,12 +78,15 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/env_vars.h"
+#include "chrome/common/gfx_resource_provider.h"
+#include "chrome/common/hi_res_timer_manager.h"
 #include "chrome/common/json_pref_store.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/logging_chrome.h"
 #include "chrome/common/main_function_params.h"
 #include "chrome/common/net/net_resource_provider.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/common/profiling.h"
 #include "chrome/common/result_codes.h"
 #include "chrome/installer/util/google_update_settings.h"
 #include "grit/app_locale_settings.h"
@@ -101,6 +104,10 @@
 #include "net/spdy/spdy_session_pool.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_throttler_manager.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/system_monitor/system_monitor.h"
+#include "ui/gfx/gfx_module.h"
 
 #if defined(USE_LINUX_BREAKPAD)
 #include "base/linux_util.h"
@@ -110,7 +117,7 @@
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
 #include <dbus/dbus-glib.h>
 #include "chrome/browser/browser_main_gtk.h"
-#include "chrome/browser/gtk/gtk_util.h"
+#include "chrome/browser/ui/gtk/gtk_util.h"
 #endif
 
 #if defined(OS_CHROMEOS)
@@ -124,36 +131,37 @@
 // progress and should not be taken as an indication of a real refactoring.
 
 #if defined(OS_WIN)
-#include <windows.h>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <windows.h>
 
-#include "app/l10n_util_win.h"
 #include "app/win/scoped_com_initializer.h"
 #include "chrome/browser/browser_trial.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/browser/rlz/rlz.h"
-#include "chrome/browser/views/user_data_dir_dialog.h"
+#include "chrome/browser/ui/views/user_data_dir_dialog.h"
 #include "chrome/common/sandbox_policy.h"
 #include "chrome/installer/util/helper.h"
 #include "chrome/installer/util/install_util.h"
 #include "chrome/installer/util/shell_util.h"
-#include "gfx/platform_font_win.h"
 #include "net/base/net_util.h"
 #include "net/base/sdch_manager.h"
 #include "printing/printed_document.h"
 #include "sandbox/src/sandbox.h"
+#include "ui/base/l10n/l10n_util_win.h"
+#include "ui/gfx/platform_font_win.h"
 #endif  // defined(OS_WIN)
 
 #if defined(OS_MACOSX)
 #include <Security/Security.h>
-#include "chrome/browser/ui/cocoa/install_from_dmg.h"
+#include "chrome/browser/cocoa/install_from_dmg.h"
 #endif
 
 #if defined(TOOLKIT_VIEWS)
-#include "chrome/browser/views/chrome_views_delegate.h"
+#include "chrome/browser/ui/views/chrome_views_delegate.h"
 #include "views/focus/accelerator_handler.h"
+#include "views/widget/root_view.h"
 #endif
 
 #if defined(OS_CHROMEOS)
@@ -166,11 +174,11 @@
 #include "chrome/browser/chromeos/login/screen_locker.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/chromeos/metrics_cros_settings_provider.h"
-#include "chrome/browser/views/browser_dialogs.h"
+#include "chrome/browser/ui/views/browser_dialogs.h"
 #endif
 
 #if defined(TOOLKIT_USES_GTK)
-#include "gfx/gtk_util.h"
+#include "ui/gfx/gtk_util.h"
 #endif
 
 // BrowserMainParts ------------------------------------------------------------
@@ -191,14 +199,6 @@ void BrowserMainParts::EarlyInitialization() {
   if (parsed_command_line().HasSwitch(switches::kEnableBenchmarking))
     base::FieldTrial::EnableBenchmarking();
 
-  // Note: make sure to call ConnectionFieldTrial() before
-  // ProxyConnectionsFieldTrial().
-  ConnectionFieldTrial();
-  SocketTimeoutFieldTrial();
-  ProxyConnectionsFieldTrial();
-  SpdyFieldTrial();
-  PrefetchFieldTrial();
-  ConnectBackupJobsFieldTrial();
   InitializeSSL();
 
   if (parsed_command_line().HasSwitch(switches::kEnableDNSSECCerts))
@@ -221,6 +221,18 @@ void BrowserMainParts::EarlyInitialization() {
   PostEarlyInitialization();
 }
 
+// This will be called after the command-line has been mutated by about:flags
+void BrowserMainParts::SetupFieldTrials() {
+  // Note: make sure to call ConnectionFieldTrial() before
+  // ProxyConnectionsFieldTrial().
+  ConnectionFieldTrial();
+  SocketTimeoutFieldTrial();
+  ProxyConnectionsFieldTrial();
+  PrefetchAndPrerenderFieldTrial();
+  SpdyFieldTrial();
+  ConnectBackupJobsFieldTrial();
+}
+
 // This is an A/B test for the maximum number of persistent connections per
 // host. Currently Chrome, Firefox, and IE8 have this value set at 6. Safari
 // uses 4, and Fasterfox (a plugin for Firefox that supposedly configures it to
@@ -231,8 +243,16 @@ void BrowserMainParts::ConnectionFieldTrial() {
   const base::FieldTrial::Probability kConnectDivisor = 100;
   const base::FieldTrial::Probability kConnectProbability = 1;  // 1% prob.
 
+  // After June 30, 2011 builds, it will always be in default group.
   scoped_refptr<base::FieldTrial> connect_trial(
-      new base::FieldTrial("ConnCountImpact", kConnectDivisor));
+      new base::FieldTrial(
+          "ConnCountImpact", kConnectDivisor, "conn_count_6", 2011, 6, 30));
+
+  // This (6) is the current default value. Having this group declared here
+  // makes it straightforward to modify |kConnectProbability| such that the same
+  // probability value will be assigned to all the other groups, while
+  // preserving the remainder of the of probability space to the default value.
+  const int connect_6 = connect_trial->kDefaultGroupNumber;
 
   const int connect_5 = connect_trial->AppendGroup("conn_count_5",
                                                    kConnectProbability);
@@ -242,12 +262,6 @@ void BrowserMainParts::ConnectionFieldTrial() {
                                                    kConnectProbability);
   const int connect_9 = connect_trial->AppendGroup("conn_count_9",
                                                    kConnectProbability);
-  // This (6) is the current default value. Having this group declared here
-  // makes it straightforward to modify |kConnectProbability| such that the same
-  // probability value will be assigned to all the other groups, while
-  // preserving the remainder of the of probability space to the default value.
-  const int connect_6 = connect_trial->AppendGroup("conn_count_6",
-      base::FieldTrial::kAllRemainingProbability);
 
   const int connect_trial_group = connect_trial->group();
 
@@ -276,8 +290,11 @@ void BrowserMainParts::SocketTimeoutFieldTrial() {
   // 1% probability for all experimental settings.
   const base::FieldTrial::Probability kSocketTimeoutProbability = 1;
 
+  // After June 30, 2011 builds, it will always be in default group.
   scoped_refptr<base::FieldTrial> socket_timeout_trial(
-      new base::FieldTrial("IdleSktToImpact", kIdleSocketTimeoutDivisor));
+      new base::FieldTrial("IdleSktToImpact", kIdleSocketTimeoutDivisor,
+          "idle_timeout_60", 2011, 6, 30));
+  const int socket_timeout_60 = socket_timeout_trial->kDefaultGroupNumber;
 
   const int socket_timeout_5 =
       socket_timeout_trial->AppendGroup("idle_timeout_5",
@@ -288,9 +305,6 @@ void BrowserMainParts::SocketTimeoutFieldTrial() {
   const int socket_timeout_20 =
       socket_timeout_trial->AppendGroup("idle_timeout_20",
                                         kSocketTimeoutProbability);
-  const int socket_timeout_60 =
-      socket_timeout_trial->AppendGroup("idle_timeout_60",
-          base::FieldTrial::kAllRemainingProbability);
 
   const int idle_to_trial_group = socket_timeout_trial->group();
 
@@ -312,8 +326,16 @@ void BrowserMainParts::ProxyConnectionsFieldTrial() {
   // 25% probability
   const base::FieldTrial::Probability kProxyConnectionProbability = 1;
 
+  // After June 30, 2011 builds, it will always be in default group.
   scoped_refptr<base::FieldTrial> proxy_connection_trial(
-      new base::FieldTrial("ProxyConnectionImpact", kProxyConnectionsDivisor));
+      new base::FieldTrial("ProxyConnectionImpact", kProxyConnectionsDivisor,
+          "proxy_connections_32", 2011, 6, 30));
+
+  // This (32 connections per proxy server) is the current default value.
+  // Declaring it here allows us to easily re-assign the probability space while
+  // maintaining that the default group always has the remainder of the "share",
+  // which allows for cleaner and quicker changes down the line if needed.
+  const int proxy_connections_32 = proxy_connection_trial->kDefaultGroupNumber;
 
   // The number of max sockets per group cannot be greater than the max number
   // of sockets per proxy server.  We tried using 8, and it can easily
@@ -324,14 +346,6 @@ void BrowserMainParts::ProxyConnectionsFieldTrial() {
   const int proxy_connections_64 =
       proxy_connection_trial->AppendGroup("proxy_connections_64",
                                           kProxyConnectionProbability);
-
-  // This (32 connections per proxy server) is the current default value.
-  // Declaring it here allows us to easily re-assign the probability space while
-  // maintaining that the default group always has the remainder of the "share",
-  // which allows for cleaner and quicker changes down the line if needed.
-  const int proxy_connections_32 =
-      proxy_connection_trial->AppendGroup("proxy_connections_32",
-          base::FieldTrial::kAllRemainingProbability);
 
   const int proxy_connections_trial_group = proxy_connection_trial->group();
 
@@ -363,13 +377,18 @@ void BrowserMainParts::SpdyFieldTrial() {
     const base::FieldTrial::Probability kSpdyDivisor = 100;
     // 10% to preclude SPDY.
     base::FieldTrial::Probability npnhttp_probability = 10;
+
+    // After June 30, 2011 builds, it will always be in default group.
     scoped_refptr<base::FieldTrial> trial(
-        new base::FieldTrial("SpdyImpact", kSpdyDivisor));
+        new base::FieldTrial(
+            "SpdyImpact", kSpdyDivisor, "npn_with_spdy", 2011, 6, 30));
+
+    // npn with spdy support is the default.
+    int npn_spdy_grp = trial->kDefaultGroupNumber;
+
     // npn with only http support, no spdy.
     int npn_http_grp = trial->AppendGroup("npn_with_http", npnhttp_probability);
-    // npn with spdy support.
-    int npn_spdy_grp = trial->AppendGroup("npn_with_spdy",
-        base::FieldTrial::kAllRemainingProbability);
+
     int trial_grp = trial->group();
     if (trial_grp == npn_http_grp) {
       is_spdy_trial = true;
@@ -388,14 +407,17 @@ void BrowserMainParts::SpdyFieldTrial() {
   const base::FieldTrial::Probability kSpdyCwnd16 = 20;     // fixed at 16
   const base::FieldTrial::Probability kSpdyCwndMin16 = 20;  // no less than 16
   const base::FieldTrial::Probability kSpdyCwndMin10 = 20;  // no less than 10
+
+  // After June 30, 2011 builds, it will always be in default group
+  // (cwndDynamic).
   scoped_refptr<base::FieldTrial> trial(
-      new base::FieldTrial("SpdyCwnd", kSpdyCwndDivisor));
+      new base::FieldTrial(
+          "SpdyCwnd", kSpdyCwndDivisor, "cwndDynamic", 2011, 6, 30));
+
   trial->AppendGroup("cwnd32", kSpdyCwnd32);
   trial->AppendGroup("cwnd16", kSpdyCwnd16);
   trial->AppendGroup("cwndMin16", kSpdyCwndMin16);
   trial->AppendGroup("cwndMin10", kSpdyCwndMin10);
-  trial->AppendGroup("cwndDynamic",
-                     base::FieldTrial::kAllRemainingProbability);
 
   if (parsed_command_line().HasSwitch(switches::kMaxSpdyConcurrentStreams)) {
     int value = 0;
@@ -407,29 +429,77 @@ void BrowserMainParts::SpdyFieldTrial() {
   }
 }
 
-// If any of --enable-prerender, --enable-content-prefetch or
-// --disable-content-prefetch are set, use those to determine if
-// prefetch is enabled. Otherwise, randomly assign users to an A/B test for
-// prefetching.
-void BrowserMainParts::PrefetchFieldTrial() {
-  if (parsed_command_line().HasSwitch(switches::kEnableContentPrefetch) ||
-      parsed_command_line().HasSwitch(switches::kEnablePagePrerender))
-    ResourceDispatcherHost::set_is_prefetch_enabled(true);
-  else if (parsed_command_line().HasSwitch(switches::kDisableContentPrefetch)) {
-    ResourceDispatcherHost::set_is_prefetch_enabled(false);
-  } else {
-    const base::FieldTrial::Probability kPrefetchDivisor = 1000;
-    const base::FieldTrial::Probability no_prefetch_probability = 500;
-    scoped_refptr<base::FieldTrial> trial(
-        new base::FieldTrial("Prefetch", kPrefetchDivisor));
-    trial->AppendGroup("ContentPrefetchDisabled", no_prefetch_probability);
-    const int yes_prefetch_grp =
-        trial->AppendGroup("ContentPrefetchEnabled",
-                           base::FieldTrial::kAllRemainingProbability);
-    const int trial_grp = trial->group();
-    ResourceDispatcherHost::set_is_prefetch_enabled(
-        trial_grp == yes_prefetch_grp);
+// Parse the --prerender= command line switch, which controls both prerendering
+// and prefetching.  If the switch is unset, or is set to "auto", then the user
+// is assigned to a field trial.
+void BrowserMainParts::PrefetchAndPrerenderFieldTrial() {
+  enum PrerenderOption {
+    PRERENDER_OPTION_AUTO,
+    PRERENDER_OPTION_DISABLED,
+    PRERENDER_OPTION_ENABLED,
+    PRERENDER_OPTION_PREFETCH_ONLY,
+  };
+
+  PrerenderOption prerender_option = PRERENDER_OPTION_AUTO;
+  if (parsed_command_line().HasSwitch(switches::kPrerender)) {
+    const std::string switch_value =
+        parsed_command_line().GetSwitchValueASCII(switches::kPrerender);
+
+    if (switch_value == switches::kPrerenderSwitchValueAuto) {
+      prerender_option = PRERENDER_OPTION_AUTO;
+    } else if (switch_value == switches::kPrerenderSwitchValueDisabled) {
+      prerender_option = PRERENDER_OPTION_DISABLED;
+    } else if (switch_value.empty() ||
+               switch_value == switches::kPrerenderSwitchValueEnabled) {
+      // The empty string means the option was provided with no value, and that
+      // means enable.
+      prerender_option = PRERENDER_OPTION_ENABLED;
+    } else if (switch_value == switches::kPrerenderSwitchValuePrefetchOnly) {
+      prerender_option = PRERENDER_OPTION_PREFETCH_ONLY;
+    } else {
+      prerender_option = PRERENDER_OPTION_DISABLED;
+      LOG(ERROR) << "Invalid --prerender option received on command line: "
+                 << switch_value;
+      LOG(ERROR) << "Disabling prerendering!";
+    }
   }
+
+  switch (prerender_option) {
+    case PRERENDER_OPTION_AUTO: {
+      const base::FieldTrial::Probability kPrefetchDivisor = 1000;
+      const base::FieldTrial::Probability no_prefetch_probability = 500;
+      // After June 30, 2011 builds, it will always be in default group.
+      scoped_refptr<base::FieldTrial> trial(
+          new base::FieldTrial("Prefetch", kPrefetchDivisor,
+                               "ContentPrefetchEnabled", 2011, 6, 30));
+      const int yes_prefetch_grp = trial->kDefaultGroupNumber;
+      trial->AppendGroup("ContentPrefetchDisabled", no_prefetch_probability);
+      const int trial_grp = trial->group();
+      ResourceDispatcherHost::set_is_prefetch_enabled(
+          trial_grp == yes_prefetch_grp);
+
+      // There is currently no prerendering field trial.
+      PrerenderManager::SetMode(PrerenderManager::PRERENDER_MODE_DISABLED);
+      break;
+    }
+    case PRERENDER_OPTION_DISABLED:
+      ResourceDispatcherHost::set_is_prefetch_enabled(false);
+      PrerenderManager::SetMode(PrerenderManager::PRERENDER_MODE_DISABLED);
+      break;
+    case PRERENDER_OPTION_ENABLED:
+      ResourceDispatcherHost::set_is_prefetch_enabled(true);
+      PrerenderManager::SetMode(PrerenderManager::PRERENDER_MODE_ENABLED);
+      break;
+    case PRERENDER_OPTION_PREFETCH_ONLY:
+      ResourceDispatcherHost::set_is_prefetch_enabled(true);
+      PrerenderManager::SetMode(PrerenderManager::PRERENDER_MODE_DISABLED);
+      break;
+    default:
+      NOTREACHED();
+  }
+
+  UMA_HISTOGRAM_ENUMERATION("Prerender.Sessions", PrerenderManager::GetMode(),
+                            PrerenderManager::PRERENDER_MODE_MAX);
 }
 
 // If neither --enable-connect-backup-jobs or --disable-connect-backup-jobs is
@@ -447,14 +517,14 @@ void BrowserMainParts::ConnectBackupJobsFieldTrial() {
     const base::FieldTrial::Probability kConnectBackupJobsDivisor = 100;
     // 1% probability.
     const base::FieldTrial::Probability kConnectBackupJobsProbability = 1;
+    // After June 30, 2011 builds, it will always be in defaut group.
     scoped_refptr<base::FieldTrial> trial(
         new base::FieldTrial("ConnnectBackupJobs",
-                             kConnectBackupJobsDivisor));
+            kConnectBackupJobsDivisor, "ConnectBackupJobsEnabled", 2011, 6,
+                30));
+    const int connect_backup_jobs_enabled = trial->kDefaultGroupNumber;
     trial->AppendGroup("ConnectBackupJobsDisabled",
                        kConnectBackupJobsProbability);
-    const int connect_backup_jobs_enabled =
-        trial->AppendGroup("ConnectBackupJobsEnabled",
-                           base::FieldTrial::kAllRemainingProbability);
     const int trial_group = trial->group();
     net::internal::ClientSocketPoolBaseHelper::set_connect_backup_jobs_enabled(
         trial_group == connect_backup_jobs_enabled);
@@ -469,13 +539,14 @@ void BrowserMainParts::MainMessageLoopStart() {
   main_message_loop_.reset(new MessageLoop(MessageLoop::TYPE_UI));
 
   // TODO(viettrungluu): should these really go before setting the thread name?
-  system_monitor_.reset(new SystemMonitor);
+  system_monitor_.reset(new ui::SystemMonitor);
   hi_res_timer_manager_.reset(new HighResolutionTimerManager);
   network_change_notifier_.reset(net::NetworkChangeNotifier::Create());
 
   InitializeMainThread();
 
   PostMainMessageLoopStart();
+  Profiling::MainMessageLoopStarted();
 }
 
 void BrowserMainParts::InitializeMainThread() {
@@ -519,13 +590,9 @@ void HandleTestParameters(const CommandLine& command_line) {
 void RunUIMessageLoop(BrowserProcess* browser_process) {
   TRACE_EVENT_BEGIN("BrowserMain:MESSAGE_LOOP", 0, "");
 
-#if !defined(OS_CHROMEOS)
   // If the UI thread blocks, the whole UI is unresponsive.
   // Do not allow disk IO from the UI thread.
-  // TODO(evanm): turn this on for all platforms.
-  //   http://code.google.com/p/chromium/issues/detail?id=60211
   base::ThreadRestrictions::SetIOAllowed(false);
-#endif
 
 #if defined(TOOLKIT_VIEWS)
   views::AcceleratorHandler accelerator_handler;
@@ -587,10 +654,8 @@ void InitializeNetworkOptions(const CommandLine& parsed_command_line) {
     net::SpdySessionPool::set_max_sessions_per_domain(value);
   }
 
-  if (parsed_command_line.HasSwitch(switches::kDisableEnforcedThrottling)) {
-    net::URLRequestThrottlerManager::GetInstance()->
-        set_enforce_throttling(false);
-  }
+  net::URLRequestThrottlerManager::GetInstance()->InitializeOptions(
+      parsed_command_line.HasSwitch(switches::kDisableEnforcedThrottling));
 
   SetDnsCertProvenanceCheckerFactory(CreateChromeDnsCertProvenanceChecker);
 }
@@ -618,11 +683,18 @@ PrefService* InitializeLocalState(const CommandLine& parsed_command_line,
   PrefService* local_state = g_browser_process->local_state();
   DCHECK(local_state);
 
+  // TODO(brettw,*): this comment about ResourceBundle was here since
+  // initial commit.  This comment seems unrelated, bit-rotten and
+  // a candidate for removal.
   // Initialize ResourceBundle which handles files loaded from external
   // sources. This has to be done before uninstall code path and before prefs
   // are registered.
-  local_state->RegisterStringPref(prefs::kApplicationLocale,
+  local_state->RegisterStringPref(prefs::kApplicationLocale, std::string());
+#if defined(OS_CHROMEOS)
+  local_state->RegisterStringPref(prefs::kOwnerLocale, std::string());
+  local_state->RegisterStringPref(prefs::kHardwareKeyboardLayout,
                                   std::string());
+#endif  // defined(OS_CHROMEOS)
 #if !defined(OS_CHROMEOS)
   local_state->RegisterBooleanPref(prefs::kMetricsReportingEnabled,
       GoogleUpdateSettings::GetCollectStatsConsent());
@@ -901,6 +973,9 @@ void InitializeToolkit(const MainFunctionParams& parameters) {
   // display the correct icon.
   if (!views::ViewsDelegate::views_delegate)
     views::ViewsDelegate::views_delegate = new ChromeViewsDelegate;
+
+  if (parameters.command_line_.HasSwitch(switches::kDebugViewsPaint))
+    views::RootView::EnableDebugPaint();
 #endif
 
 #if defined(OS_WIN)
@@ -1048,6 +1123,11 @@ bool IsMetricsReportingEnabled(const PrefService* local_state) {
 // Main routine for running as the Browser process.
 int BrowserMain(const MainFunctionParams& parameters) {
   TRACE_EVENT_BEGIN("BrowserMain", 0, "");
+
+  // If we're running tests (ui_task is non-null).
+  if (parameters.ui_task)
+    browser_defaults::enable_help_app = false;
+
   scoped_ptr<BrowserMainParts>
       parts(BrowserMainParts::CreateBrowserMainParts(parameters));
 
@@ -1156,10 +1236,10 @@ int BrowserMain(const MainFunctionParams& parameters) {
 #if defined(OS_MACOSX)
     g_browser_process->SetApplicationLocale(l10n_util::GetLocaleOverride());
 #else
-    // On a POSIX OS other than ChromeOS, the parameter that is passed to the
-    // method InitSharedInstance is ignored.
     const std::string locale =
         local_state->GetString(prefs::kApplicationLocale);
+    // On a POSIX OS other than ChromeOS, the parameter that is passed to the
+    // method InitSharedInstance is ignored.
     const std::string loaded_locale =
         ResourceBundle::InitSharedInstance(locale);
     CHECK(!loaded_locale.empty()) << "Locale could not be found for " << locale;
@@ -1168,7 +1248,7 @@ int BrowserMain(const MainFunctionParams& parameters) {
     FilePath resources_pack_path;
     PathService::Get(chrome::FILE_RESOURCES_PACK, &resources_pack_path);
     ResourceBundle::AddDataPackToSharedInstance(resources_pack_path);
-#endif  // !defined(OS_MACOSX)
+#endif  // defined(OS_MACOSX)
   }
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_CHROMEOS)
@@ -1231,6 +1311,14 @@ int BrowserMain(const MainFunctionParams& parameters) {
 
   // Initialize the prefs of the local state.
   browser::RegisterLocalState(local_state);
+
+  // Convert active labs into switches. Modifies the current command line.
+  about_flags::ConvertFlagsToSwitches(local_state,
+                                      CommandLine::ForCurrentProcess());
+
+  // Now the command line has been mutated based on about:flags, we can run some
+  // field trials
+  parts->SetupFieldTrials();
 
   // Now that all preferences have been registered, set the install date
   // for the uninstall metrics if this is our first run. This only actually
@@ -1379,8 +1467,6 @@ int BrowserMain(const MainFunctionParams& parameters) {
   }
 #endif
 
-  // Modifies the current command line based on active experiments on
-  // about:flags.
   Profile* profile = CreateProfile(parameters, user_data_dir);
   if (!profile)
     return ResultCodes::NORMAL_EXIT;
@@ -1497,15 +1583,19 @@ int BrowserMain(const MainFunctionParams& parameters) {
 #endif
 #endif
 
-  // Configure the network module so it has access to resources.
+  // Configure modules that need access to resources.
   net::NetModule::SetResourceProvider(chrome_common_net::NetResourceProvider);
+  gfx::GfxModule::SetResourceProvider(chrome::GfxResourceProvider);
 
   // Register our global network handler for chrome:// and
   // chrome-extension:// URLs.
-  RegisterURLRequestChromeJob();
+  ChromeURLDataManagerBackend::Register();
   RegisterExtensionProtocols();
   RegisterMetadataURLRequestHandler();
   RegisterBlobURLRequestJobFactory();
+
+  if (parsed_command_line.HasSwitch(switches::kEnableFileSystemURLScheme))
+    RegisterFileSystemURLRequestJobFactory();
 
   // In unittest mode, this will do nothing.  In normal mode, this will create
   // the global GoogleURLTracker and IntranetRedirectDetector instances, which
@@ -1531,8 +1621,11 @@ int BrowserMain(const MainFunctionParams& parameters) {
   // layout globally.
   base::FieldTrial::Probability kSDCH_DIVISOR = 1000;
   base::FieldTrial::Probability kSDCH_DISABLE_PROBABILITY = 1;  // 0.1% prob.
+  // After June 30, 2011 builds, it will always be in default group.
   scoped_refptr<base::FieldTrial> sdch_trial(
-      new base::FieldTrial("GlobalSdch", kSDCH_DIVISOR));
+      new base::FieldTrial("GlobalSdch", kSDCH_DIVISOR, "global_enable_sdch",
+          2011, 6, 30));
+  int sdch_enabled = sdch_trial->kDefaultGroupNumber;
 
   // Use default of "" so that all domains are supported.
   std::string sdch_supported_domain("");
@@ -1542,13 +1635,11 @@ int BrowserMain(const MainFunctionParams& parameters) {
   } else {
     sdch_trial->AppendGroup("global_disable_sdch",
                             kSDCH_DISABLE_PROBABILITY);
-    int sdch_enabled = sdch_trial->AppendGroup("global_enable_sdch",
-        base::FieldTrial::kAllRemainingProbability);
     if (sdch_enabled != sdch_trial->group())
       sdch_supported_domain = "never_enabled_sdch_for_any_domain";
   }
 
-  SdchManager sdch_manager;  // Singleton database.
+  net::SdchManager sdch_manager;  // Singleton database.
   sdch_manager.set_sdch_fetcher(new SdchDictionaryFetcher);
   sdch_manager.EnableSdchSupport(sdch_supported_domain);
 
@@ -1565,7 +1656,7 @@ int BrowserMain(const MainFunctionParams& parameters) {
 
   HandleTestParameters(parsed_command_line);
   RecordBreakpadStatusUMA(metrics);
-  about_flags::RecordUMAStatistics(user_prefs);
+  about_flags::RecordUMAStatistics(local_state);
 
   // Stat the directory with the inspector's files so that we can know if we
   // should display the entry in the context menu or not.
@@ -1620,6 +1711,29 @@ int BrowserMain(const MainFunctionParams& parameters) {
           ServiceProcessControlManager::GetInstance()->GetProcessControl(
               profile);
        control->Launch(NULL, NULL);
+    }
+  }
+
+  if (parsed_command_line.HasSwitch(switches::kCloudPrintFile)) {
+    FilePath cloud_print_file;
+    cloud_print_file =
+        parsed_command_line.GetSwitchValuePath(switches::kCloudPrintFile);
+    if (!cloud_print_file.empty()) {
+      string16 print_job_title;
+    if (parsed_command_line.HasSwitch(switches::kCloudPrintJobTitle)) {
+#ifdef OS_WIN
+      CommandLine::StringType native_job_title;
+      native_job_title = CommandLine::ForCurrentProcess()->GetSwitchValueNative(
+          switches::kCloudPrintJobTitle);
+      print_job_title = string16(native_job_title);
+#elif defined(OS_POSIX)
+      // TODO(abodenha@google.com) Implement this for OS_POSIX
+      // Command line string types are different
+#endif
+    }
+      PrintDialogCloud::CreatePrintDialogForPdf(cloud_print_file,
+                                                print_job_title,
+                                                false);
     }
   }
 

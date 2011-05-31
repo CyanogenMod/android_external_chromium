@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/chromeos/login/captcha_view.h"
 
-#include "app/l10n_util.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/login/helper.h"
@@ -15,12 +14,13 @@
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "views/background.h"
 #include "views/controls/button/text_button.h"
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/widget_gtk.h"
 #include "views/window/window.h"
 
@@ -123,7 +123,7 @@ void CaptchaView::ViewHierarchyChanged(bool is_add,
 bool CaptchaView::HandleKeyEvent(views::Textfield* sender,
                                  const views::KeyEvent& key_event) {
   if (sender == captcha_textfield_ &&
-      key_event.GetKeyCode() == app::VKEY_RETURN) {
+      key_event.key_code() == ui::VKEY_RETURN) {
     if (is_standalone_) {
       Accept();
     } else {
@@ -154,7 +154,7 @@ void CaptchaView::Init() {
     set_background(views::Background::CreateBackgroundPainter(true, painter));
   }
 
-  views::GridLayout* layout = CreatePanelGridLayout(this);
+  views::GridLayout* layout = views::GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
 
   int column_view_set_id = 0;
@@ -166,12 +166,12 @@ void CaptchaView::Init() {
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_LOGIN_CAPTCHA_INSTRUCTIONS)));
   label->SetMultiLine(true);
   layout->AddView(label);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   layout->StartRow(0, column_view_set_id);
   captcha_image_ = new views::ImageView();
   layout->AddView(captcha_image_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   layout->StartRow(0, column_view_set_id);
   captcha_textfield_ = new CaptchaField();
@@ -179,14 +179,14 @@ void CaptchaView::Init() {
   if (is_standalone_)
     captcha_textfield_->set_background(new CopyBackground(this));
   layout->AddView(captcha_textfield_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   layout->StartRow(0, column_view_set_id);
   label = new views::Label(UTF16ToWide(
       l10n_util::GetStringUTF16(IDS_SYNC_GAIA_CAPTCHA_CASE_INSENSITIVE_TIP)));
   label->SetMultiLine(true);
   layout->AddView(label);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   if (is_standalone_) {
     layout->StartRow(0, column_view_set_id);

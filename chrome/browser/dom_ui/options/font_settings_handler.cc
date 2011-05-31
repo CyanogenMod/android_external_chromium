@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,12 @@
 
 #include <string>
 
-#include "app/l10n_util.h"
 #include "base/basictypes.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/values.h"
 #include "chrome/browser/character_encoding.h"
+#include "chrome/browser/dom_ui/options/dom_options_util.h"
 #include "chrome/browser/dom_ui/options/font_settings_utils.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
@@ -20,6 +20,7 @@
 #include "chrome/common/pref_names.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 FontSettingsHandler::FontSettingsHandler() {
 }
@@ -31,34 +32,37 @@ void FontSettingsHandler::GetLocalizedValues(
     DictionaryValue* localized_strings) {
   DCHECK(localized_strings);
 
-  localized_strings->SetString("fontSettingsTitle",
-      l10n_util::GetStringUTF16(IDS_FONT_LANGUAGE_SETTING_FONT_TAB_TITLE));
-  localized_strings->SetString("fontSettingsFontTitle",
+  RegisterTitle(localized_strings, "fontSettingsPage",
+                IDS_FONT_LANGUAGE_SETTING_FONT_TAB_TITLE);
+  localized_strings->SetString("fontSettingsStandard",
+      dom_options_util::StripColon(
+          l10n_util::GetStringUTF16(
+              IDS_FONT_LANGUAGE_SETTING_FONT_SELECTOR_STANDARD_LABEL)));
+  localized_strings->SetString("fontSettingsFixedWidth",
+      dom_options_util::StripColon(
+          l10n_util::GetStringUTF16(
+              IDS_FONT_LANGUAGE_SETTING_FONT_SELECTOR_FIXED_WIDTH_LABEL)));
+  localized_strings->SetString("fontSettingsMinimumSize",
       l10n_util::GetStringUTF16(
-          IDS_FONT_LANGUAGE_SETTING_FONT_SUB_DIALOG_FONT_TITLE));
-  localized_strings->SetString("fontSettingsSerifLabel",
+          IDS_FONT_LANGUAGE_SETTING_MINIMUM_FONT_SIZE_TITLE));
+  localized_strings->SetString("fontSettingsEncoding",
       l10n_util::GetStringUTF16(
-          IDS_FONT_LANGUAGE_SETTING_FONT_SELECTOR_SERIF_LABEL));
-  localized_strings->SetString("fontSettingsSansSerifLabel",
-      l10n_util::GetStringUTF16(
-          IDS_FONT_LANGUAGE_SETTING_FONT_SELECTOR_SANS_SERIF_LABEL));
-  localized_strings->SetString("fontSettingsFixedWidthLabel",
-      l10n_util::GetStringUTF16(
-          IDS_FONT_LANGUAGE_SETTING_FONT_SELECTOR_FIXED_WIDTH_LABEL));
+          IDS_FONT_LANGUAGE_SETTING_FONT_SUB_DIALOG_ENCODING_TITLE));
   localized_strings->SetString("fontSettingsSizeLabel",
       l10n_util::GetStringUTF16(
           IDS_FONT_LANGUAGE_SETTING_FONT_SIZE_SELECTOR_LABEL));
-
-  localized_strings->SetString("fontSettingsMinimumSizeTitle",
+  localized_strings->SetString("fontSettingsSizeTiny",
       l10n_util::GetStringUTF16(
-          IDS_FONT_LANGUAGE_SETTING_MINIMUM_FONT_SIZE_TITLE));
-
-  localized_strings->SetString("fontSettingsEncodingTitle",
+          IDS_FONT_LANGUAGE_SETTING_FONT_SIZE_TINY));
+  localized_strings->SetString("fontSettingsSizeHuge",
       l10n_util::GetStringUTF16(
-          IDS_FONT_LANGUAGE_SETTING_FONT_SUB_DIALOG_ENCODING_TITLE));
+          IDS_FONT_LANGUAGE_SETTING_FONT_SIZE_HUGE));
   localized_strings->SetString("fontSettingsEncodingLabel",
       l10n_util::GetStringUTF16(
           IDS_FONT_LANGUAGE_SETTING_FONT_DEFAULT_ENCODING_SELECTOR_LABEL));
+  localized_strings->SetString("fontSettingsLoremIpsum",
+      l10n_util::GetStringUTF16(
+          IDS_FONT_LANGUAGE_SETTING_LOREM_IPSUM));
 
   // Fonts
   ListValue* font_list = FontSettingsUtilities::GetFontsList();
@@ -117,27 +121,27 @@ void FontSettingsHandler::GetLocalizedValues(
 }
 
 void FontSettingsHandler::Initialize() {
-  SetupSerifFontPreview();
-  SetupSansSerifFontPreview();
-  SetupFixedFontPreview();
+  SetupSerifFontSample();
+  SetupMinimumFontSample();
+  SetupFixedFontSample();
 }
 
-DOMMessageHandler* FontSettingsHandler::Attach(DOMUI* dom_ui) {
+WebUIMessageHandler* FontSettingsHandler::Attach(WebUI* web_ui) {
   // Call through to superclass.
-  DOMMessageHandler* handler = OptionsPageUIHandler::Attach(dom_ui);
+  WebUIMessageHandler* handler = OptionsPageUIHandler::Attach(web_ui);
 
   // Perform validation for saved fonts.
-  DCHECK(dom_ui_);
-  PrefService* pref_service = dom_ui_->GetProfile()->GetPrefs();
+  DCHECK(web_ui_);
+  PrefService* pref_service = web_ui_->GetProfile()->GetPrefs();
   FontSettingsUtilities::ValidateSavedFonts(pref_service);
 
   // Register for preferences that we need to observe manually.
   serif_font_.Init(prefs::kWebKitSerifFontFamily, pref_service, this);
-  sans_serif_font_.Init(prefs::kWebKitSansSerifFontFamily, pref_service, this);
   fixed_font_.Init(prefs::kWebKitFixedFontFamily, pref_service, this);
   default_font_size_.Init(prefs::kWebKitDefaultFontSize, pref_service, this);
   default_fixed_font_size_.Init(prefs::kWebKitDefaultFixedFontSize,
                                 pref_service, this);
+  minimum_font_size_.Init(prefs::kWebKitMinimumFontSize, pref_service, this);
 
   // Return result from the superclass.
   return handler;
@@ -150,37 +154,35 @@ void FontSettingsHandler::Observe(NotificationType type,
     std::string* pref_name = Details<std::string>(details).ptr();
     if (*pref_name == prefs::kWebKitSerifFontFamily ||
         *pref_name == prefs::kWebKitDefaultFontSize) {
-      SetupSerifFontPreview();
-    } else if (*pref_name == prefs::kWebKitSansSerifFontFamily ||
-               *pref_name == prefs::kWebKitDefaultFontSize) {
-      SetupSansSerifFontPreview();
+      SetupSerifFontSample();
     } else if (*pref_name == prefs::kWebKitFixedFontFamily ||
                *pref_name == prefs::kWebKitDefaultFixedFontSize) {
-      SetupFixedFontPreview();
+      SetupFixedFontSample();
+    } else if (*pref_name == prefs::kWebKitMinimumFontSize) {
+      SetupMinimumFontSample();
     }
   }
 }
 
-void FontSettingsHandler::SetupSerifFontPreview() {
-  DCHECK(dom_ui_);
+void FontSettingsHandler::SetupSerifFontSample() {
+  DCHECK(web_ui_);
   StringValue font_value(serif_font_.GetValue());
   FundamentalValue size_value(default_font_size_.GetValue());
-  dom_ui_->CallJavascriptFunction(
-      L"FontSettings.setupSerifFontPreview", font_value, size_value);
+  web_ui_->CallJavascriptFunction(
+      L"FontSettings.setupSerifFontSample", font_value, size_value);
 }
 
-void FontSettingsHandler::SetupSansSerifFontPreview() {
-  DCHECK(dom_ui_);
-  StringValue font_value(sans_serif_font_.GetValue());
-  FundamentalValue size_value(default_font_size_.GetValue());
-  dom_ui_->CallJavascriptFunction(
-      L"FontSettings.setupSansSerifFontPreview", font_value, size_value);
-}
-
-void FontSettingsHandler::SetupFixedFontPreview() {
-  DCHECK(dom_ui_);
+void FontSettingsHandler::SetupFixedFontSample() {
+  DCHECK(web_ui_);
   StringValue font_value(fixed_font_.GetValue());
   FundamentalValue size_value(default_fixed_font_size_.GetValue());
-  dom_ui_->CallJavascriptFunction(
-      L"FontSettings.setupFixedFontPreview", font_value, size_value);
+  web_ui_->CallJavascriptFunction(
+      L"FontSettings.setupFixedFontSample", font_value, size_value);
+}
+
+void FontSettingsHandler::SetupMinimumFontSample() {
+  DCHECK(web_ui_);
+  FundamentalValue size_value(minimum_font_size_.GetValue());
+  web_ui_->CallJavascriptFunction(
+      L"FontSettings.setupMinimumFontSample", size_value);
 }

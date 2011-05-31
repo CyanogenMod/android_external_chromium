@@ -1,14 +1,14 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/bookmark_bar_instructions_view.h"
+#include "chrome/browser/ui/views/bookmark_bar_instructions_view.h"
 
-#include "app/l10n_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "views/controls/label.h"
 
 using views::View;
@@ -38,7 +38,7 @@ BookmarkBarInstructionsView::BookmarkBarInstructionsView(Delegate* delegate)
 
 gfx::Size BookmarkBarInstructionsView::GetPreferredSize() {
   int ascent = 0, descent = 0, height = 0, width = 0;
-  for (int i = 0; i < GetChildViewCount(); ++i) {
+  for (int i = 0; i < child_count(); ++i) {
     View* view = GetChildViewAt(i);
     gfx::Size pref = view->GetPreferredSize();
     int baseline = view->GetBaseline();
@@ -50,7 +50,7 @@ gfx::Size BookmarkBarInstructionsView::GetPreferredSize() {
     }
     width += pref.width();
   }
-  width += (GetChildViewCount() - 1) * kViewPadding;
+  width += (child_count() - 1) * kViewPadding;
   if (ascent != 0)
     height = std::max(ascent + descent, height);
   return gfx::Size(width, height);
@@ -59,7 +59,7 @@ gfx::Size BookmarkBarInstructionsView::GetPreferredSize() {
 void BookmarkBarInstructionsView::Layout() {
   int remaining_width = width();
   int x = 0;
-  for (int i = 0; i < GetChildViewCount(); ++i) {
+  for (int i = 0; i < child_count(); ++i) {
     View* view = GetChildViewAt(i);
     gfx::Size pref = view->GetPreferredSize();
     int baseline = view->GetBaseline();
@@ -97,7 +97,7 @@ void BookmarkBarInstructionsView::LinkActivated(views::Link* source,
 
 void BookmarkBarInstructionsView::UpdateColors() {
   // We don't always have a theme provider (ui tests, for example).
-  const ThemeProvider* theme_provider = GetThemeProvider();
+  const ui::ThemeProvider* theme_provider = GetThemeProvider();
   if (!theme_provider)
     return;
   updated_colors_ = true;

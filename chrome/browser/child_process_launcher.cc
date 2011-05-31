@@ -7,9 +7,9 @@
 #include <utility>  // For std::pair.
 
 #include "base/command_line.h"
-#include "base/lock.h"
 #include "base/logging.h"
 #include "base/scoped_ptr.h"
+#include "base/synchronization/lock.h"
 #include "base/threading/thread.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/common/chrome_descriptors.h"
@@ -140,14 +140,20 @@ class ChildProcessLauncher::Context
       bool is_plugin =
           cmd_line->GetSwitchValueASCII(switches::kProcessType) ==
           switches::kPluginProcess;
+      bool is_gpu =
+          cmd_line->GetSwitchValueASCII(switches::kProcessType) ==
+          switches::kGpuProcess;
 
-      if (is_renderer || is_plugin) {
+      if (is_renderer || is_plugin || is_gpu) {
         int crash_signal_fd;
         if (is_renderer) {
           crash_signal_fd = RendererCrashHandlerHostLinux::GetInstance()->
               GetDeathSignalSocket();
-        } else {
+        } else if (is_plugin) {
           crash_signal_fd = PluginCrashHandlerHostLinux::GetInstance()->
+              GetDeathSignalSocket();
+        } else {
+          crash_signal_fd = GpuCrashHandlerHostLinux::GetInstance()->
               GetDeathSignalSocket();
         }
         if (crash_signal_fd >= 0) {
@@ -174,7 +180,7 @@ class ChildProcessLauncher::Context
       // AddPlaceholderForPid(), enabling proper cleanup.
       {  // begin scope for AutoLock
         MachBroker* broker = MachBroker::GetInstance();
-        AutoLock lock(broker->GetLock());
+        base::AutoLock lock(broker->GetLock());
 
         // This call to |PrepareForFork()| will start the MachBroker listener
         // thread, if it is not already running.  Therefore the browser process

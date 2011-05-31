@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,10 +19,10 @@
 #include "media/filters/ffmpeg_video_decoder.h"
 #include "media/filters/null_audio_renderer.h"
 #include "skia/ext/platform_canvas.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebRect.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebSize.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURL.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebVideoFrame.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebRect.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebSize.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURL.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebVideoFrame.h"
 #include "webkit/glue/media/buffered_data_source.h"
 #include "webkit/glue/media/simple_data_source.h"
 #include "webkit/glue/media/video_renderer_impl.h"
@@ -59,6 +59,25 @@ const int kMaxOutstandingRepaints = 50;
 const float kMinRate = 0.0625f;
 const float kMaxRate = 16.0f;
 
+// Platform independent method for converting and rounding floating point
+// seconds to an int64 timestamp.
+//
+// Refer to https://bugs.webkit.org/show_bug.cgi?id=52697 for details.
+base::TimeDelta ConvertSecondsToTimestamp(float seconds) {
+  float microseconds = seconds * base::Time::kMicrosecondsPerSecond;
+  float integer = ceilf(microseconds);
+  float difference = integer - microseconds;
+
+  // Round down if difference is large enough.
+  if ((microseconds > 0 && difference > 0.5f) ||
+      (microseconds <= 0 && difference >= 0.5f)) {
+    integer -= 1.0f;
+  }
+
+  // Now we can safely cast to int64 microseconds.
+  return base::TimeDelta::FromMicroseconds(static_cast<int64>(integer));
+}
+
 }  // namespace
 
 namespace webkit_glue {
@@ -80,7 +99,7 @@ WebMediaPlayerImpl::Proxy::~Proxy() {
 }
 
 void WebMediaPlayerImpl::Proxy::Repaint() {
-  AutoLock auto_lock(lock_);
+  base::AutoLock auto_lock(lock_);
   if (outstanding_repaints_ < kMaxOutstandingRepaints) {
     ++outstanding_repaints_;
 
@@ -164,7 +183,7 @@ void WebMediaPlayerImpl::Proxy::NetworkEventCallback() {
 void WebMediaPlayerImpl::Proxy::RepaintTask() {
   DCHECK(MessageLoop::current() == render_loop_);
   {
-    AutoLock auto_lock(lock_);
+    base::AutoLock auto_lock(lock_);
     --outstanding_repaints_;
     DCHECK_GE(outstanding_repaints_, 0);
   }
@@ -225,13 +244,14 @@ void WebMediaPlayerImpl::Proxy::PutCurrentFrame(
 
 WebMediaPlayerImpl::WebMediaPlayerImpl(
     WebKit::WebMediaPlayerClient* client,
-    media::FilterCollection* collection)
+    media::FilterCollection* collection,
+    media::MessageLoopFactory* message_loop_factory)
     : network_state_(WebKit::WebMediaPlayer::Empty),
       ready_state_(WebKit::WebMediaPlayer::HaveNothing),
       main_loop_(NULL),
       filter_collection_(collection),
       pipeline_(NULL),
-      pipeline_thread_("PipelineThread"),
+      message_loop_factory_(message_loop_factory),
       paused_(true),
       seeking_(false),
       playback_rate_(0.0f),
@@ -247,13 +267,14 @@ bool WebMediaPlayerImpl::Initialize(
     WebKit::WebFrame* frame,
     bool use_simple_data_source,
     scoped_refptr<WebVideoRenderer> web_video_renderer) {
-  // Create the pipeline and its thread.
-  if (!pipeline_thread_.Start()) {
+  MessageLoop* pipeline_message_loop =
+      message_loop_factory_->GetMessageLoop("PipelineThread");
+  if (!pipeline_message_loop) {
     NOTREACHED() << "Could not start PipelineThread";
     return false;
   }
 
-  pipeline_ = new media::PipelineImpl(pipeline_thread_.message_loop());
+  pipeline_ = new media::PipelineImpl(pipeline_message_loop);
 
   // Also we want to be notified of |main_loop_| destruction.
   main_loop_->AddDestructionObserver(this);
@@ -290,9 +311,12 @@ bool WebMediaPlayerImpl::Initialize(
   }
 
   // Add in the default filter factories.
-  filter_collection_->AddDemuxer(new media::FFmpegDemuxer());
-  filter_collection_->AddAudioDecoder(new media::FFmpegAudioDecoder());
-  filter_collection_->AddVideoDecoder(new media::FFmpegVideoDecoder(NULL));
+  filter_collection_->AddDemuxer(new media::FFmpegDemuxer(
+      message_loop_factory_->GetMessageLoop("DemuxThread")));
+  filter_collection_->AddAudioDecoder(new media::FFmpegAudioDecoder(
+      message_loop_factory_->GetMessageLoop("AudioDecoderThread")));
+  filter_collection_->AddVideoDecoder(new media::FFmpegVideoDecoder(
+      message_loop_factory_->GetMessageLoop("VideoDecoderThread"), NULL));
   filter_collection_->AddAudioRenderer(new media::NullAudioRenderer());
 
   return true;
@@ -369,10 +393,7 @@ void WebMediaPlayerImpl::seek(float seconds) {
     return;
   }
 
-  // Try to preserve as much accuracy as possible.
-  float microseconds = seconds * base::Time::kMicrosecondsPerSecond;
-  base::TimeDelta seek_time =
-      base::TimeDelta::FromMicroseconds(static_cast<int64>(microseconds));
+  base::TimeDelta seek_time = ConvertSecondsToTimestamp(seconds);
 
   // Update our paused time.
   if (paused_) {
@@ -794,8 +815,9 @@ void WebMediaPlayerImpl::Destroy() {
     pipeline_->Stop(NewCallback(this,
         &WebMediaPlayerImpl::PipelineStoppedCallback));
     pipeline_stopped_.Wait();
-    pipeline_thread_.Stop();
   }
+
+  message_loop_factory_.reset();
 
   // And then detach the proxy, it may live on the render thread for a little
   // longer until all the tasks are finished.

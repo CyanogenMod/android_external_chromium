@@ -104,7 +104,7 @@ void DeviceManagementPolicyCache::LoadPolicyFromFile() {
   // Decode and swap in the new policy information.
   scoped_ptr<DictionaryValue> value(DecodePolicy(cached_policy.policy()));
   {
-    AutoLock lock(lock_);
+    base::AutoLock lock(lock_);
     if (!fresh_policy_)
       policy_.reset(value.release());
     last_policy_refresh_time_ = timestamp;
@@ -118,7 +118,7 @@ bool DeviceManagementPolicyCache::SetPolicy(
   const bool new_policy_differs = !(value->Equals(policy_.get()));
   base::Time now(base::Time::NowFromSystemTime());
   {
-    AutoLock lock(lock_);
+    base::AutoLock lock(lock_);
     policy_.reset(value);
     fresh_policy_ = true;
     last_policy_refresh_time_ = now;
@@ -134,30 +134,22 @@ bool DeviceManagementPolicyCache::SetPolicy(
 }
 
 DictionaryValue* DeviceManagementPolicyCache::GetPolicy() {
-  AutoLock lock(lock_);
-  return static_cast<DictionaryValue*>(policy_->DeepCopy());
+  base::AutoLock lock(lock_);
+  return policy_->DeepCopy();
 }
 
-void DeviceManagementPolicyCache::SetDeviceUnmanaged(bool is_device_unmanaged) {
-  if (is_device_unmanaged_ == is_device_unmanaged)
-    return;
-
-  is_device_unmanaged_ = is_device_unmanaged;
+void DeviceManagementPolicyCache::SetDeviceUnmanaged() {
+  is_device_unmanaged_ = true;
   base::Time now(base::Time::NowFromSystemTime());
-  DictionaryValue* empty = new DictionaryValue();
   {
-    AutoLock lock(lock_);
-    policy_.reset(empty);
+    base::AutoLock lock(lock_);
+    policy_.reset(new DictionaryValue);
     last_policy_refresh_time_ = now;
   }
   BrowserThread::PostTask(
       BrowserThread::FILE,
       FROM_HERE,
-      new PersistPolicyTask(backing_file_path_,
-                            (is_device_unmanaged ? NULL
-                                : new em::DevicePolicyResponse()),
-                            now,
-                            is_device_unmanaged_));
+      new PersistPolicyTask(backing_file_path_, NULL, now, true));
 }
 
 // static
@@ -193,7 +185,7 @@ Value* DeviceManagementPolicyCache::DecodeValue(const em::GenericValue& value) {
       return NULL;
     case em::GenericValue::VALUE_TYPE_DOUBLE:
       if (value.has_double_value())
-        return Value::CreateRealValue(value.double_value());
+        return Value::CreateDoubleValue(value.double_value());
       return NULL;
     case em::GenericValue::VALUE_TYPE_BYTES:
       if (value.has_bytes_value()) {
@@ -232,7 +224,7 @@ Value* DeviceManagementPolicyCache::DecodeValue(const em::GenericValue& value) {
       RepeatedField<double>::const_iterator i;
       for (i = value.double_array().begin();
            i != value.double_array().end(); ++i)
-        list->Append(Value::CreateRealValue(*i));
+        list->Append(Value::CreateDoubleValue(*i));
       return list;
     }
     default:

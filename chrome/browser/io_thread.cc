@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,13 +17,13 @@
 #include "base/threading/thread_restrictions.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/gpu_process_host.h"
+#include "chrome/browser/in_process_webkit/indexed_db_key_utility_client.h"
 #include "chrome/browser/net/chrome_net_log.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/net/connect_interceptor.h"
 #include "chrome/browser/net/passive_log_collector.h"
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/prerender/prerender_interceptor.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/net/raw_host_resolver_proc.h"
 #include "chrome/common/net/url_fetcher.h"
@@ -38,12 +38,11 @@
 #include "net/http/http_auth_filter.h"
 #include "net/http/http_auth_handler_factory.h"
 #include "net/http/http_network_layer.h"
+#include "net/http/http_network_session.h"
 #if defined(USE_NSS)
 #include "net/ocsp/nss_ocsp.h"
 #endif  // defined(USE_NSS)
 #include "net/proxy/proxy_script_fetcher_impl.h"
-#include "net/socket/client_socket_factory.h"
-#include "net/spdy/spdy_session_pool.h"
 
 namespace {
 
@@ -71,8 +70,11 @@ net::HostResolver* CreateGlobalHostResolver(net::NetLog* net_log) {
     // For each option (i.e., non-default), we have a fixed probability.
     base::FieldTrial::Probability kProbabilityPerGroup = 100;  // 10%.
 
+    // After June 30, 2011 builds, it will always be in default group
+    // (parallel_default).
     scoped_refptr<base::FieldTrial> trial(
-        new base::FieldTrial("DnsParallelism", kDivisor));
+        new base::FieldTrial(
+            "DnsParallelism", kDivisor, "parallel_default", 2011, 6, 30));
 
     // List options with different counts.
     // Firefox limits total to 8 in parallel, and default is currently 50.
@@ -83,9 +85,6 @@ net::HostResolver* CreateGlobalHostResolver(net::NetLog* net_log) {
     int parallel_10 = trial->AppendGroup("parallel_10", kProbabilityPerGroup);
     int parallel_14 = trial->AppendGroup("parallel_14", kProbabilityPerGroup);
     int parallel_20 = trial->AppendGroup("parallel_20", kProbabilityPerGroup);
-
-    trial->AppendGroup("parallel_default",
-                        base::FieldTrial::kAllRemainingProbability);
 
     if (trial->group() == parallel_6)
       parallelism = 6;
@@ -177,10 +176,10 @@ class LoggingNetworkChangeObserver
   DISALLOW_COPY_AND_ASSIGN(LoggingNetworkChangeObserver);
 };
 
-scoped_refptr<URLRequestContext>
+scoped_refptr<net::URLRequestContext>
 ConstructProxyScriptFetcherContext(IOThread::Globals* globals,
                                    net::NetLog* net_log) {
-  scoped_refptr<URLRequestContext> context(new URLRequestContext);
+  scoped_refptr<net::URLRequestContext> context(new net::URLRequestContext);
   context->set_net_log(net_log);
   context->set_host_resolver(globals->host_resolver.get());
   context->set_cert_verifier(globals->cert_verifier.get());
@@ -192,6 +191,7 @@ ConstructProxyScriptFetcherContext(IOThread::Globals* globals,
       globals->proxy_script_fetcher_http_transaction_factory.get());
   // In-memory cookie store.
   context->set_cookie_store(new net::CookieMonster(NULL, NULL));
+  // TODO(mpcomplete): give it a SystemNetworkDelegate.
   return context;
 }
 
@@ -295,12 +295,9 @@ void IOThread::ChangedToOnTheRecord() {
 }
 
 void IOThread::Init() {
-#if !defined(OS_CHROMEOS)
-  // TODO(evan): test and enable this on all platforms.
   // Though this thread is called the "IO" thread, it actually just routes
   // messages around; it shouldn't be allowed to perform any blocking disk I/O.
   base::ThreadRestrictions::SetIOAllowed(false);
-#endif
 
   BrowserProcessSubThread::Init();
 
@@ -319,8 +316,6 @@ void IOThread::Init() {
   network_change_observer_.reset(
       new LoggingNetworkChangeObserver(net_log_));
 
-  globals_->client_socket_factory =
-      net::ClientSocketFactory::GetDefaultFactory();
   globals_->host_resolver.reset(
       CreateGlobalHostResolver(net_log_));
   globals_->cert_verifier.reset(new net::CertVerifier);
@@ -333,34 +328,29 @@ void IOThread::Init() {
   // For the ProxyScriptFetcher, we use a direct ProxyService.
   globals_->proxy_script_fetcher_proxy_service =
       net::ProxyService::CreateDirectWithNetLog(net_log_);
+  net::HttpNetworkSession::Params session_params;
+  session_params.host_resolver = globals_->host_resolver.get();
+  session_params.cert_verifier = globals_->cert_verifier.get();
+  session_params.proxy_service =
+      globals_->proxy_script_fetcher_proxy_service.get();
+  session_params.http_auth_handler_factory =
+      globals_->http_auth_handler_factory.get();
+  session_params.network_delegate = &globals_->network_delegate;
+  session_params.net_log = net_log_;
+  session_params.ssl_config_service = globals_->ssl_config_service;
+  scoped_refptr<net::HttpNetworkSession> network_session(
+      new net::HttpNetworkSession(session_params));
   globals_->proxy_script_fetcher_http_transaction_factory.reset(
-      new net::HttpNetworkLayer(
-          globals_->client_socket_factory,
-          globals_->host_resolver.get(),
-          globals_->cert_verifier.get(),
-          globals_->dnsrr_resolver.get(),
-          NULL /* dns_cert_checker */,
-          NULL /* ssl_host_info_factory */,
-          globals_->proxy_script_fetcher_proxy_service.get(),
-          globals_->ssl_config_service.get(),
-          new net::SpdySessionPool(globals_->ssl_config_service.get()),
-          globals_->http_auth_handler_factory.get(),
-          &globals_->network_delegate,
-          net_log_));
+      new net::HttpNetworkLayer(network_session));
 
-  scoped_refptr<URLRequestContext> proxy_script_fetcher_context =
+  scoped_refptr<net::URLRequestContext> proxy_script_fetcher_context =
       ConstructProxyScriptFetcherContext(globals_, net_log_);
   globals_->proxy_script_fetcher_context = proxy_script_fetcher_context;
-
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnablePagePrerender)) {
-    prerender_interceptor_.reset(new PrerenderInterceptor());
-  }
 }
 
 void IOThread::CleanUp() {
   // Step 1: Kill all things that might be holding onto
-  // net::URLRequest/URLRequestContexts.
+  // net::URLRequest/net::URLRequestContexts.
 
 #if defined(USE_NSS)
   net::ShutdownOCSP();
@@ -368,6 +358,8 @@ void IOThread::CleanUp() {
 
   // Destroy all URLRequests started by URLFetchers.
   URLFetcher::CancelAll();
+
+  IndexedDBKeyUtilityClient::Shutdown();
 
   // If any child processes are still running, terminate them and
   // and delete the BrowserChildProcessHost instances to release whatever
@@ -388,8 +380,8 @@ void IOThread::CleanUp() {
     getter->ReleaseURLRequestContext();
   }
 
-  // Step 2: Release objects that the URLRequestContext could have been pointing
-  // to.
+  // Step 2: Release objects that the net::URLRequestContext could have been
+  // pointing to.
 
   // This must be reset before the ChromeNetLog is destroyed.
   network_change_observer_.reset();
@@ -408,8 +400,6 @@ void IOThread::CleanUp() {
   // Deletion will unregister this interceptor.
   delete speculative_interceptor_;
   speculative_interceptor_ = NULL;
-
-  prerender_interceptor_.reset();
 
   // TODO(eroman): hack for http://crbug.com/15513
   if (globals_->host_resolver->GetAsHostResolverImpl()) {
@@ -510,14 +500,21 @@ void IOThread::ChangedToOnTheRecordOnIOThread() {
 
   // Clear the host cache to avoid showing entries from the OTR session
   // in about:net-internals.
+  ClearHostCache();
+
+  // Clear all of the passively logged data.
+  // TODO(eroman): this is a bit heavy handed, really all we need to do is
+  //               clear the data pertaining to off the record context.
+  net_log_->ClearAllPassivelyCapturedEvents();
+}
+
+void IOThread::ClearHostCache() {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+
   if (globals_->host_resolver->GetAsHostResolverImpl()) {
     net::HostCache* host_cache =
         globals_->host_resolver.get()->GetAsHostResolverImpl()->cache();
     if (host_cache)
       host_cache->clear();
   }
-  // Clear all of the passively logged data.
-  // TODO(eroman): this is a bit heavy handed, really all we need to do is
-  //               clear the data pertaining to off the record context.
-  net_log_->ClearAllPassivelyCapturedEvents();
 }

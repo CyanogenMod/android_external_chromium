@@ -1,8 +1,8 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/shell_dialogs.h"
+#include "chrome/browser/ui/shell_dialogs.h"
 
 #include <windows.h>
 #include <commdlg.h>
@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <set>
 
-#include "app/l10n_util.h"
+#include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/message_loop.h"
 #include "base/scoped_comptr_win.h"
@@ -21,9 +21,10 @@
 #include "base/win/registry.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/browser_thread.h"
-#include "gfx/font.h"
 #include "grit/app_strings.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/font.h"
 
 // This function takes the output of a SaveAs dialog: a filename, a filter and
 // the extension originally suggested to the user (shown in the dialog box) and
@@ -75,9 +76,9 @@ static bool GetRegistryDescriptionFromExtension(const std::wstring& file_ext,
   DCHECK(reg_description);
   base::win::RegKey reg_ext(HKEY_CLASSES_ROOT, file_ext.c_str(), KEY_READ);
   std::wstring reg_app;
-  if (reg_ext.ReadValue(NULL, &reg_app) && !reg_app.empty()) {
+  if (reg_ext.ReadValue(NULL, &reg_app) == ERROR_SUCCESS && !reg_app.empty()) {
     base::win::RegKey reg_link(HKEY_CLASSES_ROOT, reg_app.c_str(), KEY_READ);
-    if (reg_link.ReadValue(NULL, reg_description))
+    if (reg_link.ReadValue(NULL, reg_description) == ERROR_SUCCESS)
       return true;
   }
   return false;
@@ -348,12 +349,11 @@ bool SaveFileAsWithFilter(HWND owner,
 bool SaveFileAs(HWND owner,
                 const std::wstring& suggested_name,
                 std::wstring* final_name) {
-  std::wstring file_ext = file_util::GetFileExtensionFromPath(suggested_name);
-  file_ext.insert(0, L"*.");
+  std::wstring file_ext = FilePath(suggested_name).Extension().insert(0, L"*");
   std::wstring filter = FormatFilterForExtensions(
-    std::vector<std::wstring>(1, file_ext),
-    std::vector<std::wstring>(),
-    true);
+      std::vector<std::wstring>(1, file_ext),
+      std::vector<std::wstring>(),
+      true);
   unsigned index = 1;
   return SaveFileAsWithFilter(owner,
                               suggested_name,
@@ -698,13 +698,12 @@ void SelectFileDialogImpl::ExecuteSelectFile(
                                     params.run_state.owner,
                                     &path);
   } else if (params.type == SELECT_SAVEAS_FILE) {
-    std::wstring path_as_wstring = path.ToWStringHack();
+    std::wstring path_as_wstring = path.value();
     success = SaveFileAsWithFilter(params.run_state.owner,
-        params.default_path.ToWStringHack(), filter,
+        params.default_path.value(), filter,
         params.default_extension, false, &filter_index, &path_as_wstring);
-    if (success) {
-      path = FilePath::FromWStringHack(path_as_wstring);
-    }
+    if (success)
+      path = FilePath(path_as_wstring);
     DisableOwner(params.run_state.owner);
   } else if (params.type == SELECT_OPEN_FILE) {
     success = RunOpenFileDialog(params.title, filter,

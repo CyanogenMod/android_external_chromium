@@ -12,6 +12,9 @@
 
 namespace net {
 
+UploadDataStream::~UploadDataStream() {
+}
+
 UploadDataStream* UploadDataStream::Create(UploadData* data, int* error_code) {
   scoped_ptr<UploadDataStream> stream(new UploadDataStream(data));
   int rv = stream->FillBuf();
@@ -23,45 +26,44 @@ UploadDataStream* UploadDataStream::Create(UploadData* data, int* error_code) {
   return stream.release();
 }
 
-UploadDataStream::UploadDataStream(UploadData* data)
-    : data_(data),
-      buf_(new IOBuffer(kBufSize)),
-      buf_len_(0),
-      next_element_(data->elements()->begin()),
-      next_element_offset_(0),
-      next_element_remaining_(0),
-      total_size_(data->GetContentLength()),
-      current_position_(0),
-      eof_(false) {
-}
-
-UploadDataStream::~UploadDataStream() {
-}
-
-void UploadDataStream::DidConsume(size_t num_bytes) {
+void UploadDataStream::MarkConsumedAndFillBuffer(size_t num_bytes) {
   DCHECK_LE(num_bytes, buf_len_);
   DCHECK(!eof_);
 
-  buf_len_ -= num_bytes;
-  if (buf_len_)
-    memmove(buf_->data(), buf_->data() + num_bytes, buf_len_);
+  if (num_bytes) {
+    buf_len_ -= num_bytes;
+    if (buf_len_)
+      memmove(buf_->data(), buf_->data() + num_bytes, buf_len_);
+  }
 
   FillBuf();
 
   current_position_ += num_bytes;
 }
 
-int UploadDataStream::FillBuf() {
-  std::vector<UploadData::Element>::iterator end =
-      data_->elements()->end();
+UploadDataStream::UploadDataStream(UploadData* data)
+    : data_(data),
+      buf_(new IOBuffer(kBufSize)),
+      buf_len_(0),
+      next_element_(0),
+      next_element_offset_(0),
+      next_element_remaining_(0),
+      total_size_(data->is_chunked() ? 0 : data->GetContentLength()),
+      current_position_(0),
+      eof_(false) {
+}
 
-  while (buf_len_ < kBufSize && next_element_ != end) {
+int UploadDataStream::FillBuf() {
+  std::vector<UploadData::Element>& elements = *data_->elements();
+
+  while (buf_len_ < kBufSize && next_element_ < elements.size()) {
     bool advance_to_next_element = false;
 
-    UploadData::Element& element = *next_element_;
+    UploadData::Element& element = elements[next_element_];
 
     size_t size_remaining = kBufSize - buf_len_;
-    if (element.type() == UploadData::TYPE_BYTES) {
+    if (element.type() == UploadData::TYPE_BYTES ||
+        element.type() == UploadData::TYPE_CHUNK) {
       const std::vector<char>& d = element.bytes();
       size_t count = d.size() - next_element_offset_;
 
@@ -140,8 +142,12 @@ int UploadDataStream::FillBuf() {
     }
   }
 
-  if (next_element_ == end && !buf_len_)
-    eof_ = true;
+  if (next_element_ == elements.size() && !buf_len_) {
+    if (!data_->is_chunked() ||
+        (!elements.empty() && elements.back().is_last_chunk())) {
+      eof_ = true;
+    }
+  }
 
   return OK;
 }

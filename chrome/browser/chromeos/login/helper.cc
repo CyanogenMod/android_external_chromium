@@ -4,12 +4,12 @@
 
 #include "chrome/browser/chromeos/login/helper.h"
 
-#include "app/resource_bundle.h"
 #include "chrome/browser/google/google_util.h"
-#include "gfx/canvas_skia.h"
 #include "googleurl/src/gurl.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas_skia.h"
 #include "views/controls/button/menu_button.h"
 #include "views/controls/button/native_button.h"
 #include "views/controls/label.h"
@@ -103,11 +103,14 @@ void ThrobberHostView::StartThrobber() {
       new views::WidgetGtk(views::WidgetGtk::TYPE_WINDOW);
   widget_gtk->make_transient_to_parent();
   widget_gtk->MakeTransparent();
-  throbber_widget_ = widget_gtk;
 
+  throbber_widget_ = widget_gtk;
   throbber_bounds.Offset(host_view_->GetScreenBounds().origin());
   throbber_widget_->Init(host_gtk_window, throbber_bounds);
   throbber_widget_->SetContentsView(throbber);
+  // This keeps the window from flashing at startup.
+  gdk_window_set_back_pixmap(
+      throbber_widget_->GetNativeView()->window, NULL, false);
   throbber_widget_->Show();
   // WM can ignore bounds before widget is shown.
   throbber_widget_->SetBounds(throbber_bounds);

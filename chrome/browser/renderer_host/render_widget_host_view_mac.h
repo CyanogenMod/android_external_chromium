@@ -19,7 +19,7 @@
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/ui/cocoa/base_view.h"
 #include "chrome/common/edit_command.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebCompositionUnderline.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebCompositionUnderline.h"
 #include "webkit/glue/webcursor.h"
 
 @class AcceleratedPluginView;
@@ -120,8 +120,11 @@ class RWHVMEditCommandHelper;
   // etc.
   EditCommands editCommands_;
 
-  // The plugin for which IME is currently enabled (-1 if not enabled).
-  int pluginImeIdentifier_;
+  // The plugin that currently has focus (-1 if no plugin has focus).
+  int focusedPluginIdentifier_;
+
+  // Whether or not plugin IME is currently enabled active.
+  BOOL pluginImeActive_;
 }
 
 @property(assign, nonatomic) NSRect caretRect;
@@ -141,8 +144,10 @@ class RWHVMEditCommandHelper;
 - (void)cancelComposition;
 // Confirm ongoing composition.
 - (void)confirmComposition;
-// Enables or disables plugin IME for the given plugin.
-- (void)setPluginImeEnabled:(BOOL)enabled forPlugin:(int)pluginId;
+// Enables or disables plugin IME.
+- (void)setPluginImeActive:(BOOL)active;
+// Updates the current plugin focus state.
+- (void)pluginFocusChanged:(BOOL)focused forPlugin:(int)pluginId;
 // Evaluates the event in the context of plugin IME, if plugin IME is enabled.
 // Returns YES if the event was handled.
 - (BOOL)postProcessEventForPluginIme:(NSEvent*)event;
@@ -177,7 +182,7 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   // Implementation of RenderWidgetHostView:
   virtual void InitAsPopup(RenderWidgetHostView* parent_host_view,
                            const gfx::Rect& pos);
-  virtual void InitAsFullscreen(RenderWidgetHostView* parent_host_view);
+  virtual void InitAsFullscreen();
   virtual RenderWidgetHost* GetRenderWidgetHost() const;
   virtual void DidBecomeSelected();
   virtual void WasHidden();
@@ -208,7 +213,8 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   virtual void SelectionChanged(const std::string& text);
   virtual BackingStore* AllocBackingStore(const gfx::Size& size);
   virtual void SetTakesFocusOnlyOnMouseDown(bool flag);
-  virtual gfx::Rect GetWindowRect();
+  // See comment in RenderWidgetHostView!
+  virtual gfx::Rect GetViewCocoaBounds() const;
   virtual gfx::Rect GetRootWindowRect();
   virtual void SetActive(bool active);
   virtual void SetWindowVisibility(bool visible);
@@ -219,7 +225,8 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   virtual void OnAccessibilityNotifications(
       const std::vector<ViewHostMsg_AccessibilityNotification_Params>& params);
 
-  virtual void SetPluginImeEnabled(bool enabled, int plugin_id);
+  virtual void PluginFocusChanged(bool focused, int plugin_id);
+  virtual void StartPluginIme();
   virtual bool PostProcessEventForPluginIme(
       const NativeWebKeyboardEvent& event);
 
@@ -269,8 +276,8 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
 
   void SetTextInputActive(bool active);
 
-  // Sends confirmed plugin IME text back to the renderer.
-  void PluginImeCompositionConfirmed(const string16& text, int plugin_id);
+  // Sends completed plugin IME notification and text back to the renderer.
+  void PluginImeCompositionCompleted(const string16& text, int plugin_id);
 
   const std::string& selected_text() const { return selected_text_; }
 

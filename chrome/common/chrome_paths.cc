@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -182,7 +182,6 @@ bool PathProvider(int key, FilePath* result) {
       if (!PathService::Get(chrome::DIR_USER_DATA, &cur))
         return false;
       cur = cur.Append(FILE_PATH_LITERAL("Temp"));
-      create_dir = true;
       break;
     case chrome::DIR_INTERNAL_PLUGINS:
       if (!GetInternalPluginsDirectory(&cur))
@@ -295,7 +294,7 @@ bool PathProvider(int key, FilePath* result) {
       if (!file_util::PathExists(cur))  // we don't want to create this
         return false;
       break;
-#if !defined(OS_MACOSX) && defined(OS_POSIX)
+#if defined(OS_POSIX) && !defined(OS_MACOSX)
     case chrome::DIR_POLICY_FILES: {
 #if defined(GOOGLE_CHROME_BUILD)
       cur = FilePath(FILE_PATH_LITERAL("/etc/opt/chrome/policies"));
@@ -318,6 +317,14 @@ bool PathProvider(int key, FilePath* result) {
       cur = cur.AppendASCII(login);
       if (!file_util::PathExists(cur))  // we don't want to create this
         return false;
+      break;
+    }
+#endif
+#if defined(OS_CHROMEOS)
+    case chrome::DIR_USER_EXTERNAL_EXTENSIONS: {
+      if (!PathService::Get(chrome::DIR_USER_DATA, &cur))
+        return false;
+      cur = cur.Append(FILE_PATH_LITERAL("External Extensions"));
       break;
     }
 #endif

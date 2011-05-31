@@ -38,6 +38,12 @@ class UserView : public views::View,
 
     // Notifies that user would like to remove this user from login screen.
     virtual void OnRemoveUser() {}
+
+    // Returns true if current user is selected.
+    virtual bool IsUserSelected() const = 0;
+
+    // Notifies about locale change.
+    virtual void OnLocaleChanged() {}
   };
 
   // Creates UserView for login screen (|is_login| == true) or screen locker.
@@ -50,7 +56,10 @@ class UserView : public views::View,
   virtual gfx::Size GetPreferredSize();
   virtual void OnLocaleChanged();
 
-  // Sets the user's image.
+  // Sets the user's image. If image's size is less than
+  // 75% of window size, image size is preserved to avoid blur. Otherwise,
+  // the image is resized to fit window size precisely. Image view repaints
+  // itself.
   void SetImage(const SkBitmap& image, const SkBitmap& image_hot);
 
   // Sets tooltip over the image.

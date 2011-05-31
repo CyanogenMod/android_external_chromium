@@ -8,8 +8,6 @@
 #include <functional>
 #include <vector>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/callback.h"
 #include "base/linked_ptr.h"
 #include "base/string_util.h"
@@ -23,6 +21,8 @@
 #include "net/base/registry_controlled_domain.h"
 #include "net/url_request/url_request_context.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 static const char kFileOriginNodeName[] = "file://";
 
@@ -505,7 +505,7 @@ CookiesTreeModel::CookiesTreeModel(
     BrowsingDataLocalStorageHelper* session_storage_helper,
     BrowsingDataAppCacheHelper* appcache_helper,
     BrowsingDataIndexedDBHelper* indexed_db_helper)
-    : ALLOW_THIS_IN_INITIALIZER_LIST(TreeNodeModel<CookieTreeNode>(
+    : ALLOW_THIS_IN_INITIALIZER_LIST(ui::TreeNodeModel<CookieTreeNode>(
           new CookieTreeRootNode(this))),
       cookie_monster_(cookie_monster),
       appcache_helper_(appcache_helper),
@@ -568,33 +568,27 @@ void CookiesTreeModel::GetIcons(std::vector<SkBitmap>* icons) {
 // Returns the index of the icon to use for |node|. Return -1 to use the
 // default icon. The index is relative to the list of icons returned from
 // GetIcons.
-int CookiesTreeModel::GetIconIndex(TreeModelNode* node) {
+int CookiesTreeModel::GetIconIndex(ui::TreeModelNode* node) {
   CookieTreeNode* ct_node = static_cast<CookieTreeNode*>(node);
   switch (ct_node->GetDetailedInfo().node_type) {
     case CookieTreeNode::DetailedInfo::TYPE_ORIGIN:
       return ORIGIN;
-      break;
     case CookieTreeNode::DetailedInfo::TYPE_COOKIE:
       return COOKIE;
-      break;
     case CookieTreeNode::DetailedInfo::TYPE_DATABASE:
       return DATABASE;
-      break;
     case CookieTreeNode::DetailedInfo::TYPE_LOCAL_STORAGE:
       return DATABASE;  // close enough
-      break;
     case CookieTreeNode::DetailedInfo::TYPE_SESSION_STORAGE:
       return DATABASE;  // ditto
-      break;
     case CookieTreeNode::DetailedInfo::TYPE_APPCACHE:
       return DATABASE;  // ditto
-      break;
     case CookieTreeNode::DetailedInfo::TYPE_INDEXED_DB:
       return DATABASE;  // ditto
-      break;
     default:
-      return -1;
+      break;
   }
+  return -1;
 }
 
 void CookiesTreeModel::LoadCookies() {
@@ -666,16 +660,16 @@ void CookiesTreeModel::UpdateSearchResults(const std::wstring& filter) {
   NotifyObserverEndBatch();
 }
 
-void CookiesTreeModel::AddObserver(Observer* observer) {
+void CookiesTreeModel::AddCookiesTreeObserver(Observer* observer) {
   cookies_observer_list_.AddObserver(observer);
   // Call super so that TreeNodeModel can notify, too.
-  TreeNodeModel<CookieTreeNode>::AddObserver(observer);
+  ui::TreeNodeModel<CookieTreeNode>::AddObserver(observer);
 }
 
-void CookiesTreeModel::RemoveObserver(Observer* observer) {
+void CookiesTreeModel::RemoveCookiesTreeObserver(Observer* observer) {
   cookies_observer_list_.RemoveObserver(observer);
   // Call super so that TreeNodeModel doesn't have dead pointers.
-  TreeNodeModel<CookieTreeNode>::RemoveObserver(observer);
+  ui::TreeNodeModel<CookieTreeNode>::RemoveObserver(observer);
 }
 
 void CookiesTreeModel::OnAppCacheModelInfoLoaded() {

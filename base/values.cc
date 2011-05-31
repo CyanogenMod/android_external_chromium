@@ -70,27 +70,27 @@ Value* Value::CreateNullValue() {
 }
 
 // static
-Value* Value::CreateBooleanValue(bool in_value) {
+FundamentalValue* Value::CreateBooleanValue(bool in_value) {
   return new FundamentalValue(in_value);
 }
 
 // static
-Value* Value::CreateIntegerValue(int in_value) {
+FundamentalValue* Value::CreateIntegerValue(int in_value) {
   return new FundamentalValue(in_value);
 }
 
 // static
-Value* Value::CreateRealValue(double in_value) {
+FundamentalValue* Value::CreateDoubleValue(double in_value) {
   return new FundamentalValue(in_value);
 }
 
 // static
-Value* Value::CreateStringValue(const std::string& in_value) {
+StringValue* Value::CreateStringValue(const std::string& in_value) {
   return new StringValue(in_value);
 }
 
 // static
-Value* Value::CreateStringValue(const string16& in_value) {
+StringValue* Value::CreateStringValue(const string16& in_value) {
   return new StringValue(in_value);
 }
 
@@ -107,7 +107,7 @@ bool Value::GetAsInteger(int* out_value) const {
   return false;
 }
 
-bool Value::GetAsReal(double* out_value) const {
+bool Value::GetAsDouble(double* out_value) const {
   return false;
 }
 
@@ -158,7 +158,7 @@ FundamentalValue::FundamentalValue(int in_value)
 }
 
 FundamentalValue::FundamentalValue(double in_value)
-    : Value(TYPE_REAL), real_value_(in_value) {
+    : Value(TYPE_DOUBLE), double_value_(in_value) {
 }
 
 FundamentalValue::~FundamentalValue() {
@@ -176,13 +176,13 @@ bool FundamentalValue::GetAsInteger(int* out_value) const {
   return (IsType(TYPE_INTEGER));
 }
 
-bool FundamentalValue::GetAsReal(double* out_value) const {
-  if (out_value && IsType(TYPE_REAL))
-    *out_value = real_value_;
-  return (IsType(TYPE_REAL));
+bool FundamentalValue::GetAsDouble(double* out_value) const {
+  if (out_value && IsType(TYPE_DOUBLE))
+    *out_value = double_value_;
+  return (IsType(TYPE_DOUBLE));
 }
 
-Value* FundamentalValue::DeepCopy() const {
+FundamentalValue* FundamentalValue::DeepCopy() const {
   switch (GetType()) {
     case TYPE_BOOLEAN:
       return CreateBooleanValue(boolean_value_);
@@ -190,8 +190,8 @@ Value* FundamentalValue::DeepCopy() const {
     case TYPE_INTEGER:
       return CreateIntegerValue(integer_value_);
 
-    case TYPE_REAL:
-      return CreateRealValue(real_value_);
+    case TYPE_DOUBLE:
+      return CreateDoubleValue(double_value_);
 
     default:
       NOTREACHED();
@@ -212,9 +212,9 @@ bool FundamentalValue::Equals(const Value* other) const {
       int lhs, rhs;
       return GetAsInteger(&lhs) && other->GetAsInteger(&rhs) && lhs == rhs;
     }
-    case TYPE_REAL: {
+    case TYPE_DOUBLE: {
       double lhs, rhs;
-      return GetAsReal(&lhs) && other->GetAsReal(&rhs) && lhs == rhs;
+      return GetAsDouble(&lhs) && other->GetAsDouble(&rhs) && lhs == rhs;
     }
     default:
       NOTREACHED();
@@ -250,7 +250,7 @@ bool StringValue::GetAsString(string16* out_value) const {
   return true;
 }
 
-Value* StringValue::DeepCopy() const {
+StringValue* StringValue::DeepCopy() const {
   return CreateStringValue(value_);
 }
 
@@ -288,7 +288,7 @@ BinaryValue* BinaryValue::CreateWithCopiedBuffer(const char* buffer,
   return new BinaryValue(buffer_copy, size);
 }
 
-Value* BinaryValue::DeepCopy() const {
+BinaryValue* BinaryValue::DeepCopy() const {
   return CreateWithCopiedBuffer(buffer_, size_);
 }
 
@@ -367,8 +367,8 @@ void DictionaryValue::SetInteger(const std::string& path, int in_value) {
   Set(path, CreateIntegerValue(in_value));
 }
 
-void DictionaryValue::SetReal(const std::string& path, double in_value) {
-  Set(path, CreateRealValue(in_value));
+void DictionaryValue::SetDouble(const std::string& path, double in_value) {
+  Set(path, CreateDoubleValue(in_value));
 }
 
 void DictionaryValue::SetString(const std::string& path,
@@ -430,13 +430,13 @@ bool DictionaryValue::GetInteger(const std::string& path,
   return value->GetAsInteger(out_value);
 }
 
-bool DictionaryValue::GetReal(const std::string& path,
-                              double* out_value) const {
+bool DictionaryValue::GetDouble(const std::string& path,
+                                double* out_value) const {
   Value* value;
   if (!Get(path, &value))
     return false;
 
-  return value->GetAsReal(out_value);
+  return value->GetAsDouble(out_value);
 }
 
 bool DictionaryValue::GetString(const std::string& path,
@@ -533,13 +533,13 @@ bool DictionaryValue::GetIntegerWithoutPathExpansion(const std::string& key,
   return value->GetAsInteger(out_value);
 }
 
-bool DictionaryValue::GetRealWithoutPathExpansion(const std::string& key,
-                                                  double* out_value) const {
+bool DictionaryValue::GetDoubleWithoutPathExpansion(const std::string& key,
+                                                    double* out_value) const {
   Value* value;
   if (!GetWithoutPathExpansion(key, &value))
     return false;
 
-  return value->GetAsReal(out_value);
+  return value->GetAsDouble(out_value);
 }
 
 bool DictionaryValue::GetStringWithoutPathExpansion(
@@ -646,7 +646,7 @@ void DictionaryValue::MergeDictionary(const DictionaryValue* dictionary) {
   }
 }
 
-Value* DictionaryValue::DeepCopy() const {
+DictionaryValue* DictionaryValue::DeepCopy() const {
   DictionaryValue* result = new DictionaryValue;
 
   for (ValueMap::const_iterator current_entry(dictionary_.begin());
@@ -742,12 +742,12 @@ bool ListValue::GetInteger(size_t index, int* out_value) const {
   return value->GetAsInteger(out_value);
 }
 
-bool ListValue::GetReal(size_t index, double* out_value) const {
+bool ListValue::GetDouble(size_t index, double* out_value) const {
   Value* value;
   if (!Get(index, &value))
     return false;
 
-  return value->GetAsReal(out_value);
+  return value->GetAsDouble(out_value);
 }
 
 bool ListValue::GetString(size_t index, std::string* out_value) const {
@@ -862,7 +862,7 @@ bool ListValue::GetAsList(ListValue** out_value) {
   return true;
 }
 
-Value* ListValue::DeepCopy() const {
+ListValue* ListValue::DeepCopy() const {
   ListValue* result = new ListValue;
 
   for (ValueVector::const_iterator i(list_.begin()); i != list_.end(); ++i)

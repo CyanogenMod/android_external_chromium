@@ -32,8 +32,8 @@ cr.define('options.passwordManager', function() {
 
       // The URL of the site.
       var urlLabel = this.ownerDocument.createElement('div');
-      urlLabel.className = 'url';
       urlLabel.classList.add('favicon-cell');
+      urlLabel.classList.add('url');
       urlLabel.textContent = this.url;
       urlLabel.style.backgroundImage = url('chrome://favicon/' + this.url);
       this.contentElement.appendChild(urlLabel);
@@ -50,16 +50,19 @@ cr.define('options.passwordManager', function() {
 
       // The password input field.
       var passwordInput = this.ownerDocument.createElement('input');
-      passwordInput.className = 'inactive-password';
       passwordInput.type = 'password';
+      passwordInput.className = 'inactive-password';
+      passwordInput.readOnly = true;
       passwordInput.value = this.password;
       passwordInputDiv.appendChild(passwordInput);
 
       // The show/hide button.
-      var buttonSpan = this.ownerDocument.createElement('span');
-      buttonSpan.className = 'hidden';
-      buttonSpan.addEventListener('click', this.onClick_, true);
-      passwordInputDiv.appendChild(buttonSpan);
+      var button = this.ownerDocument.createElement('button');
+      button.classList.add('hidden');
+      button.classList.add('password-button');
+      button.textContent = localStrings.getString('passwordShowButton');
+      button.addEventListener('click', this.onClick_, true);
+      passwordInputDiv.appendChild(button);
 
       this.contentElement.appendChild(passwordInputDiv);
     },
@@ -67,13 +70,15 @@ cr.define('options.passwordManager', function() {
     /** @inheritDoc */
     selectionChanged: function() {
       var passwordInput = this.querySelector('input[type=password]');
-      var buttonSpan = passwordInput.nextSibling;
+      var textInput = this.querySelector('input[type=text]');
+      var input = passwordInput || textInput;
+      var button = input.nextSibling;
       if (this.selected) {
-        passwordInput.classList.remove('inactive-password');
-        buttonSpan.classList.remove('hidden');
+        input.classList.remove('inactive-password');
+        button.classList.remove('hidden');
       } else {
-        passwordInput.classList.add('inactive-password');
-        buttonSpan.classList.add('hidden');
+        input.classList.add('inactive-password');
+        button.classList.add('hidden');
       }
     },
 
@@ -83,11 +88,16 @@ cr.define('options.passwordManager', function() {
      * @private
      */
     onClick_: function(event) {
-      // The password is the input element previous to the button span.
-      var buttonSpan = event.currentTarget;
-      var passwordInput = buttonSpan.previousSibling;
-      var type = passwordInput.type;
-      passwordInput.type = type == 'password' ? 'text' : 'password';
+      // The password is the input element previous to the button.
+      var button = event.currentTarget;
+      var passwordInput = button.previousSibling;
+      if (passwordInput.type == 'password') {
+        passwordInput.type = 'text';
+        button.textContent = localStrings.getString('passwordHideButton');
+      } else {
+        passwordInput.type = 'password';
+        button.textContent = localStrings.getString('passwordShowButton');
+      }
     },
 
     /**

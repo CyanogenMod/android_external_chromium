@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "app/l10n_util.h"
 #include "base/string16.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -11,8 +10,8 @@
 #include "chrome/test/automation/browser_proxy.h"
 #include "chrome/test/automation/tab_proxy.h"
 #include "chrome/test/ui/ui_test.h"
-
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
@@ -47,7 +46,8 @@ TEST_F(PrintPreviewUITest, LoadPrintPreviewByURL) {
   AssertIsPrintPage(tab);
 }
 
-TEST_F(PrintPreviewUITest, PrintCommandDisabled) {
+// Flaky on interactive tests builder. See http://crbug.com/69389
+TEST_F(PrintPreviewUITest, FLAKY_PrintCommandDisabled) {
   scoped_refptr<BrowserProxy> browser(automation()->GetBrowserWindow(0));
   ASSERT_TRUE(browser.get());
 

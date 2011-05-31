@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <string>
 #include <vector>
 
-#include "app/resource_bundle.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/message_loop.h"
@@ -17,8 +16,8 @@
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/dom_ui/constrained_html_ui.h"
-#include "chrome/browser/dom_ui/dom_ui_util.h"
 #include "chrome/browser/dom_ui/html_dialog_ui.h"
+#include "chrome/browser/dom_ui/web_ui_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
@@ -32,6 +31,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "grit/browser_resources.h"
+#include "ui/base/resource/resource_bundle.h"
 
 class BrowserSigninResourcesSource : public ChromeURLDataManager::DataSource {
  public:
@@ -75,7 +75,7 @@ void BrowserSigninResourcesSource::StartDataRequest(const std::string& path,
 }
 
 class BrowserSigninHtml : public HtmlDialogUIDelegate,
-                          public DOMMessageHandler {
+                          public WebUIMessageHandler {
  public:
   BrowserSigninHtml(BrowserSignin* signin,
                     string16 suggested_email,
@@ -92,10 +92,10 @@ class BrowserSigninHtml : public HtmlDialogUIDelegate,
   virtual GURL GetDialogContentURL() const {
     return GURL("chrome://dialog/signin");
   }
-  virtual void GetDOMMessageHandlers(
-      std::vector<DOMMessageHandler*>* handlers) const {
-    const DOMMessageHandler* handler = this;
-    handlers->push_back(const_cast<DOMMessageHandler*>(handler));
+  virtual void GetWebUIMessageHandlers(
+      std::vector<WebUIMessageHandler*>* handlers) const {
+    const WebUIMessageHandler* handler = this;
+    handlers->push_back(const_cast<WebUIMessageHandler*>(handler));
   }
   virtual void GetDialogSize(gfx::Size* size) const {
     size->set_width(600);
@@ -112,7 +112,7 @@ class BrowserSigninHtml : public HtmlDialogUIDelegate,
   }
   virtual bool ShouldShowDialogTitle() const { return true; }
 
-  // DOMMessageHandler implementation.
+  // WebUIMessageHandler implementation.
   virtual void RegisterMessages();
 
   // Refreshes the UI, such as after an authentication error.
@@ -145,9 +145,9 @@ BrowserSigninHtml::BrowserSigninHtml(BrowserSignin* signin,
 }
 
 void BrowserSigninHtml::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "SubmitAuth", NewCallback(this, &BrowserSigninHtml::HandleSubmitAuth));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "SigninInit", NewCallback(this, &BrowserSigninHtml::HandleSigninInit));
 }
 
@@ -156,20 +156,21 @@ void BrowserSigninHtml::ReloadUI() {
 }
 
 void BrowserSigninHtml::ForceDialogClose() {
-  if (!closed_ && dom_ui_) {
+  if (!closed_ && web_ui_) {
     StringValue value("DialogClose");
     ListValue close_args;
     close_args.Append(new StringValue(""));
-    dom_ui_->CallJavascriptFunction(L"chrome.send", value, close_args);
+    web_ui_->CallJavascriptFunction(L"chrome.send", value, close_args);
   }
 }
 
 void BrowserSigninHtml::HandleSigninInit(const ListValue* args) {
-  if (!dom_ui_)
+  if (!web_ui_)
     return;
 
-  RenderViewHost* rvh = dom_ui_->tab_contents()->render_view_host();
-  rvh->ExecuteJavascriptInWebFrame(L"//iframe[@id='login']", L"hideBlurb();");
+  RenderViewHost* rvh = web_ui_->tab_contents()->render_view_host();
+  rvh->ExecuteJavascriptInWebFrame(ASCIIToUTF16("//iframe[@id='login']"),
+                                   ASCIIToUTF16("hideBlurb();"));
 
   DictionaryValue json_args;
   std::string json;
@@ -188,11 +189,12 @@ void BrowserSigninHtml::HandleSigninInit(const ListValue* args) {
 
   base::JSONWriter::Write(&json_args, false, &json);
   javascript += L"showGaiaLogin(" + UTF8ToWide(json) + L");";
-  rvh->ExecuteJavascriptInWebFrame(L"//iframe[@id='login']", javascript);
+  rvh->ExecuteJavascriptInWebFrame(ASCIIToUTF16("//iframe[@id='login']"),
+                                   WideToUTF16Hack(javascript));
 }
 
 void BrowserSigninHtml::HandleSubmitAuth(const ListValue* args) {
-  std::string json(dom_ui_util::GetJsonResponseFromFirstArgumentInList(args));
+  std::string json(web_ui_util::GetJsonResponseFromFirstArgumentInList(args));
   scoped_ptr<DictionaryValue> result(static_cast<DictionaryValue*>(
       base::JSONReader::Read(json, false)));
   std::string username;
@@ -215,12 +217,11 @@ BrowserSignin::BrowserSignin(Profile* profile)
     : profile_(profile),
       delegate_(NULL),
       html_dialog_ui_delegate_(NULL) {
-  BrowserSigninResourcesSource* source = new BrowserSigninResourcesSource();
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(ChromeURLDataManager::GetInstance(),
-                        &ChromeURLDataManager::AddDataSource,
-                        make_scoped_refptr(source)));
+  // profile is NULL during testing.
+  if (profile) {
+    BrowserSigninResourcesSource* source = new BrowserSigninResourcesSource();
+    profile->GetChromeURLDataManager()->AddDataSource(source);
+  }
 }
 
 BrowserSignin::~BrowserSignin() {
@@ -285,7 +286,7 @@ void BrowserSignin::Cancel() {
 void BrowserSignin::OnLoginFinished() {
   if (html_dialog_ui_delegate_)
     html_dialog_ui_delegate_->ForceDialogClose();
-  // The dialog will be deleted by DOMUI due to the dialog close,
+  // The dialog will be deleted by WebUI due to the dialog close,
   // don't hold a reference.
   html_dialog_ui_delegate_ = NULL;
 

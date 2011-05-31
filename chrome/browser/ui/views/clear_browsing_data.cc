@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/clear_browsing_data.h"
+#include "chrome/browser/ui/views/clear_browsing_data.h"
 
-#include "app/l10n_util.h"
 #include "base/string16.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_window.h"
@@ -13,20 +12,21 @@
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/ui/browser.h"
 #if defined(OS_WIN)
-#include "chrome/browser/views/clear_browsing_data_view.h"
+#include "chrome/browser/ui/views/clear_browsing_data_view.h"
 #endif
 #include "chrome/common/pref_names.h"
-#include "gfx/insets.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "net/url_request/url_request_context.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/insets.h"
 #include "views/background.h"
 #include "views/controls/button/checkbox.h"
 #include "views/controls/label.h"
 #include "views/controls/separator.h"
 #include "views/controls/throbber.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/widget.h"
 #include "views/window/dialog_client_view.h"
 #include "views/window/window.h"
@@ -135,7 +135,8 @@ void ClearBrowsingDataView::Init() {
   time_period_combobox_->SetSelectedItem(profile_->GetPrefs()->GetInteger(
                                          prefs::kDeleteTimePeriod));
   time_period_combobox_->set_listener(this);
-  time_period_combobox_->SetAccessibleName(time_period_label_->GetText());
+  time_period_combobox_->SetAccessibleName(
+      WideToUTF16Hack(time_period_label_->GetText()));
   AddChildView(time_period_combobox_);
 
   // Create the throbber and related views. The throbber and status link are
@@ -149,11 +150,13 @@ void ClearBrowsingDataView::Init() {
   // DialogClientView positions the extra view at kButtonHEdgeMargin, but we
   // put all our controls at kPanelHorizMargin. Add a padding column so things
   // line up nicely.
-  if (kPanelHorizMargin - kButtonHEdgeMargin > 0)
-    column_set->AddPaddingColumn(0, kPanelHorizMargin - kButtonHEdgeMargin);
+  if (kPanelHorizMargin - views::kButtonHEdgeMargin > 0) {
+    column_set->AddPaddingColumn(
+        0, kPanelHorizMargin - views::kButtonHEdgeMargin);
+  }
   column_set->AddColumn(GridLayout::CENTER, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::CENTER, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
   layout->StartRow(1, 0);
@@ -183,42 +186,42 @@ void ClearBrowsingDataView::Layout() {
   del_history_checkbox_->SetBounds(2 * kPanelHorizMargin,
                                    delete_all_label_->y() +
                                        delete_all_label_->height() +
-                                       kRelatedControlVerticalSpacing,
+                                       views::kRelatedControlVerticalSpacing,
                                    sz.width(), sz.height());
 
   sz = del_downloads_checkbox_->GetPreferredSize();
   del_downloads_checkbox_->SetBounds(2 * kPanelHorizMargin,
                                      del_history_checkbox_->y() +
                                          del_history_checkbox_->height() +
-                                         kRelatedControlVerticalSpacing,
+                                         views::kRelatedControlVerticalSpacing,
                                      sz.width(), sz.height());
 
   sz = del_cache_checkbox_->GetPreferredSize();
   del_cache_checkbox_->SetBounds(2 * kPanelHorizMargin,
                                  del_downloads_checkbox_->y() +
                                      del_downloads_checkbox_->height() +
-                                     kRelatedControlVerticalSpacing,
+                                     views::kRelatedControlVerticalSpacing,
                                  sz.width(), sz.height());
 
   sz = del_cookies_checkbox_->GetPreferredSize();
   del_cookies_checkbox_->SetBounds(2 * kPanelHorizMargin,
                                    del_cache_checkbox_->y() +
                                        del_cache_checkbox_->height() +
-                                       kRelatedControlVerticalSpacing,
+                                       views::kRelatedControlVerticalSpacing,
                                    sz.width(), sz.height());
 
   sz = del_passwords_checkbox_->GetPreferredSize();
   del_passwords_checkbox_->SetBounds(2 * kPanelHorizMargin,
                                      del_cookies_checkbox_->y() +
                                          del_cookies_checkbox_->height() +
-                                         kRelatedControlVerticalSpacing,
+                                         views::kRelatedControlVerticalSpacing,
                                      sz.width(), sz.height());
 
   sz = del_form_data_checkbox_->GetPreferredSize();
   del_form_data_checkbox_->SetBounds(2 * kPanelHorizMargin,
                                      del_passwords_checkbox_->y() +
                                          del_passwords_checkbox_->height() +
-                                         kRelatedControlVerticalSpacing,
+                                         views::kRelatedControlVerticalSpacing,
                                      sz.width(), sz.height());
 
   // Time period label is next below the combo boxes.
@@ -226,7 +229,7 @@ void ClearBrowsingDataView::Layout() {
   time_period_label_->SetBounds(kPanelHorizMargin,
                                 del_form_data_checkbox_->y() +
                                     del_form_data_checkbox_->height() +
-                                    kRelatedControlVerticalSpacing +
+                                    views::kRelatedControlVerticalSpacing +
                                     kExtraMarginForTimePeriodLabel,
                                 sz.width(), sz.height());
 
@@ -236,7 +239,7 @@ void ClearBrowsingDataView::Layout() {
   sz = time_period_combobox_->GetPreferredSize();
   time_period_combobox_->SetBounds(time_period_label_->x() +
                                        time_period_label_->width() +
-                                       kRelatedControlVerticalSpacing,
+                                       views::kRelatedControlVerticalSpacing,
                                    time_period_label_->y() -
                                        ((sz.height() - label_y_size) / 2),
                                    sz.width(), sz.height());
@@ -337,14 +340,15 @@ views::ClientView* ClearBrowsingDataView::CreateClientView(
 
   views::View* settings_view = new views::View();
   GridLayout* layout = new GridLayout(settings_view);
-  layout->SetInsets(gfx::Insets(0, kPanelHorizMargin, 0, kButtonHEdgeMargin));
+  layout->SetInsets(
+      gfx::Insets(0, kPanelHorizMargin, 0, views::kButtonHEdgeMargin));
   settings_view->SetLayoutManager(layout);
   views::ColumnSet* column_set = layout->AddColumnSet(0);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 1,
                         GridLayout::USE_PREF, 0, 0);
   layout->StartRow(0, 0);
   layout->AddView(new views::Separator());
-  layout->StartRowWithPadding(0, 0, 0, kRelatedControlVerticalSpacing);
+  layout->StartRowWithPadding(0, 0, 0, views::kRelatedControlVerticalSpacing);
   layout->AddView(flash_link, 1, 1, GridLayout::LEADING, GridLayout::CENTER);
 
   views::DialogClientView* client_view =

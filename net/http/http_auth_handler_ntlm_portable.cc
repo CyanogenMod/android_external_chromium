@@ -643,20 +643,27 @@ HttpAuthHandlerNTLM::get_host_name_proc_ = GetHostName;
 HttpAuthHandlerNTLM::HttpAuthHandlerNTLM() {
 }
 
-HttpAuthHandlerNTLM::~HttpAuthHandlerNTLM() {
-  // Wipe our copy of the password from memory, to reduce the chance of being
-  // written to the paging file on disk.
-  ZapString(&password_);
-}
-
 bool HttpAuthHandlerNTLM::NeedsIdentity() {
-  return !auth_data_.empty();
+  // This gets called for each round-trip.  Only require identity on
+  // the first call (when auth_data_ is empty).  On subsequent calls,
+  // we use the initially established identity.
+  return auth_data_.empty();
 }
 
 bool HttpAuthHandlerNTLM::AllowsDefaultCredentials() {
   // Default credentials are not supported in the portable implementation of
   // NTLM, but are supported in the SSPI implementation.
   return false;
+}
+
+int HttpAuthHandlerNTLM::InitializeBeforeFirstChallenge() {
+  return OK;
+}
+
+HttpAuthHandlerNTLM::~HttpAuthHandlerNTLM() {
+  // Wipe our copy of the password from memory, to reduce the chance of being
+  // written to the paging file on disk.
+  ZapString(&password_);
 }
 
 // static
@@ -674,6 +681,12 @@ HttpAuthHandlerNTLM::HostNameProc HttpAuthHandlerNTLM::SetHostNameProc(
   HostNameProc old_proc = get_host_name_proc_;
   get_host_name_proc_ = proc;
   return old_proc;
+}
+
+HttpAuthHandlerNTLM::Factory::Factory() {
+}
+
+HttpAuthHandlerNTLM::Factory::~Factory() {
 }
 
 int HttpAuthHandlerNTLM::GetNextToken(const void* in_token,
@@ -700,16 +713,6 @@ int HttpAuthHandlerNTLM::GetNextToken(const void* in_token,
     LogToken("out-token", *out_token, *out_token_len);
 
   return rv;
-}
-
-int HttpAuthHandlerNTLM::InitializeBeforeFirstChallenge() {
-  return OK;
-}
-
-HttpAuthHandlerNTLM::Factory::Factory() {
-}
-
-HttpAuthHandlerNTLM::Factory::~Factory() {
 }
 
 int HttpAuthHandlerNTLM::Factory::CreateAuthHandler(

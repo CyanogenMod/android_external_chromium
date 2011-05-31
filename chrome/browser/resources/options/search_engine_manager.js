@@ -1,11 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 cr.define('options', function() {
   const OptionsPage = options.OptionsPage;
   const ArrayDataModel = cr.ui.ArrayDataModel;
-  const ListSingleSelectionModel = cr.ui.ListSingleSelectionModel;
 
   /**
    * Encapsulated handling of search engine management page.
@@ -14,7 +13,7 @@ cr.define('options', function() {
   function SearchEngineManager() {
     this.activeNavTab = null;
     OptionsPage.call(this, 'searchEngines',
-                     templateData.searchEngineManagerPage,
+                     templateData.searchEngineManagerPageTabTitle,
                      'searchEngineManagerPage');
   }
 
@@ -22,76 +21,72 @@ cr.define('options', function() {
 
   SearchEngineManager.prototype = {
     __proto__: OptionsPage.prototype,
-    list_: null,
 
+    /**
+     * List for default search engine options
+     * @type {boolean}
+     * @private
+     */
+    defaultsList_: null,
+
+    /**
+     * List for other search engine options
+     * @type {boolean}
+     * @private
+     */
+    othersList_: null,
+
+    /** inheritDoc */
     initializePage: function() {
       OptionsPage.prototype.initializePage.call(this);
 
-      this.list_ = $('searchEngineList')
-      options.search_engines.SearchEngineList.decorate(this.list_);
-      var selectionModel = new ListSingleSelectionModel;
-      this.list_.selectionModel = selectionModel;
-      this.list_.autoExpands = true;
+      this.defaultsList_ = $('defaultSearchEngineList');
+      this.setUpList_(this.defaultsList_);
 
-      selectionModel.addEventListener('change',
-          this.selectionChanged_.bind(this));
+      this.othersList_ = $('otherSearchEngineList');
+      this.setUpList_(this.othersList_);
+    },
 
-      var self = this;
-      $('addSearchEngineButton').onclick = function(event) {
-        chrome.send('editSearchEngine', ["-1"]);
-        OptionsPage.showOverlay('editSearchEngineOverlay');
-      };
-      $('editSearchEngineButton').onclick = function(event) {
-        chrome.send('editSearchEngine', [self.selectedModelIndex_]);
-        OptionsPage.showOverlay('editSearchEngineOverlay');
-      };
-      $('makeDefaultSearchEngineButton').onclick = function(event) {
-        chrome.send('managerSetDefaultSearchEngine',
-                    [self.selectedModelIndex_]);
-      };
-
-      // Remove Windows-style accelerators from button labels.
-      // TODO(stuartmorgan): Remove this once the strings are updated.
-      $('addSearchEngineButton').textContent =
-          localStrings.getStringWithoutAccelerator('addSearchEngineButton');
+    /**
+     * Sets up the given list as a search engine list
+     * @param {List} list The list to set up.
+     * @private
+     */
+    setUpList_: function(list) {
+      options.search_engines.SearchEngineList.decorate(list);
+      list.autoExpands = true;
     },
 
     /**
      * Updates the search engine list with the given entries.
      * @private
-     * @param {Array} engineList List of available search engines.
+     * @param {Array} defaultEngines List of possible default search engines.
+     * @param {Array} otherEngines List of other search engines.
      */
-    updateSearchEngineList_: function(engineList) {
-      this.list_.dataModel = new ArrayDataModel(engineList);
-    },
-
-    /**
-     * Returns the currently selected list item's underlying model index.
-     * @private
-     */
-    get selectedModelIndex_() {
-      var listIndex = this.list_.selectionModel.selectedIndex;
-      return this.list_.dataModel.item(listIndex)['modelIndex'];
-    },
-
-    /**
-     * Callback from the selection model when the selection changes.
-     * @private
-     * @param {!cr.Event} e Event with change info.
-     */
-    selectionChanged_: function(e) {
-      var selectedIndex = this.list_.selectionModel.selectedIndex;
-      var engine = selectedIndex != -1 ?
-          this.list_.dataModel.item(selectedIndex) : null;
-
-      $('editSearchEngineButton').disabled = engine == null;
-      $('makeDefaultSearchEngineButton').disabled =
-          !(engine && engine['canBeDefault']);
+    updateSearchEngineList_: function(defaultEngines, otherEngines) {
+      this.defaultsList_.dataModel = new ArrayDataModel(defaultEngines);
+      var othersModel = new ArrayDataModel(otherEngines);
+      // Add a "new engine" row.
+      othersModel.push({
+        'modelIndex': '-1'
+      });
+      this.othersList_.dataModel = othersModel;
     },
   };
 
-  SearchEngineManager.updateSearchEngineList = function(engineList) {
-    SearchEngineManager.getInstance().updateSearchEngineList_(engineList);
+  SearchEngineManager.updateSearchEngineList = function(defaultEngines,
+                                                        otherEngines) {
+    SearchEngineManager.getInstance().updateSearchEngineList_(defaultEngines,
+                                                              otherEngines);
+  };
+
+  SearchEngineManager.validityCheckCallback = function(validity, modelIndex) {
+    // Forward to both lists; the one without a matching modelIndex will ignore
+    // it.
+    SearchEngineManager.getInstance().defaultsList_.validationComplete(
+        validity, modelIndex);
+    SearchEngineManager.getInstance().othersList_.validationComplete(
+        validity, modelIndex);
   };
 
   // Export

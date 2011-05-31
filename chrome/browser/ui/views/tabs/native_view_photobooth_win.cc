@@ -1,13 +1,13 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/tabs/native_view_photobooth_win.h"
+#include "chrome/browser/ui/views/tabs/native_view_photobooth_win.h"
 
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/point.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/point.h"
 #include "views/widget/widget_win.h"
 
 namespace {

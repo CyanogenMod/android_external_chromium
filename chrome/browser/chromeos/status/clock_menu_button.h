@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "base/timer.h"
 #include "chrome/browser/chromeos/cros/system_library.h"
 #include "chrome/browser/chromeos/status/status_area_button.h"
-#include "chrome/common/notification_observer.h"
 #include "unicode/calendar.h"
 #include "views/controls/button/menu_button.h"
 #include "views/controls/menu/menu_2.h"
@@ -24,29 +23,29 @@ class StatusAreaHost;
 // This button shows the current time.
 class ClockMenuButton : public StatusAreaButton,
                         public views::ViewMenuDelegate,
-                        public menus::MenuModel,
+                        public ui::MenuModel,
                         public SystemLibrary::Observer {
  public:
   explicit ClockMenuButton(StatusAreaHost* host);
   virtual ~ClockMenuButton();
 
-  // menus::MenuModel implementation.
+  // ui::MenuModel implementation.
   virtual bool HasIcons() const  { return false; }
   virtual int GetItemCount() const;
-  virtual menus::MenuModel::ItemType GetTypeAt(int index) const;
+  virtual ui::MenuModel::ItemType GetTypeAt(int index) const;
   virtual int GetCommandIdAt(int index) const { return index; }
   virtual string16 GetLabelAt(int index) const;
   virtual bool IsItemDynamicAt(int index) const { return true; }
   virtual bool GetAcceleratorAt(int index,
-      menus::Accelerator* accelerator) const { return false; }
+      ui::Accelerator* accelerator) const { return false; }
   virtual bool IsItemCheckedAt(int index) const { return false; }
   virtual int GetGroupIdAt(int index) const { return 0; }
   virtual bool GetIconAt(int index, SkBitmap* icon) const { return false; }
-  virtual menus::ButtonMenuItemModel* GetButtonMenuItemAt(int index) const {
+  virtual ui::ButtonMenuItemModel* GetButtonMenuItemAt(int index) const {
     return NULL;
   }
   virtual bool IsEnabledAt(int index) const;
-  virtual menus::MenuModel* GetSubmenuModelAt(int index) const { return NULL; }
+  virtual ui::MenuModel* GetSubmenuModelAt(int index) const { return NULL; }
   virtual void HighlightChangedTo(int index) {}
   virtual void ActivatedAt(int index);
   virtual void MenuWillShow() {}

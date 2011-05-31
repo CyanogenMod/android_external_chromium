@@ -14,8 +14,8 @@
 #include "base/message_loop.h"
 #include "chrome/browser/notifications/balloon_collection.h"
 #include "chrome/browser/notifications/balloon_collection_base.h"
-#include "gfx/point.h"
-#include "gfx/rect.h"
+#include "ui/gfx/point.h"
+#include "ui/gfx/rect.h"
 
 // Mac balloons grow from the top down and have close buttons on top, so
 // offsetting is not necessary for easy multiple-closing.  Other platforms grow
@@ -50,7 +50,7 @@ class BalloonCollectionImpl : public BalloonCollection
   virtual void SetPositionPreference(PositionPreference position);
   virtual void DisplayChanged();
   virtual void OnBalloonClosed(Balloon* source);
-  virtual const Balloons& GetActiveBalloons() { return base_.balloons(); }
+  virtual const Balloons& GetActiveBalloons();
 
   // MessageLoopForUI::Observer interface.
 #if defined(OS_WIN)
@@ -120,6 +120,10 @@ class BalloonCollectionImpl : public BalloonCollection
     // to be used as the initial position for an animation into view.
     gfx::Point OffScreenLocation() const;
 
+    // Returns true if the layout requires offsetting for keeping the close
+    // buttons under the cursor during rapid-close interaction.
+    bool RequiresOffsets() const;
+
    private:
     // Layout parameters
     int VerticalEdgeMargin() const;
@@ -141,6 +145,9 @@ class BalloonCollectionImpl : public BalloonCollection
   // responsible for freeing the pointer returned.
   virtual Balloon* MakeBalloon(const Notification& notification,
                                Profile* profile);
+
+  // Gets a bounding box for all the current balloons in screen coordinates.
+  gfx::Rect GetBalloonsBoundingBox() const;
 
  private:
   // Adjusts the positions of the balloons (e.g., when one is closed).

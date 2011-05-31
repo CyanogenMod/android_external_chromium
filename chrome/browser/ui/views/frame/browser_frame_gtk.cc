@@ -1,8 +1,8 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/frame/browser_frame_gtk.h"
+#include "chrome/browser/ui/views/frame/browser_frame_gtk.h"
 
 #include "base/logging.h"
 #include "chrome/browser/profiles/profile.h"
@@ -12,7 +12,7 @@
 #include "chrome/browser/ui/views/frame/browser_non_client_frame_view.h"
 #include "chrome/browser/ui/views/frame/browser_root_view.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "gfx/font.h"
+#include "ui/gfx/font.h"
 #include "views/widget/root_view.h"
 #include "views/window/hit_test.h"
 
@@ -63,7 +63,7 @@ int BrowserFrameGtk::GetMinimizeButtonOffset() const {
   return 0;
 }
 
-gfx::Rect BrowserFrameGtk::GetBoundsForTabStrip(BaseTabStrip* tabstrip) const {
+gfx::Rect BrowserFrameGtk::GetBoundsForTabStrip(views::View* tabstrip) const {
   return browser_frame_view_->GetBoundsForTabStrip(tabstrip);
 }
 
@@ -90,7 +90,7 @@ views::View* BrowserFrameGtk::GetFrameView() const {
 }
 
 void BrowserFrameGtk::TabStripDisplayModeChanged() {
-  if (GetRootView()->GetChildViewCount() > 0) {
+  if (GetRootView()->has_children()) {
     // Make sure the child of the root view gets Layout again.
     GetRootView()->GetChildViewAt(0)->InvalidateLayout();
   }
@@ -121,7 +121,7 @@ void BrowserFrameGtk::SetInitialFocus() {
 }
 
 bool BrowserFrameGtk::GetAccelerator(int cmd_id,
-                                     menus::Accelerator* accelerator) {
+                                     ui::Accelerator* accelerator) {
   return browser_view_->GetAccelerator(cmd_id, accelerator);
 }
 

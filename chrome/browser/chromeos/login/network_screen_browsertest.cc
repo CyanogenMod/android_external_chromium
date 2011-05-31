@@ -4,8 +4,6 @@
 
 #include <string>
 
-#include "app/combobox_model.h"
-#include "app/l10n_util.h"
 #include "base/message_loop.h"
 #include "base/scoped_ptr.h"
 #include "base/string16.h"
@@ -26,8 +24,8 @@
 #include "grit/generated_resources.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "views/controls/button/text_button.h"
-#include "views/controls/combobox/combobox.h"
 
 namespace chromeos {
 using ::testing::AnyNumber;
@@ -120,9 +118,9 @@ class NetworkScreenTest : public WizardInProcessBrowserTest {
     controller()->set_observer(mock_screen_observer.get());
     DummyButtonListener button_listener;
     views::TextButton button(&button_listener, L"Button");
-    views::MouseEvent event(views::Event::ET_MOUSE_RELEASED,
+    views::MouseEvent event(ui::ET_MOUSE_RELEASED,
                             0, 0,
-                            views::Event::EF_LEFT_BUTTON_DOWN);
+                            ui::EF_LEFT_BUTTON_DOWN);
     network_screen->ButtonPressed(&button, event);
     ui_test_utils::RunAllPendingInMessageLoop();
     controller()->set_observer(NULL);

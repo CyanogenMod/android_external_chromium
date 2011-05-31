@@ -6,7 +6,6 @@
 
 #include <string>
 
-#include "app/l10n_util.h"
 #include "base/file_util.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
@@ -16,11 +15,11 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
-#include "chrome/browser/shell_dialogs.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/common/render_messages_params.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 FileSelectHelper::FileSelectHelper(Profile* profile)
     : profile_(profile),
@@ -96,12 +95,14 @@ void FileSelectHelper::DirectorySelected(const FilePath& path) {
 
 void FileSelectHelper::OnListFile(
     const net::DirectoryLister::DirectoryListerData& data) {
-  // Directory upload only cares about files.  This util call just checks
+  // Directory upload returns directories via a "." file, so that
+  // empty directories are included.  This util call just checks
   // the flags in the structure; there's no file I/O going on.
   if (file_util::FileEnumerator::IsDirectory(data.info))
-    return;
-
-  directory_lister_results_.push_back(data.path);
+    directory_lister_results_.push_back(
+        data.path.Append(FILE_PATH_LITERAL(".")));
+  else
+    directory_lister_results_.push_back(data.path);
 }
 
 void FileSelectHelper::OnListDone(int error) {

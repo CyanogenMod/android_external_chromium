@@ -1,12 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "chrome/browser/ui/cocoa/about_window_controller.h"
 
-#include "app/l10n_util.h"
-#include "app/l10n_util_mac.h"
-#include "app/resource_bundle.h"
 #include "base/logging.h"
 #include "base/mac/mac_util.h"
 #include "base/string_number_conversions.h"
@@ -14,10 +11,10 @@
 #include "base/sys_string_conversions.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
+#import "chrome/browser/cocoa/keystone_glue.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/platform_util.h"
 #import "chrome/browser/ui/cocoa/background_tile_view.h"
-#import "chrome/browser/ui/cocoa/keystone_glue.h"
 #include "chrome/browser/ui/cocoa/restart_browser.h"
 #include "chrome/common/url_constants.h"
 #include "grit/chromium_strings.h"
@@ -25,6 +22,9 @@
 #include "grit/theme_resources.h"
 #include "grit/locale_settings.h"
 #include "third_party/GTM/AppKit/GTMUILocalizerAndLayoutTweaker.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/l10n/l10n_util_mac.h"
+#include "ui/base/resource/resource_bundle.h"
 
 namespace {
 
@@ -645,7 +645,7 @@ static BOOL recentShownUserActionFailedStatus = NO;
   // it the best we can to get all the information in (they actually do it
   // but created Labels and Links that they carefully place to make it appear
   // to be a paragraph of text).
-  // src/chrome/browser/views/about_chrome_view.cc AboutChromeView::Init()
+  // src/chrome/browser/ui/views/about_chrome_view.cc AboutChromeView::Init()
 
   NSMutableAttributedString* legal_block =
       [[[NSMutableAttributedString alloc] init] autorelease];

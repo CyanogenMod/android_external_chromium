@@ -4,7 +4,6 @@
 
 #include "base/string_util.h"
 #include "chrome/browser/extensions/extension_apitest.h"
-#include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/ui_test_utils.h"
 #include "net/base/mock_host_resolver.h"
@@ -65,7 +64,8 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, Basic) {
   ASSERT_TRUE(RunExtensionTest("app_background_page/basic")) << message_;
 }
 
-IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, LacksPermission) {
+// Crashy, http://crbug.com/49215.
+IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, DISABLED_LacksPermission) {
   host_resolver()->AddRule("a.com", "127.0.0.1");
   ASSERT_TRUE(StartTestServer());
 

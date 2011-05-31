@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,22 +10,23 @@
 #include <string>
 #include <vector>
 
-#include "app/menus/simple_menu_model.h"
 #include "base/scoped_ptr.h"
 #include "base/timer.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/views/frame/browser_bubble_host.h"
-#include "chrome/browser/views/frame/browser_frame.h"
-#include "chrome/browser/views/infobars/infobar_container.h"
-#include "chrome/browser/views/tab_contents/tab_contents_container.h"
-#include "chrome/browser/views/tabs/tab_strip.h"
-#include "chrome/browser/views/tabs/base_tab_strip.h"
-#include "chrome/browser/views/unhandled_keyboard_event_handler.h"
+#include "chrome/browser/ui/views/frame/browser_bubble_host.h"
+#include "chrome/browser/ui/views/frame/browser_frame.h"
+#include "chrome/browser/ui/views/infobars/infobar_container.h"
+#include "chrome/browser/ui/views/tab_contents/tab_contents_container.h"
+#include "chrome/browser/ui/views/tabs/base_tab_strip.h"
+#include "chrome/browser/ui/views/tabs/tab_strip.h"
+#include "chrome/browser/ui/views/unhandled_keyboard_event_handler.h"
 #include "chrome/common/notification_registrar.h"
-#include "gfx/native_widget_types.h"
+#include "ui/base/models/simple_menu_model.h"
+#include "ui/gfx/native_widget_types.h"
+#include "views/controls/single_split_view.h"
 #include "views/window/client_view.h"
 #include "views/window/window_delegate.h"
 
@@ -39,7 +40,6 @@
 // view: http://dev.chromium.org/developers/design-documents/browser-window
 
 class AccessiblePaneView;
-class AccessibleViewHelper;
 class BookmarkBarView;
 class Browser;
 class BrowserBubble;
@@ -53,6 +53,7 @@ class InfoBarContainer;
 class LocationBarView;
 class SideTabStrip;
 class StatusBubbleViews;
+class TabContentsContainer;
 class TabStripModel;
 class ToolbarView;
 class ZoomMenuModel;
@@ -66,7 +67,6 @@ class JumpList;
 namespace views {
 class ExternalFocusTracker;
 class Menu;
-class SingleSplitView;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -80,11 +80,11 @@ class BrowserView : public BrowserBubbleHost,
                     public BrowserWindowTesting,
                     public NotificationObserver,
                     public TabStripModelObserver,
-                    public menus::SimpleMenuModel::Delegate,
+                    public ui::SimpleMenuModel::Delegate,
                     public views::WindowDelegate,
                     public views::ClientView,
                     public InfoBarContainer::Delegate,
-                    public TabContentsContainer::ReservedAreaDelegate {
+                    public views::SingleSplitView::Observer {
  public:
   // The browser view's class name.
   static const char kViewClassName[];
@@ -177,7 +177,7 @@ class BrowserView : public BrowserBubbleHost,
   // command id. This can be used to provide menu item shortcut hints etc.
   // Returns true if an accelerator was found for the specified |cmd_id|, false
   // otherwise.
-  bool GetAccelerator(int cmd_id, menus::Accelerator* accelerator);
+  bool GetAccelerator(int cmd_id, ui::Accelerator* accelerator);
 
   // Shows the next app-modal dialog box, if there is one to be shown, or moves
   // an existing showing one to the front. Returns true if one was shown or
@@ -259,6 +259,7 @@ class BrowserView : public BrowserBubbleHost,
   virtual void UpdateLoadingAnimations(bool should_animate);
   virtual void SetStarredState(bool is_starred);
   virtual gfx::Rect GetRestoredBounds() const;
+  virtual gfx::Rect GetBounds() const;
   virtual bool IsMaximized() const;
   virtual void SetFullscreen(bool fullscreen);
   virtual bool IsFullscreen() const;
@@ -288,11 +289,11 @@ class BrowserView : public BrowserBubbleHost,
   virtual views::Window* ShowAboutChromeDialog();
   virtual void ShowUpdateChromeDialog();
   virtual void ShowTaskManager();
+  virtual void ShowBackgroundPages();
   virtual void ShowBookmarkBubble(const GURL& url, bool already_bookmarked);
   virtual void SetDownloadShelfVisible(bool visible);
   virtual bool IsDownloadShelfVisible() const;
   virtual DownloadShelf* GetDownloadShelf();
-  virtual void ShowReportBugDialog();
   virtual void ShowClearBrowsingDataDialog();
   virtual void ShowImportDialog();
   virtual void ShowSearchEnginesDialog();
@@ -328,6 +329,7 @@ class BrowserView : public BrowserBubbleHost,
   virtual void ShowInstant(TabContents* preview_contents);
   virtual void HideInstant(bool instant_is_active);
   virtual gfx::Rect GetInstantBounds();
+
 #if defined(OS_CHROMEOS)
   virtual void ShowKeyboardOverlay(gfx::NativeWindow owning_window);
 #endif
@@ -351,16 +353,17 @@ class BrowserView : public BrowserBubbleHost,
                              TabContentsWrapper* new_contents,
                              int index,
                              bool user_gesture);
-  virtual void TabReplacedAt(TabContentsWrapper* old_contents,
+  virtual void TabReplacedAt(TabStripModel* tab_strip_model,
+                             TabContentsWrapper* old_contents,
                              TabContentsWrapper* new_contents,
                              int index);
   virtual void TabStripEmpty();
 
-  // Overridden from menus::SimpleMenuModel::Delegate:
+  // Overridden from ui::SimpleMenuModel::Delegate:
   virtual bool IsCommandIdChecked(int command_id) const;
   virtual bool IsCommandIdEnabled(int command_id) const;
   virtual bool GetAcceleratorForCommandId(int command_id,
-                                          menus::Accelerator* accelerator);
+                                          ui::Accelerator* accelerator);
   virtual bool IsItemForCommandIdDynamic(int command_id) const;
   virtual string16 GetLabelForCommandId(int command_id) const;
   virtual void ExecuteCommand(int command_id);
@@ -386,15 +389,15 @@ class BrowserView : public BrowserBubbleHost,
   virtual views::ClientView* CreateClientView(views::Window* window);
 
   // Overridden from views::ClientView:
-  virtual bool CanClose() const;
+  virtual bool CanClose();
   virtual int NonClientHitTest(const gfx::Point& point);
   virtual gfx::Size GetMinimumSize();
 
   // InfoBarContainer::Delegate overrides
-  virtual void InfoBarSizeChanged(bool is_animating);
+  virtual void InfoBarContainerSizeChanged(bool is_animating);
 
-  // TabContentsContainer::ReservedAreaDelegate overrides.
-  virtual void UpdateReservedContentsRect(const TabContentsContainer* source);
+  // views::SingleSplitView::Observer overrides:
+  virtual bool SplitHandleMoved(views::SingleSplitView* view);
 
  protected:
   // Appends to |toolbars| a pointer to each AccessiblePaneView that
@@ -413,6 +416,7 @@ class BrowserView : public BrowserBubbleHost,
   // Overridden from views::View:
   virtual std::string GetClassName() const;
   virtual void Layout();
+  virtual void PaintChildren(gfx::Canvas* canvas);
   virtual void ViewHierarchyChanged(bool is_add,
                                     views::View* parent,
                                     views::View* child);
@@ -439,6 +443,11 @@ class BrowserView : public BrowserBubbleHost,
   // Creates the system menu.
   void InitSystemMenu();
 #endif
+
+  // Get the X value, in this BrowserView's coordinate system, where
+  // the points of the infobar arrows should be anchored.  This is the
+  // center of the omnibox location icon.
+  int GetInfoBarArrowCenterX() const;
 
   // Returns the BrowserViewLayout.
   BrowserViewLayout* GetBrowserViewLayout() const;
@@ -518,6 +527,9 @@ class BrowserView : public BrowserBubbleHost,
   // has already been added to the view hierarchy.
   void ProcessTabSelected(TabContentsWrapper* new_contents,
                           bool change_tab_contents);
+
+  // Exposes resize corner size to BrowserViewLayout.
+  gfx::Size GetResizeCornerSize() const;
 
   // Last focused view that issued a tab traversal.
   int last_focused_view_storage_id_;
@@ -663,9 +675,10 @@ class BrowserView : public BrowserBubbleHost,
 
   UnhandledKeyboardEventHandler unhandled_keyboard_event_handler_;
 
-  scoped_ptr<AccessibleViewHelper> accessible_view_helper_;
-
   NotificationRegistrar registrar_;
+
+  // Used to measure the loading spinner animation rate.
+  base::TimeTicks last_animation_time_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserView);
 };

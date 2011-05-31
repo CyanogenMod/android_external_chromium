@@ -1,12 +1,15 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 /**
  * The global object.
- * @param {!Object}
+ * @type {!Object}
  */
 const global = this;
+
+// TODO(estade): This should be removed and calls replaced with cr.isMac
+const IS_MAC = /^Mac/.test(navigator.platform);
 
 /**
  * Alias for document.getElementById.
@@ -35,7 +38,6 @@ function chromeSend(name, params, callbackName, callback) {
   };
   chrome.send(name, params);
 }
-
 
 /**
  * Generates a CSS url string.
@@ -70,4 +72,68 @@ function parseQueryParams(location) {
     params[pair[0]] = pair[1];
   }
   return params;
- }
+}
+
+function findAncestorByClass(el, className) {
+  return findAncestor(el, function(el) {
+    if (el.classList)
+      return el.classList.contains(className);
+    return null;
+  });
+}
+
+/**
+ * Return the first ancestor for which the {@code predicate} returns true.
+ * @param {Node} node The node to check.
+ * @param {function(Node) : boolean} predicate The function that tests the
+ *     nodes.
+ * @return {Node} The found ancestor or null if not found.
+ */
+function findAncestor(node, predicate) {
+  var last = false;
+  while (node != null && !(last = predicate(node))) {
+    node = node.parentNode;
+  }
+  return last ? node : null;
+}
+
+function swapDomNodes(a, b) {
+  var afterA = a.nextSibling;
+  if (afterA == b) {
+    swapDomNodes(b, a);
+    return;
+  }
+  var aParent = a.parentNode;
+  b.parentNode.replaceChild(a, b);
+  aParent.insertBefore(b, afterA);
+}
+
+/*
+ * Handles a click or mouseup on a link. If the link points to a chrome: or
+ * file: url, then call into the browser to do the navigation.
+ * @return {Object} e The click or mouseup event.
+ */
+function handleLinkClickOrMouseUp(e) {
+  // Allow preventDefault to work.
+  if (!e.returnValue)
+    return;
+
+  var el = e.target;
+  if (el.nodeType == Node.ELEMENT_NODE &&
+      el.webkitMatchesSelector('A, A *')) {
+    while (el.tagName != 'A') {
+      el = el.parentElement;
+    }
+
+    if ((el.protocol == 'file:' || el.protocol == 'about:') &&
+        ((e.button == 0 && e.type == 'click') ||
+        (e.button == 1 && e.type == 'mouseup'))) {
+      chrome.send('navigateToUrl',
+          [el.href, e.button, e.altKey, e.ctrlKey, e.metaKey, e.shiftKey]);
+      e.preventDefault();
+    }
+  }
+}
+
+document.addEventListener('click', handleLinkClickOrMouseUp);
+document.addEventListener('mouseup', handleLinkClickOrMouseUp);

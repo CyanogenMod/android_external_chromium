@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,12 +46,13 @@ RenderViewHostDelegateViewHelper::MaybeCreateBackgroundContents(
       !extensions_service->is_ready())
     return NULL;
 
+  // Only hosted apps have web extents, so this ensures that only hosted apps
+  // can create BackgroundContents. We don't have to check for background
+  // permission as that is checked in RenderMessageFilter when the CreateWindow
+  // message is processed.
   const Extension* extension =
-      extensions_service->GetExtensionByURL(opener_url);
+      extensions_service->GetExtensionByWebExtent(opener_url);
   if (!extension)
-    extension = extensions_service->GetExtensionByWebExtent(opener_url);
-  if (!extension ||
-      !extension->HasApiPermission(Extension::kBackgroundPermission))
     return NULL;
 
   // Only allow a single background contents per app.
@@ -76,7 +77,7 @@ TabContents* RenderViewHostDelegateViewHelper::CreateNewWindow(
     int route_id,
     Profile* profile,
     SiteInstance* site,
-    DOMUITypeID domui_type,
+    WebUITypeID webui_type,
     RenderViewHostDelegate* opener,
     WindowContainerType window_container_type,
     const string16& frame_name) {
@@ -101,7 +102,7 @@ TabContents* RenderViewHostDelegateViewHelper::CreateNewWindow(
                       route_id,
                       opener->GetAsTabContents(),
                       NULL);
-  new_contents->set_opener_dom_ui_type(domui_type);
+  new_contents->set_opener_web_ui_type(webui_type);
   TabContentsView* new_view = new_contents->view();
 
   // TODO(brettw) it seems bogus that we have to call this function on the
@@ -128,12 +129,11 @@ RenderWidgetHostView* RenderViewHostDelegateViewHelper::CreateNewWidget(
 
 RenderWidgetHostView*
 RenderViewHostDelegateViewHelper::CreateNewFullscreenWidget(
-    int route_id, WebKit::WebPopupType popup_type, RenderProcessHost* process) {
+    int route_id, RenderProcessHost* process) {
   RenderWidgetFullscreenHost* fullscreen_widget_host =
       new RenderWidgetFullscreenHost(process, route_id);
   RenderWidgetHostView* widget_view =
       RenderWidgetHostView::CreateViewForWidget(fullscreen_widget_host);
-  widget_view->set_popup_type(popup_type);
   pending_widget_views_[route_id] = widget_view;
   return widget_view;
 }
@@ -265,7 +265,7 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
     web_prefs.remote_fonts_enabled =
         !command_line.HasSwitch(switches::kDisableRemoteFonts);
     web_prefs.xss_auditor_enabled =
-        command_line.HasSwitch(switches::kEnableXSSAuditor);
+        !command_line.HasSwitch(switches::kDisableXSSAuditor);
     web_prefs.application_cache_enabled =
         !command_line.HasSwitch(switches::kDisableApplicationCache);
 
@@ -273,10 +273,14 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
         !command_line.HasSwitch(switches::kDisableLocalStorage);
     web_prefs.databases_enabled =
         !command_line.HasSwitch(switches::kDisableDatabases);
+    web_prefs.webaudio_enabled =
+        command_line.HasSwitch(switches::kEnableWebAudio);
     web_prefs.experimental_webgl_enabled =
         gpu_enabled() &&
         !command_line.HasSwitch(switches::kDisable3DAPIs) &&
         !command_line.HasSwitch(switches::kDisableExperimentalWebGL);
+    web_prefs.gl_multisampling_enabled =
+        !command_line.HasSwitch(switches::kDisableGLMultisampling);
     web_prefs.site_specific_quirks_enabled =
         !command_line.HasSwitch(switches::kDisableSiteSpecificQuirks);
     web_prefs.allow_file_access_from_file_urls =
@@ -291,12 +295,16 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
         command_line.HasSwitch(switches::kEnableAccelerated2dCanvas);
     web_prefs.accelerated_layers_enabled =
         command_line.HasSwitch(switches::kEnableAcceleratedLayers);
+    web_prefs.accelerated_plugins_enabled =
+        command_line.HasSwitch(switches::kEnableAcceleratedPlugins);
     web_prefs.accelerated_video_enabled =
         !command_line.HasSwitch(switches::kDisableAcceleratedVideo);
     web_prefs.memory_info_enabled =
         command_line.HasSwitch(switches::kEnableMemoryInfo);
     web_prefs.hyperlink_auditing_enabled =
         !command_line.HasSwitch(switches::kNoPings);
+    web_prefs.interactive_form_validation_enabled =
+        !command_line.HasSwitch(switches::kDisableInteractiveFormValidation);
     // The user stylesheet watcher may not exist in a testing profile.
     if (profile->GetUserStyleSheetWatcher()) {
       web_prefs.user_style_sheet_enabled = true;

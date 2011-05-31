@@ -119,6 +119,19 @@
       # Set to select the Title Case versions of strings in GRD files.
       'use_titlecase_in_grd_files%': 0,
 
+      # Use translations provided by volunteers at launchpad.net.  This
+      # currently only works on Linux.
+      'use_third_party_translations%': 0,
+
+      # Remoting compilation is enabled by default. Set to 0 to disable.
+      'remoting%': 1,
+
+      # If this is set, the clang plugins used on the buildbot will be used.
+      # Run tools/clang/scripts/update.sh to make sure they are compiled.
+      # This causes 'clang_chrome_plugins_flags' to be set.
+      # Has no effect if 'clang' is not set as well.
+      'clang_use_chrome_plugins%': 0,
+
       'conditions': [
         # A flag to enable or disable our compile-time dependency
         # on gnome-keyring. If that dependency is disabled, no gnome-keyring
@@ -173,6 +186,9 @@
     'library%': '<(library)',
     'component%': '<(component)',
     'use_titlecase_in_grd_files%': '<(use_titlecase_in_grd_files)',
+    'use_third_party_translations%': '<(use_third_party_translations)',
+    'remoting%': '<(remoting)',
+    'clang_use_chrome_plugins%': '<(clang_use_chrome_plugins)',
 
     # The release channel that this build targets. This is used to restrict
     # channel-specific build options, like which installer packages to create.
@@ -249,6 +265,9 @@
     # but that doesn't work as we'd like.
     'msvs_debug_link_incremental%': '2',
 
+    # Needed for some of the largest modules.
+    'msvs_debug_link_nonincremental%': '1',
+
     # This is the location of the sandbox binary. Chrome looks for this before
     # running the zygote process. If found, and SUID, it will be used to
     # sandbox the zygote process and, thus, all renderer processes.
@@ -262,6 +281,19 @@
     # TODO: eventually clang should behave identically to gcc, and this
     # won't be necessary.
     'clang%': 0,
+
+    # These two variables can be set in GYP_DEFINES while running
+    # |gclient runhooks| to let clang run a plugin in every compilation.
+    # Only has an effect if 'clang=1' is in GYP_DEFINES as well.
+    # Example:
+    #     GYP_DEFINES='clang=1 clang_load=/abs/path/to/libPrintFunctionNames.dylib clang_add_plugin=print-fns' gclient runhooks
+
+    'clang_load%': '',
+    'clang_add_plugin%': '',
+
+    # Enable sampling based profiler.
+    # See http://google-perftools.googlecode.com/svn/trunk/doc/cpuprofile.html
+    'profiling%': '0',
 
     # Override whether we should use Breakpad on Linux. I.e. for Chrome bot.
     'linux_breakpad%': 0,
@@ -307,14 +339,11 @@
     'enable_new_npdevice_api%': 0,
 
     # Enable EGLImage support in OpenMAX
-    'enable_eglimage%': 0,
+    'enable_eglimage%': 1,
 
     # Enable a variable used elsewhere throughout the GYP files to determine
     # whether to compile in the sources for the GPU plugin / process.
     'enable_gpu%': 1,
-
-    # Use GConf, the GNOME configuration system.
-    'use_gconf%': 1,
 
     # Use OpenSSL instead of NSS. Under development: see http://crbug.com/62803
     'use_openssl%': 0,
@@ -333,9 +362,6 @@
     # from the system include dirs.
     'system_libcros%': 0,
 
-    # Remoting compilation is enabled by default. Set to 0 to disable.
-    'remoting%': 1,
-
     # NOTE: When these end up in the Mac bundle, we need to replace '-' for '_'
     # so Cocoa is happy (http://crbug.com/20441).
     'locales': [
@@ -352,6 +378,9 @@
     # Use Harfbuzz-NG instead of Harfbuzz.
     # Under development: http://crbug.com/68551
     'use_harfbuzz_ng%': 0,
+
+    # Point to ICU directory.
+    'icu_src_dir': '../third_party/icu',
 
     'conditions': [
       ['OS=="linux" or OS=="freebsd" or OS=="openbsd"', {
@@ -439,6 +468,13 @@
         'libjpeg_gyp_path': '../third_party/libjpeg/libjpeg.gyp',
       }],  # use_libjpeg_turbo==1
 
+      # Use GConf, the GNOME configuration system.
+      ['chromeos==1', {
+        'use_gconf%': 0,
+      }, {
+        'use_gconf%': 1,
+      }],
+
       # Setup -D flags passed into grit.
       ['chromeos==1', {
         'grit_defines': ['-D', 'chromeos'],
@@ -449,8 +485,20 @@
       ['touchui==1', {
         'grit_defines': ['-D', 'touchui'],
       }],
+      ['remoting==1', {
+        'grit_defines': ['-D', 'remoting'],
+      }],
       ['use_titlecase_in_grd_files==1', {
         'grit_defines': ['-D', 'use_titlecase'],
+      }],
+      ['use_third_party_translations==1', {
+        'grit_defines': ['-D', 'use_third_party_translations'],
+        'locales': ['ast', 'eu', 'gl', 'ka', 'ku', 'ug'],
+      }],
+
+      ['clang_use_chrome_plugins==1', {
+        'clang_chrome_plugins_flags':
+            '<!(<(DEPTH)/tools/clang/scripts/plugin_flags.sh)',
       }],
     ],
   },
@@ -516,6 +564,9 @@
       ['touchui==1', {
         'defines': ['TOUCH_UI=1'],
       }],
+      ['profiling==1', {
+        'defines': ['ENABLE_PROFILING=1'],
+      }],
       ['remoting==1', {
         'defines': ['ENABLE_REMOTING=1'],
       }],
@@ -540,6 +591,14 @@
           }, { # else: OS != "win", generate less debug information.
             'variables': {
               'debug_extra_cflags': '-g1',
+            },
+          }],
+          # Clang creates chubby debug information, which makes linking very
+          # slow. For now, don't create debug information with clang.  See
+          # http://crbug.com/70000
+          ['OS=="linux" and clang==1', {
+            'variables': {
+              'debug_extra_cflags': '-g0',
             },
           }],
         ],  # conditions for fastbuild.
@@ -620,10 +679,19 @@
       ['chromium_code==0', {
         'conditions': [
           [ 'OS=="linux" or OS=="freebsd" or OS=="openbsd"', {
+            # We don't want to get warnings from third-party code,
+            # so remove any existing warning-enabling flags like -Wall.
             'cflags!': [
               '-Wall',
               '-Wextra',
               '-Werror',
+            ],
+            'cflags': [
+              # Don't warn about hash_map in third-party code.
+              '-Wno-deprecated',
+              # Don't warn about printf format problems.
+              # This is off by default in gcc but on in Ubuntu's gcc(!).
+              '-Wno-format',
             ],
           }],
           [ 'OS=="win"', {
@@ -986,6 +1054,12 @@
                   '-fno-ident',
                 ],
               }],
+              ['profiling==1', {
+                'cflags': [
+                  '-fno-omit-frame-pointer',
+                  '-g',
+                ],
+              }],
             ]
           },
         },
@@ -1128,25 +1202,42 @@
               }]]
           }],
           ['clang==1', {
-            'cflags': [
-              # Don't warn about unused variables, due to a common pattern:
-              #   scoped_deleter unused_variable(&thing_to_delete);
-              '-Wno-unused-variable',
-              # Clang spots more unused functions.
-              '-Wno-unused-function',
-              # gtest confuses clang.
-              '-Wno-bool-conversions',
-              # Don't die on dtoa code that uses a char as an array index.
-              '-Wno-char-subscripts',
-              # Survive EXPECT_EQ(unnamed_enum, unsigned int) -- see
-              # http://code.google.com/p/googletest/source/detail?r=446 .
-              # TODO(thakis): Use -isystem instead (http://crbug.com/58751 ).
-              '-Wno-unnamed-type-template-args',
-            ],
-            'cflags!': [
-              # Clang doesn't seem to know know this flag.
-              '-mfpmath=sse',
-            ],
+            'target_conditions': [
+              ['_toolset=="target"', {
+                'cflags': [
+                  # Clang spots more unused functions.
+                  '-Wno-unused-function',
+                  # Don't die on dtoa code that uses a char as an array index.
+                  '-Wno-char-subscripts',
+                  # Survive EXPECT_EQ(unnamed_enum, unsigned int) -- see
+                  # http://code.google.com/p/googletest/source/detail?r=446 .
+                  # TODO(thakis): Use -isystem instead (http://crbug.com/58751 )
+                  '-Wno-unnamed-type-template-args',
+                  # TODO(thakis): Turn on -- http://crbug.com/72205
+                  '-Wno-overloaded-virtual',
+                ],
+                'cflags!': [
+                  # Clang doesn't seem to know know this flag.
+                  '-mfpmath=sse',
+                ],
+              }]],
+          }],
+          ['clang==1 and clang_use_chrome_plugins==1', {
+            'target_conditions': [
+              ['_toolset=="target"', {
+                'cflags': [
+                  '<(clang_chrome_plugins_flags)',
+                ],
+              }]],
+          }],
+          ['clang==1 and clang_load!="" and clang_add_plugin!=""', {
+            'target_conditions': [
+              ['_toolset=="target"', {
+                'cflags': [
+                  '-Xclang', '-load', '-Xclang', '<(clang_load)',
+                  '-Xclang', '-add-plugin', '-Xclang', '<(clang_add_plugin)',
+                ],
+              }]],
           }],
           ['no_strict_aliasing==1', {
             'cflags': [
@@ -1258,6 +1349,19 @@
                 # http://code.google.com/p/googletest/source/detail?r=446 .
                 # TODO(thakis): Use -isystem instead (http://crbug.com/58751 ).
                 '-Wno-unnamed-type-template-args',
+                # TODO(thakis): Turn on -- http://crbug.com/72205
+                '-Wno-overloaded-virtual',
+              ],
+            }],
+            ['clang==1 and clang_use_chrome_plugins==1', {
+              'OTHER_CFLAGS': [
+                '<(clang_chrome_plugins_flags)',
+              ],
+            }],
+            ['clang==1 and clang_load!="" and clang_add_plugin!=""', {
+              'OTHER_CFLAGS': [
+                '-Xclang', '-load', '-Xclang', '<(clang_load)',
+                '-Xclang', '-add-plugin', '-Xclang', '<(clang_add_plugin)',
               ],
             }],
           ],
@@ -1378,6 +1482,7 @@
           'VCLinkerTool': {
             'AdditionalDependencies': [
               'wininet.lib',
+              'dnsapi.lib',
               'version.lib',
               'msimg32.lib',
               'ws2_32.lib',

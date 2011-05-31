@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "chrome/browser/cancelable_request.h"
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
@@ -23,15 +23,15 @@ class PrefService;
 class Value;
 
 // The handler for Javascript messages related to the "most visited" view.
-class MostVisitedHandler : public DOMMessageHandler,
+class MostVisitedHandler : public WebUIMessageHandler,
                            public NotificationObserver {
  public:
 
   MostVisitedHandler();
   virtual ~MostVisitedHandler();
 
-  // DOMMessageHandler override and implementation.
-  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+  // WebUIMessageHandler override and implementation.
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
   virtual void RegisterMessages();
 
   // Callback for the "getMostVisited" message.
@@ -73,13 +73,6 @@ class MostVisitedHandler : public DOMMessageHandler,
   // Send a request to the HistoryService to get the most visited pages.
   void StartQueryForMostVisited();
 
-  // Callback from the history system when the most visited list is available.
-  void OnSegmentUsageAvailable(CancelableRequestProvider::Handle handle,
-                               std::vector<PageUsageData*>* data);
-
-  // Sets pages_value_ from a vector of URLs.
-  void SetPagesValue(std::vector<PageUsageData*>* data);
-
   // Sets pages_value_ from a format produced by TopSites.
   void SetPagesValueFromTopSites(const history::MostVisitedURLList& data);
 
@@ -105,11 +98,6 @@ class MostVisitedHandler : public DOMMessageHandler,
 
   // Returns true if we should treat this as the first run of the new tab page.
   bool IsFirstRun();
-
-  // Adds the fields in the page to the dictionary.
-  static void SetMostVisistedPage(
-      DictionaryValue* dict,
-      const MostVisitedHandler::MostVisitedPage& page);
 
   static const std::vector<MostVisitedPage>& GetPrePopulatedPages();
 

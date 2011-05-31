@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,7 +31,7 @@
 #include "net/test/test_server.h"
 
 #if defined(TOOLKIT_VIEWS)
-#include "chrome/browser/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
 #endif
 
 const std::string kSubscribePage = "/subscribe.html";
@@ -50,6 +50,10 @@ const std::string kInvalidFeed1 = "files/feeds/feed_invalid1.xml";
 const std::string kInvalidFeed2 = "files/feeds/feed_invalid2.xml";
 const std::string kLocalization =
     "files/extensions/browsertest/title_localized_pa/simple.html";
+// We need a triple encoded string to prove that we are not decoding twice in
+// subscribe.js because one layer is also stripped off when subscribe.js passes
+// it to the XMLHttpRequest object.
+const std::string kFeedTripleEncoded = "files/feeds/url%25255Fdecoding.html";
 const std::string kHashPageA =
     "files/extensions/api_test/page_action/hash_change/test_page_A.html";
 const std::string kHashPageAHash = kHashPageA + "#asdf";
@@ -73,72 +77,6 @@ static ExtensionHost* FindHostWithPath(ExtensionProcessManager* manager,
   }
   EXPECT_EQ(expected_hosts, num_hosts);
   return host;
-}
-
-// Tests that extension resources can be loaded from origins which the
-// extension specifies in permissions but not from others.
-IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, OriginPrivileges) {
-  host_resolver()->AddRule("*", "127.0.0.1");
-  ASSERT_TRUE(test_server()->Start());
-  ASSERT_TRUE(LoadExtension(test_data_dir_
-    .AppendASCII("origin_privileges").AppendASCII("extension")));
-
-  GURL origin_privileges_index(
-      test_server()->GetURL("files/extensions/origin_privileges/index.html"));
-
-  std::string host_a("a.com");
-  GURL::Replacements make_host_a_com;
-  make_host_a_com.SetHostStr(host_a);
-
-  std::string host_b("b.com");
-  GURL::Replacements make_host_b_com;
-  make_host_b_com.SetHostStr(host_b);
-
-  // A web host that has permission.
-  ui_test_utils::NavigateToURL(
-      browser(), origin_privileges_index.ReplaceComponents(make_host_a_com));
-  std::string result;
-  ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractString(
-    browser()->GetSelectedTabContents()->render_view_host(), L"",
-      L"window.domAutomationController.send(document.title)",
-    &result));
-  EXPECT_EQ(result, "Loaded");
-
-  // A web host that does not have permission.
-  ui_test_utils::NavigateToURL(
-      browser(), origin_privileges_index.ReplaceComponents(make_host_b_com));
-  ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractString(
-      browser()->GetSelectedTabContents()->render_view_host(), L"",
-      L"window.domAutomationController.send(document.title)",
-      &result));
-  EXPECT_EQ(result, "Image failed to load");
-
-  // A data URL. Data URLs should always be able to load chrome-extension://
-  // resources.
-  std::string file_source;
-  ASSERT_TRUE(file_util::ReadFileToString(
-      test_data_dir_.AppendASCII("origin_privileges")
-                    .AppendASCII("index.html"), &file_source));
-  ui_test_utils::NavigateToURL(browser(),
-      GURL(std::string("data:text/html;charset=utf-8,") + file_source));
-  ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractString(
-      browser()->GetSelectedTabContents()->render_view_host(), L"",
-      L"window.domAutomationController.send(document.title)",
-      &result));
-  EXPECT_EQ(result, "Loaded");
-
-  // A different extension. Extensions should always be able to load each
-  // other's resources.
-  ASSERT_TRUE(LoadExtension(test_data_dir_
-    .AppendASCII("origin_privileges").AppendASCII("extension2")));
-  ui_test_utils::NavigateToURL(
-      browser(),
-      GURL("chrome-extension://pbkkcbgdkliohhfaeefcijaghglkahja/index.html"));
-  ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractString(
-      browser()->GetSelectedTabContents()->render_view_host(), L"",
-      L"window.domAutomationController.send(document.title)",
-      &result));
-  EXPECT_EQ(result, "Loaded");
 }
 
 // Tests that we can load extension pages into the tab area and they can call
@@ -622,6 +560,26 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, ParseFeedInvalidFeed3) {
                             "This feed contains no entries.");
 }
 
+IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, ParseFeedInvalidFeed4) {
+  ASSERT_TRUE(test_server()->Start());
+
+  ASSERT_TRUE(LoadExtension(
+      test_data_dir_.AppendASCII("subscribe_page_action")));
+
+  // subscribe.js shouldn't double-decode the URL passed in. Otherwise feed
+  // links such as http://search.twitter.com/search.atom?lang=en&q=%23chrome
+  // will result in no feed being downloaded because %23 gets decoded to # and
+  // therefore #chrome is not treated as part of the Twitter query. This test
+  // uses an underscore instead of a hash, but the principle is the same. If
+  // we start erroneously double decoding again, the path (and the feed) will
+  // become valid resulting in a failure for this test.
+  NavigateToFeedAndValidate(test_server(), kFeedTripleEncoded, browser(), true,
+                            "Feed for Unknown feed name",
+                            "element 'anchor_0' not found",
+                            "element 'desc_0' not found",
+                            "This feed contains no entries.");
+}
+
 IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, ParseFeedValidFeedNoLinks) {
   ASSERT_TRUE(test_server()->Start());
 
@@ -795,6 +753,44 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, MAYBE_PluginLoadUnload) {
   ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractBool(
       tab->render_view_host(), L"", L"testPluginWorks()", &result));
   EXPECT_TRUE(result);
+}
+
+#if defined(OS_CHROMEOS)
+// ChromeOS doesn't support NPAPI.
+#define MAYBE_PluginPrivate DISABLED_PluginPrivate
+#elif defined(OS_WIN) || defined(OS_LINUX)
+#define MAYBE_PluginPrivate PluginPrivate
+#else
+// TODO(mpcomplete): http://crbug.com/29900 need cross platform plugin support.
+#define MAYBE_PluginPrivate DISABLED_PluginPrivate
+#endif
+
+// Tests that private extension plugins are only visible to the extension.
+IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, MAYBE_PluginPrivate) {
+  FilePath extension_dir =
+      test_data_dir_.AppendASCII("uitest").AppendASCII("plugins_private");
+
+  ExtensionService* service = browser()->profile()->GetExtensionService();
+  const size_t size_before = service->extensions()->size();
+  ASSERT_TRUE(LoadExtension(extension_dir));
+  EXPECT_EQ(size_before + 1, service->extensions()->size());
+
+  // Load the test page through the extension URL, and the plugin should work.
+  const Extension* extension = service->extensions()->back();
+  ui_test_utils::NavigateToURL(browser(),
+      extension->GetResourceURL("test.html"));
+  TabContents* tab = browser()->GetSelectedTabContents();
+  bool result = false;
+  ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractBool(
+      tab->render_view_host(), L"", L"testPluginWorks()", &result));
+  EXPECT_TRUE(result);
+
+  // Now load it through a file URL. The plugin should not load.
+  ui_test_utils::NavigateToURL(browser(),
+      net::FilePathToFileURL(extension_dir.AppendASCII("test.html")));
+  ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractBool(
+      tab->render_view_host(), L"", L"testPluginWorks()", &result));
+  EXPECT_FALSE(result);
 }
 
 // Used to simulate a click on the first button named 'Options'.

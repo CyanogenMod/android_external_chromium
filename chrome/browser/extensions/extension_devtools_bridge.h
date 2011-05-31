@@ -31,8 +31,12 @@ class ExtensionDevToolsBridge : public DevToolsClientHost {
   // DevToolsClientHost, called to send a message to this host.
   virtual void SendMessageToClient(const IPC::Message& msg);
 
+  virtual void TabReplaced(TabContentsWrapper* new_tab);
+
  private:
-  void OnDispatchToAPU(const std::string& data);
+  void OnDispatchOnInspectorFrontend(const std::string& data);
+
+  virtual void FrameNavigating(const std::string& url) {}
 
   // ID of the tab we are monitoring.
   int tab_id_;

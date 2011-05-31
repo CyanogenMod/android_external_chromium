@@ -1,28 +1,28 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/frame/browser_frame_win.h"
+#include "chrome/browser/ui/views/frame/browser_frame_win.h"
 
 #include <dwmapi.h>
 #include <shellapi.h>
 
 #include <set>
 
-#include "app/win/hwnd_util.h"
-#include "app/win/win_util.h"
 #include "chrome/browser/accessibility/browser_accessibility_state.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
-#include "chrome/browser/views/frame/browser_non_client_frame_view.h"
-#include "chrome/browser/views/frame/browser_root_view.h"
-#include "chrome/browser/views/frame/browser_view.h"
-#include "chrome/browser/views/frame/glass_browser_frame_view.h"
-#include "gfx/font.h"
+#include "chrome/browser/ui/views/frame/browser_non_client_frame_view.h"
+#include "chrome/browser/ui/views/frame/browser_root_view.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/glass_browser_frame_view.h"
 #include "grit/theme_resources.h"
+#include "ui/gfx/font.h"
 #include "views/screen.h"
+#include "views/widget/widget_win.h"
 #include "views/window/window_delegate.h"
+#include "views/window/window_win.h"
 
 // static
 static const int kClientEdgeThickness = 3;
@@ -41,7 +41,8 @@ BrowserFrame* BrowserFrame::Create(BrowserView* browser_view,
 
 // static
 const gfx::Font& BrowserFrame::GetTitleFont() {
-  static gfx::Font* title_font = new gfx::Font(app::win::GetWindowTitleFont());
+  static gfx::Font* title_font =
+      new gfx::Font(views::WindowWin::GetWindowTitleFont());
   return *title_font;
 }
 
@@ -83,7 +84,7 @@ int BrowserFrameWin::GetMinimizeButtonOffset() const {
   return minimize_button_corner.x;
 }
 
-gfx::Rect BrowserFrameWin::GetBoundsForTabStrip(BaseTabStrip* tabstrip) const {
+gfx::Rect BrowserFrameWin::GetBoundsForTabStrip(views::View* tabstrip) const {
   return browser_frame_view_->GetBoundsForTabStrip(tabstrip);
 }
 
@@ -109,7 +110,8 @@ bool BrowserFrameWin::AlwaysUseNativeFrame() const {
   // We don't theme popup or app windows, so regardless of whether or not a
   // theme is active for normal browser windows, we don't want to use the custom
   // frame for popups/apps.
-  if (!browser_view_->IsBrowserTypeNormal() && app::win::ShouldUseVistaFrame())
+  if (!browser_view_->IsBrowserTypeNormal() &&
+      views::WidgetWin::IsAeroGlassEnabled())
     return true;
 
   // Otherwise, we use the native frame when we're told we should by the theme
@@ -122,7 +124,7 @@ views::View* BrowserFrameWin::GetFrameView() const {
 }
 
 void BrowserFrameWin::TabStripDisplayModeChanged() {
-  if (GetRootView()->GetChildViewCount() > 0) {
+  if (GetRootView()->has_children()) {
     // Make sure the child of the root view gets Layout again.
     GetRootView()->GetChildViewAt(0)->InvalidateLayout();
   }
@@ -153,7 +155,7 @@ gfx::Insets BrowserFrameWin::GetClientAreaInsets() const {
 }
 
 bool BrowserFrameWin::GetAccelerator(int cmd_id,
-                                     menus::Accelerator* accelerator) {
+                                     ui::Accelerator* accelerator) {
   return browser_view_->GetAccelerator(cmd_id, accelerator);
 }
 
@@ -166,7 +168,7 @@ void BrowserFrameWin::OnEnterSizeMove() {
 }
 
 void BrowserFrameWin::OnExitSizeMove() {
-  WidgetWin::OnExitSizeMove();
+  views::WidgetWin::OnExitSizeMove();
 }
 
 void BrowserFrameWin::OnInitMenuPopup(HMENU menu, UINT position,

@@ -1,8 +1,8 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/options/advanced_contents_view.h"
+#include "chrome/browser/ui/views/options/advanced_contents_view.h"
 
 #include <windows.h>
 
@@ -12,8 +12,8 @@
 #include <vsstyle.h>
 #include <vssym32.h>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
+#include <string>
+
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/i18n/rtl.h"
@@ -37,10 +37,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
-#include "chrome/browser/shell_dialogs.h"
-#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/options/options_util.h"
 #include "chrome/browser/ui/options/show_options_url.h"
+#include "chrome/browser/ui/shell_dialogs.h"
 #include "chrome/browser/ui/views/browser_dialogs.h"
 #include "chrome/browser/ui/views/clear_browsing_data.h"
 #include "chrome/browser/ui/views/list_background.h"
@@ -49,8 +48,6 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/native_theme_win.h"
 #include "grit/app_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -58,13 +55,17 @@
 #include "net/base/ssl_config_service_win.h"
 #include "skia/ext/skia_utils_win.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/native_theme_win.h"
 #include "views/background.h"
 #include "views/controls/button/checkbox.h"
 #include "views/controls/combobox/combobox.h"
 #include "views/controls/scroll_view.h"
 #include "views/controls/textfield/textfield.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/widget.h"
 #include "views/window/window.h"
 
@@ -135,7 +136,7 @@ void FileDisplayArea::SetFile(const FilePath& file_path) {
     base::i18n::WrapPathWithLTRFormatting(file_path, &localized_file_path);
     text_field_->SetText(UTF16ToWide(localized_file_path));
   } else {
-    text_field_->SetText(file_path.ToWStringHack());
+    text_field_->SetText(file_path.LossyDisplayName());
   }
 }
 
@@ -147,8 +148,7 @@ void FileDisplayArea::Paint(gfx::Canvas* canvas) {
       skia::SkColorToCOLORREF(text_field_background_color_), true, true);
   canvas->EndPlatformPaint();
   // Mirror left point for icon_bounds_ to draw icon in RTL locales correctly.
-  canvas->DrawBitmapInt(default_folder_icon_,
-                        MirroredLeftPointForRect(icon_bounds_),
+  canvas->DrawBitmapInt(default_folder_icon_, GetMirroredXForRect(icon_bounds_),
                         icon_bounds_.y());
 }
 
@@ -212,9 +212,6 @@ class AdvancedSection : public OptionsPageView {
  public:
   AdvancedSection(Profile* profile, const std::wstring& title);
   virtual ~AdvancedSection() {}
-
-  virtual void DidChangeBounds(const gfx::Rect& previous,
-                               const gfx::Rect& current);
 
  protected:
   // Convenience helpers to add different kinds of ColumnSets for specific
@@ -289,11 +286,6 @@ AdvancedSection::AdvancedSection(Profile* profile,
   title_label_->SetColor(title_color);
 }
 
-void AdvancedSection::DidChangeBounds(const gfx::Rect& previous,
-                                      const gfx::Rect& current) {
-  Layout();
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 // AdvancedSection, protected:
 
@@ -309,17 +301,17 @@ void AdvancedSection::AddDependentTwoColumnSet(views::GridLayout* layout,
   column_set->AddPaddingColumn(0, views::Checkbox::GetTextIndent());
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 1,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kUnrelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kUnrelatedControlHorizontalSpacing);
 }
 
 void AdvancedSection::AddTwoColumnSet(views::GridLayout* layout, int id) {
   ColumnSet* column_set = layout->AddColumnSet(id);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 1,
                         GridLayout::USE_PREF, 0, 0);
 }
@@ -360,8 +352,8 @@ void AdvancedSection::AddLabeledTwoColumnRow(views::GridLayout* layout,
                                              bool related_follows) {
   label->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
   AddTwoColumnRow(layout, label, control, control_stretches, id,
-      related_follows ?
-          kRelatedControlVerticalSpacing : kUnrelatedControlVerticalSpacing);
+      related_follows ? views::kRelatedControlVerticalSpacing
+                      : views::kUnrelatedControlVerticalSpacing);
 }
 
 void AdvancedSection::AddTwoColumnRow(views::GridLayout* layout,
@@ -392,8 +384,9 @@ void AdvancedSection::AddLeadingControl(views::GridLayout* layout,
 
 void AdvancedSection::AddSpacing(views::GridLayout* layout,
                                  bool related_follows) {
-  layout->AddPaddingRow(0, related_follows ? kRelatedControlVerticalSpacing
-                                           : kUnrelatedControlVerticalSpacing);
+  layout->AddPaddingRow(
+      0, related_follows ? views::kRelatedControlVerticalSpacing
+                         : views::kUnrelatedControlVerticalSpacing);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -411,13 +404,13 @@ void AdvancedSection::InitControlLayout() {
                         GridLayout::USE_PREF, 0, 0);
   const int inset_column_layout_id = 1;
   column_set = layout->AddColumnSet(inset_column_layout_id);
-  column_set->AddPaddingColumn(0, kUnrelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kUnrelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::LEADING, 1,
                         GridLayout::USE_PREF, 0, 0);
 
   layout->StartRow(0, single_column_layout_id);
   layout->AddView(title_label_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   layout->StartRow(0, inset_column_layout_id);
   layout->AddView(contents_);
 }
@@ -597,7 +590,8 @@ void PrivacySection::InitControlLayout() {
   AddIndentedColumnSet(layout, indented_column_set_id);
 
   AddTwoColumnRow(layout, content_settings_button_, clear_data_button_, false,
-                  leading_column_set_id, kUnrelatedControlLargeVerticalSpacing);
+                  leading_column_set_id,
+                  views::kUnrelatedControlLargeVerticalSpacing);
 
   // The description label at the top and label.
   section_description_label_->SetMultiLine(true);
@@ -1186,10 +1180,10 @@ void DownloadSection::InitControlLayout() {
   ColumnSet* column_set = layout->AddColumnSet(double_column_view_set_id);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 1,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kUnrelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kUnrelatedControlHorizontalSpacing);
   layout->StartRow(0, double_column_view_set_id);
   layout->AddView(download_default_download_location_display_, 1, 1,
                   GridLayout::FILL, GridLayout::CENTER);
@@ -1337,6 +1331,7 @@ class CloudPrintProxySection : public AdvancedSection,
 
   // Preferences we tie things to.
   StringPrefMember cloud_print_proxy_email_;
+  BooleanPrefMember cloud_print_proxy_enabled_;
 
   base::ScopedCallbackFactory<CloudPrintProxySection> factory_;
 
@@ -1424,11 +1419,13 @@ void CloudPrintProxySection::InitControlLayout() {
 
   // The enable / disable button and manage button.
   AddTwoColumnRow(layout, enable_disable_button_, manage_printer_button_, false,
-                  control_view_set_id, kRelatedControlVerticalSpacing);
+                  control_view_set_id, views::kRelatedControlVerticalSpacing);
 
   // Attach the preferences so we can flip things appropriately.
   cloud_print_proxy_email_.Init(prefs::kCloudPrintEmail,
                                 profile()->GetPrefs(), this);
+  cloud_print_proxy_enabled_.Init(prefs::kCloudPrintProxyEnabled,
+                                  profile()->GetPrefs(), this);
 
   // Start the UI off in the state we think it should be in.
   std::string pref_string(prefs::kCloudPrintEmail);
@@ -1443,8 +1440,13 @@ void CloudPrintProxySection::NotifyPrefChanged(const std::string* pref_name) {
   if (pref_name == NULL)
     return;
 
-  if (*pref_name == prefs::kCloudPrintEmail) {
-    if (Enabled()) {
+  if (*pref_name == prefs::kCloudPrintEmail ||
+      *pref_name == prefs::kCloudPrintProxyEnabled) {
+    bool cloud_print_proxy_allowed =
+        !cloud_print_proxy_enabled_.IsManaged() ||
+        cloud_print_proxy_enabled_.GetValue();
+
+    if (Enabled() && cloud_print_proxy_allowed) {
       std::string email;
       if (profile()->GetPrefs()->HasPrefPath(prefs::kCloudPrintEmail))
         email = profile()->GetPrefs()->GetString(prefs::kCloudPrintEmail);
@@ -1456,6 +1458,7 @@ void CloudPrintProxySection::NotifyPrefChanged(const std::string* pref_name) {
       enable_disable_button_->SetLabel(UTF16ToWide(l10n_util::GetStringUTF16(
           IDS_OPTIONS_CLOUD_PRINT_PROXY_ENABLED_BUTTON)));
       enable_disable_button_->InvalidateLayout();
+      enable_disable_button_->SetEnabled(true);
       manage_printer_button_->SetVisible(true);
       manage_printer_button_->InvalidateLayout();
     } else {
@@ -1464,6 +1467,7 @@ void CloudPrintProxySection::NotifyPrefChanged(const std::string* pref_name) {
       enable_disable_button_->SetLabel(UTF16ToWide(l10n_util::GetStringUTF16(
           IDS_OPTIONS_CLOUD_PRINT_PROXY_DISABLED_BUTTON)));
       enable_disable_button_->InvalidateLayout();
+      enable_disable_button_->SetEnabled(cloud_print_proxy_allowed);
       manage_printer_button_->SetVisible(false);
     }
 
@@ -1471,12 +1475,12 @@ void CloudPrintProxySection::NotifyPrefChanged(const std::string* pref_name) {
     // possible that the section_description_label_ has changed
     // heights.  And scroll us back to being visible in that case, to
     // be nice to the user.
-    views::View* view = section_description_label_->GetParent();
+    views::View* view = section_description_label_->parent();
     while (view && view->GetClassName() != views::ScrollView::kViewClassName)
-      view = view->GetParent();
+      view = view->parent();
     if (view) {
       gfx::Rect visible_bounds = GetVisibleBounds();
-      bool was_all_visible = (visible_bounds.size() == bounds().size());
+      bool was_all_visible = (visible_bounds.size() == size());
       // Our bounds can change across this call, so we have to use the
       // new bounds if we want to stay completely visible.
       view->Layout();
@@ -1504,8 +1508,7 @@ class AdvancedContentsView : public OptionsPageView {
   virtual int GetLineScrollIncrement(views::ScrollView* scroll_view,
                                      bool is_horizontal, bool is_positive);
   virtual void Layout();
-  virtual void DidChangeBounds(const gfx::Rect& previous,
-                               const gfx::Rect& current);
+  virtual void OnBoundsChanged();
 
  protected:
   // OptionsPageView implementation:
@@ -1547,9 +1550,8 @@ int AdvancedContentsView::GetLineScrollIncrement(
 }
 
 void AdvancedContentsView::Layout() {
-  views::View* parent = GetParent();
-  if (parent && parent->width()) {
-    const int width = parent->width();
+  if (parent() && parent()->width()) {
+    const int width = parent()->width();
     const int height = GetHeightForWidth(width);
     SetBounds(0, 0, width, height);
   } else {
@@ -1559,8 +1561,7 @@ void AdvancedContentsView::Layout() {
   View::Layout();
 }
 
-void AdvancedContentsView::DidChangeBounds(const gfx::Rect& previous,
-                                           const gfx::Rect& current) {
+void AdvancedContentsView::OnBoundsChanged() {
   // Override to do nothing. Calling Layout() interferes with our scrolling.
 }
 
@@ -1569,7 +1570,7 @@ void AdvancedContentsView::DidChangeBounds(const gfx::Rect& previous,
 // AdvancedContentsView, OptionsPageView implementation:
 
 void AdvancedContentsView::InitControlLayout() {
-  GridLayout* layout = CreatePanelGridLayout(this);
+  GridLayout* layout = GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
 
   const int single_column_view_set_id = 0;
@@ -1636,10 +1637,10 @@ AdvancedScrollViewContainer::~AdvancedScrollViewContainer() {
 // AdvancedScrollViewContainer, views::View overrides:
 
 void AdvancedScrollViewContainer::Layout() {
-  gfx::Rect lb = GetLocalBounds(false);
+  gfx::Rect lb = GetLocalBounds();
 
   gfx::Size border = gfx::NativeTheme::instance()->GetThemeBorderSize(
       gfx::NativeTheme::LIST);
   lb.Inset(border.width(), border.height());
-  scroll_view_->SetBounds(lb);
+  scroll_view_->SetBoundsRect(lb);
 }

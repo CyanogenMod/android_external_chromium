@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,46 +7,48 @@
 #include <map>
 #include <string>
 
-#include "app/l10n_util.h"
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
-#include "base/lock.h"
 #include "base/ref_counted.h"
+#include "base/synchronization/lock.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/speech/speech_input_bubble_controller.h"
 #include "chrome/browser/speech/speech_recognizer.h"
-#include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
 #include "media/audio/audio_manager.h"
+#include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_WIN)
-#include "chrome/browser/browser_process.h"
 #include "chrome/installer/util/wmi.h"
 #endif
 
+namespace speech_input {
+
 namespace {
 
-// Asynchronously fetches the PC and audio hardware/driver info on windows if
+// Asynchronously fetches the PC and audio hardware/driver info if
 // the user has opted into UMA. This information is sent with speech input
 // requests to the server for identifying and improving quality issues with
 // specific device configurations.
-class HardwareInfo : public base::RefCountedThreadSafe<HardwareInfo> {
+class OptionalRequestInfo
+    : public base::RefCountedThreadSafe<OptionalRequestInfo> {
  public:
-  HardwareInfo() {}
+  OptionalRequestInfo() : can_report_metrics_(false) {}
 
-#if defined(OS_WIN)
   void Refresh() {
     DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
     // UMA opt-in can be checked only from the UI thread, so switch to that.
     BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-        NewRunnableMethod(this, &HardwareInfo::CheckUMAAndGetHardwareInfo));
+        NewRunnableMethod(this,
+                          &OptionalRequestInfo::CheckUMAAndGetHardwareInfo));
   }
 
   void CheckUMAAndGetHardwareInfo() {
@@ -55,38 +57,41 @@ class HardwareInfo : public base::RefCountedThreadSafe<HardwareInfo> {
         prefs::kMetricsReportingEnabled)) {
       // Access potentially slow OS calls from the FILE thread.
       BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
-          NewRunnableMethod(this, &HardwareInfo::GetHardwareInfo));
+          NewRunnableMethod(this, &OptionalRequestInfo::GetHardwareInfo));
     }
   }
 
   void GetHardwareInfo() {
     DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
-    AutoLock lock(lock_);
+    base::AutoLock lock(lock_);
+    can_report_metrics_ = true;
+#if defined(OS_WIN)
     value_ = UTF16ToUTF8(
         installer::WMIComputerSystem::GetModel() + L"|" +
         AudioManager::GetAudioManager()->GetAudioInputDeviceModel());
+#else  // defined(OS_WIN)
+    value_ = UTF16ToUTF8(
+        AudioManager::GetAudioManager()->GetAudioInputDeviceModel());
+#endif  // defined(OS_WIN)
   }
 
   std::string value() {
-    AutoLock lock(lock_);
+    base::AutoLock lock(lock_);
     return value_;
   }
 
+  bool can_report_metrics() {
+    base::AutoLock lock(lock_);
+    return can_report_metrics_;
+  }
+
  private:
-  Lock lock_;
+  base::Lock lock_;
   std::string value_;
+  bool can_report_metrics_;
 
-#else  // defined(OS_WIN)
-  void Refresh() {}
-  std::string value() { return std::string(); }
-#endif  // defined(OS_WIN)
-
-  DISALLOW_COPY_AND_ASSIGN(HardwareInfo);
+  DISALLOW_COPY_AND_ASSIGN(OptionalRequestInfo);
 };
-
-}  // namespace
-
-namespace speech_input {
 
 class SpeechInputManagerImpl : public SpeechInputManager,
                                public SpeechInputBubbleControllerDelegate,
@@ -99,9 +104,12 @@ class SpeechInputManagerImpl : public SpeechInputManager,
                                 int render_view_id,
                                 const gfx::Rect& element_rect,
                                 const std::string& language,
-                                const std::string& grammar);
+                                const std::string& grammar,
+                                const std::string& origin_url);
   virtual void CancelRecognition(int caller_id);
   virtual void StopRecording(int caller_id);
+  virtual void CancelAllRequestsWithDelegate(
+      SpeechInputManagerDelegate* delegate);
 
   // SpeechRecognizer::Delegate methods.
   virtual void SetRecognitionResult(int caller_id,
@@ -143,11 +151,13 @@ class SpeechInputManagerImpl : public SpeechInputManager,
   SpeechRecognizerMap requests_;
   int recording_caller_id_;
   scoped_refptr<SpeechInputBubbleController> bubble_controller_;
-  scoped_refptr<HardwareInfo> hardware_info_;
+  scoped_refptr<OptionalRequestInfo> optional_request_info_;
 };
 
-static ::base::LazyInstance<SpeechInputManagerImpl> g_speech_input_manager_impl(
+base::LazyInstance<SpeechInputManagerImpl> g_speech_input_manager_impl(
     base::LINKER_INITIALIZED);
+
+}  // namespace
 
 SpeechInputManager* SpeechInputManager::Get() {
   return g_speech_input_manager_impl.Pointer();
@@ -200,14 +210,15 @@ void SpeechInputManagerImpl::StartRecognition(
     int render_view_id,
     const gfx::Rect& element_rect,
     const std::string& language,
-    const std::string& grammar) {
+    const std::string& grammar,
+    const std::string& origin_url) {
   DCHECK(!HasPendingRequest(caller_id));
 
   bubble_controller_->CreateBubble(caller_id, render_process_id, render_view_id,
                                    element_rect);
 
-  if (!hardware_info_.get()) {
-    hardware_info_ = new HardwareInfo();
+  if (!optional_request_info_.get()) {
+    optional_request_info_ = new OptionalRequestInfo();
     // Since hardware info is optional with speech input requests, we start an
     // asynchronous fetch here and move on with recording audio. This first
     // speech input request would send an empty string for hardware info and
@@ -215,13 +226,14 @@ void SpeechInputManagerImpl::StartRecognition(
     // completed before them. This way we don't end up stalling the user with
     // a long wait and disk seeks when they click on a UI element and start
     // speaking.
-    hardware_info_->Refresh();
+    optional_request_info_->Refresh();
   }
 
   SpeechInputRequest* request = &requests_[caller_id];
   request->delegate = delegate;
-  request->recognizer = new SpeechRecognizer(this, caller_id, language,
-                                             grammar, hardware_info_->value());
+  request->recognizer = new SpeechRecognizer(
+      this, caller_id, language, grammar, optional_request_info_->value(),
+      optional_request_info_->can_report_metrics() ? origin_url : "");
   request->is_active = false;
 
   StartRecognitionForRequest(caller_id);
@@ -252,6 +264,20 @@ void SpeechInputManagerImpl::CancelRecognition(int caller_id) {
   if (recording_caller_id_ == caller_id)
     recording_caller_id_ = 0;
   bubble_controller_->CloseBubble(caller_id);
+}
+
+void SpeechInputManagerImpl::CancelAllRequestsWithDelegate(
+    SpeechInputManagerDelegate* delegate) {
+  SpeechRecognizerMap::iterator it = requests_.begin();
+  while (it != requests_.end()) {
+    if (it->second.delegate == delegate) {
+      CancelRecognition(it->first);
+      // This map will have very few elements so it is simpler to restart.
+      it = requests_.begin();
+    } else {
+      ++it;
+    }
+  }
 }
 
 void SpeechInputManagerImpl::StopRecording(int caller_id) {

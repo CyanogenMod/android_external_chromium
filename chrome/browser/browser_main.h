@@ -17,10 +17,13 @@ class HighResolutionTimerManager;
 struct MainFunctionParams;
 class MessageLoop;
 class MetricsService;
-class SystemMonitor;
 
 namespace net {
 class NetworkChangeNotifier;
+}
+
+namespace ui {
+class SystemMonitor;
 }
 
 // BrowserMainParts:
@@ -77,6 +80,8 @@ class BrowserMainParts {
   void EarlyInitialization();
   void MainMessageLoopStart();
 
+  void SetupFieldTrials();
+
  protected:
   explicit BrowserMainParts(const MainFunctionParams& parameters);
 
@@ -113,8 +118,9 @@ class BrowserMainParts {
   // A/B test for spdy when --use-spdy not set.
   void SpdyFieldTrial();
 
-  // A/B test for prefetching with --(enable|disable)-prefetch not set.
-  void PrefetchFieldTrial();
+  // A/B test for prefetching with --(enable|disable)-prefetch not set,
+  // some histograms tracking prerender sessions.
+  void PrefetchAndPrerenderFieldTrial();
 
   // A/B test for automatically establishing a backup TCP connection when a
   // specified timeout value is reached.
@@ -144,7 +150,7 @@ class BrowserMainParts {
 
   // Members initialized in |MainMessageLoopStart()| ---------------------------
   scoped_ptr<MessageLoop> main_message_loop_;
-  scoped_ptr<SystemMonitor> system_monitor_;
+  scoped_ptr<ui::SystemMonitor> system_monitor_;
   scoped_ptr<HighResolutionTimerManager> hi_res_timer_manager_;
   scoped_ptr<net::NetworkChangeNotifier> network_change_notifier_;
   scoped_ptr<BrowserThread> main_thread_;

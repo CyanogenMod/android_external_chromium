@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,7 +40,7 @@ class DatabaseTracker;
 }
 
 namespace fileapi {
-class SandboxedFileSystemContext;
+class FileSystemContext;
 }
 
 class AutocompleteClassifier;
@@ -50,7 +50,7 @@ class BrowserSignin;
 class BrowserThemeProvider;
 class ChromeAppCacheService;
 class ChromeBlobStorageContext;
-class ChromeURLRequestContextGetter;
+class ChromeURLDataManager;
 class CloudPrintProxyService;
 class DesktopNotificationService;
 class DownloadManager;
@@ -58,7 +58,9 @@ class Extension;
 class ExtensionDevToolsManager;
 class ExtensionEventRouter;
 class ExtensionInfoMap;
+class ExtensionIOEventRouter;
 class ExtensionMessageService;
+class ExtensionPrefValueMap;
 class ExtensionProcessManager;
 class ExtensionService;
 class FaviconService;
@@ -91,7 +93,6 @@ class StatusTray;
 class TabRestoreService;
 class TemplateURLFetcher;
 class TemplateURLModel;
-class ThemeProvider;
 class TokenService;
 class TransportSecurityPersister;
 class URLRequestContextGetter;
@@ -131,6 +132,9 @@ class Profile {
     // off the record mode.
     IMPLICIT_ACCESS
   };
+
+  // Key used to bind profile to the widget with which it is associated.
+  static const char* kProfileKey;
 
   // Value that represents no profile Id.
   static const ProfileId InvalidProfileId;
@@ -218,6 +222,9 @@ class Profile {
   // Accessor. The instance is created at startup.
   virtual ExtensionEventRouter* GetExtensionEventRouter() = 0;
 
+  // Accessor. The instance is created at startup.
+  virtual ExtensionIOEventRouter* GetExtensionIOEventRouter() = 0;
+
   // Retrieves a pointer to the SSLHostState associated with this profile.
   // The SSLHostState is lazily created the first time that this method is
   // called.
@@ -226,8 +233,7 @@ class Profile {
   // Retrieves a pointer to the TransportSecurityState associated with
   // this profile.  The TransportSecurityState is lazily created the
   // first time that this method is called.
-  virtual net::TransportSecurityState*
-      GetTransportSecurityState() = 0;
+  virtual net::TransportSecurityState* GetTransportSecurityState() = 0;
 
   // Retrieves a pointer to the FaviconService associated with this
   // profile.  The FaviconService is lazily created the first time
@@ -284,6 +290,11 @@ class Profile {
   // time that this method is called.
   virtual PrefService* GetPrefs() = 0;
 
+  // Retrieves a pointer to the PrefService that manages the preferences
+  // for OffTheRecord Profiles.  This PrefService is lazily created the first
+  // time that this method is called.
+  virtual PrefService* GetOffTheRecordPrefs() = 0;
+
   // Returns the TemplateURLModel for this profile. This is owned by the
   // the Profile.
   virtual TemplateURLModel* GetTemplateURLModel() = 0;
@@ -302,7 +313,7 @@ class Profile {
   // Returns the FileSystemContext associated to this profile.  The context
   // is lazily created the first time this method is called.  This is owned
   // by the profile.
-  virtual fileapi::SandboxedFileSystemContext* GetFileSystemContext() = 0;
+  virtual fileapi::FileSystemContext* GetFileSystemContext() = 0;
 
   // Returns the BrowserSignin object assigned to this profile.
   virtual BrowserSignin* GetBrowserSignin() = 0;
@@ -486,7 +497,25 @@ class Profile {
   // Gets the policy context associated with this profile.
   virtual policy::ProfilePolicyContext* GetPolicyContext() = 0;
 
+  // Returns the ChromeURLDataManager for this profile.
+  virtual ChromeURLDataManager* GetChromeURLDataManager() = 0;
+
 #if defined(OS_CHROMEOS)
+  enum AppLocaleChangedVia {
+    // Caused by chrome://settings change.
+    APP_LOCALE_CHANGED_VIA_SETTINGS,
+    // Locale has been reverted via LocaleChangeGuard.
+    APP_LOCALE_CHANGED_VIA_REVERT,
+    // From login screen.
+    APP_LOCALE_CHANGED_VIA_LOGIN,
+    // Source unknown.
+    APP_LOCALE_CHANGED_VIA_UNKNOWN
+  };
+
+  // Changes application locale for a profile.
+  virtual void ChangeAppLocale(
+      const std::string& locale, AppLocaleChangedVia via) = 0;
+
   // Returns ChromeOS's ProxyConfigServiceImpl, creating if not yet created.
   virtual chromeos::ProxyConfigServiceImpl*
       GetChromeOSProxyConfigServiceImpl() = 0;
@@ -503,6 +532,9 @@ class Profile {
   // Returns the PrerenderManager used to prerender entire webpages for this
   // profile.
   virtual PrerenderManager* GetPrerenderManager() = 0;
+
+  // Returns whether it is a guest session.
+  static bool IsGuestSession();
 
 #ifdef UNIT_TEST
   // Use with caution.  GetDefaultRequestContext may be called on any thread!
@@ -543,6 +575,8 @@ class Profile {
   Profile* CreateOffTheRecordProfile();
 
  protected:
+  friend class OffTheRecordProfileImpl;
+
   static URLRequestContextGetter* default_request_context_;
 
  private:

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,6 @@
 #include <sys/types.h>
 #include <string>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/basictypes.h"
 #include "base/message_loop.h"
 #include "base/task.h"
@@ -19,8 +17,10 @@
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/cryptohome_library.h"
 #include "chrome/browser/chromeos/customization_document.h"
+#include "chrome/browser/chromeos/login/background_view.h"
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
 #include "chrome/browser/chromeos/login/helper.h"
+#include "chrome/browser/chromeos/login/login_utils.h"
 #include "chrome/browser/chromeos/login/network_screen_delegate.h"
 #include "chrome/browser/chromeos/login/rounded_rect_painter.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
@@ -28,20 +28,22 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/views/dom_view.h"
-#include "chrome/browser/views/window.h"
+#include "chrome/browser/ui/views/dom_view.h"
+#include "chrome/browser/ui/views/window.h"
 #include "chrome/common/native_web_keyboard_event.h"
 #include "chrome/common/url_constants.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "views/controls/button/checkbox.h"
 #include "views/controls/label.h"
 #include "views/controls/throbber.h"
-#include "views/grid_layout.h"
-#include "views/layout_manager.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
+#include "views/layout/layout_manager.h"
 #include "views/widget/widget_gtk.h"
 #include "views/window/dialog_delegate.h"
 #include "views/window/window.h"
@@ -73,8 +75,8 @@ enum kLayoutColumnsets {
 struct FillLayoutWithBorder : public views::LayoutManager {
   // Overridden from LayoutManager:
   virtual void Layout(views::View* host) {
-    DCHECK(host->GetChildViewCount());
-    host->GetChildViewAt(0)->SetBounds(host->GetLocalBounds(false));
+    DCHECK(host->has_children());
+    host->GetChildViewAt(0)->SetBoundsRect(host->GetContentsBounds());
   }
   virtual gfx::Size GetPreferredSize(views::View* host) {
     return gfx::Size(host->width(), host->height());
@@ -130,7 +132,7 @@ class TpmInfoView : public views::View,
 };
 
 void TpmInfoView::Init() {
-  views::GridLayout* layout = CreatePanelGridLayout(this);
+  views::GridLayout* layout = views::GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
   views::ColumnSet* column_set = layout->AddColumnSet(0);
   column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1,
@@ -141,7 +143,7 @@ void TpmInfoView::Init() {
   label->SetMultiLine(true);
   label->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
   layout->AddView(label);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   layout->StartRow(0, 0);
   label = new views::Label(UTF16ToWide(l10n_util::GetStringUTF16(
@@ -149,7 +151,7 @@ void TpmInfoView::Init() {
   label->SetMultiLine(true);
   label->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
   layout->AddView(label);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   column_set = layout->AddColumnSet(1);
   column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 1,
@@ -162,7 +164,7 @@ void TpmInfoView::Init() {
   password_label_ = new views::Label(L"", password_font);
   password_label_->SetVisible(false);
   layout->AddView(password_label_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   column_set = layout->AddColumnSet(2);
   column_set->AddPaddingColumn(1, 0);
@@ -170,7 +172,7 @@ void TpmInfoView::Init() {
   // placed in the center.
   column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 0,
                         views::GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 0,
                         views::GridLayout::USE_PREF, 0, 0);
   column_set->AddPaddingColumn(1, 0);
@@ -185,7 +187,7 @@ void TpmInfoView::Init() {
   busy_label_ = new views::Label(
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_EULA_TPM_BUSY)));
   layout->AddView(busy_label_);
-  layout->AddPaddingRow(0, kRelatedControlHorizontalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlHorizontalSpacing);
 
   PullPassword();
 }
@@ -278,7 +280,7 @@ static void SetUpGridLayout(views::GridLayout* layout) {
                         views::GridLayout::USE_PREF, 0, 0);
   column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 0,
                         views::GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 0,
                         views::GridLayout::USE_PREF, 0, 0);
   column_set->AddPaddingColumn(0, kLastButtonHorizontalMargin + kBorderSize);
@@ -341,7 +343,7 @@ void EulaView::Init() {
   layout->AddView(google_eula_label_, 1, 1,
                   views::GridLayout::LEADING, views::GridLayout::FILL);
 
-  layout->AddPaddingRow(0, kRelatedControlSmallVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlSmallVerticalSpacing);
   layout->StartRow(1, SINGLE_CONTROL_ROW);
   views::View* box_view = new views::View();
   box_view->set_border(views::Border::CreateSolidBorder(1, SK_ColorBLACK));
@@ -351,7 +353,7 @@ void EulaView::Init() {
   google_eula_view_ = new DOMView();
   box_view->AddChildView(google_eula_view_);
 
-  layout->AddPaddingRow(0, kRelatedControlSmallVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlSmallVerticalSpacing);
   layout->StartRow(0, SINGLE_CONTROL_WITH_SHIFT_ROW);
   usage_statistics_checkbox_ = new views::Checkbox();
   usage_statistics_checkbox_->SetMultiLine(true);
@@ -363,7 +365,7 @@ void EulaView::Init() {
   learn_more_link_->SetController(this);
   layout->AddView(learn_more_link_);
 
-  layout->AddPaddingRow(0, kRelatedControlSmallVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlSmallVerticalSpacing);
   layout->StartRow(0, SINGLE_CONTROL_ROW);
   oem_eula_label_ = new views::Label(std::wstring(), label_font);
   layout->AddView(oem_eula_label_, 1, 1,
@@ -371,7 +373,7 @@ void EulaView::Init() {
 
   oem_eula_page_ = GetOemEulaPagePath();
   if (!oem_eula_page_.is_empty()) {
-    layout->AddPaddingRow(0, kRelatedControlSmallVerticalSpacing);
+    layout->AddPaddingRow(0, views::kRelatedControlSmallVerticalSpacing);
     layout->StartRow(1, SINGLE_CONTROL_ROW);
     box_view = new views::View();
     box_view->SetLayoutManager(new FillLayoutWithBorder());
@@ -382,7 +384,7 @@ void EulaView::Init() {
     box_view->AddChildView(oem_eula_view_);
   }
 
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   layout->StartRow(0, LAST_ROW);
   system_security_settings_link_ = new views::Link();
   system_security_settings_link_->SetController(this);
@@ -465,15 +467,18 @@ void EulaView::ButtonPressed(views::Button* sender, const views::Event& event) {
 // views::LinkController implementation:
 
 void EulaView::LinkActivated(views::Link* source, int event_flags) {
+  gfx::NativeWindow parent_window =
+      LoginUtils::Get()->GetBackgroundView()->GetNativeWindow();
   if (source == learn_more_link_) {
     if (!help_app_.get())
-      help_app_.reset(new HelpAppLauncher(GetNativeWindow()));
+      help_app_ = new HelpAppLauncher(parent_window);
     help_app_->ShowHelpTopic(HelpAppLauncher::HELP_STATS_USAGE);
   } else if (source == system_security_settings_link_) {
     TpmInfoView* view = new TpmInfoView(&tpm_password_);
     view->Init();
-    views::Window* window = browser::CreateViewsWindow(
-        GetNativeWindow(), gfx::Rect(), view);
+    views::Window* window = browser::CreateViewsWindow(parent_window,
+                                                       gfx::Rect(),
+                                                       view);
     window->SetIsAlwaysOnTop(true);
     window->Show();
   }
@@ -512,10 +517,6 @@ void EulaView::HandleKeyboardEvent(const NativeWebKeyboardEvent& event) {
 
 ////////////////////////////////////////////////////////////////////////////////
 // EulaView, private:
-
-gfx::NativeWindow EulaView::GetNativeWindow() const {
-  return GTK_WINDOW(static_cast<WidgetGtk*>(GetWidget())->GetNativeView());
-}
 
 void EulaView::LoadEulaView(DOMView* eula_view,
                             views::Label* eula_label,

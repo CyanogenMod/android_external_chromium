@@ -11,7 +11,6 @@
 #include "base/task.h"
 #include "chrome/browser/chromeos/network_state_notifier.h"
 #include "chrome/browser/tab_contents/interstitial_page.h"
-#include "chrome/common/notification_observer.h"
 
 class DictionaryValue;
 class Extension;
@@ -73,9 +72,6 @@ class OfflineLoadPage : public InterstitialPage {
                             DictionaryValue* strings) const;
   void GetNormalOfflineStrings(const string16& faield_url,
                                DictionaryValue* strings) const;
-
-  // Really proceed with loading.
-  void DoProceed();
 
   Delegate* delegate_;
   NotificationRegistrar registrar_;

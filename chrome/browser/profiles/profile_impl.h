@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/scoped_ptr.h"
 #include "base/timer.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_io_data.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/browser/spellcheck_host_observer.h"
 #include "chrome/common/notification_observer.h"
@@ -20,6 +21,7 @@
 
 class BackgroundModeManager;
 class ExtensionPrefs;
+class ExtensionPrefValueMap;
 class PrefService;
 
 #if defined(OS_CHROMEOS)
@@ -60,6 +62,7 @@ class ProfileImpl : public Profile,
   virtual ExtensionProcessManager* GetExtensionProcessManager();
   virtual ExtensionMessageService* GetExtensionMessageService();
   virtual ExtensionEventRouter* GetExtensionEventRouter();
+  virtual ExtensionIOEventRouter* GetExtensionIOEventRouter();
   virtual FaviconService* GetFaviconService(ServiceAccessType sat);
   virtual HistoryService* GetHistoryService(ServiceAccessType sat);
   virtual HistoryService* GetHistoryServiceWithoutCreating();
@@ -68,11 +71,12 @@ class ProfileImpl : public Profile,
   virtual WebDataService* GetWebDataServiceWithoutCreating();
   virtual PasswordStore* GetPasswordStore(ServiceAccessType sat);
   virtual PrefService* GetPrefs();
+  virtual PrefService* GetOffTheRecordPrefs();
   virtual TemplateURLModel* GetTemplateURLModel();
   virtual TemplateURLFetcher* GetTemplateURLFetcher();
   virtual DownloadManager* GetDownloadManager();
   virtual PersonalDataManager* GetPersonalDataManager();
-  virtual fileapi::SandboxedFileSystemContext* GetFileSystemContext();
+  virtual fileapi::FileSystemContext* GetFileSystemContext();
   virtual void InitThemes();
   virtual void SetTheme(const Extension* extension);
   virtual void SetNativeTheme();
@@ -127,8 +131,10 @@ class ProfileImpl : public Profile,
   virtual PromoCounter* GetInstantPromoCounter();
   virtual BrowserSignin* GetBrowserSignin();
   virtual policy::ProfilePolicyContext* GetPolicyContext();
+  virtual ChromeURLDataManager* GetChromeURLDataManager();
 
 #if defined(OS_CHROMEOS)
+  virtual void ChangeAppLocale(const std::string& locale, AppLocaleChangedVia);
   virtual chromeos::ProxyConfigServiceImpl* GetChromeOSProxyConfigServiceImpl();
   virtual void SetupChromeOSEnterpriseExtensionObserver();
 #endif  // defined(OS_CHROMEOS)
@@ -167,15 +173,19 @@ class ProfileImpl : public Profile,
   void RegisterComponentExtensions();
   void InstallDefaultApps();
 
+  ExtensionPrefValueMap* GetExtensionPrefValueMap();
+
   NotificationRegistrar registrar_;
   PrefChangeRegistrar pref_change_registrar_;
 
   FilePath path_;
   FilePath base_cache_path_;
+  scoped_ptr<ExtensionPrefValueMap> extension_pref_value_map_;
   // Keep prefs_ on top for destruction order because extension_prefs_,
   // net_pref_observer_, web_resource_service_ and background_contents_service_
   // store pointers to prefs_ and shall be destructed first.
   scoped_ptr<PrefService> prefs_;
+  scoped_ptr<PrefService> otr_prefs_;
   scoped_ptr<VisitedLinkEventListener> visited_link_event_listener_;
   scoped_ptr<VisitedLinkMaster> visited_link_master_;
   // Keep extension_prefs_ on top of extensions_service_ because the latter
@@ -187,6 +197,7 @@ class ProfileImpl : public Profile,
   scoped_ptr<ExtensionProcessManager> extension_process_manager_;
   scoped_refptr<ExtensionMessageService> extension_message_service_;
   scoped_ptr<ExtensionEventRouter> extension_event_router_;
+  scoped_refptr<ExtensionIOEventRouter> extension_io_event_router_;
   scoped_ptr<SSLHostState> ssl_host_state_;
   scoped_refptr<net::TransportSecurityState>
       transport_security_state_;
@@ -205,11 +216,7 @@ class ProfileImpl : public Profile,
   scoped_ptr<ProfileSyncService> sync_service_;
   scoped_refptr<CloudPrintProxyService> cloud_print_proxy_service_;
 
-  scoped_refptr<ChromeURLRequestContextGetter> request_context_;
-
-  scoped_refptr<ChromeURLRequestContextGetter> media_request_context_;
-
-  scoped_refptr<ChromeURLRequestContextGetter> extensions_request_context_;
+  ProfileIOData::Handle io_data_;
 
   scoped_ptr<SSLConfigServiceManager> ssl_config_service_manager_;
 
@@ -236,7 +243,7 @@ class ProfileImpl : public Profile,
   scoped_ptr<StatusTray> status_tray_;
   scoped_refptr<PersonalDataManager> personal_data_manager_;
   scoped_ptr<PinnedTabService> pinned_tab_service_;
-  scoped_refptr<fileapi::SandboxedFileSystemContext> file_system_context_;
+  scoped_refptr<fileapi::FileSystemContext> file_system_context_;
   scoped_ptr<BrowserSignin> browser_signin_;
   bool history_service_created_;
   bool favicon_service_created_;
@@ -298,7 +305,9 @@ class ProfileImpl : public Profile,
 
   scoped_refptr<PrefProxyConfigTracker> pref_proxy_config_tracker_;
 
-  scoped_ptr<PrerenderManager> prerender_manager_;
+  scoped_refptr<PrerenderManager> prerender_manager_;
+
+  scoped_ptr<ChromeURLDataManager> chrome_url_data_manager_;
 
   DISALLOW_COPY_AND_ASSIGN(ProfileImpl);
 };

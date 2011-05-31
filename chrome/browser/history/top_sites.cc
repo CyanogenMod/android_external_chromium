@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <set>
 
-#include "app/l10n_util.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/md5.h"
@@ -29,11 +28,12 @@
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/thumbnail_score.h"
-#include "gfx/codec/jpeg_codec.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/codec/jpeg_codec.h"
 
 namespace history {
 
@@ -127,7 +127,7 @@ class LoadThumbnailsFromHistoryTask : public HistoryDBTask {
 }  // namespace
 
 TopSites::TopSites(Profile* profile)
-    : backend_(new TopSitesBackend()),
+    : backend_(NULL),
       cache_(new TopSitesCache()),
       thread_safe_cache_(new TopSitesCache()),
       profile_(profile),
@@ -153,15 +153,10 @@ TopSites::TopSites(Profile* profile)
       GetMutableDictionary(prefs::kNTPMostVisitedPinnedURLs);
 }
 
-// static
-bool TopSites::IsEnabled() {
-  std::string switch_value =
-      CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-          switches::kEnableTopSites);
-  return switch_value.empty() || switch_value == "true";
-}
-
 void TopSites::Init(const FilePath& db_name) {
+  // Create the backend here, rather than in the constructor, so that
+  // unit tests that do not need the backend can run without a problem.
+  backend_ = new TopSitesBackend;
   backend_->Init(db_name);
   backend_->GetMostVisitedThumbnails(
       &cancelable_consumer_,
@@ -189,8 +184,8 @@ bool TopSites::SetPageThumbnail(const GURL& url,
   }
 
   bool add_temp_thumbnail = false;
-  if (!cache_->IsKnownURL(url)) {
-    if (cache_->top_sites().size() < kTopSitesNumber) {
+  if (!IsKnownURL(url)) {
+    if (!IsFull()) {
       add_temp_thumbnail = true;
     } else {
       return false;  // This URL is not known to us.
@@ -225,7 +220,7 @@ void TopSites::GetMostVisitedURLs(CancelableRequestConsumer* consumer,
   AddRequest(request, consumer);
   MostVisitedURLList filtered_urls;
   {
-    AutoLock lock(lock_);
+    base::AutoLock lock(lock_);
     if (!loaded_) {
       // A request came in before we finished loading. Put the request in
       // pending_callbacks_ and we'll notify it when we finish loading.
@@ -241,8 +236,15 @@ void TopSites::GetMostVisitedURLs(CancelableRequestConsumer* consumer,
 bool TopSites::GetPageThumbnail(const GURL& url,
                                 scoped_refptr<RefCountedBytes>* bytes) {
   // WARNING: this may be invoked on any thread.
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
   return thread_safe_cache_->GetPageThumbnail(url, bytes);
+}
+
+bool TopSites::GetPageThumbnailScore(const GURL& url,
+                                     ThumbnailScore* score) {
+  // WARNING: this may be invoked on any thread.
+  base::AutoLock lock(lock_);
+  return thread_safe_cache_->GetPageThumbnailScore(url, score);
 }
 
 // Returns the index of |url| in |urls|, or -1 if not found.
@@ -443,7 +445,7 @@ void TopSites::DiffMostVisited(const MostVisitedURLList& old_list,
 CancelableRequestProvider::Handle TopSites::StartQueryForMostVisited() {
   DCHECK(loaded_);
   if (!profile_)
-    return NULL;
+    return 0;
 
   HistoryService* hs = profile_->GetHistoryService(Profile::EXPLICIT_ACCESS);
   // |hs| may be null during unit tests.
@@ -454,7 +456,15 @@ CancelableRequestProvider::Handle TopSites::StartQueryForMostVisited() {
         &cancelable_consumer_,
         NewCallback(this, &TopSites::OnTopSitesAvailableFromHistory));
   }
-  return NULL;
+  return 0;
+}
+
+bool TopSites::IsKnownURL(const GURL& url) {
+  return loaded_ && cache_->IsKnownURL(url);
+}
+
+bool TopSites::IsFull() {
+  return loaded_ && cache_->top_sites().size() >= kTopSitesNumber;
 }
 
 TopSites::~TopSites() {
@@ -732,7 +742,7 @@ void TopSites::Observe(NotificationType type,
     }
     StartQueryForMostVisited();
   } else if (type == NotificationType::NAV_ENTRY_COMMITTED) {
-    if (cache_->top_sites().size() < kTopSitesNumber) {
+    if (!IsFull()) {
       NavigationController::LoadCommittedDetails* load_details =
           Details<NavigationController::LoadCommittedDetails>(details).ptr();
       if (!load_details)
@@ -808,7 +818,7 @@ void TopSites::MoveStateToLoaded() {
   MostVisitedURLList filtered_urls;
   PendingCallbackSet pending_callbacks;
   {
-    AutoLock lock(lock_);
+    base::AutoLock lock(lock_);
 
     if (loaded_)
       return;  // Don't do anything if we're already loaded.
@@ -830,14 +840,14 @@ void TopSites::MoveStateToLoaded() {
 }
 
 void TopSites::ResetThreadSafeCache() {
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
   MostVisitedURLList cached;
   ApplyBlacklistAndPinnedURLs(cache_->top_sites(), &cached);
   thread_safe_cache_->SetTopSites(cached);
 }
 
 void TopSites::ResetThreadSafeImageCache() {
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
   thread_safe_cache_->SetThumbnails(cache_->images());
   thread_safe_cache_->RemoveUnreferencedThumbnails();
 }

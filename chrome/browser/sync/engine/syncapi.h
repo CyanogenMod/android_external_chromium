@@ -53,9 +53,11 @@
 #include "chrome/common/net/gaia/google_service_auth_error.h"
 #include "googleurl/src/gurl.h"
 
+class DictionaryValue;
 class FilePath;
 
 namespace browser_sync {
+class JsBackend;
 class ModelSafeWorkerRegistrar;
 
 namespace sessions {
@@ -249,6 +251,10 @@ class BaseNode {
   // These virtual accessors provide access to data members of derived classes.
   virtual const syncable::Entry* GetEntry() const = 0;
   virtual const BaseTransaction* GetTransaction() const = 0;
+
+  // Dumps all node info into a DictionaryValue and returns it.
+  // Transfers ownership of the DictionaryValue to the caller.
+  DictionaryValue* ToValue() const;
 
  protected:
   BaseNode();
@@ -586,8 +592,10 @@ class SyncManager {
   // wrapper / add a templated method to return unencrypted protobufs.
   class ExtraChangeRecordData {
    public:
-    ExtraChangeRecordData() {}
-    virtual ~ExtraChangeRecordData() {}
+    virtual ~ExtraChangeRecordData();
+
+    // Transfers ownership of the DictionaryValue to the caller.
+    virtual DictionaryValue* ToValue() const = 0;
   };
 
   // ChangeRecord indicates a single item that changed as a result of a sync
@@ -603,6 +611,9 @@ class SyncManager {
     ChangeRecord();
     ~ChangeRecord();
 
+    // Transfers ownership of the DictionaryValue to the caller.
+    DictionaryValue* ToValue(const BaseTransaction* trans) const;
+
     int64 id;
     Action action;
     sync_pb::EntitySpecifics specifics;
@@ -616,9 +627,12 @@ class SyncManager {
     explicit ExtraPasswordChangeRecordData(
         const sync_pb::PasswordSpecificsData& data);
     virtual ~ExtraPasswordChangeRecordData();
-    const sync_pb::PasswordSpecificsData& unencrypted() {
-      return unencrypted_;
-    }
+
+    // Transfers ownership of the DictionaryValue to the caller.
+    virtual DictionaryValue* ToValue() const;
+
+    const sync_pb::PasswordSpecificsData& unencrypted() const;
+
    private:
     sync_pb::PasswordSpecificsData unencrypted_;
   };
@@ -648,32 +662,43 @@ class SyncManager {
       // Can't connect to server, and we haven't completed the initial
       // sync yet.  So there's nothing we can do but wait for the server.
       OFFLINE_UNUSABLE,
-    };
-    Summary summary;
 
-    // Various server related information.
+      SUMMARY_STATUS_COUNT,
+    };
+
+    Summary summary;
     bool authenticated;      // Successfully authenticated via GAIA.
     bool server_up;          // True if we have received at least one good
                              // reply from the server.
     bool server_reachable;   // True if we received any reply from the server.
     bool server_broken;      // True of the syncer is stopped because of server
                              // issues.
-
     bool notifications_enabled;  // True only if subscribed for notifications.
+
+    // Notifications counters updated by the actions in synapi.
     int notifications_received;
     int notifications_sent;
 
-    // Various Syncer data.
+    // The max number of consecutive errors from any component.
+    int max_consecutive_errors;
+
     int unsynced_count;
+
     int conflicting_count;
     bool syncing;
+    // True after a client has done a first sync.
     bool initial_sync_ended;
+    // True if any syncer is stuck.
     bool syncer_stuck;
+
+    // Total updates available.  If zero, nothing left to download.
     int64 updates_available;
-    int64 updates_received;
+    // Total updates received by the syncer since browser start.
+    int updates_received;
+
+    // Of updates_received, how many were tombstones.
+    int tombstone_updates_received;
     bool disk_full;
-    bool invalid_store;
-    int max_consecutive_errors;  // The max number of errors from any component.
   };
 
   // An interface the embedding application implements to receive notifications
@@ -686,9 +711,6 @@ class SyncManager {
   // to dispatch to a native thread or synchronize accordingly.
   class Observer {
    public:
-    Observer() { }
-    virtual ~Observer() { }
-
     // Notify the observer that changes have been applied to the sync model.
     //
     // This will be invoked on the same thread as on which ApplyChanges was
@@ -783,8 +805,8 @@ class SyncManager {
     virtual void OnClearServerDataSucceeded() = 0;
     virtual void OnClearServerDataFailed() = 0;
 
-   private:
-    DISALLOW_COPY_AND_ASSIGN(Observer);
+   protected:
+    virtual ~Observer();
   };
 
   // Create an uninitialized SyncManager.  Callers must Init() before using.
@@ -881,12 +903,46 @@ class SyncManager {
   // Adds a listener to be notified of sync events.
   // NOTE: It is OK (in fact, it's probably a good idea) to call this before
   // having received OnInitializationCompleted.
-  void SetObserver(Observer* observer);
+  void AddObserver(Observer* observer);
 
-  // Remove the observer set by SetObserver (no op if none was set).
-  // Make sure to call this if the Observer set in SetObserver is being
-  // destroyed so the SyncManager doesn't potentially dereference garbage.
-  void RemoveObserver();
+  // Remove the given observer.  Make sure to call this if the
+  // Observer is being destroyed so the SyncManager doesn't
+  // potentially dereference garbage.
+  void RemoveObserver(Observer* observer);
+
+  // Returns a pointer to the JsBackend (which is owned by the sync
+  // manager).  Never returns NULL.  The following events are sent by
+  // the returned backend:
+  //
+  // onSyncNotificationStateChange(boolean notificationsEnabled):
+  //   Sent when notifications are enabled or disabled.
+  //
+  // onSyncIncomingNotification(array changedTypes):
+  //   Sent when an incoming notification arrives.  |changedTypes|
+  //   contains a list of sync types (strings) which have changed.
+  //
+  // The following messages are processed by the returned backend:
+  //
+  // getNotificationState():
+  //   If there is a parent router, sends the
+  //   onGetNotificationStateFinished(boolean notificationsEnabled)
+  //   event to |sender| via the parent router with whether or not
+  //   notifications are enabled.
+  //
+  // getRootNode():
+  //   If there is a parent router, sends the
+  //   onGetRootNodeFinished(dictionary nodeInfo) event to |sender|
+  //   via the parent router with information on the root node.
+  //
+  // getNodeById(string id):
+  //   If there is a parent router, sends the
+  //   onGetNodeByIdFinished(dictionary nodeInfo) event to |sender|
+  //   via the parent router with information on the node with the
+  //   given id (metahandle), if the id is valid and a node with that
+  //   id exists.  Otherwise, calls onGetNodeByIdFinished(null).
+  //
+  // All other messages are dropped.
+  browser_sync::JsBackend* GetJsBackend();
 
   // Status-related getters. Typically GetStatusSummary will suffice, but
   // GetDetailedSyncStatus can be useful for gathering debug-level details of
@@ -913,6 +969,14 @@ class SyncManager {
   // Uses a read-only transaction to determine if the directory being synced has
   // any remaining unsynced items.
   bool HasUnsyncedItems() const;
+
+  // Functions used for testing.
+
+  void TriggerOnNotificationStateChangeForTest(
+      bool notifications_enabled);
+
+  void TriggerOnIncomingNotificationForTest(
+      const syncable::ModelTypeBitSet& model_types);
 
  private:
   // An opaque pointer to the nested private class.

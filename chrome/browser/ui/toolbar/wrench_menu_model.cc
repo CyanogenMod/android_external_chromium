@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,6 @@
 #include <algorithm>
 #include <cmath>
 
-#include "app/l10n_util.h"
-#include "app/menus/button_menu_item_model.h"
-#include "app/resource_bundle.h"
 #include "base/command_line.h"
 #include "base/i18n/number_formatting.h"
 #include "base/string_number_conversions.h"
@@ -19,8 +16,8 @@
 #include "chrome/browser/background_page_tracker.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/defaults.h"
-#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -33,13 +30,17 @@
 #include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/common/profiling.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/models/button_menu_item_model.h"
+#include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_LINUX)
 #include <gtk/gtk.h>
-#include "chrome/browser/gtk/gtk_util.h"
+#include "chrome/browser/ui/gtk/gtk_util.h"
 #endif
 
 #if defined(OS_MACOSX)
@@ -59,7 +60,7 @@
 // EncodingMenuModel
 
 EncodingMenuModel::EncodingMenuModel(Browser* browser)
-    : ALLOW_THIS_IN_INITIALIZER_LIST(menus::SimpleMenuModel(this)),
+    : ALLOW_THIS_IN_INITIALIZER_LIST(ui::SimpleMenuModel(this)),
       browser_(browser) {
   Build();
 }
@@ -116,7 +117,7 @@ bool EncodingMenuModel::IsCommandIdEnabled(int command_id) const {
 
 bool EncodingMenuModel::GetAcceleratorForCommandId(
     int command_id,
-    menus::Accelerator* accelerator) {
+    ui::Accelerator* accelerator) {
   return false;
 }
 
@@ -127,7 +128,7 @@ void EncodingMenuModel::ExecuteCommand(int command_id) {
 ////////////////////////////////////////////////////////////////////////////////
 // ZoomMenuModel
 
-ZoomMenuModel::ZoomMenuModel(menus::SimpleMenuModel::Delegate* delegate)
+ZoomMenuModel::ZoomMenuModel(ui::SimpleMenuModel::Delegate* delegate)
     : SimpleMenuModel(delegate) {
   Build();
 }
@@ -144,7 +145,7 @@ void ZoomMenuModel::Build() {
 ////////////////////////////////////////////////////////////////////////////////
 // ToolsMenuModel
 
-ToolsMenuModel::ToolsMenuModel(menus::SimpleMenuModel::Delegate* delegate,
+ToolsMenuModel::ToolsMenuModel(ui::SimpleMenuModel::Delegate* delegate,
                                Browser* browser)
     : SimpleMenuModel(delegate) {
   Build(browser);
@@ -171,10 +172,10 @@ void ToolsMenuModel::Build(Browser* browser) {
   AddItemWithStringId(IDC_CLEAR_BROWSING_DATA, IDS_CLEAR_BROWSING_DATA);
 
   AddSeparator();
-#if defined(OS_CHROMEOS) || defined(OS_WIN) || defined(OS_LINUX)
+
   AddItemWithStringId(IDC_FEEDBACK, IDS_FEEDBACK);
+
   AddSeparator();
-#endif
 
   encoding_menu_model_.reset(new EncodingMenuModel(browser));
   AddSubMenuWithStringId(IDC_ENCODING_MENU, IDS_ENCODING_MENU,
@@ -184,14 +185,19 @@ void ToolsMenuModel::Build(Browser* browser) {
     AddItemWithStringId(IDC_DEV_TOOLS, IDS_DEV_TOOLS);
     AddItemWithStringId(IDC_DEV_TOOLS_CONSOLE, IDS_DEV_TOOLS_CONSOLE);
   }
+
+#if defined(ENABLE_PROFILING) && !defined(NO_TCMALLOC)
+  AddSeparator();
+  AddCheckItemWithStringId(IDC_PROFILING_ENABLED, IDS_PROFILING_ENABLED);
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // WrenchMenuModel
 
-WrenchMenuModel::WrenchMenuModel(menus::AcceleratorProvider* provider,
+WrenchMenuModel::WrenchMenuModel(ui::AcceleratorProvider* provider,
                                  Browser* browser)
-    : ALLOW_THIS_IN_INITIALIZER_LIST(menus::SimpleMenuModel(this)),
+    : ALLOW_THIS_IN_INITIALIZER_LIST(ui::SimpleMenuModel(this)),
       provider_(provider),
       browser_(browser),
       tabstrip_model_(browser_->tabstrip_model()) {
@@ -222,27 +228,6 @@ bool WrenchMenuModel::IsItemForCommandIdDynamic(int command_id) const {
 #endif
          command_id == IDC_SYNC_BOOKMARKS ||
          command_id == IDC_VIEW_BACKGROUND_PAGES;
-}
-
-bool WrenchMenuModel::GetIconForCommandId(int command_id,
-                                          SkBitmap* bitmap) const {
-  switch (command_id) {
-    case IDC_VIEW_BACKGROUND_PAGES: {
-      int num_pages = BackgroundPageTracker::GetInstance()->
-          GetUnacknowledgedBackgroundPageCount();
-      if (num_pages > 0) {
-        *bitmap = *ResourceBundle::GetSharedInstance().GetBitmapNamed(
-            IDR_BACKGROUND_MENU);
-        return true;
-      } else {
-        // No icon.
-        return false;
-      }
-    }
-    default:
-      // No icon for other dynamic menu items.
-      return false;
-  }
 }
 
 string16 WrenchMenuModel::GetLabelForCommandId(int command_id) const {
@@ -279,20 +264,14 @@ void WrenchMenuModel::ExecuteCommand(int command_id) {
 bool WrenchMenuModel::IsCommandIdChecked(int command_id) const {
   if (command_id == IDC_SHOW_BOOKMARK_BAR) {
     return browser_->profile()->GetPrefs()->GetBoolean(prefs::kShowBookmarkBar);
+  } else if (command_id == IDC_PROFILING_ENABLED) {
+    return Profiling::BeingProfiled();
   }
 
   return false;
 }
 
 bool WrenchMenuModel::IsCommandIdEnabled(int command_id) const {
-#if defined(OS_CHROMEOS)
-  // Special case because IDC_NEW_WINDOW item should be disabled in BWSI mode,
-  // but accelerator should work.
-  if (command_id == IDC_NEW_WINDOW &&
-      CommandLine::ForCurrentProcess()->HasSwitch(switches::kGuestSession))
-    return false;
-#endif
-
   return browser_->command_updater()->IsCommandEnabled(command_id);
 }
 
@@ -321,7 +300,7 @@ bool WrenchMenuModel::IsCommandIdVisible(int command_id) const {
 
 bool WrenchMenuModel::GetAcceleratorForCommandId(
       int command_id,
-      menus::Accelerator* accelerator) {
+      ui::Accelerator* accelerator) {
   return provider_->GetAcceleratorForCommandId(command_id, accelerator);
 }
 
@@ -334,7 +313,8 @@ void WrenchMenuModel::TabSelectedAt(TabContentsWrapper* old_contents,
   UpdateZoomControls();
 }
 
-void WrenchMenuModel::TabReplacedAt(TabContentsWrapper* old_contents,
+void WrenchMenuModel::TabReplacedAt(TabStripModel* tab_strip_model,
+                                    TabContentsWrapper* old_contents,
                                     TabContentsWrapper* new_contents,
                                     int index) {
   UpdateZoomControls();
@@ -362,7 +342,7 @@ void WrenchMenuModel::Observe(NotificationType type,
 
 // For testing.
 WrenchMenuModel::WrenchMenuModel()
-    : ALLOW_THIS_IN_INITIALIZER_LIST(menus::SimpleMenuModel(this)),
+    : ALLOW_THIS_IN_INITIALIZER_LIST(ui::SimpleMenuModel(this)),
       provider_(NULL),
       browser_(NULL),
       tabstrip_model_(NULL) {
@@ -371,15 +351,19 @@ WrenchMenuModel::WrenchMenuModel()
 void WrenchMenuModel::Build() {
   AddItemWithStringId(IDC_NEW_TAB, IDS_NEW_TAB);
   AddItemWithStringId(IDC_NEW_WINDOW, IDS_NEW_WINDOW);
-  AddItemWithStringId(IDC_NEW_INCOGNITO_WINDOW,
-                             IDS_NEW_INCOGNITO_WINDOW);
+#if defined(OS_CHROMEOS)
+  if (!CommandLine::ForCurrentProcess()->HasSwitch(switches::kGuestSession))
+    AddItemWithStringId(IDC_NEW_INCOGNITO_WINDOW, IDS_NEW_INCOGNITO_WINDOW);
+#else
+  AddItemWithStringId(IDC_NEW_INCOGNITO_WINDOW, IDS_NEW_INCOGNITO_WINDOW);
+#endif
 
   AddSeparator();
 #if defined(OS_MACOSX) || (defined(OS_LINUX) && !defined(TOOLKIT_VIEWS))
   // WARNING: Mac does not use the ButtonMenuItemModel, but instead defines the
   // layout for this menu item in Toolbar.xib. It does, however, use the
   // command_id value from AddButtonItem() to identify this special item.
-  edit_menu_item_model_.reset(new menus::ButtonMenuItemModel(IDS_EDIT, this));
+  edit_menu_item_model_.reset(new ui::ButtonMenuItemModel(IDS_EDIT, this));
   edit_menu_item_model_->AddGroupItemWithStringId(IDC_CUT, IDS_CUT);
   edit_menu_item_model_->AddGroupItemWithStringId(IDC_COPY, IDS_COPY);
   edit_menu_item_model_->AddGroupItemWithStringId(IDC_PASTE, IDS_PASTE);
@@ -393,7 +377,7 @@ void WrenchMenuModel::Build() {
 #if defined(OS_MACOSX) || (defined(OS_LINUX) && !defined(TOOLKIT_VIEWS))
   // WARNING: See above comment.
   zoom_menu_item_model_.reset(
-      new menus::ButtonMenuItemModel(IDS_ZOOM_MENU, this));
+      new ui::ButtonMenuItemModel(IDS_ZOOM_MENU, this));
   zoom_menu_item_model_->AddGroupItemWithStringId(
       IDC_ZOOM_MINUS, IDS_ZOOM_MINUS2);
   zoom_menu_item_model_->AddButtonLabel(IDC_ZOOM_PERCENT_DISPLAY,

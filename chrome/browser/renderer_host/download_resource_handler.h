@@ -91,8 +91,9 @@ class DownloadResourceHandler : public ResourceHandler,
   void StartDownloadUrlCheck();
 
   // Called when the result of checking a download URL is known.
-  void OnDownloadUrlCheckResult(const GURL& url,
-                                SafeBrowsingService::UrlCheckResult result);
+  virtual void OnDownloadUrlCheckResult(
+      const GURL& url,
+      SafeBrowsingService::UrlCheckResult result);
 
   // A helper function that updates UMA for download url checks.
   static void UpdateDownloadUrlCheckStats(SBStatsType stat_type);
@@ -102,7 +103,8 @@ class DownloadResourceHandler : public ResourceHandler,
   int render_view_id_;
   scoped_refptr<net::IOBuffer> read_buffer_;
   std::string content_disposition_;
-  GURL url_;
+  GURL url_; // final URL from which we're downloading.
+  GURL original_url_; // original URL before any redirection by the server.
   int64 content_length_;
   DownloadFileManager* download_file_manager_;
   net::URLRequest* request_;

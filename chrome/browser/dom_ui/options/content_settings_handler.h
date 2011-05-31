@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #pragma once
 
 #include "chrome/browser/dom_ui/options/options_ui.h"
+#include "chrome/browser/plugin_data_remover_helper.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/common/content_settings_types.h"
 #include "chrome/common/notification_observer.h"
@@ -39,6 +40,8 @@ class ContentSettingsHandler : public OptionsPageUIHandler {
 
   // Updates the page with the default settings (allow, ask, block, etc.)
   void UpdateSettingDefaultFromModel(ContentSettingsType type);
+  // Updates the state of the "Clear plugin LSO data on exit" checkbox.
+  void UpdateClearPluginLSOData();
 
   // Clobbers and rebuilds the specific content setting type exceptions table.
   void UpdateExceptionsViewFromModel(ContentSettingsType type);
@@ -78,9 +81,6 @@ class ContentSettingsHandler : public OptionsPageUIHandler {
   // rejected. Called while the user is editing an exception pattern.
   void CheckExceptionPatternValidity(const ListValue* args);
 
-  // Show the about:plugins page in a new tab.
-  void OpenPluginsTab(const ListValue* args);
-
   // Sets the global 3rd party cookies pref.
   void SetAllowThirdPartyCookies(const ListValue* args);
 
@@ -104,6 +104,7 @@ class ContentSettingsHandler : public OptionsPageUIHandler {
 
   NotificationRegistrar notification_registrar_;
   PrefChangeRegistrar pref_change_registrar_;
+  PluginDataRemoverHelper clear_plugin_lso_data_enabled_;
 
   DISALLOW_COPY_AND_ASSIGN(ContentSettingsHandler);
 };

@@ -32,8 +32,7 @@ PreferenceModelAssociator::PreferenceModelAssociator(
   // synced_preferences set, taking care to filter out any preferences
   // that are not registered.
   PrefService* pref_service = sync_service_->profile()->GetPrefs();
-  for (size_t i = 0;
-       i < static_cast<size_t>(arraysize(kSynchronizedPreferences)); ++i) {
+  for (size_t i = 0; i < arraysize(kSynchronizedPreferences); ++i) {
     if (pref_service->FindPreference(kSynchronizedPreferences[i]))
       synced_preferences_.insert(kSynchronizedPreferences[i]);
   }
@@ -74,8 +73,15 @@ bool PreferenceModelAssociator::InitPrefNodeAndAssociate(
 
       // Update the local preference based on what we got from the
       // sync server.
-      if (!pref->GetValue()->Equals(new_value.get()))
+      if (new_value->IsType(Value::TYPE_NULL)) {
+        pref_service->ClearPref(pref_name.c_str());
+      } else if (!new_value->IsType(pref->GetType())) {
+        LOG(WARNING) << "Synced value for " << preference.name()
+                     << " is of type " << new_value->GetType()
+                     << " which doesn't match pref type " << pref->GetType();
+      } else if (!pref->GetValue()->Equals(new_value.get())) {
         pref_service->Set(pref_name.c_str(), *new_value);
+      }
 
       AfterUpdateOperations(pref_name);
 
@@ -116,8 +122,7 @@ bool PreferenceModelAssociator::AssociateModels() {
     return false;
   }
 
-  sync_api::WriteTransaction trans(
-      sync_service()->backend()->GetUserShareHandle());
+  sync_api::WriteTransaction trans(sync_service_->GetUserShare());
   sync_api::ReadNode root(&trans);
   if (!root.InitByIdLookup(root_id)) {
     LOG(ERROR) << "Server did not create the top-level preferences node. We "
@@ -149,8 +154,7 @@ bool PreferenceModelAssociator::SyncModelHasUserCreatedNodes(bool* has_nodes) {
                << "might be running against an out-of-date server.";
     return false;
   }
-  sync_api::ReadTransaction trans(
-      sync_service()->backend()->GetUserShareHandle());
+  sync_api::ReadTransaction trans(sync_service_->GetUserShare());
 
   sync_api::ReadNode preferences_node(&trans);
   if (!preferences_node.InitByIdLookup(preferences_sync_id)) {
@@ -204,8 +208,7 @@ void PreferenceModelAssociator::Disassociate(int64 sync_id) {
 
 bool PreferenceModelAssociator::GetSyncIdForTaggedNode(const std::string& tag,
                                                        int64* sync_id) {
-  sync_api::ReadTransaction trans(
-      sync_service_->backend()->GetUserShareHandle());
+  sync_api::ReadTransaction trans(sync_service_->GetUserShare());
   sync_api::ReadNode sync_node(&trans);
   if (!sync_node.InitByTagLookup(tag.c_str()))
     return false;
@@ -263,7 +266,7 @@ Value* PreferenceModelAssociator::MergeListValues(const Value& from_value,
   DCHECK(to_value.GetType() == Value::TYPE_LIST);
   const ListValue& from_list_value = static_cast<const ListValue&>(from_value);
   const ListValue& to_list_value = static_cast<const ListValue&>(to_value);
-  ListValue* result = static_cast<ListValue*>(to_list_value.DeepCopy());
+  ListValue* result = to_list_value.DeepCopy();
 
   for (ListValue::const_iterator i = from_list_value.begin();
        i != from_list_value.end(); ++i) {
@@ -288,8 +291,7 @@ Value* PreferenceModelAssociator::MergeDictionaryValues(
       static_cast<const DictionaryValue&>(from_value);
   const DictionaryValue& to_dict_value =
       static_cast<const DictionaryValue&>(to_value);
-  DictionaryValue* result =
-      static_cast<DictionaryValue*>(to_dict_value.DeepCopy());
+  DictionaryValue* result = to_dict_value.DeepCopy();
 
   for (DictionaryValue::key_iterator key = from_dict_value.begin_keys();
        key != from_dict_value.end_keys(); ++key) {

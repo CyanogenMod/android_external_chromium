@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,16 +13,16 @@
 #include "chrome/browser/tab_contents/interstitial_page.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
-#include "chrome/browser/views/sad_tab_view.h"
-#include "chrome/browser/views/tab_contents/render_view_context_menu_views.h"
-#include "gfx/canvas_skia_paint.h"
-#include "gfx/point.h"
-#include "gfx/rect.h"
-#include "gfx/size.h"
+#include "chrome/browser/ui/views/sad_tab_view.h"
+#include "chrome/browser/ui/views/tab_contents/render_view_context_menu_views.h"
+#include "ui/gfx/canvas_skia_paint.h"
+#include "ui/gfx/point.h"
+#include "ui/gfx/rect.h"
+#include "ui/gfx/size.h"
 #include "views/controls/native/native_view_host.h"
-#include "views/fill_layout.h"
 #include "views/focus/focus_manager.h"
 #include "views/focus/view_storage.h"
+#include "views/layout/fill_layout.h"
 #include "views/screen.h"
 #include "views/widget/widget.h"
 
@@ -56,18 +56,18 @@ TabContentsViewViews::~TabContentsViewViews() {
 
 void TabContentsViewViews::AttachConstrainedWindow(
     ConstrainedWindowGtk* constrained_window) {
-  // TODO(anicolao): reimplement all dialogs as DOMUI
+  // TODO(anicolao): reimplement all dialogs as WebUI
   NOTIMPLEMENTED();
 }
 
 void TabContentsViewViews::RemoveConstrainedWindow(
     ConstrainedWindowGtk* constrained_window) {
-  // TODO(anicolao): reimplement all dialogs as DOMUI
+  // TODO(anicolao): reimplement all dialogs as WebUI
   NOTIMPLEMENTED();
 }
 
 void TabContentsViewViews::CreateView(const gfx::Size& initial_size) {
-  SetBounds(gfx::Rect(bounds().origin(), initial_size));
+  SetBoundsRect(gfx::Rect(bounds().origin(), initial_size));
 }
 
 RenderWidgetHostView* TabContentsViewViews::CreateViewForWidget(
@@ -130,11 +130,15 @@ void TabContentsViewViews::SetPageTitle(const std::wstring& title) {
   // TODO(anicolao): figure out if there's anything useful to do here
 }
 
-void TabContentsViewViews::OnTabCrashed() {
+void TabContentsViewViews::OnTabCrashed(base::TerminationStatus status,
+                                        int /* error_code */) {
   if (sad_tab_ != NULL)
     return;
 
-  sad_tab_.reset(new SadTabView(tab_contents()));
+  sad_tab_.reset(new SadTabView(
+      tab_contents(),
+      status == base::TERMINATION_STATUS_PROCESS_WAS_KILLED ?
+          SadTabView::KILLED : SadTabView::CRASHED));
   RemoveAllChildViews(true);
   AddChildView(sad_tab_.get());
   Layout();
@@ -217,10 +221,13 @@ void TabContentsViewViews::RestoreFocus() {
   }
 }
 
-void TabContentsViewViews::DidChangeBounds(const gfx::Rect& previous,
-                                           const gfx::Rect& current) {
+void TabContentsViewViews::GetViewBounds(gfx::Rect* out) const {
+  out->SetRect(x(), y(), width(), height());
+}
+
+void TabContentsViewViews::OnBoundsChanged() {
   if (IsVisibleInRootView())
-    WasSized(gfx::Size(current.width(), current.height()));
+    WasSized(size());
 }
 
 void TabContentsViewViews::Paint(gfx::Canvas* canvas) {
@@ -321,6 +328,6 @@ void TabContentsViewViews::WasSized(const gfx::Size& size) {
 }
 
 void TabContentsViewViews::SetFloatingPosition(const gfx::Size& size) {
-  // TODO(anicolao): rework this once we have DOMUI views for dialogs
+  // TODO(anicolao): rework this once we have WebUI views for dialogs
   SetBounds(x(), y(), size.width(), size.height());
 }

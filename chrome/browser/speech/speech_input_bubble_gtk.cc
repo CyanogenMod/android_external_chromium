@@ -1,21 +1,21 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/speech/speech_input_bubble.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/gtk/gtk_theme_provider.h"
-#include "chrome/browser/gtk/gtk_util.h"
-#include "chrome/browser/gtk/info_bubble_gtk.h"
-#include "chrome/browser/gtk/owned_widget_gtk.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "gfx/gtk_util.h"
-#include "gfx/rect.h"
+#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_util.h"
+#include "chrome/browser/ui/gtk/info_bubble_gtk.h"
+#include "chrome/browser/ui/gtk/owned_widget_gtk.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/gtk_util.h"
+#include "ui/gfx/rect.h"
 
 namespace {
 
@@ -196,7 +196,7 @@ void SpeechInputBubbleGtk::UpdateLayout() {
 }
 
 void SpeechInputBubbleGtk::SetImage(const SkBitmap& image) {
-  if (image.isNull())
+  if (image.isNull() || !info_bubble_)
     return;
 
   GdkPixbuf* pixbuf = gfx::GdkPixbufFromSkBitmap(&image);

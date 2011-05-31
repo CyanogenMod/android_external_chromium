@@ -153,16 +153,10 @@ class ChromeInvalidationListener
  public:
   ChromeInvalidationListener() {}
 
-  virtual void OnInvalidate(syncable::ModelType model_type) {
-    // TODO(akalin): This is a hack to make new sync data types work
-    // with server-issued notifications.  Remove this when it's not
-    // needed anymore.
-    if (model_type == syncable::UNSPECIFIED) {
-      LOG(INFO) << "OnInvalidate: UNKNOWN";
-    } else {
-      LOG(INFO) << "OnInvalidate: "
-                << syncable::ModelTypeToString(model_type);
-    }
+  virtual void OnInvalidate(syncable::ModelType model_type,
+                            const std::string& payload) {
+    LOG(INFO) << "OnInvalidate: "
+              << syncable::ModelTypeToString(model_type) << " - " << payload;
     // A real implementation would respond to the invalidation.
   }
 
@@ -192,7 +186,9 @@ class ServerNotifierDelegate
 
     // TODO(akalin): app_name should be per-client unique.
     const std::string kAppName = "cc_sync_listen_notifications";
-    chrome_invalidation_client_.Start(kAppName, server_notifier_state_,
+    const std::string kAppInfo = kAppName;
+    chrome_invalidation_client_.Start(kAppName, kAppInfo,
+                                      server_notifier_state_,
                                       &chrome_invalidation_listener_,
                                       this, base_task);
     chrome_invalidation_client_.RegisterTypes();
@@ -222,9 +218,12 @@ class ServerNotifierDelegate
 int main(int argc, char* argv[]) {
   base::AtExitManager exit_manager;
   CommandLine::Init(argc, argv);
-  logging::InitLogging(NULL, logging::LOG_ONLY_TO_SYSTEM_DEBUG_LOG,
-                       logging::LOCK_LOG_FILE, logging::DELETE_OLD_LOG_FILE);
-  logging::SetMinLogLevel(logging::LOG_INFO);
+  logging::InitLogging(
+      NULL,
+      logging::LOG_ONLY_TO_SYSTEM_DEBUG_LOG,
+      logging::LOCK_LOG_FILE,
+      logging::DELETE_OLD_LOG_FILE,
+      logging::DISABLE_DCHECK_FOR_NON_OFFICIAL_RELEASE_BUILDS);
   // TODO(akalin): Make sure that all log messages are printed to the
   // console, even on Windows (SetMinLogLevel isn't enough).
   talk_base::LogMessage::LogToDebug(talk_base::LS_VERBOSE);

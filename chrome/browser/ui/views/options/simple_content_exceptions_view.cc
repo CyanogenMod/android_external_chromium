@@ -1,21 +1,21 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/options/simple_content_exceptions_view.h"
+#include "chrome/browser/ui/views/options/simple_content_exceptions_view.h"
 
 #include <algorithm>
 #include <vector>
 
-#include "app/l10n_util.h"
 #include "base/utf_string_conversions.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
-#include "gfx/rect.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/rect.h"
 #include "views/controls/button/native_button.h"
 #include "views/controls/table/table_view.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/window/window.h"
 
 static const int kExceptionsViewInsetSize = 5;
@@ -69,14 +69,15 @@ void SimpleContentExceptionsView::Layout() {
   views::NativeButton* buttons[] = { remove_button_, remove_all_button_ };
 
   // The buttons are placed in the parent, but we need to lay them out.
-  int max_y = GetParent()->GetLocalBounds(false).bottom() - kButtonVEdgeMargin;
+  int max_y =
+      parent()->GetContentsBounds().bottom() - views::kButtonVEdgeMargin;
   int x = kPanelHorizMargin;
 
   for (size_t i = 0; i < arraysize(buttons); ++i) {
     gfx::Size pref = buttons[i]->GetPreferredSize();
     buttons[i]->SetBounds(x, max_y - pref.height(), pref.width(),
                           pref.height());
-    x += pref.width() + kRelatedControlHorizontalSpacing;
+    x += pref.width() + views::kRelatedControlHorizontalSpacing;
   }
 
   // Lay out the rest of this view.
@@ -116,12 +117,14 @@ void SimpleContentExceptionsView::Init() {
 
   using views::GridLayout;
 
-  std::vector<TableColumn> columns;
+  std::vector<ui::TableColumn> columns;
   columns.push_back(
-      TableColumn(IDS_EXCEPTIONS_HOSTNAME_HEADER, TableColumn::LEFT, -1, .75));
+      ui::TableColumn(IDS_EXCEPTIONS_HOSTNAME_HEADER, ui::TableColumn::LEFT, -1,
+                      .75));
   columns.back().sortable = true;
   columns.push_back(
-      TableColumn(IDS_EXCEPTIONS_ACTION_HEADER, TableColumn::LEFT, -1, .25));
+      ui::TableColumn(IDS_EXCEPTIONS_ACTION_HEADER, ui::TableColumn::LEFT, -1,
+                      .25));
   columns.back().sortable = true;
   table_ = new views::TableView(model_.get(), columns, views::TEXT_ONLY,
                                 false, true, false);
@@ -140,9 +143,8 @@ void SimpleContentExceptionsView::Init() {
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_EXCEPTIONS_REMOVEALL_BUTTON)));
   remove_all_button_->set_tag(IDS_EXCEPTIONS_REMOVEALL_BUTTON);
 
-  View* parent = GetParent();
-  parent->AddChildView(remove_button_);
-  parent->AddChildView(remove_all_button_);
+  parent()->AddChildView(remove_button_);
+  parent()->AddChildView(remove_all_button_);
 
   GridLayout* layout = new GridLayout(this);
   layout->SetInsets(kExceptionsViewInsetSize, kExceptionsViewInsetSize,
@@ -151,14 +153,14 @@ void SimpleContentExceptionsView::Init() {
 
   const int single_column_layout_id = 0;
   views::ColumnSet* column_set = layout->AddColumnSet(single_column_layout_id);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 1,
                         GridLayout::USE_PREF, 0, 0);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   layout->StartRow(1, single_column_layout_id);
   layout->AddView(table_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   UpdateButtonState();
 }

@@ -5,8 +5,8 @@
 // A struct for managing webkit's settings.
 //
 // Adding new values to this class probably involves updating
-// WebKit::WebSettings, common/render_messages.h, and
-// browser/profile.cc.
+// WebKit::WebSettings, common/render_messages.cc, browser/tab_contents/
+// render_view_host_delegate_helper.cc, and browser/profiles/profile.cc.
 
 #ifndef WEBKIT_GLUE_WEBPREFERENCES_H__
 #define WEBKIT_GLUE_WEBPREFERENCES_H__
@@ -66,13 +66,17 @@ struct WebPreferences {
   bool frame_flattening_enabled;
   bool allow_universal_access_from_file_urls;
   bool allow_file_access_from_file_urls;
+  bool webaudio_enabled;
   bool experimental_webgl_enabled;
+  bool gl_multisampling_enabled;
   bool show_composited_layer_borders;
   bool accelerated_compositing_enabled;
   bool accelerated_layers_enabled;
   bool accelerated_video_enabled;
   bool accelerated_2d_canvas_enabled;
+  bool accelerated_plugins_enabled;
   bool memory_info_enabled;
+  bool interactive_form_validation_enabled;
 
   // We try to keep the default values the same as the default values in
   // chrome, except for the cases where it would require lots of extra work for

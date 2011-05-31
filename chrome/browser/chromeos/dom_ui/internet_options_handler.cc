@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,10 @@
 
 #include <ctype.h>
 
+#include <map>
 #include <string>
 #include <vector>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/base64.h"
 #include "base/basictypes.h"
 #include "base/callback.h"
@@ -23,9 +22,9 @@
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
-#include "chrome/browser/chromeos/login/ownership_service.h"
+#include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/chromeos/status/network_menu.h"
-#include "chrome/browser/dom_ui/dom_ui_util.h"
+#include "chrome/browser/dom_ui/web_ui_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/views/window.h"
 #include "chrome/common/time_format.h"
@@ -34,8 +33,10 @@
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
-#include "views/window/window.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "views/window/window.h"
 
 static const char kOtherNetworksFakePath[] = "?";
 
@@ -75,9 +76,9 @@ InternetOptionsHandler::~InternetOptionsHandler() {
 void InternetOptionsHandler::GetLocalizedValues(
     DictionaryValue* localized_strings) {
   DCHECK(localized_strings);
-  // Internet page - ChromeOS
-  localized_strings->SetString("internetPage",
-      l10n_util::GetStringUTF16(IDS_OPTIONS_INTERNET_TAB_LABEL));
+
+  RegisterTitle(localized_strings, "internetPage",
+                IDS_OPTIONS_INTERNET_TAB_LABEL);
 
   localized_strings->SetString("wired_title",
       l10n_util::GetStringUTF16(
@@ -143,6 +144,9 @@ void InternetOptionsHandler::GetLocalizedValues(
       l10n_util::GetStringUTF16(
           IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_HARDWARE_ADDRESS));
 
+  localized_strings->SetString("accessLockedMsg",
+      l10n_util::GetStringUTF16(
+          IDS_STATUSBAR_NETWORK_LOCKED));
   localized_strings->SetString("inetSsid",
       l10n_util::GetStringUTF16(
           IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_NETWORK_ID));
@@ -305,30 +309,30 @@ void InternetOptionsHandler::GetLocalizedValues(
 
 void InternetOptionsHandler::RegisterMessages() {
   // Setup handlers specific to this panel.
-  DCHECK(dom_ui_);
-  dom_ui_->RegisterMessageCallback("buttonClickCallback",
+  DCHECK(web_ui_);
+  web_ui_->RegisterMessageCallback("buttonClickCallback",
       NewCallback(this, &InternetOptionsHandler::ButtonClickCallback));
-  dom_ui_->RegisterMessageCallback("refreshCellularPlan",
+  web_ui_->RegisterMessageCallback("refreshCellularPlan",
       NewCallback(this, &InternetOptionsHandler::RefreshCellularPlanCallback));
-  dom_ui_->RegisterMessageCallback("loginToNetwork",
+  web_ui_->RegisterMessageCallback("loginToNetwork",
       NewCallback(this, &InternetOptionsHandler::LoginCallback));
-  dom_ui_->RegisterMessageCallback("loginToCertNetwork",
+  web_ui_->RegisterMessageCallback("loginToCertNetwork",
       NewCallback(this, &InternetOptionsHandler::LoginCertCallback));
-  dom_ui_->RegisterMessageCallback("loginToOtherNetwork",
+  web_ui_->RegisterMessageCallback("loginToOtherNetwork",
       NewCallback(this, &InternetOptionsHandler::LoginToOtherCallback));
-  dom_ui_->RegisterMessageCallback("setDetails",
+  web_ui_->RegisterMessageCallback("setDetails",
       NewCallback(this, &InternetOptionsHandler::SetDetailsCallback));
-  dom_ui_->RegisterMessageCallback("enableWifi",
+  web_ui_->RegisterMessageCallback("enableWifi",
       NewCallback(this, &InternetOptionsHandler::EnableWifiCallback));
-  dom_ui_->RegisterMessageCallback("disableWifi",
+  web_ui_->RegisterMessageCallback("disableWifi",
       NewCallback(this, &InternetOptionsHandler::DisableWifiCallback));
-  dom_ui_->RegisterMessageCallback("enableCellular",
+  web_ui_->RegisterMessageCallback("enableCellular",
       NewCallback(this, &InternetOptionsHandler::EnableCellularCallback));
-  dom_ui_->RegisterMessageCallback("disableCellular",
+  web_ui_->RegisterMessageCallback("disableCellular",
       NewCallback(this, &InternetOptionsHandler::DisableCellularCallback));
-  dom_ui_->RegisterMessageCallback("buyDataPlan",
+  web_ui_->RegisterMessageCallback("buyDataPlan",
       NewCallback(this, &InternetOptionsHandler::BuyDataPlanCallback));
-  dom_ui_->RegisterMessageCallback("showMorePlanInfo",
+  web_ui_->RegisterMessageCallback("showMorePlanInfo",
       NewCallback(this, &InternetOptionsHandler::BuyDataPlanCallback));
 }
 
@@ -357,10 +361,10 @@ void InternetOptionsHandler::DisableCellularCallback(const ListValue* args) {
 }
 
 void InternetOptionsHandler::BuyDataPlanCallback(const ListValue* args) {
-  if (!dom_ui_)
+  if (!web_ui_)
     return;
   Browser* browser = BrowserList::FindBrowserWithFeature(
-      dom_ui_->GetProfile(), Browser::FEATURE_TABSTRIP);
+      web_ui_->GetProfile(), Browser::FEATURE_TABSTRIP);
   if (browser)
     browser->OpenMobilePlanTabAndActivate();
 }
@@ -369,13 +373,13 @@ void InternetOptionsHandler::RefreshNetworkData(
     chromeos::NetworkLibrary* cros) {
   DictionaryValue dictionary;
   FillNetworkInfo(&dictionary, cros);
-  dom_ui_->CallJavascriptFunction(
+  web_ui_->CallJavascriptFunction(
       L"options.InternetOptions.refreshNetworkData", dictionary);
 }
 
 void InternetOptionsHandler::OnNetworkManagerChanged(
     chromeos::NetworkLibrary* cros) {
-  if (!dom_ui_)
+  if (!web_ui_)
     return;
   MonitorActiveNetwork(cros);
   RefreshNetworkData(cros);
@@ -384,7 +388,7 @@ void InternetOptionsHandler::OnNetworkManagerChanged(
 void InternetOptionsHandler::OnNetworkChanged(
     chromeos::NetworkLibrary* cros,
     const chromeos::Network* network) {
-  if (dom_ui_)
+  if (web_ui_)
     RefreshNetworkData(cros);
 }
 
@@ -410,7 +414,7 @@ void InternetOptionsHandler::MonitorActiveNetwork(
 
 void InternetOptionsHandler::OnCellularDataPlanChanged(
     chromeos::NetworkLibrary* obj) {
-  if (!dom_ui_)
+  if (!web_ui_)
     return;
   const chromeos::CellularNetwork* cellular = obj->cellular_network();
   if (!cellular)
@@ -428,7 +432,7 @@ void InternetOptionsHandler::OnCellularDataPlanChanged(
   connection_plans.SetBoolean("activated",
       cellular->activation_state() == chromeos::ACTIVATION_STATE_ACTIVATED);
   connection_plans.Set("plans", plan_list);
-  dom_ui_->CallJavascriptFunction(
+  web_ui_->CallJavascriptFunction(
       L"options.InternetOptions.updateCellularPlans", connection_plans);
 }
 
@@ -455,7 +459,7 @@ void InternetOptionsHandler::SetDetailsCallback(const ListValue* args) {
     return;
   }
 
-  if (!chromeos::OwnershipService::GetSharedInstance()->CurrentUserIsOwner()) {
+  if (!chromeos::UserManager::Get()->current_user_is_owner()) {
     LOG(WARNING) << "Non-owner tried to change a network.";
     return;
   }
@@ -564,7 +568,7 @@ void InternetOptionsHandler::PopulateDictionaryDetails(
     }
   }
 
-  dom_ui_->CallJavascriptFunction(
+  web_ui_->CallJavascriptFunction(
       L"options.InternetOptions.showDetailedInfo", dictionary);
 }
 
@@ -721,7 +725,7 @@ void InternetOptionsHandler::CreateModalPopup(views::WindowDelegate* view) {
 
   // TODO(beng): This is an improper direct dependency on Browser. Route this
   // through some sort of delegate.
-  Browser* browser = BrowserList::FindBrowserWithProfile(dom_ui_->GetProfile());
+  Browser* browser = BrowserList::FindBrowserWithProfile(web_ui_->GetProfile());
   views::Window* window = browser::CreateViewsWindow(
       browser->window()->GetNativeHandle(), gfx::Rect(), view);
   window->SetIsAlwaysOnTop(true);
@@ -762,8 +766,7 @@ void InternetOptionsHandler::HandleWifiButtonClick(
       chromeos::CrosLibrary::Get()->GetNetworkLibrary();
   chromeos::WifiNetwork* network;
   if (command == "forget") {
-    if (!chromeos::OwnershipService::GetSharedInstance()->
-        CurrentUserIsOwner()) {
+    if (!chromeos::UserManager::Get()->current_user_is_owner()) {
       LOG(WARNING) << "Non-owner tried to forget a network.";
       return;
     }
@@ -781,7 +784,7 @@ void InternetOptionsHandler::HandleWifiButtonClick(
           } else {
             DictionaryValue dictionary;
             dictionary.SetString("servicePath", network->service_path());
-            dom_ui_->CallJavascriptFunction(
+            web_ui_->CallJavascriptFunction(
                 L"options.InternetOptions.showPasswordEntry", dictionary);
           }
         } else {
@@ -885,7 +888,7 @@ ListValue* InternetOptionsHandler::GetNetwork(
   network->Append(Value::CreateBooleanValue(connecting));
   // 6) icon data url
   network->Append(Value::CreateStringValue(icon.isNull() ? "" :
-      dom_ui_util::GetImageDataUrl(icon)));
+      web_ui_util::GetImageDataUrl(icon)));
   // 7) remembered
   network->Append(Value::CreateBooleanValue(remembered));
   // 8) activation state
@@ -996,27 +999,61 @@ ListValue* InternetOptionsHandler::GetWirelessList() {
   return list;
 }
 
+std::string GetWifiUniqueIdentifier(const chromeos::WifiNetwork* wifi) {
+  return wifi->encryption() + "|" + wifi->name();
+}
+
 ListValue* InternetOptionsHandler::GetRememberedList() {
   chromeos::NetworkLibrary* cros =
       chromeos::CrosLibrary::Get()->GetNetworkLibrary();
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
   ListValue* list = new ListValue();
 
-  const chromeos::WifiNetworkVector& wifi_networks =
+  const chromeos::WifiNetworkVector& remembered_wifi_networks =
       cros->remembered_wifi_networks();
-  for (chromeos::WifiNetworkVector::const_iterator it =
-      wifi_networks.begin(); it != wifi_networks.end(); ++it) {
-    SkBitmap icon = *rb.GetBitmapNamed(IDR_STATUSBAR_NETWORK_BARS0_BLACK);
-    if ((*it)->encrypted()) {
+  const chromeos::WifiNetworkVector& wifi_networks =
+      cros->wifi_networks();
+
+  // The remembered networks from libcros/flimflam don't include the signal
+  // strength, so fall back to the detected networks for this data.  We
+  // consider networks to be the same if they have the same name and encryption
+  // type, so create a map of detected networks indexed by name + encryption.
+  std::map<std::string, chromeos::WifiNetwork*> wifi_map;
+  for (chromeos::WifiNetworkVector::const_iterator it = wifi_networks.begin();
+       it != wifi_networks.end(); ++it) {
+    wifi_map[GetWifiUniqueIdentifier(*it)] = *it;
+  }
+
+  for (chromeos::WifiNetworkVector::const_iterator rit =
+           remembered_wifi_networks.begin();
+       rit != remembered_wifi_networks.end(); ++rit) {
+    chromeos::WifiNetwork* wifi = *rit;
+    // Check if this remembered network has a matching detected network.
+    std::map<std::string, chromeos::WifiNetwork*>::const_iterator it =
+        wifi_map.find(GetWifiUniqueIdentifier(wifi));
+    bool found = it != wifi_map.end();
+
+    // Don't show the active network in the remembered list.
+    if (found && (it->second)->connected())
+      continue;
+    SkBitmap icon;
+    if (found)
+      icon = chromeos::NetworkMenu::IconForNetworkStrength(it->second, true);
+    else
+      icon = *rb.GetBitmapNamed(IDR_STATUSBAR_NETWORK_BARS0_BLACK);
+    // Place the secure badge on the icon if the remembered network is
+    // encrypted (the matching detected network, if any, will have the same
+    // encrypted property by definition).
+    if (wifi->encrypted()) {
       icon = chromeos::NetworkMenu::IconForDisplay(icon,
           *rb.GetBitmapNamed(IDR_STATUSBAR_NETWORK_SECURE));
     }
     list->Append(GetNetwork(
-        (*it)->service_path(),
+        wifi->service_path(),
         icon,
-        (*it)->name(),
-        (*it)->connecting(),
-        (*it)->connected(),
+        wifi->name(),
+        wifi->connecting(),
+        wifi->connected(),
         true,
         chromeos::TYPE_WIFI,
         true,
@@ -1028,6 +1065,7 @@ ListValue* InternetOptionsHandler::GetRememberedList() {
 
 void InternetOptionsHandler::FillNetworkInfo(
     DictionaryValue* dictionary, chromeos::NetworkLibrary* cros) {
+  dictionary->SetBoolean("accessLocked", cros->IsLocked());
   dictionary->Set("wiredList", GetWiredList());
   dictionary->Set("wirelessList", GetWirelessList());
   dictionary->Set("rememberedList", GetRememberedList());

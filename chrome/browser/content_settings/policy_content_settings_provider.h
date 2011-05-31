@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 // A content settings provider that takes its settings out of policies.
 
 #include "base/basictypes.h"
-#include "base/lock.h"
+#include "base/synchronization/lock.h"
 #include "chrome/browser/content_settings/content_settings_provider.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/common/notification_observer.h"
@@ -20,14 +20,15 @@ class DictionaryValue;
 class PrefService;
 class Profile;
 
-class PolicyContentSettingsProvider : public ContentSettingsProviderInterface,
-                                      public NotificationObserver {
- public:
-  explicit PolicyContentSettingsProvider(Profile* profile);
-  virtual ~PolicyContentSettingsProvider();
+namespace content_settings {
 
-  // ContentSettingsProviderInterface implementation.
-  virtual bool CanProvideDefaultSetting(ContentSettingsType content_type) const;
+class PolicyDefaultProvider : public DefaultProviderInterface,
+                              public NotificationObserver {
+ public:
+  explicit PolicyDefaultProvider(Profile* profile);
+  virtual ~PolicyDefaultProvider();
+
+  // DefaultContentSettingsProvider implementation.
   virtual ContentSetting ProvideDefaultSetting(
       ContentSettingsType content_type) const;
   virtual void UpdateDefaultSetting(ContentSettingsType content_type,
@@ -67,12 +68,14 @@ class PolicyContentSettingsProvider : public ContentSettingsProviderInterface,
 
   // Used around accesses to the managed_default_content_settings_ object to
   // guarantee thread safety.
-  mutable Lock lock_;
+  mutable base::Lock lock_;
 
   PrefChangeRegistrar pref_change_registrar_;
   NotificationRegistrar notification_registrar_;
 
-  DISALLOW_COPY_AND_ASSIGN(PolicyContentSettingsProvider);
+  DISALLOW_COPY_AND_ASSIGN(PolicyDefaultProvider);
 };
+
+}  // namespace content_settings
 
 #endif  // CHROME_BROWSER_CONTENT_SETTINGS_POLICY_CONTENT_SETTINGS_PROVIDER_H_

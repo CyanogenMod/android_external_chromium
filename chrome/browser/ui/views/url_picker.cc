@@ -1,13 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/url_picker.h"
+#include "chrome/browser/ui/views/url_picker.h"
 
-#include "app/keyboard_codes.h"
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
-#include "app/table_model.h"
 #include "base/stl_util-inl.h"
 #include "base/string16.h"
 #include "base/utf_string_conversions.h"
@@ -20,13 +16,17 @@
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "net/base/net_util.h"
+#include "ui/base/keycodes/keyboard_codes.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/models/table_model.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "views/background.h"
 #include "views/controls/label.h"
 #include "views/controls/table/table_view.h"
 #include "views/controls/textfield/textfield.h"
 #include "views/focus/focus_manager.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/widget.h"
 
 using views::ColumnSet;
@@ -52,13 +52,11 @@ UrlPicker::UrlPicker(UrlPickerDelegate* delegate,
 
   url_table_model_.reset(new PossibleURLModel());
 
-  TableColumn col1(IDS_ASI_PAGE_COLUMN, TableColumn::LEFT, -1,
-                          50);
+  ui::TableColumn col1(IDS_ASI_PAGE_COLUMN, ui::TableColumn::LEFT, -1, 50);
   col1.sortable = true;
-  TableColumn col2(IDS_ASI_URL_COLUMN, TableColumn::LEFT, -1,
-                          50);
+  ui::TableColumn col2(IDS_ASI_URL_COLUMN, TableColumn::LEFT, -1, 50);
   col2.sortable = true;
-  std::vector<TableColumn> cols;
+  std::vector<ui::TableColumn> cols;
   cols.push_back(col1);
   cols.push_back(col2);
 
@@ -68,7 +66,7 @@ UrlPicker::UrlPicker(UrlPickerDelegate* delegate,
   url_table_->SetObserver(this);
 
   // Yummy layout code.
-  GridLayout* layout = CreatePanelGridLayout(this);
+  GridLayout* layout = GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
 
   const int labels_column_set_id = 0;
@@ -77,7 +75,7 @@ UrlPicker::UrlPicker(UrlPickerDelegate* delegate,
   ColumnSet* column_set = layout->AddColumnSet(labels_column_set_id);
   column_set->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 1,
                         GridLayout::USE_PREF, 0, 0);
 
@@ -95,7 +93,7 @@ UrlPicker::UrlPicker(UrlPickerDelegate* delegate,
   url_field_->SetController(this);
   layout->AddView(url_field_);
 
-  layout->AddPaddingRow(0, kUnrelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kUnrelatedControlVerticalSpacing);
 
   layout->StartRow(0, single_column_view_set_id);
   views::Label* description_label = new views::Label();
@@ -106,14 +104,14 @@ UrlPicker::UrlPicker(UrlPickerDelegate* delegate,
       description_label->font().DeriveFont(0, gfx::Font::BOLD));
   layout->AddView(description_label);
 
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   layout->StartRow(1, single_column_view_set_id);
   layout->AddView(url_table_);
 
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
-  AddAccelerator(views::Accelerator(app::VKEY_RETURN, false, false, false));
+  AddAccelerator(views::Accelerator(ui::VKEY_RETURN, false, false, false));
 }
 
 UrlPicker::~UrlPicker() {

@@ -1,17 +1,18 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/dropdown_bar_host.h"
+#include "chrome/browser/ui/views/dropdown_bar_host.h"
 
-#include "app/keyboard_codes.h"
-#include "chrome/browser/ui/browser.h"
+#include <algorithm>
+
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/dropdown_bar_view.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "gfx/path.h"
-#include "gfx/scrollbar_size.h"
 #include "ui/base/animation/slide_animation.h"
+#include "ui/base/keycodes/keyboard_codes.h"
+#include "ui/gfx/path.h"
+#include "ui/gfx/scrollbar_size.h"
 #include "views/focus/external_focus_tracker.h"
 #include "views/focus/view_storage.h"
 #include "views/widget/widget.h"
@@ -19,7 +20,7 @@
 #if defined(OS_WIN)
 #include "base/win/scoped_gdi_object.h"
 #elif defined(OS_LINUX)
-#include "app/scoped_handle_gtk.h"
+#include "ui/base/gtk/scoped_handle_gtk.h"
 #endif
 
 namespace {
@@ -27,7 +28,7 @@ namespace {
 #if defined(OS_WIN)
 typedef base::win::ScopedRegion ScopedPlatformRegion;
 #elif defined(OS_LINUX)
-typedef ScopedRegion ScopedPlatformRegion;
+typedef ui::ScopedRegion ScopedPlatformRegion;
 #endif
 
 }  // namespace
@@ -130,8 +131,8 @@ void DropdownBarHost::FocusWillChange(views::View* focused_before,
                                       views::View* focused_now) {
   // First we need to determine if one or both of the views passed in are child
   // views of our view.
-  bool our_view_before = focused_before && view_->IsParentOf(focused_before);
-  bool our_view_now = focused_now && view_->IsParentOf(focused_now);
+  bool our_view_before = focused_before && view_->Contains(focused_before);
+  bool our_view_now = focused_now && view_->Contains(focused_now);
 
   // When both our_view_before and our_view_now are false, it means focus is
   // changing hands elsewhere in the application (and we shouldn't do anything).
@@ -305,14 +306,14 @@ void DropdownBarHost::UpdateWindowEdges(const gfx::Rect& new_pos) {
 
 void DropdownBarHost::RegisterAccelerators() {
   DCHECK(!esc_accel_target_registered_);
-  views::Accelerator escape(app::VKEY_ESCAPE, false, false, false);
+  views::Accelerator escape(ui::VKEY_ESCAPE, false, false, false);
   focus_manager_->RegisterAccelerator(escape, this);
   esc_accel_target_registered_ = true;
 }
 
 void DropdownBarHost::UnregisterAccelerators() {
   DCHECK(esc_accel_target_registered_);
-  views::Accelerator escape(app::VKEY_ESCAPE, false, false, false);
+  views::Accelerator escape(ui::VKEY_ESCAPE, false, false, false);
   focus_manager_->UnregisterAccelerator(escape, this);
   esc_accel_target_registered_ = false;
 }

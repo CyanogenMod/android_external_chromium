@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,7 @@
 #include "chrome/test/testing_pref_service.h"
 #include "chrome/test/testing_profile.h"
 #include "net/url_request/url_request.h"
-#include "net/url_request/url_request_unittest.h"
+#include "net/url_request/url_request_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 // TestNotificationObserver ---------------------------------------------------
@@ -60,15 +60,16 @@ class TestInfoBarDelegate : public InfoBarDelegate {
  public:
   TestInfoBarDelegate(GoogleURLTracker* google_url_tracker,
                       const GURL& new_google_url);
-  virtual ~TestInfoBarDelegate();
-
-  // InfoBarDelegate
-  virtual InfoBar* CreateInfoBar();
 
   GoogleURLTracker* google_url_tracker() const { return google_url_tracker_; }
   GURL new_google_url() const { return new_google_url_; }
 
  private:
+  virtual ~TestInfoBarDelegate();
+
+  // InfoBarDelegate:
+  virtual InfoBar* CreateInfoBar();
+
   GoogleURLTracker* google_url_tracker_;
   GURL new_google_url_;
 };
@@ -206,8 +207,8 @@ void GoogleURLTrackerTest::MockSearchDomainCheckResponse(
   if (!fetcher)
     return;
   fetcher->delegate()->OnURLFetchComplete(fetcher,
-      GURL(GoogleURLTracker::kSearchDomainCheckURL), URLRequestStatus(), 200,
-      ResponseCookies(), domain);
+      GURL(GoogleURLTracker::kSearchDomainCheckURL), net::URLRequestStatus(),
+      200, ResponseCookies(), domain);
   // At this point, |fetcher| is deleted.
   MessageLoop::current()->RunAllPending();
 }
@@ -294,11 +295,12 @@ void GoogleURLTrackerTest::CancelGoogleURL() {
 }
 
 void GoogleURLTrackerTest::InfoBarClosed() {
-  TestInfoBarDelegate* infobar = static_cast<TestInfoBarDelegate*>(
-      g_browser_process->google_url_tracker()->infobar_);
+  InfoBarDelegate* infobar = g_browser_process->google_url_tracker()->infobar_;
   ASSERT_TRUE(infobar);
-  ASSERT_TRUE(infobar->google_url_tracker());
-  infobar->google_url_tracker()->InfoBarClosed();
+  GoogleURLTracker* url_tracker =
+      static_cast<TestInfoBarDelegate*>(infobar)->google_url_tracker();
+  ASSERT_TRUE(url_tracker);
+  url_tracker->InfoBarClosed();
   delete infobar;
 }
 

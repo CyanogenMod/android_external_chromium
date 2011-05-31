@@ -22,12 +22,11 @@
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "gfx/native_widget_types.h"
+#include "ui/gfx/native_widget_types.h"
 #include "webkit/glue/webcursor.h"
 
-namespace app {
-class ViewProp;
-}
+class BackingStore;
+class RenderWidgetHost;
 
 namespace gfx {
 class Size;
@@ -38,8 +37,9 @@ namespace IPC {
 class Message;
 }
 
-class BackingStore;
-class RenderWidgetHost;
+namespace ui {
+class ViewProp;
+}
 
 typedef CWinTraits<WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0>
     RenderWidgetHostHWNDTraits;
@@ -125,7 +125,7 @@ class RenderWidgetHostViewWin
   // Implementation of RenderWidgetHostView:
   virtual void InitAsPopup(RenderWidgetHostView* parent_host_view,
                            const gfx::Rect& pos);
-  virtual void InitAsFullscreen(RenderWidgetHostView* parent_host_view);
+  virtual void InitAsFullscreen();
   virtual RenderWidgetHost* GetRenderWidgetHost() const;
   virtual void DidBecomeSelected();
   virtual void WasHidden();
@@ -350,7 +350,9 @@ class RenderWidgetHostViewWin
   // method.
   WebKit::WebTextInputType text_input_type_;
 
-  ScopedVector<app::ViewProp> props_;
+  ScopedVector<ui::ViewProp> props_;
+
+  scoped_ptr<ui::ViewProp> accessibility_prop_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderWidgetHostViewWin);
 };

@@ -8,6 +8,7 @@
 #include "base/callback.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/dom_ui/html_dialog_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 #include "chrome/common/remoting/chromoting_host_info.h"
 
 class ListValue;
@@ -121,7 +122,7 @@ class SetupFlowDoneStep : public SetupFlowStepBase {
   virtual void Cancel();
 
  protected:
-  void DoStart();
+  virtual void DoStart();
 
  private:
   string16 message_;
@@ -161,14 +162,14 @@ struct SetupFlowContext {
 //
 // In this case auth_data would be passed in
 // SetupFlowStep::HandleMessage().
-class SetupFlow : public DOMMessageHandler,
+class SetupFlow : public WebUIMessageHandler,
                   public HtmlDialogUIDelegate {
  public:
   virtual ~SetupFlow();
 
   static SetupFlow* OpenSetupDialog(Profile* profile);
 
-  DOMUI* dom_ui() { return dom_ui_; }
+  WebUI* web_ui() { return web_ui_; }
   Profile* profile() { return profile_; }
   SetupFlowContext* context() { return &context_; }
 
@@ -178,8 +179,8 @@ class SetupFlow : public DOMMessageHandler,
 
   // HtmlDialogUIDelegate implementation.
   virtual GURL GetDialogContentURL() const;
-  virtual void GetDOMMessageHandlers(
-      std::vector<DOMMessageHandler*>* handlers) const;
+  virtual void GetWebUIMessageHandlers(
+      std::vector<WebUIMessageHandler*>* handlers) const;
   virtual void GetDialogSize(gfx::Size* size) const;
   virtual std::string GetDialogArgs() const;
   virtual void OnDialogClosed(const std::string& json_retval);
@@ -188,8 +189,8 @@ class SetupFlow : public DOMMessageHandler,
   virtual bool IsDialogModal() const;
   virtual bool ShouldShowDialogTitle() const;
 
-  // DOMMessageHandler implementation.
-  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+  // WebUIMessageHandler implementation.
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
   virtual void RegisterMessages();
 
   // Message handlers for the messages we receive from UI.
@@ -199,9 +200,9 @@ class SetupFlow : public DOMMessageHandler,
   void StartCurrentStep();
   void OnStepDone();
 
-  // Pointer to the DOM UI. This is provided by RemotingSetupMessageHandler
+  // Pointer to the Web UI. This is provided by RemotingSetupMessageHandler
   // when attached.
-  DOMUI* dom_ui_;
+  WebUI* web_ui_;
 
   // The args to pass to the initial page.
   std::string dialog_start_args_;

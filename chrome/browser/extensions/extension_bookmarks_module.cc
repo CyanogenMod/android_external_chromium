@@ -1,14 +1,19 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/extension_bookmarks_module.h"
 
+#include "base/file_path.h"
+#include "base/i18n/file_util_icu.h"
+#include "base/i18n/time_formatting.h"
 #include "base/json/json_writer.h"
 #include "base/sha1.h"
 #include "base/stl_util-inl.h"
 #include "base/string16.h"
 #include "base/string_number_conversions.h"
+#include "base/string_util.h"
+#include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_codec.h"
 #include "chrome/browser/bookmarks/bookmark_html_writer.h"
@@ -19,12 +24,13 @@
 #include "chrome/browser/extensions/extension_bookmarks_module_constants.h"
 #include "chrome/browser/extensions/extension_event_router.h"
 #include "chrome/browser/extensions/extensions_quota_service.h"
-#include "chrome/browser/importer/importer.h"
 #include "chrome/browser/importer/importer_data_types.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
+#include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace keys = extension_bookmarks_module_constants;
 
@@ -35,6 +41,30 @@ typedef QuotaLimitHeuristic::BucketList BucketList;
 typedef ExtensionsQuotaService::TimedLimit TimedLimit;
 typedef ExtensionsQuotaService::SustainedLimit SustainedLimit;
 typedef QuotaLimitHeuristic::BucketMapper BucketMapper;
+
+namespace {
+
+// Generates a default filename that will be used for pre-populating
+// the "Export Bookmarks" file chooser dialog box.
+FilePath::StringType GetDefaultFilenameForBookmarkExport() {
+  base::Time time = base::Time::Now();
+
+  // Concatenate a date stamp to the filename.
+#if defined(OS_POSIX)
+  FilePath::StringType filename =
+      l10n_util::GetStringFUTF8(EXPORT_BOOKMARKS_DEFAULT_FILENAME,
+                                base::TimeFormatShortDateNumeric(time));
+#elif defined(OS_WIN)
+  FilePath::StringType filename =
+      l10n_util::GetStringFUTF16(EXPORT_BOOKMARKS_DEFAULT_FILENAME,
+                                 base::TimeFormatShortDateNumeric(time));
+#endif
+
+  file_util::ReplaceIllegalCharactersInPath(&filename, '_');
+  return filename;
+}
+
+}  // namespace
 
 void BookmarksFunction::Run() {
   BookmarkModel* model = profile()->GetBookmarkModel();
@@ -775,9 +805,17 @@ void BookmarksIOFunction::SelectFile(SelectFileDialog::Type type) {
   file_type_info.extensions.resize(1);
   file_type_info.extensions[0].push_back(FILE_PATH_LITERAL("html"));
 
+  // Pre-populating the filename field in case this is a SELECT_SAVEAS_FILE
+  // dialog. If not, there is no filename field in the dialog box.
+  FilePath default_path;
+  if (type == SelectFileDialog::SELECT_SAVEAS_FILE)
+    default_path = FilePath(GetDefaultFilenameForBookmarkExport());
+  else
+    DCHECK(type == SelectFileDialog::SELECT_OPEN_FILE);
+
   select_file_dialog_->SelectFile(type,
                                   string16(),
-                                  FilePath(),
+                                  default_path,
                                   &file_type_info,
                                   0,
                                   FILE_PATH_LITERAL(""),
@@ -803,15 +841,15 @@ bool ImportBookmarksFunction::RunImpl() {
 void ImportBookmarksFunction::FileSelected(const FilePath& path,
                                            int index,
                                            void* params) {
-  ImporterHost* host = new ImporterHost();
+  scoped_refptr<ImporterHost> importer_host(new ImporterHost);
   importer::ProfileInfo profile_info;
   profile_info.browser_type = importer::BOOKMARKS_HTML;
   profile_info.source_path = path;
-  host->StartImportSettings(profile_info,
-                            profile(),
-                            importer::FAVORITES,
-                            new ProfileWriter(profile()),
-                            true);
+  importer_host->StartImportSettings(profile_info,
+                                     profile(),
+                                     importer::FAVORITES,
+                                     new ProfileWriter(profile()),
+                                     true);
   Release();  // Balanced in BookmarksIOFunction::SelectFile()
 }
 

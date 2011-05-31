@@ -4,8 +4,6 @@
 
 #include "chrome/browser/ui/views/location_bar/content_setting_image_view.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/command_line.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/content_setting_bubble_model.h"
@@ -15,10 +13,12 @@
 #include "chrome/browser/ui/views/content_setting_bubble_contents.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/common/chrome_switches.h"
-#include "gfx/canvas.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/skia_util.h"
 #include "third_party/skia/include/core/SkShader.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/skia_util.h"
 #include "views/border.h"
 
 namespace {
@@ -183,7 +183,7 @@ void ContentSettingImageView::Paint(gfx::Canvas* canvas) {
   if (animation_in_progress_) {
     // Paint text to the right of the icon.
     ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-    canvas->DrawStringInt(UTF16ToWideHack(animated_text_),
+    canvas->DrawStringInt(animated_text_,
         rb.GetFont(ResourceBundle::MediumFont), SK_ColorBLACK,
         GetImageBounds().right() + kTextMarginPixels, y(),
         width() - GetImageBounds().width(), height(),
@@ -201,7 +201,8 @@ void ContentSettingImageView::PaintBackground(gfx::Canvas* canvas) {
   SkPaint paint;
   paint.setShader(gfx::CreateGradientShader(kEdgeThickness,
                   height() - (2 * kEdgeThickness),
-                  kTopBoxColor, kBottomBoxColor))->safeUnref();
+                  kTopBoxColor, kBottomBoxColor));
+  SkSafeUnref(paint.getShader());
   SkRect color_rect;
   color_rect.iset(0, 0, width() - 1, height() - 1);
   canvas->AsCanvasSkia()->drawRoundRect(color_rect, kBoxCornerRadius,

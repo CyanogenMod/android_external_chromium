@@ -6,8 +6,6 @@
 
 #import "chrome/browser/ui/cocoa/location_bar/keyword_hint_decoration.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/logging.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
@@ -15,6 +13,8 @@
 #include "grit/theme_resources.h"
 #include "grit/generated_resources.h"
 #include "skia/ext/skia_utils_mac.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 namespace {
 

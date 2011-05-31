@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,20 +7,25 @@
 #include <map>
 #include <vector>
 
-#include "app/l10n_util.h"
 #include "base/file_util.h"
 #include "base/logging.h"
+#include "base/metrics/histogram.h"
+#include "base/path_service.h"
 #include "base/scoped_temp_dir.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_action.h"
 #include "chrome/common/extensions/extension_l10n_util.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_resource.h"
+#include "chrome/common/extensions/extension_sidebar_defaults.h"
 #include "chrome/common/json_value_serializer.h"
 #include "grit/generated_resources.h"
 #include "net/base/escape.h"
 #include "net/base/file_stream.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace errors = extension_manifest_errors;
 
@@ -156,7 +161,7 @@ bool ValidateExtension(Extension* extension, std::string* error) {
           if (!file_util::PathExists(image_path)) {
             *error =
                 l10n_util::GetStringFUTF8(IDS_EXTENSION_INVALID_IMAGE_PATH,
-                    WideToUTF16(image_path.ToWStringHack()));
+                                          image_path.LossyDisplayName());
             return false;
           }
         }
@@ -198,7 +203,7 @@ bool ValidateExtension(Extension* extension, std::string* error) {
       *error =
           l10n_util::GetStringFUTF8(
               IDS_EXTENSION_LOAD_PLUGIN_PATH_FAILED,
-              WideToUTF16(plugin.path.ToWStringHack()));
+              plugin.path.LossyDisplayName());
       return false;
     }
   }
@@ -245,7 +250,7 @@ bool ValidateExtension(Extension* extension, std::string* error) {
       *error =
           l10n_util::GetStringFUTF8(
               IDS_EXTENSION_LOAD_BACKGROUND_PAGE_FAILED,
-              WideToUTF16(page_path.ToWStringHack()));
+              page_path.LossyDisplayName());
       return false;
     }
   }
@@ -260,7 +265,22 @@ bool ValidateExtension(Extension* extension, std::string* error) {
       *error =
           l10n_util::GetStringFUTF8(
               IDS_EXTENSION_LOAD_OPTIONS_PAGE_FAILED,
-              WideToUTF16(options_path.ToWStringHack()));
+              options_path.LossyDisplayName());
+      return false;
+    }
+  }
+
+  // Validate sidebar default page location.
+  ExtensionSidebarDefaults* sidebar_defaults = extension->sidebar_defaults();
+  if (sidebar_defaults && sidebar_defaults->default_page().is_valid()) {
+    FilePath page_path = ExtensionURLToRelativeFilePath(
+        sidebar_defaults->default_page());
+    const FilePath path = extension->GetResource(page_path).GetFilePath();
+    if (path.empty() || !file_util::PathExists(path)) {
+      *error =
+          l10n_util::GetStringFUTF8(
+              IDS_EXTENSION_LOAD_SIDEBAR_PAGE_FAILED,
+              page_path.LossyDisplayName());
       return false;
     }
   }
@@ -292,15 +312,21 @@ void GarbageCollectExtensions(
   FilePath extension_path;
   for (extension_path = enumerator.Next(); !extension_path.value().empty();
        extension_path = enumerator.Next()) {
-    std::string extension_id = WideToASCII(
-        extension_path.BaseName().ToWStringHack());
+    std::string extension_id;
+
+    FilePath basename = extension_path.BaseName();
+    if (IsStringASCII(basename.value())) {
+      extension_id = UTF16ToASCII(basename.LossyDisplayName());
+      if (!Extension::IdIsValid(extension_id))
+        extension_id.clear();
+    }
 
     // Delete directories that aren't valid IDs.
-    if (!Extension::IdIsValid(extension_id)) {
+    if (extension_id.empty()) {
       LOG(WARNING) << "Invalid extension ID encountered in extensions "
-                      "directory: " << extension_id;
+                      "directory: " << basename.value();
       VLOG(1) << "Deleting invalid extension directory "
-              << WideToASCII(extension_path.ToWStringHack()) << ".";
+              << extension_path.value() << ".";
       file_util::Delete(extension_path, true);  // Recursive.
       continue;
     }
@@ -313,7 +339,7 @@ void GarbageCollectExtensions(
     // complete, for example, when a plugin is in use at uninstall time.
     if (iter == extension_paths.end()) {
       VLOG(1) << "Deleting unreferenced install for directory "
-              << WideToASCII(extension_path.ToWStringHack()) << ".";
+              << extension_path.LossyDisplayName() << ".";
       file_util::Delete(extension_path, true);  // Recursive.
       continue;
     }
@@ -328,7 +354,7 @@ void GarbageCollectExtensions(
          version_dir = versions_enumerator.Next()) {
       if (version_dir.BaseName() != iter->second.BaseName()) {
         VLOG(1) << "Deleting old version for directory "
-                << WideToASCII(version_dir.ToWStringHack()) << ".";
+                << version_dir.LossyDisplayName() << ".";
         file_util::Delete(version_dir, true);  // Recursive.
       }
     }
@@ -408,7 +434,7 @@ static bool ValidateLocaleInfo(const Extension& extension, std::string* error) {
     if (!file_util::PathExists(messages_path)) {
       *error = base::StringPrintf(
           "%s %s", errors::kLocalesMessagesFileMissing,
-          WideToUTF8(messages_path.ToWStringHack()).c_str());
+          UTF16ToUTF8(messages_path.LossyDisplayName()).c_str());
       return false;
     }
 
@@ -434,14 +460,14 @@ static bool IsScriptValid(const FilePath& path,
       !file_util::ReadFileToString(path, &content)) {
     *error = l10n_util::GetStringFUTF8(
         message_id,
-        WideToUTF16(relative_path.ToWStringHack()));
+        relative_path.LossyDisplayName());
     return false;
   }
 
   if (!IsStringUTF8(content)) {
     *error = l10n_util::GetStringFUTF8(
         IDS_EXTENSION_BAD_FILE_ENCODING,
-        WideToUTF16(relative_path.ToWStringHack()));
+        relative_path.LossyDisplayName());
     return false;
   }
 
@@ -515,6 +541,72 @@ FilePath ExtensionURLToRelativeFilePath(const GURL& url) {
     return FilePath();
 
   return path;
+}
+
+FilePath GetUserDataTempDir() {
+  // We do file IO in this function, but only when the current profile's
+  // Temp directory has never been used before, or in a rare error case.
+  // Developers are not likely to see these situations often, so do an
+  // explicit thread check.
+  base::ThreadRestrictions::AssertIOAllowed();
+
+  // Getting chrome::DIR_USER_DATA_TEMP is failing.  Use histogram to see why.
+  // TODO(skerner): Fix the problem, and remove this code.  crbug.com/70056
+  enum DirectoryCreationResult {
+    SUCCESS = 0,
+
+    CANT_GET_PARENT_PATH,
+    CANT_GET_UDT_PATH,
+    NOT_A_DIRECTORY,
+    CANT_CREATE_DIR,
+    CANT_WRITE_TO_PATH,
+
+    UNSET,
+    NUM_DIRECTORY_CREATION_RESULTS
+  };
+
+  // All paths should set |result|.
+  DirectoryCreationResult result = UNSET;
+
+  FilePath temp_path;
+  if (!PathService::Get(chrome::DIR_USER_DATA_TEMP, &temp_path)) {
+    FilePath parent_path;
+    if (!PathService::Get(chrome::DIR_USER_DATA, &parent_path))
+      result = CANT_GET_PARENT_PATH;
+    else
+      result = CANT_GET_UDT_PATH;
+
+  } else if (file_util::PathExists(temp_path)) {
+
+    // Path exists.  Check that it is a directory we can write to.
+    if (!file_util::DirectoryExists(temp_path)) {
+      result = NOT_A_DIRECTORY;
+
+    } else if (!file_util::PathIsWritable(temp_path)) {
+      result = CANT_WRITE_TO_PATH;
+
+    } else {
+      // Temp is a writable directory.
+      result = SUCCESS;
+    }
+
+  } else if (!file_util::CreateDirectory(temp_path)) {
+    // Path doesn't exist, and we failed to create it.
+    result = CANT_CREATE_DIR;
+
+  } else {
+    // Successfully created the Temp directory.
+    result = SUCCESS;
+  }
+
+  UMA_HISTOGRAM_ENUMERATION("Extensions.GetUserDataTempDir",
+                            result,
+                            NUM_DIRECTORY_CREATION_RESULTS);
+
+  if (result == SUCCESS)
+    return temp_path;
+
+  return FilePath();
 }
 
 }  // namespace extension_file_util

@@ -14,7 +14,6 @@
 #include "chrome/browser/autofill/form_structure.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/password_manager/encryptor.h"
 #include "chrome/common/guid.h"
 #include "chrome/common/notification_details.h"
@@ -22,7 +21,6 @@
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/test/testing_profile.h"
 #include "webkit/glue/form_data.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -61,6 +59,7 @@ class PersonalDataManagerTest : public testing::Test {
   }
 
   virtual void TearDown() {
+    personal_data_ = NULL;
     if (profile_.get())
       profile_.reset(NULL);
 
@@ -267,6 +266,8 @@ TEST_F(PersonalDataManagerTest, SetProfilesAndCreditCards) {
   ASSERT_EQ(2U, results1.size());
   EXPECT_EQ(0, profile0.Compare(*results1.at(0)));
   EXPECT_EQ(0, profile1.Compare(*results1.at(1)));
+
+  MessageLoop::current()->Run();
 
   // Add two test credit cards to the database.
   std::vector<CreditCard> update_cc;
@@ -525,10 +526,24 @@ TEST_F(PersonalDataManagerTest, ImportFormData) {
   autofill_test::CreateTestFormField(
       "Email:", "email", "theprez@gmail.com", "text", &field);
   form.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Address:", "address1", "21 Laussat St", "text", &field);
+  form.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "City:", "city", "San Francisco", "text", &field);
+  form.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "State:", "state", "California", "text", &field);
+  form.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Zip:", "zip", "94102", "text", &field);
+  form.fields.push_back(field);
   FormStructure form_structure(form);
-  std::vector<FormStructure*> forms;
+  std::vector<const FormStructure*> forms;
   forms.push_back(&form_structure);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
+  const CreditCard* imported_credit_card;
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_FALSE(imported_credit_card);
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -538,15 +553,60 @@ TEST_F(PersonalDataManagerTest, ImportFormData) {
 
   AutoFillProfile expected;
   autofill_test::SetProfileInfo(&expected, NULL, "George", NULL,
-      "Washington", "theprez@gmail.com", NULL, NULL, NULL, NULL, NULL, NULL,
-      NULL, NULL, NULL);
+      "Washington", "theprez@gmail.com", NULL, "21 Laussat St", NULL,
+      "San Francisco", "California", "94102", NULL, NULL, NULL);
   const std::vector<AutoFillProfile*>& results = personal_data_->profiles();
   ASSERT_EQ(1U, results.size());
   EXPECT_EQ(0, expected.Compare(*results[0]));
 }
 
-// Crashy, http://crbug.com/67423.
-TEST_F(PersonalDataManagerTest, DISABLED_ImportFormDataNotEnoughFilledFields) {
+TEST_F(PersonalDataManagerTest, ImportFormDataBadEmail) {
+  FormData form;
+  webkit_glue::FormField field;
+  autofill_test::CreateTestFormField(
+      "First name:", "first_name", "George", "text", &field);
+  form.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Last name:", "last_name", "Washington", "text", &field);
+  form.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Email:", "email", "bogus", "text", &field);
+  form.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Address:", "address1", "21 Laussat St", "text", &field);
+  form.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "City:", "city", "San Francisco", "text", &field);
+  form.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "State:", "state", "California", "text", &field);
+  form.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Zip:", "zip", "94102", "text", &field);
+  form.fields.push_back(field);
+  FormStructure form_structure(form);
+  std::vector<const FormStructure*> forms;
+  forms.push_back(&form_structure);
+  const CreditCard* imported_credit_card;
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_FALSE(imported_credit_card);
+
+  // Wait for the refresh.
+  EXPECT_CALL(personal_data_observer_,
+      OnPersonalDataLoaded()).WillOnce(QuitUIMessageLoop());
+
+  MessageLoop::current()->Run();
+
+  AutoFillProfile expected;
+  autofill_test::SetProfileInfo(&expected, NULL, "George", NULL,
+      "Washington", NULL, NULL, "21 Laussat St", NULL,
+      "San Francisco", "California", "94102", NULL, NULL, NULL);
+  const std::vector<AutoFillProfile*>& results = personal_data_->profiles();
+  ASSERT_EQ(1U, results.size());
+  EXPECT_EQ(0, expected.Compare(*results[0]));
+}
+
+TEST_F(PersonalDataManagerTest, ImportFormDataNotEnoughFilledFields) {
   FormData form;
   webkit_glue::FormField field;
   autofill_test::CreateTestFormField(
@@ -559,13 +619,17 @@ TEST_F(PersonalDataManagerTest, DISABLED_ImportFormDataNotEnoughFilledFields) {
       "Card number:", "card_number", "4111 1111 1111 1111", "text", &field);
   form.fields.push_back(field);
   FormStructure form_structure(form);
-  std::vector<FormStructure*> forms;
+  std::vector<const FormStructure*> forms;
   forms.push_back(&form_structure);
-  EXPECT_FALSE(personal_data_->ImportFormData(forms));
+  const CreditCard* imported_credit_card;
+  EXPECT_FALSE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_FALSE(imported_credit_card);
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
       OnPersonalDataLoaded()).WillOnce(QuitUIMessageLoop());
+
+  MessageLoop::current()->Run();
 
   const std::vector<AutoFillProfile*>& profiles = personal_data_->profiles();
   ASSERT_EQ(0U, profiles.size());
@@ -594,10 +658,24 @@ TEST_F(PersonalDataManagerTest, ImportPhoneNumberSplitAcrossMultipleFields) {
       "Phone #:", "home_phone_suffix", "0000", "text", &field);
   field.set_max_length(4);
   form.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Address:", "address1", "21 Laussat St", "text", &field);
+  form.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "City:", "city", "San Francisco", "text", &field);
+  form.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "State:", "state", "California", "text", &field);
+  form.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Zip:", "zip", "94102", "text", &field);
+  form.fields.push_back(field);
   FormStructure form_structure(form);
-  std::vector<FormStructure*> forms;
+  std::vector<const FormStructure*> forms;
   forms.push_back(&form_structure);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
+  const CreditCard* imported_credit_card;
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_FALSE(imported_credit_card);
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -606,8 +684,9 @@ TEST_F(PersonalDataManagerTest, ImportPhoneNumberSplitAcrossMultipleFields) {
   MessageLoop::current()->Run();
 
   AutoFillProfile expected;
-  autofill_test::SetProfileInfo(&expected, NULL, "George", NULL, "Washington",
-      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, "6505550000", NULL);
+  autofill_test::SetProfileInfo(&expected, NULL, "George", NULL,
+      "Washington", NULL, NULL, "21 Laussat St", NULL,
+      "San Francisco", "California", "94102", NULL, "6505550000", NULL);
   const std::vector<AutoFillProfile*>& results = personal_data_->profiles();
   ASSERT_EQ(1U, results.size());
   EXPECT_EQ(0, expected.Compare(*results[0]));
@@ -686,11 +765,25 @@ TEST_F(PersonalDataManagerTest, AggregateTwoDifferentProfiles) {
   autofill_test::CreateTestFormField(
       "Email:", "email", "theprez@gmail.com", "text", &field);
   form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Address:", "address1", "21 Laussat St", "text", &field);
+  form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "City:", "city", "San Francisco", "text", &field);
+  form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "State:", "state", "California", "text", &field);
+  form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Zip:", "zip", "94102", "text", &field);
+  form1.fields.push_back(field);
 
   FormStructure form_structure1(form1);
-  std::vector<FormStructure*> forms;
+  std::vector<const FormStructure*> forms;
   forms.push_back(&form_structure1);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
+  const CreditCard* imported_credit_card;
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_FALSE(imported_credit_card);
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -700,8 +793,8 @@ TEST_F(PersonalDataManagerTest, AggregateTwoDifferentProfiles) {
 
   AutoFillProfile expected;
   autofill_test::SetProfileInfo(&expected, NULL, "George", NULL,
-      "Washington", "theprez@gmail.com", NULL, NULL, NULL, NULL, NULL, NULL,
-      NULL, NULL, NULL);
+      "Washington", "theprez@gmail.com", NULL, "21 Laussat St", NULL,
+      "San Francisco", "California", "94102", NULL, NULL, NULL);
   const std::vector<AutoFillProfile*>& results1 = personal_data_->profiles();
   ASSERT_EQ(1U, results1.size());
   EXPECT_EQ(0, expected.Compare(*results1[0]));
@@ -717,11 +810,24 @@ TEST_F(PersonalDataManagerTest, AggregateTwoDifferentProfiles) {
   autofill_test::CreateTestFormField(
       "Email:", "email", "second@gmail.com", "text", &field);
   form2.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Address:", "address1", "21 Laussat St", "text", &field);
+  form2.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "City:", "city", "San Francisco", "text", &field);
+  form2.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "State:", "state", "California", "text", &field);
+  form2.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Zip:", "zip", "94102", "text", &field);
+  form2.fields.push_back(field);
 
   FormStructure form_structure2(form2);
   forms.clear();
   forms.push_back(&form_structure2);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_FALSE(imported_credit_card);
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -733,8 +839,8 @@ TEST_F(PersonalDataManagerTest, AggregateTwoDifferentProfiles) {
 
   AutoFillProfile expected2;
   autofill_test::SetProfileInfo(&expected2, NULL, "John", NULL,
-      "Adams", "second@gmail.com", NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-      NULL, NULL);
+      "Adams", "second@gmail.com", NULL, "21 Laussat St", NULL,
+      "San Francisco", "California", "94102", NULL, NULL, NULL);
   ASSERT_EQ(2U, results2.size());
   EXPECT_EQ(0, expected.Compare(*results2[0]));
   EXPECT_EQ(0, expected2.Compare(*results2[1]));
@@ -756,6 +862,15 @@ TEST_F(PersonalDataManagerTest, AggregateSameProfileWithConflict) {
       "Address Line 2:", "address2", "Suite A", "text", &field);
   form1.fields.push_back(field);
   autofill_test::CreateTestFormField(
+      "City:", "city", "San Francisco", "text", &field);
+  form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "State:", "state", "California", "text", &field);
+  form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Zip:", "zip", "94102", "text", &field);
+  form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
       "Email:", "email", "theprez@gmail.com", "text", &field);
   form1.fields.push_back(field);
   // Phone gets updated.
@@ -764,9 +879,11 @@ TEST_F(PersonalDataManagerTest, AggregateSameProfileWithConflict) {
   form1.fields.push_back(field);
 
   FormStructure form_structure1(form1);
-  std::vector<FormStructure*> forms;
+  std::vector<const FormStructure*> forms;
   forms.push_back(&form_structure1);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
+  const CreditCard* imported_credit_card;
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_FALSE(imported_credit_card);
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -777,7 +894,8 @@ TEST_F(PersonalDataManagerTest, AggregateSameProfileWithConflict) {
   AutoFillProfile expected;
   autofill_test::SetProfileInfo(&expected, NULL, "George", NULL,
       "Washington", "theprez@gmail.com", NULL, "1600 Pennsylvania Avenue",
-      "Suite A", NULL, NULL, NULL, NULL, "4445556666", NULL);
+      "Suite A", "San Francisco", "California", "94102", NULL, "4445556666",
+      NULL);
   const std::vector<AutoFillProfile*>& results1 = personal_data_->profiles();
   ASSERT_EQ(1U, results1.size());
   EXPECT_EQ(0, expected.Compare(*results1[0]));
@@ -797,6 +915,15 @@ TEST_F(PersonalDataManagerTest, AggregateSameProfileWithConflict) {
       "Address Line 2:", "address2", "Suite A", "text", &field);
   form2.fields.push_back(field);
   autofill_test::CreateTestFormField(
+      "City:", "city", "San Francisco", "text", &field);
+  form2.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "State:", "state", "California", "text", &field);
+  form2.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Zip:", "zip", "94102", "text", &field);
+  form2.fields.push_back(field);
+  autofill_test::CreateTestFormField(
       "Email:", "email", "theprez@gmail.com", "text", &field);
   form2.fields.push_back(field);
   // Country gets added.
@@ -811,7 +938,8 @@ TEST_F(PersonalDataManagerTest, AggregateSameProfileWithConflict) {
   FormStructure form_structure2(form2);
   forms.clear();
   forms.push_back(&form_structure2);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_FALSE(imported_credit_card);
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -824,7 +952,8 @@ TEST_F(PersonalDataManagerTest, AggregateSameProfileWithConflict) {
   AutoFillProfile expected2;
   autofill_test::SetProfileInfo(&expected2, NULL, "George", NULL,
       "Washington", "theprez@gmail.com", NULL, "1600 Pennsylvania Avenue",
-      "Suite A", NULL, NULL, NULL, "USA", "1231231234", NULL);
+      "Suite A", "San Francisco", "California", "94102", "USA", "1231231234",
+      NULL);
   ASSERT_EQ(1U, results2.size());
   EXPECT_EQ(0, expected2.Compare(*results2[0]));
 }
@@ -839,13 +968,24 @@ TEST_F(PersonalDataManagerTest, AggregateProfileWithMissingInfoInOld) {
       "Last name:", "last_name", "Washington", "text", &field);
   form1.fields.push_back(field);
   autofill_test::CreateTestFormField(
-      "Email:", "email", "theprez@gmail.com", "text", &field);
+      "Address Line 1:", "address", "190 High Street", "text", &field);
+  form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "City:", "city", "Philadelphia", "text", &field);
+  form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "State:", "state", "Pennsylvania", "text", &field);
+  form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Zip:", "zipcode", "19106", "text", &field);
   form1.fields.push_back(field);
 
   FormStructure form_structure1(form1);
-  std::vector<FormStructure*> forms;
+  std::vector<const FormStructure*> forms;
   forms.push_back(&form_structure1);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
+  const CreditCard* imported_credit_card;
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_FALSE(imported_credit_card);
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -855,8 +995,8 @@ TEST_F(PersonalDataManagerTest, AggregateProfileWithMissingInfoInOld) {
 
   AutoFillProfile expected;
   autofill_test::SetProfileInfo(&expected, NULL, "George", NULL,
-      "Washington", "theprez@gmail.com", NULL, NULL, NULL, NULL, NULL, NULL,
-      NULL, NULL, NULL);
+      "Washington", NULL, NULL, "190 High Street", NULL,
+      "Philadelphia", "Pennsylvania", "19106", NULL, NULL, NULL);
   const std::vector<AutoFillProfile*>& results1 = personal_data_->profiles();
   ASSERT_EQ(1U, results1.size());
   EXPECT_EQ(0, expected.Compare(*results1[0]));
@@ -868,6 +1008,9 @@ TEST_F(PersonalDataManagerTest, AggregateProfileWithMissingInfoInOld) {
   form2.fields.push_back(field);
   autofill_test::CreateTestFormField(
       "Last name:", "last_name", "Washington", "text", &field);
+  form2.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Email:", "email", "theprez@gmail.com", "text", &field);
   form2.fields.push_back(field);
   autofill_test::CreateTestFormField(
       "Address Line 1:", "address", "190 High Street", "text", &field);
@@ -885,7 +1028,8 @@ TEST_F(PersonalDataManagerTest, AggregateProfileWithMissingInfoInOld) {
   FormStructure form_structure2(form2);
   forms.clear();
   forms.push_back(&form_structure2);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_FALSE(imported_credit_card);
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -918,11 +1062,25 @@ TEST_F(PersonalDataManagerTest, AggregateProfileWithMissingInfoInNew) {
   autofill_test::CreateTestFormField(
       "Email:", "email", "theprez@gmail.com", "text", &field);
   form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Address Line 1:", "address", "190 High Street", "text", &field);
+  form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "City:", "city", "Philadelphia", "text", &field);
+  form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "State:", "state", "Pennsylvania", "text", &field);
+  form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Zip:", "zipcode", "19106", "text", &field);
+  form1.fields.push_back(field);
 
   FormStructure form_structure1(form1);
-  std::vector<FormStructure*> forms;
+  std::vector<const FormStructure*> forms;
   forms.push_back(&form_structure1);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
+  const CreditCard* imported_credit_card;
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_FALSE(imported_credit_card);
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -932,8 +1090,8 @@ TEST_F(PersonalDataManagerTest, AggregateProfileWithMissingInfoInNew) {
 
   AutoFillProfile expected;
   autofill_test::SetProfileInfo(&expected, NULL, "George", NULL,
-      "Washington", "theprez@gmail.com", "Government", NULL, NULL, NULL, NULL,
-      NULL, NULL, NULL, NULL);
+      "Washington", "theprez@gmail.com", "Government", "190 High Street", NULL,
+      "Philadelphia", "Pennsylvania", "19106", NULL, NULL, NULL);
   const std::vector<AutoFillProfile*>& results1 = personal_data_->profiles();
   ASSERT_EQ(1U, results1.size());
   EXPECT_EQ(0, expected.Compare(*results1[0]));
@@ -950,11 +1108,24 @@ TEST_F(PersonalDataManagerTest, AggregateProfileWithMissingInfoInNew) {
   autofill_test::CreateTestFormField(
       "Email:", "email", "theprez@gmail.com", "text", &field);
   form2.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Address Line 1:", "address", "190 High Street", "text", &field);
+  form2.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "City:", "city", "Philadelphia", "text", &field);
+  form2.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "State:", "state", "Pennsylvania", "text", &field);
+  form2.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Zip:", "zipcode", "19106", "text", &field);
+  form2.fields.push_back(field);
 
   FormStructure form_structure2(form2);
   forms.clear();
   forms.push_back(&form_structure2);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_FALSE(imported_credit_card);
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -968,6 +1139,48 @@ TEST_F(PersonalDataManagerTest, AggregateProfileWithMissingInfoInNew) {
   ASSERT_EQ(1U, results2.size());
   EXPECT_EQ(0, expected.Compare(*results2[0]));
 }
+
+TEST_F(PersonalDataManagerTest, AggregateProfileWithInsufficientAddress) {
+  FormData form1;
+  webkit_glue::FormField field;
+  autofill_test::CreateTestFormField(
+      "First name:", "first_name", "George", "text", &field);
+  form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Last name:", "last_name", "Washington", "text", &field);
+  form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Company:", "company", "Government", "text", &field);
+  form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Email:", "email", "theprez@gmail.com", "text", &field);
+  form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "Address Line 1:", "address", "190 High Street", "text", &field);
+  form1.fields.push_back(field);
+  autofill_test::CreateTestFormField(
+      "City:", "city", "Philadelphia", "text", &field);
+  form1.fields.push_back(field);
+
+  FormStructure form_structure1(form1);
+  std::vector<const FormStructure*> forms;
+  forms.push_back(&form_structure1);
+  const CreditCard* imported_credit_card;
+  EXPECT_FALSE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_FALSE(imported_credit_card);
+
+  // Wait for the refresh.
+  EXPECT_CALL(personal_data_observer_,
+      OnPersonalDataLoaded()).WillOnce(QuitUIMessageLoop());
+
+  MessageLoop::current()->Run();
+
+  const std::vector<AutoFillProfile*>& profiles = personal_data_->profiles();
+  ASSERT_EQ(0U, profiles.size());
+  const std::vector<CreditCard*>& credit_cards = personal_data_->credit_cards();
+  ASSERT_EQ(0U, credit_cards.size());
+}
+
 
 TEST_F(PersonalDataManagerTest, AggregateTwoDifferentCreditCards) {
   FormData form1;
@@ -988,10 +1201,13 @@ TEST_F(PersonalDataManagerTest, AggregateTwoDifferentCreditCards) {
   form1.fields.push_back(field);
 
   FormStructure form_structure1(form1);
-  std::vector<FormStructure*> forms;
+  std::vector<const FormStructure*> forms;
   forms.push_back(&form_structure1);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
-  personal_data_->SaveImportedCreditCard();
+  const CreditCard* imported_credit_card;
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_TRUE(imported_credit_card);
+  personal_data_->SaveImportedCreditCard(*imported_credit_card);
+  delete imported_credit_card;
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -1024,8 +1240,10 @@ TEST_F(PersonalDataManagerTest, AggregateTwoDifferentCreditCards) {
   FormStructure form_structure2(form2);
   forms.clear();
   forms.push_back(&form_structure2);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
-  personal_data_->SaveImportedCreditCard();
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_TRUE(imported_credit_card);
+  personal_data_->SaveImportedCreditCard(*imported_credit_card);
+  delete imported_credit_card;
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -1061,10 +1279,13 @@ TEST_F(PersonalDataManagerTest, AggregateInvalidCreditCard) {
   form1.fields.push_back(field);
 
   FormStructure form_structure1(form1);
-  std::vector<FormStructure*> forms;
+  std::vector<const FormStructure*> forms;
   forms.push_back(&form_structure1);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
-  personal_data_->SaveImportedCreditCard();
+  const CreditCard* imported_credit_card;
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_TRUE(imported_credit_card);
+  personal_data_->SaveImportedCreditCard(*imported_credit_card);
+  delete imported_credit_card;
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -1097,8 +1318,8 @@ TEST_F(PersonalDataManagerTest, AggregateInvalidCreditCard) {
   FormStructure form_structure2(form2);
   forms.clear();
   forms.push_back(&form_structure2);
-  EXPECT_FALSE(personal_data_->ImportFormData(forms));
-  personal_data_->SaveImportedCreditCard();
+  EXPECT_FALSE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_FALSE(imported_credit_card);
 
   // Note: no refresh here.
 
@@ -1126,10 +1347,13 @@ TEST_F(PersonalDataManagerTest, AggregateSameCreditCardWithConflict) {
   form1.fields.push_back(field);
 
   FormStructure form_structure1(form1);
-  std::vector<FormStructure*> forms;
+  std::vector<const FormStructure*> forms;
   forms.push_back(&form_structure1);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
-  personal_data_->SaveImportedCreditCard();
+  const CreditCard* imported_credit_card;
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_TRUE(imported_credit_card);
+  personal_data_->SaveImportedCreditCard(*imported_credit_card);
+  delete imported_credit_card;
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -1163,8 +1387,10 @@ TEST_F(PersonalDataManagerTest, AggregateSameCreditCardWithConflict) {
   FormStructure form_structure2(form2);
   forms.clear();
   forms.push_back(&form_structure2);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
-  personal_data_->SaveImportedCreditCard();
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_TRUE(imported_credit_card);
+  personal_data_->SaveImportedCreditCard(*imported_credit_card);
+  delete imported_credit_card;
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -1201,10 +1427,13 @@ TEST_F(PersonalDataManagerTest, AggregateEmptyCreditCardWithConflict) {
   form1.fields.push_back(field);
 
   FormStructure form_structure1(form1);
-  std::vector<FormStructure*> forms;
+  std::vector<const FormStructure*> forms;
   forms.push_back(&form_structure1);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
-  personal_data_->SaveImportedCreditCard();
+  const CreditCard* imported_credit_card;
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_TRUE(imported_credit_card);
+  personal_data_->SaveImportedCreditCard(*imported_credit_card);
+  delete imported_credit_card;
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -1234,8 +1463,8 @@ TEST_F(PersonalDataManagerTest, AggregateEmptyCreditCardWithConflict) {
   FormStructure form_structure2(form2);
   forms.clear();
   forms.push_back(&form_structure2);
-  personal_data_->ImportFormData(forms);
-  personal_data_->SaveImportedCreditCard();
+  EXPECT_FALSE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_FALSE(imported_credit_card);
 
   // Note: no refresh here.
 
@@ -1267,10 +1496,13 @@ TEST_F(PersonalDataManagerTest, AggregateCreditCardWithMissingInfoInNew) {
   form1.fields.push_back(field);
 
   FormStructure form_structure1(form1);
-  std::vector<FormStructure*> forms;
+  std::vector<const FormStructure*> forms;
   forms.push_back(&form_structure1);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
-  personal_data_->SaveImportedCreditCard();
+  const CreditCard* imported_credit_card;
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_TRUE(imported_credit_card);
+  personal_data_->SaveImportedCreditCard(*imported_credit_card);
+  delete imported_credit_card;
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -1302,8 +1534,8 @@ TEST_F(PersonalDataManagerTest, AggregateCreditCardWithMissingInfoInNew) {
   FormStructure form_structure2(form2);
   forms.clear();
   forms.push_back(&form_structure2);
-  personal_data_->ImportFormData(forms);
-  personal_data_->SaveImportedCreditCard();
+  EXPECT_FALSE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_FALSE(imported_credit_card);
 
   // Note: no refresh here.
 
@@ -1333,10 +1565,13 @@ TEST_F(PersonalDataManagerTest, AggregateCreditCardWithMissingInfoInOld) {
   form1.fields.push_back(field);
 
   FormStructure form_structure1(form1);
-  std::vector<FormStructure*> forms;
+  std::vector<const FormStructure*> forms;
   forms.push_back(&form_structure1);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
-  personal_data_->SaveImportedCreditCard();
+  const CreditCard* imported_credit_card;
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_TRUE(imported_credit_card);
+  personal_data_->SaveImportedCreditCard(*imported_credit_card);
+  delete imported_credit_card;
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,
@@ -1370,8 +1605,10 @@ TEST_F(PersonalDataManagerTest, AggregateCreditCardWithMissingInfoInOld) {
   FormStructure form_structure2(form2);
   forms.clear();
   forms.push_back(&form_structure2);
-  EXPECT_TRUE(personal_data_->ImportFormData(forms));
-  personal_data_->SaveImportedCreditCard();
+  EXPECT_TRUE(personal_data_->ImportFormData(forms, &imported_credit_card));
+  ASSERT_TRUE(imported_credit_card);
+  personal_data_->SaveImportedCreditCard(*imported_credit_card);
+  delete imported_credit_card;
 
   // Wait for the refresh.
   EXPECT_CALL(personal_data_observer_,

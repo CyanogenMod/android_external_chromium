@@ -50,7 +50,7 @@ class Value {
     TYPE_NULL = 0,
     TYPE_BOOLEAN,
     TYPE_INTEGER,
-    TYPE_REAL,
+    TYPE_DOUBLE,
     TYPE_STRING,
     TYPE_BINARY,
     TYPE_DICTIONARY,
@@ -63,11 +63,11 @@ class Value {
   // kinds of values without thinking about which class implements them.
   // These can always be expected to return a valid Value*.
   static Value* CreateNullValue();
-  static Value* CreateBooleanValue(bool in_value);
-  static Value* CreateIntegerValue(int in_value);
-  static Value* CreateRealValue(double in_value);
-  static Value* CreateStringValue(const std::string& in_value);
-  static Value* CreateStringValue(const string16& in_value);
+  static FundamentalValue* CreateBooleanValue(bool in_value);
+  static FundamentalValue* CreateIntegerValue(int in_value);
+  static FundamentalValue* CreateDoubleValue(double in_value);
+  static StringValue* CreateStringValue(const std::string& in_value);
+  static StringValue* CreateStringValue(const string16& in_value);
 
   // This one can return NULL if the input isn't valid.  If the return value
   // is non-null, the new object has taken ownership of the buffer pointer.
@@ -89,13 +89,16 @@ class Value {
   // returned;  otherwise, false is returned and |out_value| is unchanged.
   virtual bool GetAsBoolean(bool* out_value) const;
   virtual bool GetAsInteger(int* out_value) const;
-  virtual bool GetAsReal(double* out_value) const;
+  virtual bool GetAsDouble(double* out_value) const;
   virtual bool GetAsString(std::string* out_value) const;
   virtual bool GetAsString(string16* out_value) const;
   virtual bool GetAsList(ListValue** out_value);
 
   // This creates a deep copy of the entire Value tree, and returns a pointer
   // to the copy.  The caller gets ownership of the copy, of course.
+  //
+  // Subclasses return their own type directly in their overrides;
+  // this works because C++ supports covariant return types.
   virtual Value* DeepCopy() const;
 
   // Compares if two Value objects have equal contents.
@@ -129,15 +132,15 @@ class FundamentalValue : public Value {
   // Subclassed methods
   virtual bool GetAsBoolean(bool* out_value) const;
   virtual bool GetAsInteger(int* out_value) const;
-  virtual bool GetAsReal(double* out_value) const;
-  virtual Value* DeepCopy() const;
+  virtual bool GetAsDouble(double* out_value) const;
+  virtual FundamentalValue* DeepCopy() const;
   virtual bool Equals(const Value* other) const;
 
  private:
   union {
     bool boolean_value_;
     int integer_value_;
-    double real_value_;
+    double double_value_;
   };
 
   DISALLOW_COPY_AND_ASSIGN(FundamentalValue);
@@ -156,7 +159,7 @@ class StringValue : public Value {
   // Subclassed methods
   virtual bool GetAsString(std::string* out_value) const;
   virtual bool GetAsString(string16* out_value) const;
-  virtual Value* DeepCopy() const;
+  virtual StringValue* DeepCopy() const;
   virtual bool Equals(const Value* other) const;
 
  private:
@@ -185,7 +188,7 @@ class BinaryValue: public Value {
   const char* GetBuffer() const { return buffer_; }
 
   // Overridden from Value:
-  virtual Value* DeepCopy() const;
+  virtual BinaryValue* DeepCopy() const;
   virtual bool Equals(const Value* other) const;
 
  private:
@@ -234,7 +237,7 @@ class DictionaryValue : public Value {
   // value at that path, even if it has a different type.
   void SetBoolean(const std::string& path, bool in_value);
   void SetInteger(const std::string& path, int in_value);
-  void SetReal(const std::string& path, double in_value);
+  void SetDouble(const std::string& path, double in_value);
   void SetString(const std::string& path, const std::string& in_value);
   void SetString(const std::string& path, const string16& in_value);
 
@@ -256,7 +259,7 @@ class DictionaryValue : public Value {
   // the end of the path can be returned in the form specified.
   bool GetBoolean(const std::string& path, bool* out_value) const;
   bool GetInteger(const std::string& path, int* out_value) const;
-  bool GetReal(const std::string& path, double* out_value) const;
+  bool GetDouble(const std::string& path, double* out_value) const;
   bool GetString(const std::string& path, std::string* out_value) const;
   bool GetString(const std::string& path, string16* out_value) const;
   bool GetStringASCII(const std::string& path, std::string* out_value) const;
@@ -271,7 +274,7 @@ class DictionaryValue : public Value {
                                Value** out_value) const;
   bool GetIntegerWithoutPathExpansion(const std::string& key,
                                       int* out_value) const;
-  bool GetRealWithoutPathExpansion(const std::string& key,
+  bool GetDoubleWithoutPathExpansion(const std::string& key,
                                    double* out_value) const;
   bool GetStringWithoutPathExpansion(const std::string& key,
                                      std::string* out_value) const;
@@ -330,7 +333,7 @@ class DictionaryValue : public Value {
   key_iterator end_keys() const { return key_iterator(dictionary_.end()); }
 
   // Overridden from Value:
-  virtual Value* DeepCopy() const;
+  virtual DictionaryValue* DeepCopy() const;
   virtual bool Equals(const Value* other) const;
 
  private:
@@ -374,7 +377,7 @@ class ListValue : public Value {
   // in the specified form.
   bool GetBoolean(size_t index, bool* out_value) const;
   bool GetInteger(size_t index, int* out_value) const;
-  bool GetReal(size_t index, double* out_value) const;
+  bool GetDouble(size_t index, double* out_value) const;
   bool GetString(size_t index, std::string* out_value) const;
   bool GetString(size_t index, string16* out_value) const;
   bool GetBinary(size_t index, BinaryValue** out_value) const;
@@ -417,7 +420,7 @@ class ListValue : public Value {
 
   // Overridden from Value:
   virtual bool GetAsList(ListValue** out_value);
-  virtual Value* DeepCopy() const;
+  virtual ListValue* DeepCopy() const;
   virtual bool Equals(const Value* other) const;
 
  private:

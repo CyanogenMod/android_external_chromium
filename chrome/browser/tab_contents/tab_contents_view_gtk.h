@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,13 @@
 
 #include <vector>
 
-#include "app/gtk_signal.h"
 #include "base/scoped_ptr.h"
-#include "chrome/browser/gtk/focus_store_gtk.h"
-#include "chrome/browser/gtk/owned_widget_gtk.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
+#include "chrome/browser/ui/gtk/focus_store_gtk.h"
+#include "chrome/browser/ui/gtk/owned_widget_gtk.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
+#include "ui/base/gtk/gtk_signal.h"
 
 class ConstrainedWindowGtk;
 class RenderViewContextMenuGtk;
@@ -53,12 +53,14 @@ class TabContentsViewGtk : public TabContentsView,
   virtual gfx::NativeWindow GetTopLevelNativeWindow() const;
   virtual void GetContainerBounds(gfx::Rect* out) const;
   virtual void SetPageTitle(const std::wstring& title);
-  virtual void OnTabCrashed();
+  virtual void OnTabCrashed(base::TerminationStatus status,
+                            int error_code);
   virtual void SizeContents(const gfx::Size& size);
   virtual void Focus();
   virtual void SetInitialFocus();
   virtual void StoreFocus();
   virtual void RestoreFocus();
+  virtual void GetViewBounds(gfx::Rect* out) const;
 
   // Backend implementation of RenderViewHostDelegate::View.
   virtual void ShowContextMenu(const ContextMenuParams& params);

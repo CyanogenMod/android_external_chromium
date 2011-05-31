@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,18 +6,17 @@
 
 #include <vector>
 
-#include "app/x11_util.h"
 #include "base/string16.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/chromeos/drop_shadow_label.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
 #include "chrome/browser/chromeos/wm_overview_snapshot.h"
-#include "chrome/browser/ui/browser.h"
 #include "third_party/cros/chromeos_wm_ipc_enums.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/x/x11_util.h"
 #include "views/border.h"
-#include "views/grid_layout.h"
+#include "views/layout/grid_layout.h"
 #include "views/view.h"
 
 using std::vector;
@@ -98,7 +97,7 @@ void WmOverviewTitle::Init(const gfx::Size& size,
 
   // Set the window type
   vector<int> params;
-  params.push_back(x11_util::GetX11WindowFromGtkWidget(
+  params.push_back(ui::GetX11WindowFromGtkWidget(
       GTK_WIDGET(snapshot->GetNativeView())));
   WmIpc::instance()->SetWindowType(
       GetNativeView(),

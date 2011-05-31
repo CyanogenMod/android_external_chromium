@@ -5,6 +5,7 @@
 #include "chrome/browser/tabs/tab_strip_model.h"
 
 #include <algorithm>
+#include <map>
 
 #include "base/command_line.h"
 #include "base/stl_util-inl.h"
@@ -26,7 +27,6 @@
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
@@ -168,15 +168,15 @@ void TabStripModel::InsertTabContentsAt(int index,
 TabContentsWrapper* TabStripModel::ReplaceTabContentsAt(
     int index,
     TabContentsWrapper* new_contents) {
-  // TODO: this should reset group/opener of any tabs that point at
-  // old_contents.
   DCHECK(ContainsIndex(index));
   TabContentsWrapper* old_contents = GetContentsAt(index);
+
+  ForgetOpenersAndGroupsReferencing(&(old_contents->controller()));
 
   contents_data_[index]->contents = new_contents;
 
   FOR_EACH_OBSERVER(TabStripModelObserver, observers_,
-                    TabReplacedAt(old_contents, new_contents, index));
+                    TabReplacedAt(this, old_contents, new_contents, index));
 
   // When the selected tab contents is replaced send out selected notification
   // too. We do this as nearly all observers need to treat a replace of the
@@ -212,6 +212,7 @@ TabContentsWrapper* TabStripModel::DetachTabContentsAt(int index) {
   int next_selected_index = order_controller_->DetermineNewSelectedIndex(index);
   delete contents_data_.at(index);
   contents_data_.erase(contents_data_.begin() + index);
+  ForgetOpenersAndGroupsReferencing(&(removed_contents->controller()));
   if (empty())
     closing_all_ = true;
   FOR_EACH_OBSERVER(TabStripModelObserver, observers_,
@@ -1010,4 +1011,15 @@ bool TabStripModel::OpenerMatches(const TabContentsData* data,
                                   const NavigationController* opener,
                                   bool use_group) {
   return data->opener == opener || (use_group && data->group == opener);
+}
+
+void TabStripModel::ForgetOpenersAndGroupsReferencing(
+    const NavigationController* tab) {
+  for (TabContentsDataVector::const_iterator i = contents_data_.begin();
+       i != contents_data_.end(); ++i) {
+    if ((*i)->group == tab)
+      (*i)->group = NULL;
+    if ((*i)->opener == tab)
+      (*i)->opener = NULL;
+  }
 }

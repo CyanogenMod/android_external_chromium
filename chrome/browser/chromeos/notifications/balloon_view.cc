@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,6 @@
 
 #include <vector>
 
-#include "app/l10n_util.h"
-#include "app/menus/simple_menu_model.h"
-#include "app/resource_bundle.h"
 #include "base/message_loop.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/notifications/balloon_view_host.h"
@@ -19,12 +16,15 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
-#include "chrome/browser/views/notifications/balloon_view_host.h"
+#include "chrome/browser/ui/views/notifications/balloon_view_host.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/models/simple_menu_model.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "views/background.h"
 #include "views/controls/button/button.h"
 #include "views/controls/button/image_button.h"
@@ -54,7 +54,7 @@ namespace chromeos {
 // overlays on top of renderer view.
 class NotificationControlView : public views::View,
                                 public views::ViewMenuDelegate,
-                                public menus::SimpleMenuModel::Delegate,
+                                public ui::SimpleMenuModel::Delegate,
                                 public views::ButtonListener {
  public:
   explicit NotificationControlView(BalloonViewImpl* view)
@@ -125,7 +125,7 @@ class NotificationControlView : public views::View,
     balloon_view_->Close(true);
   }
 
-  // menus::SimpleMenuModel::Delegate impglements.
+  // ui::SimpleMenuModel::Delegate impglements.
   virtual bool IsCommandIdChecked(int /* command_id */) const {
     // Nothing in the menu is checked.
     return false;
@@ -137,7 +137,7 @@ class NotificationControlView : public views::View,
   }
 
   virtual bool GetAcceleratorForCommandId(
-      int /* command_id */, menus::Accelerator* /* accelerator */) {
+      int /* command_id */, ui::Accelerator* /* accelerator */) {
     // Currently no accelerators.
     return false;
   }
@@ -162,7 +162,7 @@ class NotificationControlView : public views::View,
         IDS_NOTIFICATION_BALLOON_REVOKE_MESSAGE,
         balloon_view_->balloon_->notification().display_source());
 
-    options_menu_contents_.reset(new menus::SimpleMenuModel(this));
+    options_menu_contents_.reset(new ui::SimpleMenuModel(this));
     // TODO(oshima): Showing the source info in the menu for now.
     // Figure out where to show the source info.
     options_menu_contents_->AddItem(kNoopCommand, source_label_text);
@@ -176,7 +176,7 @@ class NotificationControlView : public views::View,
   views::ImageButton* close_button_;
 
   // The options menu.
-  scoped_ptr<menus::SimpleMenuModel> options_menu_contents_;
+  scoped_ptr<ui::SimpleMenuModel> options_menu_contents_;
   scoped_ptr<views::Menu2> options_menu_menu_;
   views::MenuButton* options_menu_button_;
 
@@ -191,7 +191,7 @@ BalloonViewImpl::BalloonViewImpl(bool sticky, bool controls, bool dom_ui)
       sticky_(sticky),
       controls_(controls),
       closed_(false),
-      dom_ui_(dom_ui) {
+      web_ui_(dom_ui) {
   // This object is not to be deleted by the views hierarchy,
   // as it is owned by the balloon.
   set_parent_owned(false);
@@ -212,8 +212,8 @@ BalloonViewImpl::~BalloonViewImpl() {
 void BalloonViewImpl::Show(Balloon* balloon) {
   balloon_ = balloon;
   html_contents_ = new BalloonViewHost(balloon);
-  if (dom_ui_)
-    html_contents_->EnableDOMUI();
+  if (web_ui_)
+    html_contents_->EnableWebUI();
   AddChildView(html_contents_->view());
   notification_registrar_.Add(this,
     NotificationType::NOTIFY_BALLOON_DISCONNECTED, Source<Balloon>(balloon));

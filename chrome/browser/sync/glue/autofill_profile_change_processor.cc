@@ -1,6 +1,6 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file
+// found in the LICENSE file.
 
 #include "chrome/browser/sync/glue/autofill_profile_change_processor.h"
 
@@ -18,7 +18,6 @@
 #include "chrome/browser/sync/unrecoverable_error_handler.h"
 #include "chrome/browser/webdata/autofill_change.h"
 #include "chrome/browser/webdata/web_database.h"
-#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
@@ -43,6 +42,8 @@ AutofillProfileChangeProcessor::AutofillProfileChangeProcessor(
 
   StartObserving();
 }
+
+AutofillProfileChangeProcessor::~AutofillProfileChangeProcessor() {}
 
 AutofillProfileChangeProcessor::ScopedStopObserving::ScopedStopObserving(
     AutofillProfileChangeProcessor* processor) {
@@ -286,6 +287,9 @@ void AutofillProfileChangeProcessor::AddAutofillProfileSyncNode(
   node.SetTitle(UTF8ToWide(profile.guid()));
 
   WriteAutofillProfile(profile, &node);
+
+  std::string guid = profile.guid();
+  model_associator_->Associate(&guid, node.GetId());
 }
 
 void AutofillProfileChangeProcessor::StartObserving() {
@@ -335,4 +339,3 @@ void AutofillProfileChangeProcessor::WriteAutofillProfile(
 }
 
 }  // namespace browser_sync
-

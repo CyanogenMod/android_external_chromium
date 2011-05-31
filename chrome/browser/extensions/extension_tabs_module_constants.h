@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,6 +46,7 @@ extern const char kWindowTypeKey[];
 
 // Value consts.
 extern const char kCanOnlyMoveTabsWithinNormalWindowsError[];
+extern const char kCanOnlyMoveTabsWithinSameProfileError[];
 extern const char kFormatValueJpeg[];
 extern const char kFormatValuePng[];
 extern const char kMimeTypeJpeg[];
@@ -63,6 +64,7 @@ extern const char kWindowNotFoundError[];
 extern const char kTabNotFoundError[];
 extern const char kTabStripNotEditableError[];
 extern const char kNoSelectedTabError[];
+extern const char kIncognitoModeIsDisabled[];
 extern const char kInvalidUrlError[];
 extern const char kInternalVisibleTabCaptureError[];
 extern const char kNotImplementedError[];

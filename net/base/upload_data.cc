@@ -6,6 +6,7 @@
 
 #include "base/file_util.h"
 #include "base/logging.h"
+#include "base/string_util.h"
 #include "net/base/file_stream.h"
 #include "net/base/net_errors.h"
 
@@ -19,6 +20,7 @@ UploadData::Element::Element()
     : type_(TYPE_BYTES),
       file_range_offset_(0),
       file_range_length_(kuint64max),
+      is_last_chunk_(false),
       override_content_length_(false),
       content_length_computed_(false),
       content_length_(-1),
@@ -30,11 +32,23 @@ UploadData::Element::~Element() {
   delete file_stream_;
 }
 
+void UploadData::Element::SetToChunk(const char* bytes, int bytes_len) {
+  std::string chunk_length = StringPrintf("%X\r\n", bytes_len);
+  bytes_.clear();
+  bytes_.insert(bytes_.end(), chunk_length.data(),
+                chunk_length.data() + chunk_length.length());
+  bytes_.insert(bytes_.end(), bytes, bytes + bytes_len);
+  const char* crlf = "\r\n";
+  bytes_.insert(bytes_.end(), crlf, crlf + 2);
+  type_ = TYPE_CHUNK;
+  is_last_chunk_ = (bytes_len == 0);
+}
+
 uint64 UploadData::Element::GetContentLength() {
   if (override_content_length_ || content_length_computed_)
     return content_length_;
 
-  if (type_ == TYPE_BYTES)
+  if (type_ == TYPE_BYTES || type_ == TYPE_CHUNK)
     return static_cast<uint64>(bytes_.size());
   else if (type_ == TYPE_BLOB)
     // The blob reference will be resolved later.
@@ -109,10 +123,14 @@ FileStream* UploadData::Element::NewFileStreamForReading() {
   return file.release();
 }
 
-UploadData::UploadData() : identifier_(0) {
+UploadData::UploadData()
+    : identifier_(0),
+      chunk_callback_(NULL),
+      is_chunked_(false) {
 }
 
 void UploadData::AppendBytes(const char* bytes, int bytes_len) {
+  DCHECK(!is_chunked_);
   if (bytes_len > 0) {
     elements_.push_back(Element());
     elements_.back().SetToBytes(bytes, bytes_len);
@@ -120,6 +138,7 @@ void UploadData::AppendBytes(const char* bytes, int bytes_len) {
 }
 
 void UploadData::AppendFile(const FilePath& file_path) {
+  DCHECK(!is_chunked_);
   elements_.push_back(Element());
   elements_.back().SetToFilePath(file_path);
 }
@@ -127,14 +146,28 @@ void UploadData::AppendFile(const FilePath& file_path) {
 void UploadData::AppendFileRange(const FilePath& file_path,
                                  uint64 offset, uint64 length,
                                  const base::Time& expected_modification_time) {
+  DCHECK(!is_chunked_);
   elements_.push_back(Element());
   elements_.back().SetToFilePathRange(file_path, offset, length,
                                       expected_modification_time);
 }
 
 void UploadData::AppendBlob(const GURL& blob_url) {
+  DCHECK(!is_chunked_);
   elements_.push_back(Element());
   elements_.back().SetToBlobUrl(blob_url);
+}
+
+void UploadData::AppendChunk(const char* bytes, int bytes_len) {
+  DCHECK(is_chunked_);
+  elements_.push_back(Element());
+  elements_.back().SetToChunk(bytes, bytes_len);
+  if (chunk_callback_)
+    chunk_callback_->OnChunkAvailable();
+}
+
+void UploadData::set_chunk_callback(ChunkCallback* callback) {
+  chunk_callback_ = callback;
 }
 
 uint64 UploadData::GetContentLength() {

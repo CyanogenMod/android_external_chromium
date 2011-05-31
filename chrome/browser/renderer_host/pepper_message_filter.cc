@@ -11,7 +11,7 @@
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/browser_render_process_host.h"
-#include "chrome/common/render_messages.h"
+#include "chrome/common/pepper_messages.h"
 #include "net/base/address_list.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/host_resolver.h"
@@ -34,17 +34,19 @@ COMPILE_ASSERT(sizeof(reinterpret_cast<PP_Flash_NetAddress*>(0)->data) >=
 const PP_Flash_NetAddress kInvalidNetAddress = { 0 };
 
 PepperMessageFilter::PepperMessageFilter(Profile* profile)
-    : profile_(profile) {
+    : profile_(profile),
+      request_context_(profile_->GetRequestContext()) {
 }
+
+PepperMessageFilter::~PepperMessageFilter() {}
 
 bool PepperMessageFilter::OnMessageReceived(const IPC::Message& msg,
                                             bool* message_was_ok) {
 #if defined(ENABLE_FLAPPER_HACKS)
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP_EX(PepperMessageFilter, msg, *message_was_ok)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_PepperConnectTcp, OnPepperConnectTcp)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_PepperConnectTcpAddress,
-                        OnPepperConnectTcpAddress)
+    IPC_MESSAGE_HANDLER(PepperMsg_ConnectTcp, OnConnectTcp)
+    IPC_MESSAGE_HANDLER(PepperMsg_ConnectTcpAddress, OnConnectTcpAddress)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP_EX()
   return handled;
@@ -144,7 +146,7 @@ class PepperMessageFilter::LookupRequest {
 
  private:
   void OnLookupFinished(int /*result*/) {
-    pepper_message_filter_->PepperConnectTcpLookupFinished(
+    pepper_message_filter_->ConnectTcpLookupFinished(
         routing_id_, request_id_, addresses_);
     delete this;
   }
@@ -164,15 +166,14 @@ class PepperMessageFilter::LookupRequest {
   DISALLOW_COPY_AND_ASSIGN(LookupRequest);
 };
 
-void PepperMessageFilter::OnPepperConnectTcp(
-    int routing_id,
-    int request_id,
-    const std::string& host,
-    uint16 port) {
+void PepperMessageFilter::OnConnectTcp(int routing_id,
+                                       int request_id,
+                                       const std::string& host,
+                                       uint16 port) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
-  URLRequestContext* req_context =
-      profile_->GetRequestContext()->GetURLRequestContext();
+  net::URLRequestContext* req_context =
+      request_context_->GetURLRequestContext();
   net::HostResolver::RequestInfo request_info(net::HostPortPair(host, port));
 
   // The lookup request will delete itself on completion.
@@ -182,10 +183,9 @@ void PepperMessageFilter::OnPepperConnectTcp(
   lookup_request->Start();
 }
 
-void PepperMessageFilter::OnPepperConnectTcpAddress(
-    int routing_id,
-    int request_id,
-    const PP_Flash_NetAddress& addr) {
+void PepperMessageFilter::OnConnectTcpAddress(int routing_id,
+                                              int request_id,
+                                              const PP_Flash_NetAddress& addr) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   // Validate the address and then continue (doing |connect()|) on a worker
@@ -194,22 +194,22 @@ void PepperMessageFilter::OnPepperConnectTcpAddress(
       !base::WorkerPool::PostTask(FROM_HERE,
            NewRunnableMethod(
                this,
-               &PepperMessageFilter::PepperConnectTcpAddressOnWorkerThread,
+               &PepperMessageFilter::ConnectTcpAddressOnWorkerThread,
                routing_id, request_id, addr),
            true)) {
-    SendPepperConnectTcpACKError(routing_id, request_id);
+    SendConnectTcpACKError(routing_id, request_id);
   }
 }
 
-bool PepperMessageFilter::SendPepperConnectTcpACKError(int routing_id,
-                                                       int request_id) {
-  return Send(new ViewMsg_PepperConnectTcpACK(
-              routing_id, request_id,
-              IPC::InvalidPlatformFileForTransit(),
-              kInvalidNetAddress, kInvalidNetAddress));
+bool PepperMessageFilter::SendConnectTcpACKError(int routing_id,
+                                                 int request_id) {
+  return Send(
+      new PepperMsg_ConnectTcpACK(routing_id, request_id,
+                                  IPC::InvalidPlatformFileForTransit(),
+                                  kInvalidNetAddress, kInvalidNetAddress));
 }
 
-void PepperMessageFilter::PepperConnectTcpLookupFinished(
+void PepperMessageFilter::ConnectTcpLookupFinished(
     int routing_id,
     int request_id,
     const net::AddressList& addresses) {
@@ -221,19 +221,16 @@ void PepperMessageFilter::PepperConnectTcpLookupFinished(
       !base::WorkerPool::PostTask(FROM_HERE,
            NewRunnableMethod(
                this,
-               &PepperMessageFilter::PepperConnectTcpOnWorkerThread,
+               &PepperMessageFilter::ConnectTcpOnWorkerThread,
                routing_id, request_id, addresses),
            true)) {
-    SendPepperConnectTcpACKError(routing_id, request_id);
+    SendConnectTcpACKError(routing_id, request_id);
   }
 }
 
-void PepperMessageFilter::PepperConnectTcpOnWorkerThread(
-    int routing_id,
-    int request_id,
-    net::AddressList addresses) {
-  DCHECK(!MessageLoop::current());  // Check we are on a worker thread.
-
+void PepperMessageFilter::ConnectTcpOnWorkerThread(int routing_id,
+                                                   int request_id,
+                                                   net::AddressList addresses) {
   IPC::PlatformFileForTransit socket_for_transit =
       IPC::InvalidPlatformFileForTransit();
   PP_Flash_NetAddress local_addr = kInvalidNetAddress;
@@ -252,19 +249,17 @@ void PepperMessageFilter::PepperConnectTcpOnWorkerThread(
   BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           this, &PepperMessageFilter::Send,
-          new ViewMsg_PepperConnectTcpACK(
+          new PepperMsg_ConnectTcpACK(
               routing_id, request_id,
               socket_for_transit, local_addr, remote_addr)));
 }
 
 // TODO(vluu): Eliminate duplication between this and
-// |PepperConnectTcpOnWorkerThread()|.
-void PepperMessageFilter::PepperConnectTcpAddressOnWorkerThread(
+// |ConnectTcpOnWorkerThread()|.
+void PepperMessageFilter::ConnectTcpAddressOnWorkerThread(
     int routing_id,
     int request_id,
     PP_Flash_NetAddress addr) {
-  DCHECK(!MessageLoop::current());  // Check we are on a worker thread.
-
   IPC::PlatformFileForTransit socket_for_transit =
       IPC::InvalidPlatformFileForTransit();
   PP_Flash_NetAddress local_addr = kInvalidNetAddress;
@@ -277,7 +272,7 @@ void PepperMessageFilter::PepperConnectTcpAddressOnWorkerThread(
   BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           this, &PepperMessageFilter::Send,
-          new ViewMsg_PepperConnectTcpACK(
+          new PepperMsg_ConnectTcpACK(
               routing_id, request_id,
               socket_for_transit, local_addr, remote_addr)));
 }

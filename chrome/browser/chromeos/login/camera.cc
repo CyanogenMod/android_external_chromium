@@ -25,10 +25,10 @@
 #include "base/threading/thread.h"
 #include "base/time.h"
 #include "chrome/browser/browser_thread.h"
-#include "gfx/size.h"
 #include "skia/ext/image_operations.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColorPriv.h"
+#include "ui/gfx/size.h"
 
 namespace chromeos {
 
@@ -324,7 +324,7 @@ void Camera::DoStopCapturing() {
 }
 
 void Camera::GetFrame(SkBitmap* frame) {
-  AutoLock lock(image_lock_);
+  base::AutoLock lock(image_lock_);
   frame->swap(frame_image_);
 }
 
@@ -527,7 +527,7 @@ void Camera::ProcessImage(void* data) {
   }
   image.setIsOpaque(true);
   {
-    AutoLock lock(image_lock_);
+    base::AutoLock lock(image_lock_);
     frame_image_.swap(image);
   }
   BrowserThread::PostTask(
@@ -573,13 +573,13 @@ void Camera::OnCaptureFailure() {
 }
 
 bool Camera::IsOnCameraThread() const {
-  AutoLock lock(thread_lock_);
+  base::AutoLock lock(thread_lock_);
   return thread_ && MessageLoop::current() == thread_->message_loop();
 }
 
 void Camera::PostCameraTask(const tracked_objects::Location& from_here,
                             Task* task) {
-  AutoLock lock(thread_lock_);
+  base::AutoLock lock(thread_lock_);
   if (!thread_)
     return;
   DCHECK(thread_->IsRunning());

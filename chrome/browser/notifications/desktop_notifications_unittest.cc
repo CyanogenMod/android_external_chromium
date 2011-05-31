@@ -7,6 +7,7 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/common/render_messages.h"
 #include "chrome/common/render_messages_params.h"
 #include "chrome/test/testing_pref_service.h"
 
@@ -15,6 +16,10 @@ const int MockBalloonCollection::kMockBalloonSpace = 5;
 
 // static
 std::string DesktopNotificationsTest::log_output_;
+
+MockBalloonCollection::MockBalloonCollection() {}
+
+MockBalloonCollection::~MockBalloonCollection() {}
 
 void MockBalloonCollection::Add(const Notification& notification,
                                 Profile* profile) {
@@ -322,6 +327,39 @@ TEST_F(DesktopNotificationsTest, TestUserInputEscaping) {
   // URL-encoded versions of tags should also not be found.
   EXPECT_EQ(std::string::npos, data_url.spec().find("%3cscript%3e"));
   EXPECT_EQ(std::string::npos, data_url.spec().find("%3ci%3e"));
+}
+
+TEST_F(DesktopNotificationsTest, TestBoundingBox) {
+  // Create some notifications.
+  ViewHostMsg_ShowNotification_Params params = StandardTestNotification();
+  for (int id = 0; id <= 3; ++id) {
+    params.notification_id = id;
+    EXPECT_TRUE(service_->ShowDesktopNotification(
+        params, 0, 0, DesktopNotificationService::PageNotification));
+  }
+
+  gfx::Rect box = balloon_collection_->GetBalloonsBoundingBox();
+
+  // Try this for all positions.
+  BalloonCollection::PositionPreference pref;
+  for (pref = BalloonCollection::UPPER_RIGHT;
+       pref <= BalloonCollection::LOWER_LEFT;
+       pref = static_cast<BalloonCollection::PositionPreference>(pref + 1)) {
+    // Make sure each balloon's 4 corners are inside the box.
+    std::deque<Balloon*>& balloons = balloon_collection_->balloons();
+    std::deque<Balloon*>::iterator iter;
+    for (iter = balloons.begin(); iter != balloons.end(); ++iter) {
+      int min_x = (*iter)->GetPosition().x();
+      int max_x = min_x + (*iter)->GetViewSize().width() - 1;
+      int min_y = (*iter)->GetPosition().y();
+      int max_y = min_y + (*iter)->GetViewSize().height() - 1;
+
+      EXPECT_TRUE(box.Contains(gfx::Point(min_x, min_y)));
+      EXPECT_TRUE(box.Contains(gfx::Point(min_x, max_y)));
+      EXPECT_TRUE(box.Contains(gfx::Point(max_x, min_y)));
+      EXPECT_TRUE(box.Contains(gfx::Point(max_x, max_y)));
+    }
+  }
 }
 
 TEST_F(DesktopNotificationsTest, TestPositionPreference) {

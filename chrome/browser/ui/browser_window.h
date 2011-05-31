@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/common/content_settings_types.h"
-#include "gfx/native_widget_types.h"
+#include "ui/gfx/native_widget_types.h"
 
 class Browser;
 class BrowserWindowTesting;
@@ -119,6 +119,11 @@ class BrowserWindow {
   // currently maximized or minimized) in terms of the screen coordinates.
   virtual gfx::Rect GetRestoredBounds() const = 0;
 
+  // Retrieves the window's current bounds, including its frame.
+  // This will only differ from GetRestoredBounds() for maximized
+  // and minimized windows.
+  virtual gfx::Rect GetBounds() const = 0;
+
   // TODO(beng): REMOVE?
   // Returns true if the frame is maximized (aka zoomed).
   virtual bool IsMaximized() const = 0;
@@ -206,6 +211,9 @@ class BrowserWindow {
   // Shows the Task manager.
   virtual void ShowTaskManager() = 0;
 
+  // Shows task information related to background pages.
+  virtual void ShowBackgroundPages() = 0;
+
   // Shows the Bookmark bubble. |url| is the URL being bookmarked,
   // |already_bookmarked| is true if the url is already bookmarked.
   virtual void ShowBookmarkBubble(const GURL& url, bool already_bookmarked) = 0;
@@ -215,9 +223,6 @@ class BrowserWindow {
 
   // Returns the DownloadShelf.
   virtual DownloadShelf* GetDownloadShelf() = 0;
-
-  // Shows the Report a Bug dialog box.
-  virtual void ShowReportBugDialog() = 0;
 
   // Shows the Clear Browsing Data dialog box.
   virtual void ShowClearBrowsingDataDialog() = 0;

@@ -4,7 +4,6 @@
 
 #include "chrome/browser/importer/importer_bridge.h"
 
-#include "app/l10n_util.h"
 #include "base/scoped_ptr.h"
 #include "base/string_number_conversions.h"
 #include "base/string16.h"
@@ -19,6 +18,7 @@
 #include "chrome/common/child_thread.h"
 #include "chrome/browser/importer/importer_messages.h"
 #include "chrome/profile_import/profile_import_thread.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "webkit/glue/password_form.h"
 
 ImporterBridge::ImporterBridge() { }
@@ -128,8 +128,7 @@ ExternalProcessImporterBridge::ExternalProcessImporterBridge(
     : profile_import_thread_(profile_import_thread) {
   // Bridge needs to make its own copy because OS 10.6 autoreleases the
   // localized_strings value that is passed in (see http://crbug.com/46003 ).
-  localized_strings_.reset(
-      static_cast<DictionaryValue*>(localized_strings.DeepCopy()));
+  localized_strings_.reset(localized_strings.DeepCopy());
 }
 
 void ExternalProcessImporterBridge::AddBookmarkEntries(

@@ -8,15 +8,15 @@
 
 #include <algorithm>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "chrome/browser/chromeos/notifications/balloon_collection_impl.h"
 #include "chrome/browser/chromeos/notifications/balloon_view.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_source.h"
-#include "gfx/canvas.h"
 #include "grit/generated_resources.h"
 #include "third_party/cros/chromeos_wm_ipc_enums.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
 #include "views/background.h"
 #include "views/controls/native/native_view_host.h"
 #include "views/controls/scroll_view.h"
@@ -170,7 +170,7 @@ class BalloonSubContainer : public views::View {
   virtual void Layout() {
     // Layout bottom up
     int height = 0;
-    for (int i = GetChildViewCount() - 1; i >= 0; --i) {
+    for (int i = child_count() - 1; i >= 0; --i) {
       views::View* child = GetChildViewAt(i);
       child->SetBounds(0, height, child->width(), child->height());
       height += child->height() + margin_;
@@ -182,7 +182,7 @@ class BalloonSubContainer : public views::View {
   void UpdateBounds() {
     int height = 0;
     int max_width = 0;
-    for (int i = GetChildViewCount() - 1; i >= 0; --i) {
+    for (int i = child_count() - 1; i >= 0; --i) {
       views::View* child = GetChildViewAt(i);
       height += child->height() + margin_;
       max_width = std::max(max_width, child->width());
@@ -197,7 +197,7 @@ class BalloonSubContainer : public views::View {
   // Returns the bounds that covers new notifications.
   gfx::Rect GetNewBounds() {
     gfx::Rect rect;
-    for (int i = GetChildViewCount() - 1; i >= 0; --i) {
+    for (int i = child_count() - 1; i >= 0; --i) {
       BalloonViewImpl* view =
           static_cast<BalloonViewImpl*>(GetChildViewAt(i));
       if (!view->stale()) {
@@ -214,7 +214,7 @@ class BalloonSubContainer : public views::View {
   // Returns # of new notifications.
   int GetNewCount() {
     int count = 0;
-    for (int i = GetChildViewCount() - 1; i >= 0; --i) {
+    for (int i = child_count() - 1; i >= 0; --i) {
       BalloonViewImpl* view =
           static_cast<BalloonViewImpl*>(GetChildViewAt(i));
       if (!view->stale())
@@ -225,7 +225,7 @@ class BalloonSubContainer : public views::View {
 
   // Make all notifications stale.
   void MakeAllStale() {
-    for (int i = GetChildViewCount() - 1; i >= 0; --i) {
+    for (int i = child_count() - 1; i >= 0; --i) {
       BalloonViewImpl* view =
           static_cast<BalloonViewImpl*>(GetChildViewAt(i));
       view->set_stale();
@@ -233,7 +233,7 @@ class BalloonSubContainer : public views::View {
   }
 
   void DismissAll() {
-    for (int i = GetChildViewCount() - 1; i >= 0; --i) {
+    for (int i = child_count() - 1; i >= 0; --i) {
       BalloonViewImpl* view =
           static_cast<BalloonViewImpl*>(GetChildViewAt(i));
       view->Close(true);
@@ -241,7 +241,7 @@ class BalloonSubContainer : public views::View {
   }
 
   BalloonViewImpl* FindBalloonView(const Notification& notification) {
-    for (int i = GetChildViewCount() - 1; i >= 0; --i) {
+    for (int i = child_count() - 1; i >= 0; --i) {
       BalloonViewImpl* view =
           static_cast<BalloonViewImpl*>(GetChildViewAt(i));
       if (view->IsFor(notification)) {
@@ -254,7 +254,7 @@ class BalloonSubContainer : public views::View {
   BalloonViewImpl* FindBalloonView(const gfx::Point point) {
     gfx::Point copy(point);
     ConvertPointFromWidget(this, &copy);
-    for (int i = GetChildViewCount() - 1; i >= 0; --i) {
+    for (int i = child_count() - 1; i >= 0; --i) {
       views::View* view = GetChildViewAt(i);
       if (view->bounds().Contains(copy))
         return static_cast<BalloonViewImpl*>(view);
@@ -287,8 +287,8 @@ class BalloonContainer : public views::View {
   // views::View overrides.
   virtual void Layout() {
     int margin =
-        (sticky_container_->GetChildViewCount() != 0 &&
-         non_sticky_container_->GetChildViewCount() != 0) ?
+        (sticky_container_->child_count() != 0 &&
+         non_sticky_container_->child_count() != 0) ?
         margin_ : 0;
     sticky_container_->SetBounds(
         0, 0, width(), sticky_container_->height());
@@ -322,9 +322,9 @@ class BalloonContainer : public views::View {
   bool Update(Balloon* balloon) {
     BalloonViewImpl* view = GetBalloonViewOf(balloon);
     View* container = NULL;
-    if (sticky_container_->HasChildView(view)) {
+    if (view->parent() == sticky_container_) {
       container = sticky_container_;
-    } else if (non_sticky_container_->HasChildView(view)) {
+    } else if (view->parent() == non_sticky_container_) {
       container = non_sticky_container_;
     }
     if (container) {
@@ -345,8 +345,8 @@ class BalloonContainer : public views::View {
 
   // Returns the number of notifications added to the panel.
   int GetNotificationCount() {
-    return sticky_container_->GetChildViewCount() +
-        non_sticky_container_->GetChildViewCount();
+    return sticky_container_->child_count() +
+        non_sticky_container_->child_count();
   }
 
   // Returns the # of new notifications.
@@ -357,19 +357,19 @@ class BalloonContainer : public views::View {
 
   // Returns the # of sticky and new notifications.
   int GetStickyNewNotificationCount() {
-    return sticky_container_->GetChildViewCount() +
+    return sticky_container_->child_count() +
         non_sticky_container_->GetNewCount();
   }
 
   // Returns the # of sticky notifications.
   int GetStickyNotificationCount() {
-    return sticky_container_->GetChildViewCount();
+    return sticky_container_->child_count();
   }
 
   // Returns true if the |view| is contained in the panel.
   bool HasBalloonView(View* view) {
-    return sticky_container_->HasChildView(view) ||
-        non_sticky_container_->HasChildView(view);
+    return view->parent() == sticky_container_ ||
+        view->parent() == non_sticky_container_;
   }
 
   // Updates the bounds so that all notifications are visible.
@@ -610,6 +610,10 @@ SkBitmap NotificationPanel::GetPanelIcon() {
   return SkBitmap();
 }
 
+bool NotificationPanel::CanClosePanel() {
+  return true;
+}
+
 void NotificationPanel::ClosePanel() {
   SET_STATE(CLOSED);
   UpdatePanel(false);
@@ -752,7 +756,7 @@ void NotificationPanel::UpdateContainerBounds() {
   // Update from WebKit may arrive after the panel is closed/hidden
   // and viewport widget is detached.
   if (native) {
-    native->SetBounds(balloon_container_->bounds());
+    native->SetBoundsRect(balloon_container_->bounds());
     scroll_view_->Layout();
   }
 }
@@ -862,7 +866,7 @@ bool NotificationPanelTester::IsVisible(const BalloonViewImpl* view) const {
   gfx::Point origin(0, 0);
   views::View::ConvertPointToView(view, panel_->balloon_container_.get(),
                                   &origin);
-  return rect.Contains(gfx::Rect(origin, view->bounds().size()));
+  return rect.Contains(gfx::Rect(origin, view->size()));
 }
 
 

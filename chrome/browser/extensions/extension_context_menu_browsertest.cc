@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "app/menus/menu_model.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser_list.h"
@@ -13,13 +12,13 @@
 #include "chrome/browser/tab_contents/render_view_context_menu.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/test/ui_test_utils.h"
 #include "net/base/mock_host_resolver.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebContextMenuData.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebContextMenuData.h"
+#include "ui/base/models/menu_model.h"
 #include "webkit/glue/context_menu.h"
 
-using menus::MenuModel;
+using ui::MenuModel;
 using WebKit::WebContextMenuData;
 
 // This test class helps us sidestep platform-specific issues with popping up a
@@ -93,7 +92,7 @@ class TestRenderViewContextMenu : public RenderViewContextMenu {
   // These two functions implement pure virtual methods of
   // RenderViewContextMenu.
   virtual bool GetAcceleratorForCommandId(int command_id,
-                                          menus::Accelerator* accelerator) {
+                                          ui::Accelerator* accelerator) {
     // None of our commands have accelerators, so always return false.
     return false;
   }

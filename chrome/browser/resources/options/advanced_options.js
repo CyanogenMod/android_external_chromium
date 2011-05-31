@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@ var OptionsPage = options.OptionsPage;
   // Encapsulated handling of advanced options page.
   //
   function AdvancedOptions() {
-    OptionsPage.call(this, 'advanced', templateData.advancedPage,
+    OptionsPage.call(this, 'advanced', templateData.advancedPageTabTitle,
                      'advancedPage');
   }
 
@@ -30,13 +30,13 @@ var OptionsPage = options.OptionsPage;
 
       // Set up click handlers for buttons.
       $('privacyContentSettingsButton').onclick = function(event) {
-        OptionsPage.showPageByName('content');
+        OptionsPage.navigateToPage('content');
         OptionsPage.showTab($('cookies-nav-tab'));
         chrome.send('coreOptionsUserMetricsAction',
             ['Options_ContentSettings']);
       };
       $('privacyClearDataButton').onclick = function(event) {
-        OptionsPage.showOverlay('clearBrowserDataOverlay');
+        OptionsPage.navigateToPage('clearBrowserData');
         chrome.send('coreOptionsUserMetricsAction', ['Options_ClearData']);
       };
 
@@ -49,20 +49,24 @@ var OptionsPage = options.OptionsPage;
         };
       }
 
-      $('autoOpenFileTypesResetToDefault').onclick = function(event) {
-        chrome.send('autoOpenFileTypesAction');
-      };
+      if (!cr.isChromeOS) {
+        $('autoOpenFileTypesResetToDefault').onclick = function(event) {
+          chrome.send('autoOpenFileTypesAction');
+        };
+      }
+
       $('fontSettingsCustomizeFontsButton').onclick = function(event) {
-        OptionsPage.showPageByName('fontSettings');
+        OptionsPage.navigateToPage('fontSettings');
         chrome.send('coreOptionsUserMetricsAction', ['Options_FontSettings']);
-      };
-      $('defaultZoomLevel').onchange = function(event) {
-        chrome.send('defaultZoomLevelAction',
-            [String(event.target.options[event.target.selectedIndex].value)]);
       };
       $('defaultFontSize').onchange = function(event) {
         chrome.send('defaultFontSizeAction',
             [String(event.target.options[event.target.selectedIndex].value)]);
+      };
+      $('language-button').onclick = function(event) {
+        OptionsPage.navigateToPage('language');
+        chrome.send('coreOptionsUserMetricsAction',
+            ['Options_LanuageAndSpellCheckSettings']);
       };
 
       if (cr.isWindows || cr.isMac) {
@@ -71,7 +75,7 @@ var OptionsPage = options.OptionsPage;
         };
       } else {
         $('certificatesManageButton').onclick = function(event) {
-          OptionsPage.showPageByName('certificateManager');
+          OptionsPage.navigateToPage('certificateManager');
           OptionsPage.showTab($('personal-certs-nav-tab'));
           chrome.send('coreOptionsUserMetricsAction',
                       ['Options_ManageSSLCertificates']);
@@ -94,7 +98,7 @@ var OptionsPage = options.OptionsPage;
                 'downloadLocationChangeButton');
       } else {
         $('proxiesConfigureButton').onclick = function(event) {
-          OptionsPage.showPageByName('proxy');
+          OptionsPage.navigateToPage('proxy');
           chrome.send('coreOptionsUserMetricsAction',
               ['Options_ShowProxySettings']);
         };
@@ -138,10 +142,15 @@ var OptionsPage = options.OptionsPage;
         };
       }
 
-      $('remotingSetupButton').onclick = function(event) {
-        chrome.send('showRemotingSetupDialog');
+      if ($('remotingSetupButton')) {
+          $('remotingSetupButton').onclick = function(event) {
+              chrome.send('showRemotingSetupDialog');
+          }
+          $('remotingStopButton').onclick = function(event) {
+              chrome.send('disableRemoting');
+          }
       }
-    }
+  }
   };
 
   //
@@ -164,18 +173,6 @@ var OptionsPage = options.OptionsPage;
       $('metricsReportingSetting').style.display = 'none';
     }
   }
-
-  // Set the default zoom level selected item.
-  AdvancedOptions.SetDefaultZoomLevel = function(value) {
-    var selectCtl = $('defaultZoomLevel');
-    for (var i = 0; i < selectCtl.options.length; i++) {
-      if (selectCtl.options[i].value == value) {
-        selectCtl.selectedIndex = i;
-        return;
-      }
-    }
-    selectCtl.selectedIndex = 4;  // 100%
-  };
 
   // Set the font size selected item.
   AdvancedOptions.SetFontSize = function(fixed_font_size_value,
@@ -210,7 +207,14 @@ var OptionsPage = options.OptionsPage;
 
   // Set the enabled state for the autoOpenFileTypesResetToDefault button.
   AdvancedOptions.SetAutoOpenFileTypesDisabledAttribute = function(disabled) {
-    $('autoOpenFileTypesResetToDefault').disabled = disabled;
+    if (!cr.isChromeOS) {
+      $('autoOpenFileTypesResetToDefault').disabled = disabled;
+
+      if (disabled)
+        $('auto-open-file-types-label').classList.add('disabled');
+      else
+        $('auto-open-file-types-label').classList.remove('disabled');
+    }
   };
 
   // Set the enabled state for the proxy settings button.
@@ -239,10 +243,11 @@ var OptionsPage = options.OptionsPage;
   };
 
   // Set the Cloud Print proxy UI to enabled, disabled, or processing.
-  AdvancedOptions.SetupCloudPrintProxySection = function(disabled, label) {
+  AdvancedOptions.SetupCloudPrintProxySection = function(
+        disabled, label, allowed) {
     if (!cr.isChromeOS) {
       $('cloudPrintProxyLabel').textContent = label;
-      if (disabled) {
+      if (disabled || !allowed) {
         $('cloudPrintProxySetupButton').textContent =
           localStrings.getString('cloudPrintProxyDisabledButton');
         $('cloudPrintProxyManageButton').style.display = 'none';
@@ -251,20 +256,33 @@ var OptionsPage = options.OptionsPage;
           localStrings.getString('cloudPrintProxyEnabledButton');
         $('cloudPrintProxyManageButton').style.display = 'inline';
       }
-      $('cloudPrintProxySetupButton').disabled = false;
+      $('cloudPrintProxySetupButton').disabled = !allowed;
     }
   };
 
   AdvancedOptions.RemoveCloudPrintProxySection = function() {
     if (!cr.isChromeOS) {
       var proxySectionElm = $('cloud-print-proxy-section');
-      proxySectionElm.parentNode.removeChild(proxySectionElm);
+      if (proxySectionElm)
+        proxySectionElm.parentNode.removeChild(proxySectionElm);
     }
+  };
+
+  AdvancedOptions.SetRemotingStatus = function(enabled, status) {
+    if (enabled) {
+      $('remotingSetupButton').style.display = 'none';
+      $('remotingStopButton').style.display = 'inline';
+    } else {
+      $('remotingSetupButton').style.display = 'inline';
+      $('remotingStopButton').style.display = 'none';
+    }
+    $('remotingStatus').textContent = status;
   };
 
   AdvancedOptions.RemoveRemotingSection = function() {
     var proxySectionElm = $('remoting-section');
-    proxySectionElm.parentNode.removeChild(proxySectionElm);
+    if (proxySectionElm)
+      proxySectionElm.parentNode.removeChild(proxySectionElm);
   };
 
   // Export

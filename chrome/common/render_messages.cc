@@ -9,21 +9,17 @@
 #include "chrome/common/gpu_param_traits.h"
 #include "chrome/common/render_messages_params.h"
 #include "chrome/common/resource_response.h"
-#include "chrome/common/speech_input_result.h"
 #include "chrome/common/thumbnail_score.h"
 #include "chrome/common/web_apps.h"
-#include "gfx/rect.h"
 #include "ipc/ipc_channel_handle.h"
 #include "media/audio/audio_buffers_state.h"
 #include "net/base/upload_data.h"
 #include "net/http/http_response_headers.h"
-#include "ppapi/c/private/ppb_flash.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebCompositionUnderline.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebCompositionUnderline.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/rect.h"
 #include "webkit/appcache/appcache_interfaces.h"
 #include "webkit/blob/blob_data.h"
-#include "webkit/glue/form_field.h"
-#include "webkit/glue/password_form.h"
 #include "webkit/glue/resource_loader_bridge.h"
 #include "webkit/glue/webaccessibility.h"
 #include "webkit/glue/webcookie.h"
@@ -59,11 +55,17 @@ struct ParamTraits<WebMenuItem::Type> {
       case WebMenuItem::OPTION:
         type = "OPTION";
         break;
+      case WebMenuItem::CHECKABLE_OPTION:
+        type = "CHECKABLE_OPTION";
+        break;
       case WebMenuItem::GROUP:
         type = "GROUP";
         break;
       case WebMenuItem::SEPARATOR:
         type = "SEPARATOR";
+        break;
+      case WebMenuItem::SUBMENU:
+        type = "SUBMENU";
         break;
       default:
         type = "UNKNOWN";
@@ -72,49 +74,6 @@ struct ParamTraits<WebMenuItem::Type> {
     LogParam(type, l);
   }
 };
-
-
-void ParamTraits<webkit_glue::FormField>::Write(Message* m,
-                                                const param_type& p) {
-  WriteParam(m, p.label());
-  WriteParam(m, p.name());
-  WriteParam(m, p.value());
-  WriteParam(m, p.form_control_type());
-  WriteParam(m, p.max_length());
-  WriteParam(m, p.is_autofilled());
-  WriteParam(m, p.option_strings());
-}
-
-bool ParamTraits<webkit_glue::FormField>::Read(const Message* m, void** iter,
-                                               param_type* p) {
-  string16 label, name, value, form_control_type;
-  int max_length = 0;
-  bool is_autofilled;
-  std::vector<string16> options;
-  bool result = ReadParam(m, iter, &label);
-  result = result && ReadParam(m, iter, &name);
-  result = result && ReadParam(m, iter, &value);
-  result = result && ReadParam(m, iter, &form_control_type);
-  result = result && ReadParam(m, iter, &max_length);
-  result = result && ReadParam(m, iter, &is_autofilled);
-  result = result && ReadParam(m, iter, &options);
-  if (!result)
-    return false;
-
-  p->set_label(label);
-  p->set_name(name);
-  p->set_value(value);
-  p->set_form_control_type(form_control_type);
-  p->set_max_length(max_length);
-  p->set_autofilled(is_autofilled);
-  p->set_option_strings(options);
-  return true;
-}
-
-void ParamTraits<webkit_glue::FormField>::Log(const param_type& p,
-                                              std::string* l) {
-  l->append("<FormField>");
-}
 
 #if defined(OS_MACOSX)
 void ParamTraits<FontDescriptor>::Write(Message* m, const param_type& p) {
@@ -125,15 +84,40 @@ void ParamTraits<FontDescriptor>::Write(Message* m, const param_type& p) {
 bool ParamTraits<FontDescriptor>::Read(const Message* m,
                                        void** iter,
                                        param_type* p) {
-  return(
+  return
       ReadParam(m, iter, &p->font_name) &&
-      ReadParam(m, iter, &p->font_point_size));
+      ReadParam(m, iter, &p->font_point_size);
 }
 
 void ParamTraits<FontDescriptor>::Log(const param_type& p, std::string* l) {
   l->append("<FontDescriptor>");
 }
 #endif
+
+void ParamTraits<webkit_glue::CustomContextMenuContext>::Write(
+    Message* m,
+    const param_type& p) {
+  WriteParam(m, p.is_pepper_menu);
+  WriteParam(m, p.request_id);
+}
+
+bool ParamTraits<webkit_glue::CustomContextMenuContext>::Read(const Message* m,
+                                                              void** iter,
+                                                              param_type* p) {
+  return
+      ReadParam(m, iter, &p->is_pepper_menu) &&
+      ReadParam(m, iter, &p->request_id);
+}
+
+void ParamTraits<webkit_glue::CustomContextMenuContext>::Log(
+    const param_type& p,
+    std::string* l) {
+  l->append("(");
+  LogParam(p.is_pepper_menu, l);
+  l->append(", ");
+  LogParam(p.request_id, l);
+  l->append(")");
+}
 
 void ParamTraits<ContextMenuParams>::Write(Message* m, const param_type& p) {
   WriteParam(m, p.media_type);
@@ -159,6 +143,7 @@ void ParamTraits<ContextMenuParams>::Write(Message* m, const param_type& p) {
   WriteParam(m, p.edit_flags);
   WriteParam(m, p.security_info);
   WriteParam(m, p.frame_charset);
+  WriteParam(m, p.custom_context);
   WriteParam(m, p.custom_items);
 }
 
@@ -188,6 +173,7 @@ bool ParamTraits<ContextMenuParams>::Read(const Message* m, void** iter,
       ReadParam(m, iter, &p->edit_flags) &&
       ReadParam(m, iter, &p->security_info) &&
       ReadParam(m, iter, &p->frame_charset) &&
+      ReadParam(m, iter, &p->custom_context) &&
       ReadParam(m, iter, &p->custom_items);
 }
 
@@ -299,26 +285,6 @@ void ParamTraits<webkit::npapi::WebPluginInfo>::Log(const param_type& p,
   l->append(", ");
   LogParam(p.enabled, l);
   l->append(")");
-}
-
-void ParamTraits<webkit_glue::PasswordFormFillData>::Write(
-    Message* m, const param_type& p) {
-  WriteParam(m, p.basic_data);
-  WriteParam(m, p.additional_logins);
-  WriteParam(m, p.wait_for_username);
-}
-
-bool ParamTraits<webkit_glue::PasswordFormFillData>::Read(
-    const Message* m, void** iter, param_type* r) {
-  return
-      ReadParam(m, iter, &r->basic_data) &&
-      ReadParam(m, iter, &r->additional_logins) &&
-      ReadParam(m, iter, &r->wait_for_username);
-}
-
-void ParamTraits<webkit_glue::PasswordFormFillData>::Log(const param_type& p,
-                                                         std::string* l) {
-  l->append("<PasswordFormFillData>");
 }
 
 void ParamTraits<scoped_refptr<net::HttpResponseHeaders> >::Write(
@@ -565,48 +531,22 @@ void ParamTraits<ResourceResponseHead>::Log(const param_type& p,
 }
 
 void ParamTraits<SyncLoadResult>::Write(Message* m, const param_type& p) {
-    ParamTraits<ResourceResponseHead>::Write(m, p);
-    WriteParam(m, p.final_url);
-    WriteParam(m, p.data);
-  }
+  ParamTraits<ResourceResponseHead>::Write(m, p);
+  WriteParam(m, p.final_url);
+  WriteParam(m, p.data);
+}
 
 bool ParamTraits<SyncLoadResult>::Read(const Message* m, void** iter,
                                        param_type* r) {
-    return
-      ParamTraits<ResourceResponseHead>::Read(m, iter, r) &&
-      ReadParam(m, iter, &r->final_url) &&
-      ReadParam(m, iter, &r->data);
-  }
+  return
+    ParamTraits<ResourceResponseHead>::Read(m, iter, r) &&
+    ReadParam(m, iter, &r->final_url) &&
+    ReadParam(m, iter, &r->data);
+}
 
 void ParamTraits<SyncLoadResult>::Log(const param_type& p, std::string* l) {
-    // log more?
-    ParamTraits<webkit_glue::ResourceResponseInfo>::Log(p, l);
-  }
-
-void ParamTraits<webkit_glue::FormData>::Write(Message* m,
-                                               const param_type& p) {
-  WriteParam(m, p.name);
-  WriteParam(m, p.method);
-  WriteParam(m, p.origin);
-  WriteParam(m, p.action);
-  WriteParam(m, p.user_submitted);
-  WriteParam(m, p.fields);
-}
-
-bool ParamTraits<webkit_glue::FormData>::Read(const Message* m, void** iter,
-                                              param_type* p) {
-  return
-      ReadParam(m, iter, &p->name) &&
-      ReadParam(m, iter, &p->method) &&
-      ReadParam(m, iter, &p->origin) &&
-      ReadParam(m, iter, &p->action) &&
-      ReadParam(m, iter, &p->user_submitted) &&
-      ReadParam(m, iter, &p->fields);
-}
-
-void ParamTraits<webkit_glue::FormData>::Log(const param_type& p,
-                                             std::string* l) {
-  l->append("<FormData>");
+  // log more?
+  ParamTraits<webkit_glue::ResourceResponseInfo>::Log(p, l);
 }
 
 void ParamTraits<RendererPreferences>::Write(Message* m, const param_type& p) {
@@ -724,13 +664,17 @@ void ParamTraits<WebPreferences>::Write(Message* m, const param_type& p) {
   WriteParam(m, p.frame_flattening_enabled);
   WriteParam(m, p.allow_universal_access_from_file_urls);
   WriteParam(m, p.allow_file_access_from_file_urls);
+  WriteParam(m, p.webaudio_enabled);
   WriteParam(m, p.experimental_webgl_enabled);
+  WriteParam(m, p.gl_multisampling_enabled);
   WriteParam(m, p.show_composited_layer_borders);
   WriteParam(m, p.accelerated_compositing_enabled);
   WriteParam(m, p.accelerated_2d_canvas_enabled);
+  WriteParam(m, p.accelerated_plugins_enabled);
   WriteParam(m, p.accelerated_layers_enabled);
   WriteParam(m, p.accelerated_video_enabled);
   WriteParam(m, p.memory_info_enabled);
+  WriteParam(m, p.interactive_form_validation_enabled);
 }
 
 bool ParamTraits<WebPreferences>::Read(const Message* m, void** iter,
@@ -776,13 +720,17 @@ bool ParamTraits<WebPreferences>::Read(const Message* m, void** iter,
       ReadParam(m, iter, &p->frame_flattening_enabled) &&
       ReadParam(m, iter, &p->allow_universal_access_from_file_urls) &&
       ReadParam(m, iter, &p->allow_file_access_from_file_urls) &&
+      ReadParam(m, iter, &p->webaudio_enabled) &&
       ReadParam(m, iter, &p->experimental_webgl_enabled) &&
+      ReadParam(m, iter, &p->gl_multisampling_enabled) &&
       ReadParam(m, iter, &p->show_composited_layer_borders) &&
       ReadParam(m, iter, &p->accelerated_compositing_enabled) &&
       ReadParam(m, iter, &p->accelerated_2d_canvas_enabled) &&
+      ReadParam(m, iter, &p->accelerated_plugins_enabled) &&
       ReadParam(m, iter, &p->accelerated_layers_enabled) &&
       ReadParam(m, iter, &p->accelerated_video_enabled) &&
-      ReadParam(m, iter, &p->memory_info_enabled);
+      ReadParam(m, iter, &p->memory_info_enabled) &&
+      ReadParam(m, iter, &p->interactive_form_validation_enabled);
 }
 
 void ParamTraits<WebPreferences>::Log(const param_type& p, std::string* l) {
@@ -826,9 +774,12 @@ void ParamTraits<WebDropData>::Log(const param_type& p, std::string* l) {
 void ParamTraits<WebMenuItem>::Write(Message* m, const param_type& p) {
   WriteParam(m, p.label);
   WriteParam(m, p.type);
+  WriteParam(m, p.action);
+  WriteParam(m, p.rtl);
+  WriteParam(m, p.has_directional_override);
   WriteParam(m, p.enabled);
   WriteParam(m, p.checked);
-  WriteParam(m, p.action);
+  WriteParam(m, p.submenu);
 }
 
 bool ParamTraits<WebMenuItem>::Read(const Message* m,
@@ -837,9 +788,12 @@ bool ParamTraits<WebMenuItem>::Read(const Message* m,
   return
       ReadParam(m, iter, &p->label) &&
       ReadParam(m, iter, &p->type) &&
+      ReadParam(m, iter, &p->action) &&
+      ReadParam(m, iter, &p->rtl) &&
+      ReadParam(m, iter, &p->has_directional_override) &&
       ReadParam(m, iter, &p->enabled) &&
       ReadParam(m, iter, &p->checked) &&
-      ReadParam(m, iter, &p->action);
+      ReadParam(m, iter, &p->submenu);
 }
 
 void ParamTraits<WebMenuItem>::Log(const param_type& p, std::string* l) {
@@ -848,11 +802,17 @@ void ParamTraits<WebMenuItem>::Log(const param_type& p, std::string* l) {
   l->append(", ");
   LogParam(p.type, l);
   l->append(", ");
+  LogParam(p.action, l);
+  l->append(", ");
+  LogParam(p.rtl, l);
+  l->append(", ");
+  LogParam(p.has_directional_override, l);
+  l->append(", ");
   LogParam(p.enabled, l);
   l->append(", ");
   LogParam(p.checked, l);
   l->append(", ");
-  LogParam(p.action, l);
+  LogParam(p.submenu, l);
   l->append(")");
 }
 
@@ -1214,57 +1174,6 @@ void ParamTraits<AudioBuffersState>::Log(const param_type& p, std::string* l) {
   l->append(", ");
   LogParam(p.timestamp, l);
   l->append(")");
-}
-
-void ParamTraits<speech_input::SpeechInputResultItem>::Write(
-    Message* m, const param_type& p) {
-  WriteParam(m, p.utterance);
-  WriteParam(m, p.confidence);
-}
-
-bool ParamTraits<speech_input::SpeechInputResultItem>::Read(const Message* m,
-                                                            void** iter,
-                                                            param_type* p) {
-  return ReadParam(m, iter, &p->utterance) &&
-         ReadParam(m, iter, &p->confidence);
-}
-
-void ParamTraits<speech_input::SpeechInputResultItem>::Log(const param_type& p,
-                                                           std::string* l) {
-  l->append("(");
-  LogParam(p.utterance, l);
-  l->append(":");
-  LogParam(p.confidence, l);
-  l->append(")");
-}
-
-void ParamTraits<PP_Flash_NetAddress>::Write(Message* m, const param_type& p) {
-  WriteParam(m, p.size);
-  m->WriteBytes(p.data, p.size);
-}
-
-bool ParamTraits<PP_Flash_NetAddress>::Read(const Message* m,
-                                            void** iter,
-                                            param_type* p) {
-  uint16 size;
-  if (!ReadParam(m, iter, &size))
-    return false;
-  if (size > sizeof(p->data))
-    return false;
-  p->size = size;
-
-  const char* data;
-  if (!m->ReadBytes(iter, &data, size))
-    return false;
-  memcpy(p->data, data, size);
-  return true;
-}
-
-void ParamTraits<PP_Flash_NetAddress>::Log(const param_type& p,
-                                           std::string* l) {
-  l->append("<PP_Flash_NetAddress (");
-  LogParam(p.size, l);
-  l->append(" bytes)>");
 }
 
 }  // namespace IPC

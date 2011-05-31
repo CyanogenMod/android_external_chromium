@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/options/cookie_filter_page_view.h"
+#include "chrome/browser/ui/views/options/cookie_filter_page_view.h"
 
-#include "app/l10n_util.h"
 #include "chrome/browser/content_settings/host_content_settings_map.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/options/show_options_url.h"
@@ -12,9 +11,10 @@
 #include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "views/controls/button/checkbox.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 
 CookieFilterPageView::CookieFilterPageView(Profile* profile)
     : ContentFilterPageView(profile, CONTENT_SETTINGS_TYPE_COOKIES),
@@ -40,7 +40,7 @@ void CookieFilterPageView::InitControlLayout() {
 
   GridLayout* layout = static_cast<GridLayout*>(GetLayoutManager());
   const int single_column_set_id = 0;
-  layout->AddPaddingRow(0, kUnrelatedControlLargeVerticalSpacing);
+  layout->AddPaddingRow(0, views::kUnrelatedControlLargeVerticalSpacing);
 
   block_3rdparty_check_ = new views::Checkbox(UTF16ToWide(
       l10n_util::GetStringUTF16(IDS_COOKIES_BLOCK_3RDPARTY_CHKBOX)));
@@ -48,7 +48,7 @@ void CookieFilterPageView::InitControlLayout() {
 
   layout->StartRow(0, single_column_set_id);
   layout->AddView(block_3rdparty_check_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   // Now that this has been added to the view hierarchy, it's safe to call
   // SetChecked() on it.
@@ -62,7 +62,7 @@ void CookieFilterPageView::InitControlLayout() {
 
   layout->StartRow(0, single_column_set_id);
   layout->AddView(clear_on_close_check_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   show_cookies_button_ = new views::NativeButton(this,
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_COOKIES_SHOW_COOKIES_BUTTON)));
@@ -70,7 +70,7 @@ void CookieFilterPageView::InitControlLayout() {
   layout->StartRow(0, single_column_set_id);
   layout->AddView(show_cookies_button_, 1, 1, GridLayout::LEADING,
                   GridLayout::FILL);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   views::Link* flash_settings_link = new views::Link(
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_FLASH_STORAGE_SETTINGS)));

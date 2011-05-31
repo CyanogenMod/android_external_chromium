@@ -6,7 +6,6 @@
 
 #include <string>
 
-#include "app/clipboard/scoped_clipboard_writer.h"
 #include "base/basictypes.h"
 #include "base/pickle.h"
 #include "base/string_util.h"
@@ -15,6 +14,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
 #include "net/base/escape.h"
+#include "ui/base/clipboard/scoped_clipboard_writer.h"
 
 #if defined(OS_MACOSX)
 #include "chrome/browser/bookmarks/bookmark_pasteboard_helper_mac.h"
@@ -81,13 +81,13 @@ bool BookmarkNodeData::Element::ReadFromPickle(Pickle* pickle,
 
 #if defined(TOOLKIT_VIEWS)
 // static
-OSExchangeData::CustomFormat BookmarkNodeData::GetBookmarkCustomFormat() {
-  static OSExchangeData::CustomFormat format;
+ui::OSExchangeData::CustomFormat BookmarkNodeData::GetBookmarkCustomFormat() {
+  static ui::OSExchangeData::CustomFormat format;
   static bool format_valid = false;
 
   if (!format_valid) {
     format_valid = true;
-    format = OSExchangeData::RegisterCustomFormat(
+    format = ui::OSExchangeData::RegisterCustomFormat(
         BookmarkNodeData::kClipboardFormatString);
   }
   return format;
@@ -140,7 +140,7 @@ bool BookmarkNodeData::ReadFromTuple(const GURL& url, const string16& title) {
 
 #if !defined(OS_MACOSX)
 void BookmarkNodeData::WriteToClipboard(Profile* profile) const {
-  ScopedClipboardWriter scw(g_browser_process->clipboard());
+  ui::ScopedClipboardWriter scw(g_browser_process->clipboard());
 
   // If there is only one element and it is a URL, write the URL to the
   // clipboard.
@@ -166,7 +166,7 @@ void BookmarkNodeData::WriteToClipboard(Profile* profile) const {
 
 bool BookmarkNodeData::ReadFromClipboard() {
   std::string data;
-  Clipboard* clipboard = g_browser_process->clipboard();
+  ui::Clipboard* clipboard = g_browser_process->clipboard();
   clipboard->ReadData(kClipboardFormatString, &data);
 
   if (!data.empty()) {
@@ -194,7 +194,7 @@ bool BookmarkNodeData::ReadFromClipboard() {
 
 bool BookmarkNodeData::ClipboardContainsBookmarks() {
   return g_browser_process->clipboard()->IsFormatAvailableByString(
-      BookmarkNodeData::kClipboardFormatString, Clipboard::BUFFER_STANDARD);
+      BookmarkNodeData::kClipboardFormatString, ui::Clipboard::BUFFER_STANDARD);
 }
 #else
 void BookmarkNodeData::WriteToClipboard(Profile* profile) const {
@@ -217,7 +217,7 @@ bool BookmarkNodeData::ClipboardContainsBookmarks() {
 #endif  // !defined(OS_MACOSX)
 
 #if defined(TOOLKIT_VIEWS)
-void BookmarkNodeData::Write(Profile* profile, OSExchangeData* data) const {
+void BookmarkNodeData::Write(Profile* profile, ui::OSExchangeData* data) const {
   DCHECK(data);
 
   // If there is only one element and it is a URL, write the URL to the
@@ -236,7 +236,7 @@ void BookmarkNodeData::Write(Profile* profile, OSExchangeData* data) const {
   data->SetPickledData(GetBookmarkCustomFormat(), data_pickle);
 }
 
-bool BookmarkNodeData::Read(const OSExchangeData& data) {
+bool BookmarkNodeData::Read(const ui::OSExchangeData& data) {
   elements.clear();
 
   profile_path_.clear();

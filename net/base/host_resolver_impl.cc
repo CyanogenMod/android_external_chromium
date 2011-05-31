@@ -18,12 +18,12 @@
 #include "base/compiler_specific.h"
 #include "base/debug/debugger.h"
 #include "base/debug/stack_trace.h"
-#include "base/lock.h"
 #include "base/message_loop.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
+#include "base/synchronization/lock.h"
 #include "base/threading/worker_pool.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
@@ -408,7 +408,7 @@ class HostResolverImpl::Job
     // Mark the job as cancelled, so when worker thread completes it will
     // not try to post completion to origin loop.
     {
-      AutoLock locked(origin_loop_lock_);
+      base::AutoLock locked(origin_loop_lock_);
       origin_loop_ = NULL;
     }
 
@@ -485,7 +485,7 @@ class HostResolverImpl::Job
     // The origin loop could go away while we are trying to post to it, so we
     // need to call its PostTask method inside a lock.  See ~HostResolver.
     {
-      AutoLock locked(origin_loop_lock_);
+      base::AutoLock locked(origin_loop_lock_);
       if (origin_loop_) {
         origin_loop_->PostTask(FROM_HERE,
                                NewRunnableMethod(this, &Job::OnLookupComplete));
@@ -606,7 +606,7 @@ class HostResolverImpl::Job
   RequestsList requests_;  // The requests waiting on this job.
 
   // Used to post ourselves onto the origin thread.
-  Lock origin_loop_lock_;
+  base::Lock origin_loop_lock_;
   MessageLoop* origin_loop_;
 
   // Hold an owning reference to the HostResolverProc that we are going to use.
@@ -664,7 +664,7 @@ class HostResolverImpl::IPv6ProbeJob
     DCHECK(IsOnOriginThread());
     resolver_ = NULL;  // Read/write ONLY on origin thread.
     {
-      AutoLock locked(origin_loop_lock_);
+      base::AutoLock locked(origin_loop_lock_);
       // Origin loop may be destroyed before we can use it!
       origin_loop_ = NULL;  // Write ONLY on origin thread.
     }
@@ -698,7 +698,7 @@ class HostResolverImpl::IPv6ProbeJob
     // The origin loop could go away while we are trying to post to it, so we
     // need to call its PostTask method inside a lock.  See ~HostResolver.
     {
-      AutoLock locked(origin_loop_lock_);
+      base::AutoLock locked(origin_loop_lock_);
       if (origin_loop_) {
         origin_loop_->PostTask(FROM_HERE, reply);
         return;
@@ -725,7 +725,7 @@ class HostResolverImpl::IPv6ProbeJob
   HostResolverImpl* resolver_;
 
   // Used to post ourselves onto the origin thread.
-  Lock origin_loop_lock_;
+  base::Lock origin_loop_lock_;
   MessageLoop* origin_loop_;
 
   DISALLOW_COPY_AND_ASSIGN(IPv6ProbeJob);
@@ -947,6 +947,24 @@ HostResolverImpl::~HostResolverImpl() {
     delete job_pools_[i];
 }
 
+void HostResolverImpl::ProbeIPv6Support() {
+  DCHECK(CalledOnValidThread());
+  DCHECK(!ipv6_probe_monitoring_);
+  ipv6_probe_monitoring_ = true;
+  OnIPAddressChanged();  // Give initial setup call.
+}
+
+void HostResolverImpl::SetPoolConstraints(JobPoolIndex pool_index,
+                                          size_t max_outstanding_jobs,
+                                          size_t max_pending_requests) {
+  DCHECK(CalledOnValidThread());
+  CHECK_GE(pool_index, 0);
+  CHECK_LT(pool_index, POOL_COUNT);
+  CHECK(jobs_.empty()) << "Can only set constraints during setup";
+  JobPool* pool = job_pools_[pool_index];
+  pool->SetConstraints(max_outstanding_jobs, max_pending_requests);
+}
+
 int HostResolverImpl::Resolve(const RequestInfo& info,
                               AddressList* addresses,
                               CompletionCallback* callback,
@@ -1128,13 +1146,6 @@ AddressFamily HostResolverImpl::GetDefaultAddressFamily() const {
   return default_address_family_;
 }
 
-void HostResolverImpl::ProbeIPv6Support() {
-  DCHECK(CalledOnValidThread());
-  DCHECK(!ipv6_probe_monitoring_);
-  ipv6_probe_monitoring_ = true;
-  OnIPAddressChanged();  // Give initial setup call.
-}
-
 HostResolverImpl* HostResolverImpl::GetAsHostResolverImpl() {
   return this;
 }
@@ -1147,17 +1158,6 @@ void HostResolverImpl::Shutdown() {
   DiscardIPv6ProbeJob();
 
   shutdown_ = true;
-}
-
-void HostResolverImpl::SetPoolConstraints(JobPoolIndex pool_index,
-                                          size_t max_outstanding_jobs,
-                                          size_t max_pending_requests) {
-  DCHECK(CalledOnValidThread());
-  CHECK_GE(pool_index, 0);
-  CHECK_LT(pool_index, POOL_COUNT);
-  CHECK(jobs_.empty()) << "Can only set constraints during setup";
-  JobPool* pool = job_pools_[pool_index];
-  pool->SetConstraints(max_outstanding_jobs, max_pending_requests);
 }
 
 void HostResolverImpl::AddOutstandingJob(Job* job) {
@@ -1308,28 +1308,6 @@ void HostResolverImpl::OnCancelRequest(const BoundNetLog& source_net_log,
   source_net_log.EndEvent(NetLog::TYPE_HOST_RESOLVER_IMPL, NULL);
 }
 
-void HostResolverImpl::OnIPAddressChanged() {
-  if (cache_.get())
-    cache_->clear();
-  if (ipv6_probe_monitoring_) {
-    DCHECK(!shutdown_);
-    if (shutdown_)
-      return;
-    DiscardIPv6ProbeJob();
-    ipv6_probe_job_ = new IPv6ProbeJob(this);
-    ipv6_probe_job_->Start();
-  }
-#if defined(OS_LINUX)
-  if (HaveOnlyLoopbackAddresses()) {
-    additional_resolver_flags_ |= HOST_RESOLVER_LOOPBACK_ONLY;
-  } else {
-    additional_resolver_flags_ &= ~HOST_RESOLVER_LOOPBACK_ONLY;
-  }
-#endif
-  AbortAllInProgressJobs();
-  // |this| may be deleted inside AbortAllInProgressJobs().
-}
-
 void HostResolverImpl::DiscardIPv6ProbeJob() {
   if (ipv6_probe_job_.get()) {
     ipv6_probe_job_->Cancel();
@@ -1351,12 +1329,6 @@ void HostResolverImpl::IPv6ProbeSetDefaultAddressFamily(
   DiscardIPv6ProbeJob();
 }
 
-// static
-HostResolverImpl::JobPoolIndex HostResolverImpl::GetJobPoolIndexForRequest(
-    const Request* req) {
-  return POOL_NORMAL;
-}
-
 bool HostResolverImpl::CanCreateJobForPool(const JobPool& pool) const {
   DCHECK_LE(jobs_.size(), max_jobs_);
 
@@ -1366,6 +1338,12 @@ bool HostResolverImpl::CanCreateJobForPool(const JobPool& pool) const {
 
   // Check whether the pool's constraints are met.
   return pool.CanCreateJob();
+}
+
+// static
+HostResolverImpl::JobPoolIndex HostResolverImpl::GetJobPoolIndexForRequest(
+    const Request* req) {
+  return POOL_NORMAL;
 }
 
 void HostResolverImpl::ProcessQueuedRequests() {
@@ -1459,6 +1437,28 @@ void HostResolverImpl::AbortAllInProgressJobs() {
     AbortJob(it->second);
     it->second->Cancel();
   }
+}
+
+void HostResolverImpl::OnIPAddressChanged() {
+  if (cache_.get())
+    cache_->clear();
+  if (ipv6_probe_monitoring_) {
+    DCHECK(!shutdown_);
+    if (shutdown_)
+      return;
+    DiscardIPv6ProbeJob();
+    ipv6_probe_job_ = new IPv6ProbeJob(this);
+    ipv6_probe_job_->Start();
+  }
+#if defined(OS_LINUX)
+  if (HaveOnlyLoopbackAddresses()) {
+    additional_resolver_flags_ |= HOST_RESOLVER_LOOPBACK_ONLY;
+  } else {
+    additional_resolver_flags_ &= ~HOST_RESOLVER_LOOPBACK_ONLY;
+  }
+#endif
+  AbortAllInProgressJobs();
+  // |this| may be deleted inside AbortAllInProgressJobs().
 }
 
 }  // namespace net

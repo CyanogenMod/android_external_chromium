@@ -1,9 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/extension_apitest.h"
 
+#include "chrome/browser/browser_window.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -23,8 +24,20 @@
 #define MAYBE_Tabs Tabs
 #endif
 
+// Window resizes are not completed by the time the callback happens,
+// so these tests fail on linux. http://crbug.com/72369
+#if defined(OS_LINUX)
+#define MAYBE_FocusWindowDoesNotExitFullscreen \
+  DISABLED_FocusWindowDoesNotExitFullscreen
+#define MAYBE_UpdateWindowSizeExitsFullscreen \
+  DISABLED_UpdateWindowSizeExitsFullscreen
+#else
+#define MAYBE_FocusWindowDoesNotExitFullscreen FocusWindowDoesNotExitFullscreen
+#define MAYBE_UpdateWindowSizeExitsFullscreen UpdateWindowSizeExitsFullscreen
+#endif
+
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MAYBE_Tabs) {
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(StartTestServer());
 
   // The test creates a tab and checks that the URL of the new tab
   // is that of the new tab page.  Make sure the pref that controls
@@ -36,22 +49,22 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MAYBE_Tabs) {
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, TabPinned) {
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(StartTestServer());
   ASSERT_TRUE(RunExtensionSubtest("tabs/basics", "pinned.html")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, TabMove) {
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(StartTestServer());
   ASSERT_TRUE(RunExtensionSubtest("tabs/basics", "move.html")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, TabEvents) {
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(StartTestServer());
   ASSERT_TRUE(RunExtensionSubtest("tabs/basics", "events.html")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, TabRelativeURLs) {
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(StartTestServer());
   ASSERT_TRUE(RunExtensionSubtest("tabs/basics", "relative_urls.html"))
       << message_;
 }
@@ -86,4 +99,38 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, CaptureVisibleTabPng) {
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, TabsOnUpdated) {
   ASSERT_TRUE(StartTestServer());
   ASSERT_TRUE(RunExtensionTest("tabs/on_updated")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest,
+                       MAYBE_FocusWindowDoesNotExitFullscreen) {
+  browser()->window()->SetFullscreen(true);
+  bool is_fullscreen = browser()->window()->IsFullscreen();
+  ASSERT_TRUE(RunExtensionTest("window_update/focus")) << message_;
+  ASSERT_EQ(is_fullscreen, browser()->window()->IsFullscreen());
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest,
+                       MAYBE_UpdateWindowSizeExitsFullscreen) {
+  browser()->window()->SetFullscreen(true);
+  ASSERT_TRUE(RunExtensionTest("window_update/sizing")) << message_;
+  ASSERT_FALSE(browser()->window()->IsFullscreen());
+}
+
+#if defined(OS_WIN)
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, FocusWindowDoesNotUnmaximize) {
+  gfx::NativeWindow window = browser()->window()->GetNativeHandle();
+  ::SendMessage(window, WM_SYSCOMMAND, SC_MAXIMIZE, 0);
+  ASSERT_TRUE(RunExtensionTest("window_update/focus")) << message_;
+  ASSERT_TRUE(::IsZoomed(window));
+}
+#endif  // OS_WIN
+
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, IncognitoDisabledByPref) {
+  ASSERT_TRUE(StartTestServer());
+
+  browser()->profile()->GetPrefs()->SetBoolean(prefs::kIncognitoEnabled, false);
+
+  // This makes sure that creating an incognito window fails due to pref
+  // (policy) being set.
+  ASSERT_TRUE(RunExtensionTest("tabs/incognito_disabled")) << message_;
 }

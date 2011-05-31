@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,10 +15,9 @@
 #include "chrome/browser/automation/automation_resource_message_filter.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
-#include "chrome/browser/ui/browser.h"
-#include "chrome/browser/views/frame/browser_bubble_host.h"
-#include "chrome/browser/views/infobars/infobar_container.h"
-#include "chrome/browser/views/unhandled_keyboard_event_handler.h"
+#include "chrome/browser/ui/views/frame/browser_bubble_host.h"
+#include "chrome/browser/ui/views/infobars/infobar_container.h"
+#include "chrome/browser/ui/views/unhandled_keyboard_event_handler.h"
 #include "chrome/common/navigation_types.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
@@ -26,19 +25,21 @@
 #include "views/widget/widget_win.h"
 
 class AutomationProvider;
+class Browser;
 class Profile;
 class TabContentsContainer;
+class TabContentsWrapper;
 class RenderViewContextMenuViews;
 struct NavigationInfo;
 
-namespace app {
+namespace ui {
 class ViewProp;
 }
 
 // This class serves as the container window for an external tab.
 // An external tab is a Chrome tab that is meant to displayed in an
 // external process. This class provides the FocusManger needed by the
-// TabContents as well as an implementation of TabContentsDelagate.
+// TabContents as well as an implementation of TabContentsDelegate.
 class ExternalTabContainer : public TabContentsDelegate,
                              public NotificationObserver,
                              public views::WidgetWin,
@@ -52,7 +53,7 @@ class ExternalTabContainer : public TabContentsDelegate,
   ExternalTabContainer(AutomationProvider* automation,
       AutomationResourceMessageFilter* filter);
 
-  TabContents* tab_contents() const { return tab_contents_; }
+  TabContents* tab_contents() const;
 
   // Temporary hack so we can send notifications back
   void SetTabHandle(int handle);
@@ -67,7 +68,7 @@ class ExternalTabContainer : public TabContentsDelegate,
             DWORD style,
             bool load_requests_via_automation,
             bool handle_top_level_requests,
-            TabContents* existing_tab_contents,
+            TabContentsWrapper* existing_tab_contents,
             const GURL& initial_url,
             const GURL& referrer,
             bool infobars_enabled,
@@ -126,7 +127,6 @@ class ExternalTabContainer : public TabContentsDelegate,
   virtual void LoadingStateChanged(TabContents* source);
   virtual void CloseContents(TabContents* source);
   virtual void MoveContents(TabContents* source, const gfx::Rect& pos);
-  virtual void URLStarredChanged(TabContents* source, bool starred);
   virtual void UpdateTargetURL(TabContents* source, const GURL& url);
   virtual void ContentsZoomChange(bool zoom_in);
   virtual void ToolbarSizeChanged(TabContents* source, bool is_animating);
@@ -207,7 +207,7 @@ class ExternalTabContainer : public TabContentsDelegate,
   }
 
   // InfoBarContainer::Delegate overrides
-  virtual void InfoBarSizeChanged(bool is_animating);
+  virtual void InfoBarContainerSizeChanged(bool is_animating);
 
   virtual void TabContentsCreated(TabContents* new_contents);
 
@@ -266,7 +266,7 @@ class ExternalTabContainer : public TabContentsDelegate,
   // Creates and initializes the view hierarchy for this ExternalTabContainer.
   void SetupExternalTabView();
 
-  TabContents* tab_contents_;
+  scoped_ptr<TabContentsWrapper> tab_contents_;
   scoped_refptr<AutomationProvider> automation_;
 
   NotificationRegistrar registrar_;
@@ -336,7 +336,7 @@ class ExternalTabContainer : public TabContentsDelegate,
   // page without chrome frame.
   bool route_all_top_level_navigations_;
 
-  scoped_ptr<app::ViewProp> prop_;
+  scoped_ptr<ui::ViewProp> prop_;
 
   DISALLOW_COPY_AND_ASSIGN(ExternalTabContainer);
 };

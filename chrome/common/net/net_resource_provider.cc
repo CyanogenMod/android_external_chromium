@@ -6,14 +6,14 @@
 
 #include <string>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/string_piece.h"
 #include "base/values.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/net_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 namespace {
 

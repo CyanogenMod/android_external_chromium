@@ -7,12 +7,15 @@
 #include "base/logging.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/login/rounded_view.h"
-#include "gfx/canvas.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/rect.h"
+#include "grit/generated_resources.h"
 #include "third_party/skia/include/core/SkColorShader.h"
 #include "third_party/skia/include/core/SkComposeShader.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/gtk_util.h"
+#include "ui/gfx/rect.h"
 
 namespace chromeos {
 
@@ -31,13 +34,13 @@ template<typename C>
 class HalfRoundedView : public RoundedView<C> {
  public:
   HalfRoundedView(const std::wstring &text, bool use_small_shape)
-      : RoundedView<C>(text), use_small_shape_(use_small_shape) {
+      : RoundedView<C>(text, use_small_shape) {
   }
 
  protected:
   // Overrides ViewFilter.
   virtual SkPath GetClipPath() const {
-    if (!use_small_shape_) {
+    if (!C::use_small_shape()) {
       return RoundedView<C>::GetClipPath();
     } else {
       SkPath path;
@@ -66,32 +69,37 @@ class HalfRoundedView : public RoundedView<C> {
                    this->y() + this->height());
     return view_rect;
   }
-
- private:
-  // Whether the shape for the smaller view should be used.
-  bool use_small_shape_;
 };
 
 }  // namespace
-UsernameView::UsernameView(const std::wstring& username)
-    : views::Label(username) {
+
+UsernameView::UsernameView(const std::wstring& username, bool use_small_shape)
+    : views::Label(username.empty()
+          ? UTF16ToWide(l10n_util::GetStringUTF16(IDS_GUEST)) : username),
+      use_small_shape_(use_small_shape),
+      is_guest_(username.empty()) {
 }
 
 void UsernameView::Paint(gfx::Canvas* canvas) {
-  gfx::Rect bounds = GetLocalBounds(false);
-  if (!text_image_.get())
+  gfx::Rect bounds = GetContentsBounds();
+  if (text_image_ == NULL)
     PaintUsername(bounds);
+  DCHECK(text_image_ != NULL);
   DCHECK(bounds.size() ==
          gfx::Size(text_image_->width(), text_image_->height()));
-
   canvas->DrawBitmapInt(*text_image_, bounds.x(), bounds.y());
 }
 
 // static
 UsernameView* UsernameView::CreateShapedUsernameView(
-    const std::wstring& username,
-    bool use_small_shape) {
+    const std::wstring& username, bool use_small_shape) {
   return new HalfRoundedView<UsernameView>(username, use_small_shape);
+}
+
+gfx::NativeCursor UsernameView::GetCursorForPoint(
+    ui::EventType event_type,
+    const gfx::Point& p) {
+  return use_small_shape_ ? gfx::GetCursor(GDK_HAND2) : NULL;
 }
 
 void UsernameView::PaintUsername(const gfx::Rect& bounds) {
@@ -150,15 +158,15 @@ void UsernameView::PaintUsername(const gfx::Rect& bounds) {
   // Note, direct call of the DrawStringInt method produces the green dots
   // along the text perimeter (when the label is place on the white background).
   SkColor kInvisibleHaloColor = 0x00000000;
-  canvas.DrawStringWithHalo(GetText(), font(), GetColor(), kInvisibleHaloColor,
-                            bounds.x() + margin_width_, bounds.y(),
-                            bounds.width() - 2 * margin_width_, bounds.height(),
-                            flags);
+  canvas.DrawStringWithHalo(WideToUTF16Hack(GetText()), font(), GetColor(),
+                            kInvisibleHaloColor, bounds.x() + margin_width_,
+                            bounds.y(), bounds.width() - 2 * margin_width_,
+                            bounds.height(), flags);
 
   text_image_.reset(new SkBitmap(canvas.ExtractBitmap()));
 
   if (use_fading_for_text) {
-    // Fade out only the text in the end. Use regualar background.
+    // Fade out only the text in the end. Use regular background.
     canvas.drawColor(kLabelBackgoundColor, SkXfermode::kSrc_Mode);
     SkShader* image_shader = SkShader::CreateBitmapShader(
         *text_image_,
@@ -174,6 +182,14 @@ void UsernameView::PaintUsername(const gfx::Rect& bounds) {
     paint.setShader(composite_shader)->unref();
     canvas.drawPaint(paint);
     text_image_.reset(new SkBitmap(canvas.ExtractBitmap()));
+  }
+}
+
+void UsernameView::OnLocaleChanged() {
+  if (is_guest_) {
+    SetText(UTF16ToWide(l10n_util::GetStringUTF16(IDS_GUEST)));
+    text_image_.reset();
+    SchedulePaint();
   }
 }
 

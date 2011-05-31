@@ -17,6 +17,8 @@
 #include "base/logging.h"
 #include "base/time.h"
 
+class ListValue;
+
 namespace sync_pb {
 class EntitySpecifics;
 class SyncEntity;
@@ -93,6 +95,14 @@ ModelType GetModelType(const sync_pb::SyncEntity& sync_entity);
 // prefer using GetModelType where possible.
 ModelType GetModelTypeFromSpecifics(const sync_pb::EntitySpecifics& specifics);
 
+// Determine a model type from the field number of its associated
+// EntitySpecifics extension.
+ModelType GetModelTypeFromExtensionFieldNumber(int field_number);
+
+// Return the field number of the EntitySpecifics extension associated with
+// a model type.
+int GetExtensionFieldNumberFromModelType(ModelType model_type);
+
 // Returns a string that represents the name of |model_type|.
 std::string ModelTypeToString(ModelType model_type);
 
@@ -104,6 +114,9 @@ ModelType ModelTypeFromString(const std::string& model_type_string);
 bool ModelTypeBitSetFromString(
     const std::string& model_type_bitset_string,
     ModelTypeBitSet* model_types);
+
+// Caller takes ownership of returned list.
+ListValue* ModelTypeBitSetToValue(const ModelTypeBitSet& model_types);
 
 // Posts timedeltas to histogram of datatypes. Allows tracking of the frequency
 // at which datatypes cause syncs.

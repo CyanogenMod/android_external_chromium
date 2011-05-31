@@ -11,7 +11,6 @@
 
 // TODO(erg): This list has been temporarily annotated by erg while doing work
 // on which headers to pull out.
-#include "app/clipboard/clipboard.h"                   // enum
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
 #include "base/string16.h"
@@ -23,6 +22,7 @@
 #include "chrome/common/webkit_param_traits.h"
 #include "ipc/ipc_message_utils.h"
 #include "ipc/ipc_platform_file.h"                     // ifdefed typedef.
+#include "ui/base/clipboard/clipboard.h"                   // enum
 #include "webkit/appcache/appcache_interfaces.h"  // enum appcache::Status
 #include "webkit/fileapi/file_system_types.h"  // enum fileapi::FileSystemType
 
@@ -48,14 +48,8 @@ namespace webkit_blob {
 class BlobData;
 }
 
-namespace speech_input {
-struct SpeechInputResultItem;
-}
-
 namespace webkit_glue {
-struct FormData;
-class FormField;
-struct PasswordFormFillData;
+struct CustomContextMenuContext;
 struct ResourceDevToolsInfo;
 struct ResourceLoadTimingInfo;
 struct ResourceResponseInfo;
@@ -111,8 +105,7 @@ struct ViewHostMsg_ShowNotification_Params;
 struct ViewMsg_New_Params;
 struct ViewHostMsg_CreateWindow_Params;
 struct ViewHostMsg_RunFileChooser_Params;
-struct ViewMsg_ExtensionRendererInfo;
-struct ViewMsg_ExtensionsUpdated_Params;
+struct ViewMsg_ExtensionLoaded_Params;
 struct ViewMsg_DeviceOrientationUpdated_Params;
 struct ViewHostMsg_DomMessage_Params;
 struct ViewHostMsg_AccessibilityNotification_Params;
@@ -126,16 +119,19 @@ enum ViewHostMsg_EnablePreferredSizeChangedMode_Flags {
   kPreferredSizeHeightThisIsSlow = 1 << 1,
 };
 
-namespace IPC {
-
-// Traits for FormField_Params structure to pack/unpack.
-template <>
-struct ParamTraits<webkit_glue::FormField> {
-  typedef webkit_glue::FormField param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, void** iter, param_type* p);
-  static void Log(const param_type& p, std::string* l);
+// Command values for the cmd parameter of the
+// ViewHost_JavaScriptStressTestControl message. For each command the parameter
+// passed has a different meaning:
+// For the command kJavaScriptStressTestSetStressRunType the parameter it the
+// type taken from the enumeration v8::Testing::StressType.
+// For the command kJavaScriptStressTestPrepareStressRun the parameter it the
+// number of the stress run about to take place.
+enum ViewHostMsg_JavaScriptStressTestControl_Commands {
+  kJavaScriptStressTestSetStressRunType = 0,
+  kJavaScriptStressTestPrepareStressRun = 1,
 };
+
+namespace IPC {
 
 #if defined(OS_MACOSX)
 // Traits for FontDescriptor structure to pack/unpack.
@@ -147,6 +143,14 @@ struct ParamTraits<FontDescriptor> {
   static void Log(const param_type& p, std::string* l);
 };
 #endif
+
+template <>
+struct ParamTraits<webkit_glue::CustomContextMenuContext> {
+  typedef webkit_glue::CustomContextMenuContext param_type;
+  static void Write(Message* m, const param_type& p);
+  static bool Read(const Message* m, void** iter, param_type* p);
+  static void Log(const param_type& p, std::string* l);
+};
 
 template <>
 struct ParamTraits<ContextMenuParams> {
@@ -176,15 +180,6 @@ struct ParamTraits<webkit::npapi::WebPluginMimeType> {
 template <>
 struct ParamTraits<webkit::npapi::WebPluginInfo> {
   typedef webkit::npapi::WebPluginInfo param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, void** iter, param_type* r);
-  static void Log(const param_type& p, std::string* l);
-};
-
-// Traits for webkit_glue::PasswordFormDomManager::FillData.
-template <>
-struct ParamTraits<webkit_glue::PasswordFormFillData> {
-  typedef webkit_glue::PasswordFormFillData param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, void** iter, param_type* r);
   static void Log(const param_type& p, std::string* l);
@@ -237,15 +232,6 @@ struct ParamTraits<SyncLoadResult> {
   typedef SyncLoadResult param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, void** iter, param_type* r);
-  static void Log(const param_type& p, std::string* l);
-};
-
-// Traits for FormData structure to pack/unpack.
-template <>
-struct ParamTraits<webkit_glue::FormData> {
-  typedef webkit_glue::FormData param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, void** iter, param_type* p);
   static void Log(const param_type& p, std::string* l);
 };
 
@@ -431,30 +417,30 @@ struct ParamTraits<URLPattern> {
 };
 
 template <>
-struct ParamTraits<Clipboard::Buffer> {
-  typedef Clipboard::Buffer param_type;
+struct ParamTraits<ui::Clipboard::Buffer> {
+  typedef ui::Clipboard::Buffer param_type;
   static void Write(Message* m, const param_type& p) {
     m->WriteInt(p);
   }
   static bool Read(const Message* m, void** iter, param_type* p) {
     int buffer;
-    if (!m->ReadInt(iter, &buffer) || !Clipboard::IsValidBuffer(buffer))
+    if (!m->ReadInt(iter, &buffer) || !ui::Clipboard::IsValidBuffer(buffer))
       return false;
-    *p = Clipboard::FromInt(buffer);
+    *p = ui::Clipboard::FromInt(buffer);
     return true;
   }
   static void Log(const param_type& p, std::string* l) {
     std::string type;
     switch (p) {
-      case Clipboard::BUFFER_STANDARD:
+      case ui::Clipboard::BUFFER_STANDARD:
         type = "BUFFER_STANDARD";
         break;
 #if defined(USE_X11)
-      case Clipboard::BUFFER_SELECTION:
+      case ui::Clipboard::BUFFER_SELECTION:
         type = "BUFFER_SELECTION";
         break;
 #endif
-      case Clipboard::BUFFER_DRAG:
+      case ui::Clipboard::BUFFER_DRAG:
         type = "BUFFER_DRAG";
         break;
       default:
@@ -539,22 +525,6 @@ struct SimilarTypeTraits<fileapi::FileSystemType> {
 template <>
 struct ParamTraits<AudioBuffersState> {
   typedef AudioBuffersState param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, void** iter, param_type* p);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template <>
-struct ParamTraits<speech_input::SpeechInputResultItem> {
-  typedef speech_input::SpeechInputResultItem param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, void** iter, param_type* p);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template <>
-struct ParamTraits<PP_Flash_NetAddress> {
-  typedef PP_Flash_NetAddress param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, void** iter, param_type* p);
   static void Log(const param_type& p, std::string* l);

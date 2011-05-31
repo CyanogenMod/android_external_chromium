@@ -12,7 +12,6 @@
 #include "chrome/browser/sessions/session_id.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/devtools_messages.h"
 
@@ -49,12 +48,17 @@ void DevToolsClientHostImpl::SendMessageToClient(
   IPC_END_MESSAGE_MAP()
 }
 
+void DevToolsClientHostImpl::TabReplaced(TabContentsWrapper* new_tab) {
+  map_->erase(id_);
+  id_ = new_tab->controller().session_id().id();
+  (*map_)[id_] = this;
+}
 
 void DevToolsClientHostImpl::OnDebuggerOutput(const std::string& data) {
   service_->DebuggerOutput(id_, data);
 }
 
-void DevToolsClientHostImpl::FrameNavigate(const std::string& url) {
+void DevToolsClientHostImpl::FrameNavigating(const std::string& url) {
   service_->FrameNavigate(id_, url);
 }
 

@@ -13,6 +13,7 @@
 #include "net/base/net_log.h"
 #include "net/base/ssl_cert_request_info.h"
 #include "net/base/upload_data.h"
+#include "net/http/http_network_delegate.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_util.h"
 #include "net/url_request/url_request_context.h"
@@ -158,6 +159,27 @@ void URLRequest::AppendFileRangeToUpload(
     upload_ = new UploadData();
   upload_->AppendFileRange(file_path, offset, length,
                            expected_modification_time);
+}
+
+void URLRequest::EnableChunkedUpload() {
+  DCHECK(!upload_ || upload_->is_chunked());
+  if (!upload_) {
+    upload_ = new UploadData();
+    upload_->set_is_chunked(true);
+  }
+}
+
+void URLRequest::AppendChunkToUpload(const char* bytes, int bytes_len) {
+  DCHECK(upload_);
+  DCHECK(upload_->is_chunked());
+  DCHECK_GT(bytes_len, 0);
+  upload_->AppendChunk(bytes, bytes_len);
+}
+
+void URLRequest::MarkEndOfChunks() {
+  DCHECK(upload_);
+  DCHECK(upload_->is_chunked());
+  upload_->AppendChunk(NULL, 0);
 }
 
 void URLRequest::set_upload(net::UploadData* upload) {
@@ -325,6 +347,11 @@ void URLRequest::StartJob(URLRequestJob* job) {
   DCHECK(!is_pending_);
   DCHECK(!job_);
 
+  // TODO(mpcomplete): pass in request ID?
+  // TODO(mpcomplete): allow delegate to potentially delay/cancel request.
+  if (context_ && context_->network_delegate())
+    context_->network_delegate()->OnBeforeURLRequest(this);
+
   net_log_.BeginEvent(
       net::NetLog::TYPE_URL_REQUEST_START_JOB,
       make_scoped_refptr(new URLRequestStartEventParameters(
@@ -490,7 +517,6 @@ void URLRequest::PrepareToRestart() {
   // one.
   net_log_.EndEvent(net::NetLog::TYPE_URL_REQUEST_START_JOB, NULL);
 
-  job_->Kill();
   OrphanJob();
 
   response_info_ = net::HttpResponseInfo();

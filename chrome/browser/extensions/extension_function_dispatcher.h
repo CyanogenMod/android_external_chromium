@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include <vector>
 
 #include "base/ref_counted.h"
-#include "gfx/native_widget_types.h"
 #include "googleurl/src/gurl.h"
+#include "ui/gfx/native_widget_types.h"
 
 class Browser;
 class Extension;
@@ -34,18 +34,11 @@ class ExtensionFunctionDispatcher {
    public:
     // Returns the browser that this delegate is associated with, if any.
     // Returns NULL otherwise.
-    virtual Browser* GetBrowser() const = 0;
+    virtual Browser* GetBrowser() = 0;
 
     // Returns the native view for this extension view, if any. This may be NULL
     // if the view is not visible.
     virtual gfx::NativeView GetNativeViewOfHost() = 0;
-
-    // Typically, the window is assumed to be the window associated with the
-    // result of GetBrowser(). Implementations may override this behavior with
-    // this method.
-    virtual gfx::NativeWindow GetCustomFrameNativeWindow() {
-      return NULL;
-    }
 
     // Asks the delegate for any relevant TabContents associated with this
     // context. For example, the TabContents in which an infobar or

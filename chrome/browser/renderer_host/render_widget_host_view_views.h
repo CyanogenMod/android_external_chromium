@@ -13,13 +13,14 @@
 #include "base/scoped_ptr.h"
 #include "base/time.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
-#include "gfx/native_widget_types.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebInputEvent.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebInputEvent.h"
+#include "ui/gfx/native_widget_types.h"
 #include "views/controls/native/native_view_host.h"
-#include "views/event.h"
+#include "views/events/event.h"
 #include "views/view.h"
 #include "webkit/glue/webcursor.h"
 
+class IMEContextHandler;
 class RenderWidgetHost;
 struct NativeWebKeyboardEvent;
 
@@ -29,6 +30,9 @@ struct NativeWebKeyboardEvent;
 class RenderWidgetHostViewViews : public RenderWidgetHostView,
                                   public views::View {
  public:
+  // Internal class name.
+  static const char kViewClassName[];
+
   explicit RenderWidgetHostViewViews(RenderWidgetHost* widget);
   virtual ~RenderWidgetHostViewViews();
 
@@ -38,11 +42,12 @@ class RenderWidgetHostViewViews : public RenderWidgetHostView,
   // RenderWidgetHostView implementation.
   virtual void InitAsPopup(RenderWidgetHostView* parent_host_view,
                            const gfx::Rect& pos);
-  virtual void InitAsFullscreen(RenderWidgetHostView* parent_host_view);
+  virtual void InitAsFullscreen();
   virtual RenderWidgetHost* GetRenderWidgetHost() const;
   virtual void DidBecomeSelected();
   virtual void WasHidden();
   virtual void SetSize(const gfx::Size& size);
+  virtual gfx::NativeView GetNativeView();
   virtual void MovePluginWindows(
       const std::vector<webkit::npapi::WebPluginGeometry>& moves);
   virtual void Focus();
@@ -75,13 +80,16 @@ class RenderWidgetHostViewViews : public RenderWidgetHostView,
   virtual bool ContainsNativeView(gfx::NativeView native_view) const;
   virtual void AcceleratedCompositingActivated(bool activated);
 
-  gfx::NativeView native_view() const;
-  virtual gfx::NativeView GetNativeView();
+  // On some systems, there can be two native views, where an outer native view
+  // contains the inner native view (e.g. when using GTK+). This returns the
+  // inner view. This can return NULL when it's not attached to a view.
+  gfx::NativeView GetInnerNativeView() const;
 
   virtual void Paint(gfx::Canvas* canvas);
 
   // Overridden from views::View.
-  gfx::NativeCursor GetCursorForPoint(views::Event::EventType type,
+  virtual std::string GetClassName() const;
+  gfx::NativeCursor GetCursorForPoint(ui::EventType type,
                                       const gfx::Point& point);
 
   // Views mouse events, overridden from views::View.
@@ -100,11 +108,14 @@ class RenderWidgetHostViewViews : public RenderWidgetHostView,
   virtual void DidGainFocus();
   virtual void WillLoseFocus();
 
+  // Forwards a web keyboard event to renderer.
+  void ForwardWebKeyboardEvent(const NativeWebKeyboardEvent& event);
+
   // Forwards a keyboard event to renderer.
-  void ForwardKeyboardEvent(const NativeWebKeyboardEvent& event);
+  void ForwardKeyEvent(const views::KeyEvent& event);
 
   // Views touch events, overridden from views::View.
-  virtual bool OnTouchEvent(const views::TouchEvent& e);
+  virtual View::TouchStatus OnTouchEvent(const views::TouchEvent& e);
 
  private:
   friend class RenderWidgetHostViewViewsWidget;
@@ -168,6 +179,10 @@ class RenderWidgetHostViewViews : public RenderWidgetHostView,
   // touch-point is added from an ET_TOUCH_PRESSED event, and a touch-point is
   // removed from the list on an ET_TOUCH_RELEASED event.
   WebKit::WebTouchEvent touch_event_;
+
+  // Input method context used to translating sequence of key events into other
+  // languages.
+  scoped_ptr<IMEContextHandler> ime_context_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderWidgetHostViewViews);
 };

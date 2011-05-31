@@ -27,7 +27,6 @@
 #include "chrome/browser/sync/protocol/session_specifics.pb.h"
 #include "chrome/browser/sync/syncable/model_type.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/common/notification_registrar.h"
 
 class Profile;
 class ProfileSyncService;
@@ -77,17 +76,11 @@ class SessionModelAssociator
   virtual int64 GetSyncIdFromSessionTag(const std::string& tag);
 
   // Not used.
-  virtual const TabContents* GetChromeNodeFromSyncId(int64 sync_id) {
-    NOTREACHED();
-    return NULL;
-  }
+  virtual const TabContents* GetChromeNodeFromSyncId(int64 sync_id);
 
   // Not used.
-  bool InitSyncNodeFromChromeId(const size_t& id,
-                                sync_api::BaseNode* sync_node) {
-    NOTREACHED();
-    return false;
-  }
+  virtual bool InitSyncNodeFromChromeId(const size_t& id,
+                                        sync_api::BaseNode* sync_node);
 
   // Resync local window information. Updates the local sessions header node
   // with the status of open windows and the order of tabs they contain. Should
@@ -224,6 +217,7 @@ class SessionModelAssociator
   class TabNodePool {
    public:
     explicit TabNodePool(ProfileSyncService* sync_service);
+    ~TabNodePool();
 
     // Add a previously allocated tab sync node to our pool. Increases the size
     // of tab_syncid_pool_ by one and marks the new tab node as free.

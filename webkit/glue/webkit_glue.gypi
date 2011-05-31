@@ -6,7 +6,7 @@
   'variables': {
     'conditions': [
       ['inside_chromium_build==0', {
-        'webkit_src_dir': '../../../..',
+        'webkit_src_dir': '../../../../..',
       },{
         'webkit_src_dir': '../../third_party/WebKit',
       }],
@@ -45,7 +45,7 @@
         {
           'action_name': 'webkit_chromium_resources',
           'variables': {
-            'input_path': '<(webkit_src_dir)/WebKit/chromium/WebKit.grd',
+            'input_path': '<(webkit_src_dir)/Source/WebKit/chromium/WebKit.grd',
           },
           'inputs': [
             '<!@(<(grit_info_cmd) --inputs <(input_path))',
@@ -120,13 +120,23 @@
         {
           'action_name': 'webkit_version',
           'inputs': [
-            '../build/webkit_version.py',
-            '<(webkit_src_dir)/Source/WebCore/Configurations/Version.xcconfig',
+            '<(script)',
+            '<(webkit_src_dir)<(version_file)',
+            '../../build/util/lastchange.py',  # Used by the script.
           ],
           'outputs': [
             '<(INTERMEDIATE_DIR)/webkit_version.h',
           ],
-          'action': ['python', '<@(_inputs)', '<(INTERMEDIATE_DIR)'],
+          'action': ['python', '<(script)', '<(webkit_src_dir)',
+                     '<(version_file)', '<(INTERMEDIATE_DIR)'],
+          'variables': {
+            'script': '../build/webkit_version.py',
+            # version_file is a relative path from |webkit_src_dir| to
+            # the version file.  But gyp will eat the variable unless
+            # it looks like an absolute path, so write it like one and
+            # then use it carefully above.
+            'version_file': '/Source/WebCore/Configurations/Version.xcconfig',
+          },
         },
       ],
       'include_dirs': [
@@ -182,7 +192,6 @@
         '../plugins/npapi/gtk_plugin_container_manager.h',
         '../plugins/npapi/npapi_extension_thunk.cc',
         '../plugins/npapi/npapi_extension_thunk.h',
-        '../plugins/npapi/nphostapi.h',
         '../plugins/npapi/plugin_constants_win.cc',
         '../plugins/npapi/plugin_constants_win.h',
         '../plugins/npapi/plugin_group.cc',
@@ -212,7 +221,6 @@
         '../plugins/npapi/plugin_string_stream.h',
         '../plugins/npapi/plugin_web_event_converter_mac.h',
         '../plugins/npapi/plugin_web_event_converter_mac.mm',
-        '../plugins/npapi/ppb_private.h',
         '../plugins/npapi/quickdraw_drawing_manager_mac.cc',
         '../plugins/npapi/quickdraw_drawing_manager_mac.h',
         '../plugins/npapi/webplugin.cc',
@@ -288,6 +296,8 @@
         '../plugins/ppapi/ppb_flash_impl.cc',
         '../plugins/ppapi/ppb_flash_impl.h',
         '../plugins/ppapi/ppb_flash_impl_linux.cc',
+        '../plugins/ppapi/ppb_flash_menu_impl.cc',
+        '../plugins/ppapi/ppb_flash_menu_impl.h',
         '../plugins/ppapi/ppb_font_impl.cc',
         '../plugins/ppapi/ppb_font_impl.h',
         '../plugins/ppapi/ppb_gles_chromium_texture_mapping_impl.cc',
@@ -302,7 +312,6 @@
         '../plugins/ppapi/ppb_nacl_private_impl.h',
         '../plugins/ppapi/ppb_opengles_impl.cc',
         '../plugins/ppapi/ppb_opengles_impl.h',
-        '../plugins/ppapi/ppb_pdf.h',
         '../plugins/ppapi/ppb_pdf_impl.cc',
         '../plugins/ppapi/ppb_pdf_impl.h',
         '../plugins/ppapi/ppb_scrollbar_impl.cc',
@@ -415,6 +424,7 @@
         'webkitclient_impl.h',
         'webmediaplayer_impl.h',
         'webmediaplayer_impl.cc',
+        'webmenuitem.cc',
         'webmenuitem.h',
         'webmenurunner_mac.h',
         'webmenurunner_mac.mm',
@@ -473,7 +483,7 @@
           'sources/': [['exclude', '_mac\\.(cc|mm)$']],
           'sources!': [
             'webthemeengine_impl_mac.cc',
-          ],          
+          ],
         }, {  # else: OS=="mac"
           'sources/': [['exclude', 'plugin_(lib|list)_posix\\.cc$']],
           'link_settings': {
@@ -513,11 +523,11 @@
           'conditions': [
             ['inside_chromium_build==1 and component=="shared_library"', {
               'dependencies': [
-                '<(DEPTH)/third_party/WebKit/WebKit/chromium/WebKit.gyp:webkit',
+                '<(DEPTH)/third_party/WebKit/Source/WebKit/chromium/WebKit.gyp:webkit',
                 '<(DEPTH)/v8/tools/gyp/v8.gyp:v8',
                ],
                'export_dependent_settings': [
-                 '<(DEPTH)/third_party/WebKit/WebKit/chromium/WebKit.gyp:webkit',
+                 '<(DEPTH)/third_party/WebKit/Source/WebKit/chromium/WebKit.gyp:webkit',
                  '<(DEPTH)/v8/tools/gyp/v8.gyp:v8',
                ],
             }],
@@ -530,5 +540,42 @@
         }],
       ],
     },
+  ],
+  'conditions': [
+    ['use_third_party_translations==1', {
+      'targets': [
+        {
+          'target_name': 'inspector_strings',
+          'type': 'none',
+          'variables': {
+            'grit_out_dir': '<(PRODUCT_DIR)/resources/inspector/l10n',
+          },
+          'actions': [
+            {
+              'action_name': 'inspector_strings',
+              'variables': {
+                'input_path': './inspector_strings.grd',
+              },
+              'inputs': [
+                '<!@(<(grit_info_cmd) --inputs <(input_path))',
+              ],
+              'outputs': [
+                '<!@(<(grit_info_cmd) --outputs \'<(grit_out_dir)\' <(input_path))',
+              ],
+              'action': ['<@(grit_cmd)',
+                         '-i', '<(input_path)', 'build',
+                         '-o', '<(grit_out_dir)',
+                         '<@(grit_defines)'],
+              'message': 'Generating resources from <(input_path)',
+            },
+          ],
+          'conditions': [
+            ['OS=="win"', {
+              'dependencies': ['<(DEPTH)/build/win/system.gyp:cygwin'],
+            }],
+          ],
+        },
+      ],
+    }],
   ],
 }

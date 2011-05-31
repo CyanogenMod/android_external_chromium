@@ -10,14 +10,18 @@
 #include <vector>
 
 #include "base/file_path.h"
-#include "base/lock.h"
 #include "base/scoped_ptr.h"
+#include "base/synchronization/lock.h"
 #include "base/task.h"
 #include "chrome/browser/safe_browsing/safe_browsing_store.h"
 #include "testing/gtest/include/gtest/gtest_prod.h"
 
 namespace base {
   class Time;
+}
+
+namespace safe_browsing {
+class PrefixSet;
 }
 
 class BloomFilter;
@@ -236,7 +240,7 @@ class SafeBrowsingDatabaseNew : public SafeBrowsingDatabase {
   // Lock for protecting access to variables that may be used on the
   // IO thread.  This includes |browse_bloom_filter_|, |full_browse_hashes_|,
   // |pending_browse_hashes_|, and |prefix_miss_cache_|.
-  Lock lookup_lock_;
+  base::Lock lookup_lock_;
 
   // Underlying persistent store for chunk data.
   // For browsing related (phishing and malware URLs) chunks and prefixes.
@@ -272,6 +276,13 @@ class SafeBrowsingDatabaseNew : public SafeBrowsingDatabase {
   // Causes the update functions to fail with no side effects, until
   // the next call to |UpdateStarted()|.
   bool corruption_detected_;
+
+  // Set to true if any chunks are added or deleted during an update.
+  // Used to optimize away database update.
+  bool change_detected_;
+
+  // Used to check if a prefix was in the database.
+  scoped_ptr<safe_browsing::PrefixSet> prefix_set_;
 };
 
 #endif  // CHROME_BROWSER_SAFE_BROWSING_SAFE_BROWSING_DATABASE_H_

@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/task_manager/task_manager.h"
 
-#include "app/l10n_util.h"
 #include "base/file_path.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/background_contents_service.h"
@@ -29,6 +28,7 @@
 #include "chrome/test/ui_test_utils.h"
 #include "grit/generated_resources.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
@@ -68,6 +68,24 @@ class ResourceChangeObserver : public TaskManagerModelObserver {
   const int target_resource_count_;
 };
 
+// Helper class used to wait for a BackgroundContents to finish loading.
+class BackgroundContentsListener : public NotificationObserver {
+ public:
+  explicit BackgroundContentsListener(Profile* profile) {
+    registrar_.Add(this, NotificationType::BACKGROUND_CONTENTS_NAVIGATED,
+                   Source<Profile>(profile));
+  }
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details) {
+    // Quit once the BackgroundContents has been loaded.
+    if (type.value == NotificationType::BACKGROUND_CONTENTS_NAVIGATED)
+      MessageLoopForUI::current()->Quit();
+  }
+ private:
+  NotificationRegistrar registrar_;
+};
+
 }  // namespace
 
 class TaskManagerBrowserTest : public ExtensionBrowserTest {
@@ -83,6 +101,12 @@ class TaskManagerBrowserTest : public ExtensionBrowserTest {
     model()->AddObserver(&observer);
     ui_test_utils::RunMessageLoop();
     model()->RemoveObserver(&observer);
+  }
+
+  // Wait for any pending BackgroundContents to finish starting up.
+  void WaitForBackgroundContents() {
+    BackgroundContentsListener listener(browser()->profile());
+    ui_test_utils::RunMessageLoop();
   }
 };
 
@@ -146,6 +170,45 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeBGContentsChanges) {
 
   // Close the background contents and verify that we notice.
   service->ShutdownAssociatedBackgroundContents(application_id);
+  WaitForResourceChange(2);
+}
+
+IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, KillBGContents) {
+  EXPECT_EQ(0, model()->ResourceCount());
+
+  // Show the task manager. This populates the model, and helps with debugging
+  // (you see the task manager).
+  browser()->window()->ShowTaskManager();
+
+  // Browser and the New Tab Page.
+  WaitForResourceChange(2);
+
+  // Open a new background contents and make sure we notice that.
+  GURL url(ui_test_utils::GetTestUrl(FilePath(FilePath::kCurrentDirectory),
+                                     FilePath(kTitle1File)));
+
+  BackgroundContentsService* service =
+      browser()->profile()->GetBackgroundContentsService();
+  string16 application_id(ASCIIToUTF16("test_app_id"));
+  service->LoadBackgroundContents(browser()->profile(),
+                                  url,
+                                  ASCIIToUTF16("background_page"),
+                                  application_id);
+  // Wait for the background contents process to finish loading.
+  WaitForBackgroundContents();
+  EXPECT_EQ(3, model()->ResourceCount());
+
+  // Kill the background contents process and verify that it disappears from the
+  // model.
+  bool found = false;
+  for (int i = 0; i < model()->ResourceCount(); ++i) {
+    if (model()->IsBackgroundResource(i)) {
+      TaskManager::GetInstance()->KillProcess(i);
+      found = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(found);
   WaitForResourceChange(2);
 }
 
@@ -322,12 +385,11 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest,
   // manager is still visible. Make sure we don't crash and the extension
   // gets reloaded and noticed in the task manager.
   TabContents* current_tab = browser()->GetSelectedTabContents();
-  ASSERT_EQ(1, current_tab->infobar_delegate_count());
-  InfoBarDelegate* delegate = current_tab->GetInfoBarDelegateAt(0);
-  CrashedExtensionInfoBarDelegate* crashed_delegate =
-      delegate->AsCrashedExtensionInfoBarDelegate();
-  ASSERT_TRUE(crashed_delegate);
-  crashed_delegate->Accept();
+  ASSERT_EQ(1U, current_tab->infobar_count());
+  ConfirmInfoBarDelegate* delegate =
+      current_tab->GetInfoBarDelegateAt(0)->AsConfirmInfoBarDelegate();
+  ASSERT_TRUE(delegate);
+  delegate->Accept();
   WaitForResourceChange(3);
 }
 

@@ -4,7 +4,6 @@
 
 #include "chrome/browser/sync/sync_setup_wizard.h"
 
-#include "app/resource_bundle.h"
 #include "base/message_loop.h"
 #include "base/singleton.h"
 #include "chrome/browser/browser_thread.h"
@@ -22,6 +21,7 @@
 #include "grit/browser_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/locale_settings.h"
+#include "ui/base/resource/resource_bundle.h"
 
 namespace {
 
@@ -51,6 +51,7 @@ class SyncResourcesSource : public ChromeURLDataManager::DataSource {
   static const char* kInvalidPasswordHelpUrl;
   static const char* kCanNotAccessAccountUrl;
   static const char* kCreateNewAccountUrl;
+  static const char* kEncryptionHelpUrl;
 
  private:
   virtual ~SyncResourcesSource() {}
@@ -64,11 +65,13 @@ class SyncResourcesSource : public ChromeURLDataManager::DataSource {
 };
 
 const char* SyncResourcesSource::kInvalidPasswordHelpUrl =
-  "http://www.google.com/support/accounts/bin/answer.py?ctx=ch&answer=27444";
+    "http://www.google.com/support/accounts/bin/answer.py?ctx=ch&answer=27444";
 const char* SyncResourcesSource::kCanNotAccessAccountUrl =
-  "http://www.google.com/support/accounts/bin/answer.py?answer=48598";
+    "http://www.google.com/support/accounts/bin/answer.py?answer=48598";
+const char* SyncResourcesSource::kEncryptionHelpUrl =
+    "http://www.google.com/support/chrome/bin/answer.py?answer=165139";
 const char* SyncResourcesSource::kCreateNewAccountUrl =
-  "https://www.google.com/accounts/NewAccount?service=chromiumsync";
+    "https://www.google.com/accounts/NewAccount?service=chromiumsync";
 
 void SyncResourcesSource::StartDataRequest(const std::string& path_raw,
     bool is_off_the_record, int request_id) {
@@ -164,6 +167,10 @@ void SyncResourcesSource::StartDataRequest(const std::string& path_raw,
     AddString(dict, "cleardata", IDS_SYNC_CLEAR_DATA_FOR_PASSPHRASE);
     AddString(dict, "cleardatalink", IDS_SYNC_CLEAR_DATA_LINK);
 
+    AddString(dict, "learnmore", IDS_LEARN_MORE);
+    dict->SetString("encryptionhelpurl",
+                    GetLocalizedUrl(kEncryptionHelpUrl));
+
     // Stuff for the footer.
     AddString(dict, "ok", IDS_OK);
     AddString(dict, "cancel", IDS_CANCEL);
@@ -171,7 +178,20 @@ void SyncResourcesSource::StartDataRequest(const std::string& path_raw,
     html_resource_id = IDR_SYNC_PASSPHRASE_HTML;
     AddString(dict, "enterPassphraseTitle", IDS_SYNC_ENTER_PASSPHRASE_TITLE);
     AddString(dict, "enterPassphraseBody", IDS_SYNC_ENTER_PASSPHRASE_BODY);
+    AddString(dict, "enterOtherPassphraseBody",
+              IDS_SYNC_ENTER_OTHER_PASSPHRASE_BODY);
     AddString(dict, "passphraseLabel", IDS_SYNC_PASSPHRASE_LABEL);
+    AddString(dict, "incorrectPassphrase", IDS_SYNC_INCORRECT_PASSPHRASE);
+    AddString(dict, "passphraseRecover", IDS_SYNC_PASSPHRASE_RECOVER);
+    AddString(dict, "passphraseWarning", IDS_SYNC_PASSPHRASE_WARNING);
+    AddString(dict, "cleardatalink", IDS_SYNC_CLEAR_DATA_LINK);
+
+    AddString(dict, "cancelWarningHeader",
+              IDS_SYNC_PASSPHRASE_CANCEL_WARNING_HEADER);
+    AddString(dict, "cancelWarning", IDS_SYNC_PASSPHRASE_CANCEL_WARNING);
+    AddString(dict, "yes", IDS_SYNC_PASSPHRASE_CANCEL_YES);
+    AddString(dict, "no", IDS_SYNC_PASSPHRASE_CANCEL_NO);
+
     AddString(dict, "ok", IDS_OK);
     AddString(dict, "cancel", IDS_CANCEL);
   } else if (path_raw == kSyncFirstPassphrasePath) {
@@ -182,16 +202,19 @@ void SyncResourcesSource::StartDataRequest(const std::string& path_raw,
                                     GetStringUTF16(IDS_PRODUCT_NAME)));
     AddString(dict, "googleOption", IDS_SYNC_PASSPHRASE_OPT_GOOGLE);
     AddString(dict, "explicitOption", IDS_SYNC_PASSPHRASE_OPT_EXPLICIT);
-    AddString(dict, "nothanksOption", IDS_SYNC_PASSPHRASE_OPT_CANCEL);
     AddString(dict, "sectionGoogleMessage", IDS_SYNC_PASSPHRASE_MSG_GOOGLE);
     AddString(dict, "sectionExplicitMessage", IDS_SYNC_PASSPHRASE_MSG_EXPLICIT);
-    AddString(dict, "sectionNothanksMessage", IDS_SYNC_PASSPHRASE_MSG_CANCEL);
     AddString(dict, "passphraseLabel", IDS_SYNC_PASSPHRASE_LABEL);
     AddString(dict, "confirmLabel", IDS_SYNC_CONFIRM_PASSPHRASE_LABEL);
     AddString(dict, "emptyErrorMessage", IDS_SYNC_EMPTY_PASSPHRASE_ERROR);
     AddString(dict, "mismatchErrorMessage", IDS_SYNC_PASSPHRASE_MISMATCH_ERROR);
-    AddString(dict, "ok", IDS_OK);
-    AddString(dict, "cancel", IDS_CANCEL);
+
+    AddString(dict, "learnmore", IDS_LEARN_MORE);
+    dict->SetString("encryptionhelpurl",
+                    GetLocalizedUrl(kEncryptionHelpUrl));
+
+    AddString(dict, "syncpasswords", IDS_SYNC_FIRST_PASSPHRASE_OK);
+    AddString(dict, "nothanks", IDS_SYNC_FIRST_PASSPHRASE_CANCEL);
   } else if (path_raw == kSyncSettingUpPath) {
     html_resource_id = IDR_SYNC_SETTING_UP_HTML;
 
@@ -237,13 +260,15 @@ SyncSetupWizard::SyncSetupWizard(ProfileSyncService* service)
     : service_(service),
       flow_container_(new SyncSetupFlowContainer()),
       parent_window_(NULL) {
-  // Add our network layer data source for 'cloudy' URLs.
-  SyncResourcesSource* sync_source = new SyncResourcesSource();
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(ChromeURLDataManager::GetInstance(),
-                        &ChromeURLDataManager::AddDataSource,
-                        make_scoped_refptr(sync_source)));
+  // If we're in a unit test, we may not have an IO thread or profile.  Avoid
+  // creating a SyncResourcesSource since we may leak it (since it's
+  // DeleteOnUIThread).
+  if (BrowserThread::IsMessageLoopValid(BrowserThread::IO) &&
+      service_->profile()) {
+    // Add our network layer data source for 'cloudy' URLs.
+    SyncResourcesSource* sync_source = new SyncResourcesSource();
+    service_->profile()->GetChromeURLDataManager()->AddDataSource(sync_source);
+  }
 }
 
 SyncSetupWizard::~SyncSetupWizard() {

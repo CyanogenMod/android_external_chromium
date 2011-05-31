@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include "base/ref_counted.h"
 #include "base/string16.h"
-#include "chrome/browser/renderer_host/render_view_host_delegate.h"
+#include "chrome/browser/tab_contents/tab_contents_observer.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "printing/printed_pages_source.h"
@@ -27,7 +27,7 @@ class PrintJobWorkerOwner;
 // delegates a few printing related commands to this instance.
 class PrintViewManager : public NotificationObserver,
                          public PrintedPagesSource,
-                         public RenderViewHostDelegate::Printing {
+                         public TabContentsObserver {
  public:
   explicit PrintViewManager(TabContents& owner);
   virtual ~PrintViewManager();
@@ -43,16 +43,18 @@ class PrintViewManager : public NotificationObserver,
   virtual string16 RenderSourceName();
   virtual GURL RenderSourceUrl();
 
-  // RenderViewHostDelegate::Printing implementation.
-  virtual void DidGetPrintedPagesCount(int cookie, int number_pages);
-  virtual void DidPrintPage(const ViewHostMsg_DidPrintPage_Params& params);
-
   // NotificationObserver implementation.
   virtual void Observe(NotificationType type,
                        const NotificationSource& source,
                        const NotificationDetails& details);
 
+  // TabContentsObserver implementation.
+  virtual bool OnMessageReceived(const IPC::Message& message);
+
  private:
+  void OnDidGetPrintedPagesCount(int cookie, int number_pages);
+  void OnDidPrintPage(const ViewHostMsg_DidPrintPage_Params& params);
+
   // Processes a NOTIFY_PRINT_JOB_EVENT notification.
   void OnNotifyPrintJobEvent(const JobEventDetails& event_details);
 
@@ -105,6 +107,9 @@ class PrintViewManager : public NotificationObserver,
 
   // Manages the low-level talk to the printer.
   scoped_refptr<PrintJob> print_job_;
+
+  // Number of pages to print in the print job.
+  int number_pages_;
 
   // Waiting for print_job_ initialization to be completed to start printing.
   // Specifically the DEFAULT_INIT_DONE notification. Set when PrintNow() is

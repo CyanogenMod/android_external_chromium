@@ -51,7 +51,6 @@
 #include "chrome/browser/sync/syncable/syncable_changes_version.h"
 #include "chrome/browser/sync/syncable/syncable_columns.h"
 #include "chrome/browser/sync/util/crypto_helpers.h"
-#include "chrome/browser/sync/util/fast_dump.h"
 #include "chrome/common/deprecated/event_sys-inl.h"
 #include "net/base/escape.h"
 
@@ -68,7 +67,6 @@ static const InvariantCheckLevel kInvariantCheckLevel = VERIFY_IN_MEMORY;
 static const int kInvariantCheckMaxMs = 50;
 }  // namespace
 
-using browser_sync::FastDump;
 using browser_sync::SyncerUtil;
 using std::string;
 
@@ -176,13 +174,21 @@ void Directory::init_kernel(const std::string& name) {
 
 Directory::PersistedKernelInfo::PersistedKernelInfo()
     : next_id(0) {
-  for (int i = 0; i < MODEL_TYPE_COUNT; ++i) {
-    last_download_timestamp[i] = 0;
+  for (int i = FIRST_REAL_MODEL_TYPE; i < MODEL_TYPE_COUNT; ++i) {
+    reset_download_progress(ModelTypeFromInt(i));
   }
   autofill_migration_state = NOT_DETERMINED;
 }
 
 Directory::PersistedKernelInfo::~PersistedKernelInfo() {}
+
+void Directory::PersistedKernelInfo::reset_download_progress(
+    ModelType model_type) {
+  download_progress[model_type].set_data_type_id(
+      GetExtensionFieldNumberFromModelType(model_type));
+  // An empty-string token indicates no prior knowledge.
+  download_progress[model_type].set_token(std::string());
+}
 
 Directory::SaveChangesSnapshot::SaveChangesSnapshot()
     : kernel_info_status(KERNEL_SHARE_INFO_INVALID) {
@@ -578,7 +584,7 @@ bool Directory::SaveChanges() {
   bool success = false;
   DCHECK(store_);
 
-  AutoLock scoped_lock(kernel_->save_changes_mutex);
+  base::AutoLock scoped_lock(kernel_->save_changes_mutex);
 
   // Snapshot and save.
   SaveChangesSnapshot snapshot;
@@ -676,7 +682,7 @@ void Directory::PurgeEntriesWithTypeIn(const std::set<ModelType>& types) {
       for (std::set<ModelType>::const_iterator it = types.begin();
            it != types.end(); ++it) {
         set_initial_sync_ended_for_type_unsafe(*it, false);
-        set_last_download_timestamp_unsafe(*it, 0);
+        kernel_->persisted_info.reset_download_progress(*it);
       }
     }
   }
@@ -705,15 +711,27 @@ void Directory::HandleSaveChangesFailure(const SaveChangesSnapshot& snapshot) {
                                         snapshot.metahandles_to_purge.end());
 }
 
-int64 Directory::last_download_timestamp(ModelType model_type) const {
+void Directory::GetDownloadProgress(
+    ModelType model_type,
+    sync_pb::DataTypeProgressMarker* value_out) const {
   ScopedKernelLock lock(this);
-  return kernel_->persisted_info.last_download_timestamp[model_type];
+  return value_out->CopyFrom(
+      kernel_->persisted_info.download_progress[model_type]);
 }
 
-void Directory::set_last_download_timestamp(ModelType model_type,
-    int64 timestamp) {
+void Directory::GetDownloadProgressAsString(
+    ModelType model_type,
+    std::string* value_out) const {
   ScopedKernelLock lock(this);
-  set_last_download_timestamp_unsafe(model_type, timestamp);
+  kernel_->persisted_info.download_progress[model_type].SerializeToString(
+      value_out);
+}
+
+void Directory::SetDownloadProgress(
+    ModelType model_type,
+    const sync_pb::DataTypeProgressMarker& new_progress) {
+  ScopedKernelLock lock(this);
+  kernel_->persisted_info.download_progress[model_type].CopyFrom(new_progress);
 }
 
 bool Directory::initial_sync_ended_for_type(ModelType type) const {
@@ -808,14 +826,6 @@ void Directory::set_initial_sync_ended_for_type_unsafe(ModelType type,
   if (kernel_->persisted_info.initial_sync_ended[type] == x)
     return;
   kernel_->persisted_info.initial_sync_ended.set(type, x);
-  kernel_->info_status = KERNEL_SHARE_INFO_DIRTY;
-}
-
-void Directory::set_last_download_timestamp_unsafe(ModelType model_type,
-                                                   int64 timestamp) {
-  if (kernel_->persisted_info.last_download_timestamp[model_type] == timestamp)
-    return;
-  kernel_->persisted_info.last_download_timestamp[model_type] = timestamp;
   kernel_->info_status = KERNEL_SHARE_INFO_DIRTY;
 }
 
@@ -1049,7 +1059,7 @@ browser_sync::ChannelHookup<DirectoryChangeEvent>* Directory::AddChangeObserver(
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// ScopedKernelLocks
+// ScopedKernelLock
 
 ScopedKernelLock::ScopedKernelLock(const Directory* dir)
   :  scoped_lock_(dir->kernel_->mutex), dir_(const_cast<Directory*>(dir)) {
@@ -1087,7 +1097,7 @@ BaseTransaction::BaseTransaction(Directory* directory)
       dirkernel_(NULL),
       name_(NULL),
       source_file_(NULL),
-      line_(NULL),
+      line_(0),
       writer_(INVALID) {
 }
 
@@ -1129,7 +1139,7 @@ bool BaseTransaction::NotifyTransactionChangingAndEnding(
   {
     // Scoped_lock is only active through the calculate_changes and
     // transaction_ending events.
-    AutoLock scoped_lock(dirkernel_->changes_channel_mutex);
+    base::AutoLock scoped_lock(dirkernel_->changes_channel_mutex);
 
     // Tell listeners to calculate changes while we still have the mutex.
     DirectoryChangeEvent event = { DirectoryChangeEvent::CALCULATE_CHANGES,
@@ -1662,63 +1672,38 @@ void MarkForSyncing(syncable::MutableEntry* e) {
   e->Put(SYNCING, false);
 }
 
-}  // namespace syncable
-
-namespace {
-  class DumpSeparator {
-  } separator;
-  class DumpColon {
-  } colon;
-
-inline FastDump& operator<<(FastDump& dump, const DumpSeparator&) {
-  dump.out_->sputn(", ", 2);
-  return dump;
-}
-
-inline FastDump& operator<<(FastDump& dump, const DumpColon&) {
-  dump.out_->sputn(": ", 2);
-  return dump;
-}
-}  // namespace
-
-namespace syncable {
-
-std::ostream& operator<<(std::ostream& stream, const Entry& entry) {
-  // Using ostreams directly here is dreadfully slow, because a mutex is
-  // acquired for every <<.  Users noticed it spiking CPU.
-
+std::ostream& operator<<(std::ostream& os, const Entry& entry) {
   int i;
-  FastDump s(&stream);
   EntryKernel* const kernel = entry.kernel_;
   for (i = BEGIN_FIELDS; i < INT64_FIELDS_END; ++i) {
-    s << g_metas_columns[i].name << colon
-      << kernel->ref(static_cast<Int64Field>(i)) << separator;
+    os << g_metas_columns[i].name << ": "
+       << kernel->ref(static_cast<Int64Field>(i)) << ", ";
   }
   for ( ; i < ID_FIELDS_END; ++i) {
-    s << g_metas_columns[i].name << colon
-      << kernel->ref(static_cast<IdField>(i)) << separator;
+    os << g_metas_columns[i].name << ": "
+       << kernel->ref(static_cast<IdField>(i)) << ", ";
   }
-  s << "Flags: ";
+  os << "Flags: ";
   for ( ; i < BIT_FIELDS_END; ++i) {
     if (kernel->ref(static_cast<BitField>(i)))
-      s << g_metas_columns[i].name << separator;
+      os << g_metas_columns[i].name << ", ";
   }
   for ( ; i < STRING_FIELDS_END; ++i) {
     const string& field = kernel->ref(static_cast<StringField>(i));
-    s << g_metas_columns[i].name << colon << field << separator;
+    os << g_metas_columns[i].name << ": " << field << ", ";
   }
   for ( ; i < PROTO_FIELDS_END; ++i) {
-    s << g_metas_columns[i].name << colon
-      << EscapePath(
-          kernel->ref(static_cast<ProtoField>(i)).SerializeAsString())
-      << separator;
+    os << g_metas_columns[i].name << ": "
+       << EscapePath(
+           kernel->ref(static_cast<ProtoField>(i)).SerializeAsString())
+       << ", ";
   }
-  s << "TempFlags: ";
+  os << "TempFlags: ";
   for ( ; i < BIT_TEMPS_END; ++i) {
     if (kernel->ref(static_cast<BitTemp>(i)))
-      s << "#" << i - BIT_TEMPS_BEGIN << separator;
+      os << "#" << i - BIT_TEMPS_BEGIN << ", ";
   }
-  return stream;
+  return os;
 }
 
 std::ostream& operator<<(std::ostream& s, const Blob& blob) {
@@ -1726,14 +1711,6 @@ std::ostream& operator<<(std::ostream& s, const Blob& blob) {
     s << std::hex << std::setw(2)
       << std::setfill('0') << static_cast<unsigned int>(*i);
   return s << std::dec;
-}
-
-FastDump& operator<<(FastDump& dump, const Blob& blob) {
-  if (blob.empty())
-    return dump;
-  string buffer(base::HexEncode(&blob[0], blob.size()));
-  dump.out_->sputn(buffer.c_str(), buffer.size());
-  return dump;
 }
 
 }  // namespace syncable

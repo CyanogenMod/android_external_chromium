@@ -1,13 +1,11 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/download_shelf_view.h"
+#include "chrome/browser/ui/views/download_shelf_view.h"
 
 #include <algorithm>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/logging.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/download/download_item.h"
@@ -19,10 +17,12 @@
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/download_item_view.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "gfx/canvas.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "ui/base/animation/slide_animation.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
 #include "views/background.h"
 #include "views/controls/button/image_button.h"
 #include "views/controls/image_view.h"
@@ -116,7 +116,7 @@ void DownloadShelfView::Init() {
   close_button_->SetImage(views::CustomButton::BS_PUSHED,
                           rb.GetBitmapNamed(IDR_CLOSE_BAR_P));
   close_button_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_CLOSE)));
+      l10n_util::GetStringUTF16(IDS_ACCNAME_CLOSE));
   UpdateButtonColors();
   AddChildView(close_button_);
 

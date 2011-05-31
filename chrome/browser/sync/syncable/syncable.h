@@ -18,7 +18,7 @@
 #include "base/basictypes.h"
 #include "base/file_path.h"
 #include "base/gtest_prod_util.h"
-#include "base/lock.h"
+#include "base/synchronization/lock.h"
 #include "base/time.h"
 #include "chrome/browser/sync/protocol/sync.pb.h"
 #include "chrome/browser/sync/syncable/autofill_migration.h"
@@ -557,13 +557,6 @@ class LessEntryMetaHandles {
 };
 typedef std::set<EntryKernel, LessEntryMetaHandles> OriginalEntries;
 
-// Represents one or more model types sharing an update timestamp, as is
-// the case with a GetUpdates request.
-struct MultiTypeTimeStamp {
-  syncable::ModelTypeBitSet data_types;
-  int64 timestamp;
-};
-
 // a WriteTransaction has a writer tag describing which body of code is doing
 // the write. This is defined up here since DirectoryChangeEvent also contains
 // one.
@@ -666,8 +659,13 @@ class Directory {
     PersistedKernelInfo();
     ~PersistedKernelInfo();
 
+    // Set the |download_progress| entry for the given model to a
+    // "first sync" start point.  When such a value is sent to the server,
+    // a full download of all objects of the model will be initiated.
+    void reset_download_progress(ModelType model_type);
+
     // Last sync timestamp fetched from the server.
-    int64 last_download_timestamp[MODEL_TYPE_COUNT];
+    sync_pb::DataTypeProgressMarker download_progress[MODEL_TYPE_COUNT];
     // true iff we ever reached the end of the changelog.
     ModelTypeBitSet initial_sync_ended;
     // The store birthday we were given by the server. Contents are opaque to
@@ -727,35 +725,17 @@ class Directory {
   const FilePath& file_path() const { return kernel_->db_path; }
   bool good() const { return NULL != store_; }
 
-  // The download timestamp is an index into the server's list of changes for
-  // an account.  We keep this for each datatype.  It doesn't actually map
-  // to any time scale; its name is an historical artifact.
-  int64 last_download_timestamp(ModelType type) const;
-  virtual void set_last_download_timestamp(ModelType type, int64 value);
-
-  // Find the model type or model types which have the least timestamp, and
-  // return them along with the types having that timestamp.  This is done
-  // with the intent of sequencing GetUpdates requests in an efficient way:
-  // bundling together requests that have the same timestamp, and requesting
-  // the oldest such bundles first in hopes that they might catch up to
-  // (and thus be merged with) the newer bundles.
-  MultiTypeTimeStamp GetTypesWithOldestLastDownloadTimestamp(
-      ModelTypeBitSet enabled_types) {
-    MultiTypeTimeStamp result;
-    result.timestamp = std::numeric_limits<int64>::max();
-    for (int i = 0; i < MODEL_TYPE_COUNT; ++i) {
-      if (!enabled_types[i])
-        continue;
-      int64 stamp = last_download_timestamp(ModelTypeFromInt(i));
-      if (stamp < result.timestamp) {
-        result.data_types.reset();
-        result.timestamp = stamp;
-      }
-      if (stamp == result.timestamp)
-        result.data_types.set(i);
-    }
-    return result;
-  }
+  // The download progress is an opaque token provided by the sync server
+  // to indicate the continuation state of the next GetUpdates operation.
+  void GetDownloadProgress(
+      ModelType type,
+      sync_pb::DataTypeProgressMarker* value_out) const;
+  void GetDownloadProgressAsString(
+      ModelType type,
+      std::string* value_out) const;
+  void SetDownloadProgress(
+      ModelType type,
+      const sync_pb::DataTypeProgressMarker& value);
 
   bool initial_sync_ended_for_type(ModelType type) const;
   void set_initial_sync_ended_for_type(ModelType type, bool value);
@@ -827,7 +807,7 @@ class Directory {
     }
   };
  public:
-  typedef EventChannel<DirectoryEventTraits, Lock> Channel;
+  typedef EventChannel<DirectoryEventTraits, base::Lock> Channel;
   typedef std::vector<int64> ChildHandles;
 
   // Returns the child meta handles for given parent id.
@@ -934,7 +914,6 @@ class Directory {
   // on their own; caller must guarantee exclusive access manually by holding
   // a ScopedKernelLock.
   void set_initial_sync_ended_for_type_unsafe(ModelType type, bool x);
-  void set_last_download_timestamp_unsafe(ModelType model_type, int64 x);
   void SetNotificationStateUnsafe(const std::string& notification_state);
 
   Directory& operator = (const Directory&);
@@ -981,7 +960,7 @@ class Directory {
     volatile base::subtle::AtomicWord refcount;
 
     // Implements ReadTransaction / WriteTransaction using a simple lock.
-    Lock transaction_mutex;
+    base::Lock transaction_mutex;
 
     // The name of this directory.
     std::string const name;
@@ -993,7 +972,7 @@ class Directory {
     //
     // Never hold the mutex and do anything with the database or any
     // other buffered IO.  Violating this rule will result in deadlock.
-    Lock mutex;
+    base::Lock mutex;
     MetahandlesIndex* metahandles_index;  // Entries indexed by metahandle
     IdsIndex* ids_index;  // Entries indexed by id
     ParentIdChildIndex* parent_id_child_index;
@@ -1021,7 +1000,7 @@ class Directory {
     // releasing the transaction mutex.
     browser_sync::Channel<DirectoryChangeEvent> changes_channel;
 
-    Lock changes_channel_mutex;
+    base::Lock changes_channel_mutex;
     KernelShareInfoStatus info_status;
 
     // These 3 members are backed in the share_info table, and
@@ -1037,7 +1016,7 @@ class Directory {
 
     // It doesn't make sense for two threads to run SaveChanges at the same
     // time; this mutex protects that activity.
-    Lock save_changes_mutex;
+    base::Lock save_changes_mutex;
 
     // The next metahandle is protected by kernel mutex.
     int64 next_metahandle;
@@ -1057,7 +1036,7 @@ class ScopedKernelLock {
   explicit ScopedKernelLock(const Directory*);
   ~ScopedKernelLock() {}
 
-  AutoLock scoped_lock_;
+  base::AutoLock scoped_lock_;
   Directory* const dir_;
   DISALLOW_COPY_AND_ASSIGN(ScopedKernelLock);
 };
@@ -1156,8 +1135,5 @@ void ZeroFields(EntryKernel* entry, int first_field);
 }  // namespace syncable
 
 std::ostream& operator <<(std::ostream&, const syncable::Blob&);
-
-browser_sync::FastDump& operator <<
-  (browser_sync::FastDump&, const syncable::Blob&);
 
 #endif  // CHROME_BROWSER_SYNC_SYNCABLE_SYNCABLE_H_

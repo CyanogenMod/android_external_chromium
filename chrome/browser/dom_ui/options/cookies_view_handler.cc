@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/dom_ui/options/cookies_view_handler.h"
 
-#include "app/l10n_util.h"
 #include "base/i18n/time_formatting.h"
 #include "base/string_number_conversions.h"
 #include "base/string_split.h"
@@ -18,29 +17,31 @@
 #include "chrome/browser/profiles/profile.h"
 #include "grit/generated_resources.h"
 #include "net/base/cookie_monster.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
-static const char kKeyId[]          = "id";
-static const char kKeyTitle[]       = "title";
-static const char kKeyIcon[]        = "icon";
-static const char kKeyType[]        = "type";
+static const char kKeyId[] = "id";
+static const char kKeyTitle[] = "title";
+static const char kKeyIcon[] = "icon";
+static const char kKeyType[] = "type";
 static const char kKeyHasChildren[] = "hasChildren";
 
-static const char kKeyName[]        = "name";
-static const char kKeyContent[]     = "content";
-static const char kKeyDomain[]      = "domain";
-static const char kKeyPath[]        = "path";
-static const char kKeySendFor[]     = "sendfor";
-static const char kKeyDesc[]        = "desc";
-static const char kKeySize[]        = "size";
-static const char kKeyOrigin[]      = "origin";
-static const char kKeyManifest[]    = "manifest";
+static const char kKeyName[] = "name";
+static const char kKeyContent[] = "content";
+static const char kKeyDomain[] = "domain";
+static const char kKeyPath[] = "path";
+static const char kKeySendFor[] = "sendfor";
+static const char kKeyAccessibleToScript[] = "accessibleToScript";
+static const char kKeyDesc[] = "desc";
+static const char kKeySize[] = "size";
+static const char kKeyOrigin[] = "origin";
+static const char kKeyManifest[] = "manifest";
 
-static const char kKeyAccessed[]    = "accessed";
-static const char kKeyCreated[]     = "created";
-static const char kKeyExpires[]     = "expires";
-static const char kKeyModified[]    = "modified";
+static const char kKeyAccessed[] = "accessed";
+static const char kKeyCreated[] = "created";
+static const char kKeyExpires[] = "expires";
+static const char kKeyModified[] = "modified";
 
 // Encodes a pointer value into a hex string.
 std::string PointerToHexString(const void* pointer) {
@@ -61,7 +62,7 @@ void* HexStringToPointer(const std::string& str) {
 // Populate given |dict| with cookie tree node properties.
 void GetCookieTreeNodeDictionary(const CookieTreeNode& node,
                                  DictionaryValue* dict) {
-  // Use node's address as an id for DOMUI to look it up.
+  // Use node's address as an id for WebUI to look it up.
   dict->SetString(kKeyId, PointerToHexString(&node));
   dict->SetString(kKeyTitle, node.GetTitle());
   dict->SetBoolean(kKeyHasChildren, !!node.GetChildCount());
@@ -69,6 +70,9 @@ void GetCookieTreeNodeDictionary(const CookieTreeNode& node,
   switch (node.GetDetailedInfo().node_type) {
     case CookieTreeNode::DetailedInfo::TYPE_ORIGIN: {
       dict->SetString(kKeyType, "origin");
+#if defined(OS_MACOSX)
+      dict->SetString(kKeyIcon, "chrome://theme/IDR_BOOKMARK_BAR_FOLDER");
+#endif
       break;
     }
     case CookieTreeNode::DetailedInfo::TYPE_COOKIE: {
@@ -85,6 +89,10 @@ void GetCookieTreeNodeDictionary(const CookieTreeNode& node,
       dict->SetString(kKeySendFor, cookie.IsSecure() ?
           l10n_util::GetStringUTF8(IDS_COOKIES_COOKIE_SENDFOR_SECURE) :
           l10n_util::GetStringUTF8(IDS_COOKIES_COOKIE_SENDFOR_ANY));
+      std::string accessible = cookie.IsHttpOnly() ?
+          l10n_util::GetStringUTF8(IDS_COOKIES_COOKIE_ACCESSIBLE_TO_SCRIPT_NO) :
+          l10n_util::GetStringUTF8(IDS_COOKIES_COOKIE_ACCESSIBLE_TO_SCRIPT_YES);
+      dict->SetString(kKeyAccessibleToScript, accessible);
       dict->SetString(kKeyCreated, UTF16ToUTF8(
           base::TimeFormatFriendlyDateAndTime(cookie.CreationDate())));
       dict->SetString(kKeyExpires, cookie.DoesExpire() ? UTF16ToUTF8(
@@ -168,6 +176,9 @@ void GetCookieTreeNodeDictionary(const CookieTreeNode& node,
       break;
     }
     default:
+#if defined(OS_MACOSX)
+      dict->SetString(kKeyIcon, "chrome://theme/IDR_BOOKMARK_BAR_FOLDER");
+#endif
       break;
   }
 }
@@ -184,7 +195,7 @@ void GetChildNodeList(CookieTreeNode* parent, int start, int count,
 }
 
 // TODO(xiyuan): Remove this function when strings are updated.
-// Remove "&" in button label for DOMUI.
+// Remove "&" in button label for WebUI.
 string16 CleanButtonLabel(const string16& text) {
   string16 out(text);
   ReplaceFirstSubstringAfterOffset(&out, 0, ASCIIToUTF16("&"), string16());
@@ -203,8 +214,8 @@ void CookiesViewHandler::GetLocalizedValues(
     DictionaryValue* localized_strings) {
   DCHECK(localized_strings);
 
-  localized_strings->SetString("cookiesViewPage",
-      l10n_util::GetStringUTF16(IDS_COOKIES_WEBSITE_PERMISSIONS_WINDOW_TITLE));
+  RegisterTitle(localized_strings, "cookiesViewPage",
+                IDS_COOKIES_WEBSITE_PERMISSIONS_WINDOW_TITLE);
 
   localized_strings->SetString("label_cookie_search",
       l10n_util::GetStringUTF16(IDS_COOKIES_SEARCH_LABEL));
@@ -219,6 +230,8 @@ void CookiesViewHandler::GetLocalizedValues(
       l10n_util::GetStringUTF16(IDS_COOKIES_COOKIE_PATH_LABEL));
   localized_strings->SetString("label_cookie_send_for",
       l10n_util::GetStringUTF16(IDS_COOKIES_COOKIE_SENDFOR_LABEL));
+  localized_strings->SetString("label_cookie_accessible_to_script",
+      l10n_util::GetStringUTF16(IDS_COOKIES_COOKIE_ACCESSIBLE_TO_SCRIPT_LABEL));
   localized_strings->SetString("label_cookie_created",
       l10n_util::GetStringUTF16(IDS_COOKIES_COOKIE_CREATED_LABEL));
   localized_strings->SetString("label_cookie_expires",
@@ -256,18 +269,18 @@ void CookiesViewHandler::GetLocalizedValues(
 }
 
 void CookiesViewHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("updateCookieSearchResults",
+  web_ui_->RegisterMessageCallback("updateCookieSearchResults",
       NewCallback(this, &CookiesViewHandler::UpdateSearchResults));
-  dom_ui_->RegisterMessageCallback("removeAllCookies",
+  web_ui_->RegisterMessageCallback("removeAllCookies",
       NewCallback(this, &CookiesViewHandler::RemoveAll));
-  dom_ui_->RegisterMessageCallback("removeCookie",
+  web_ui_->RegisterMessageCallback("removeCookie",
       NewCallback(this, &CookiesViewHandler::Remove));
-  dom_ui_->RegisterMessageCallback("loadCookie",
+  web_ui_->RegisterMessageCallback("loadCookie",
       NewCallback(this, &CookiesViewHandler::LoadChildren));
 }
 
-void CookiesViewHandler::TreeNodesAdded(TreeModel* model,
-                                        TreeModelNode* parent,
+void CookiesViewHandler::TreeNodesAdded(ui::TreeModel* model,
+                                        ui::TreeModelNode* parent,
                                         int start,
                                         int count) {
   // Skip if there is a batch update in progress.
@@ -283,11 +296,11 @@ void CookiesViewHandler::TreeNodesAdded(TreeModel* model,
       Value::CreateStringValue(PointerToHexString(parent)));
   args.Append(Value::CreateIntegerValue(start));
   args.Append(children);
-  dom_ui_->CallJavascriptFunction(L"CookiesView.onTreeItemAdded", args);
+  web_ui_->CallJavascriptFunction(L"CookiesView.onTreeItemAdded", args);
 }
 
-void CookiesViewHandler::TreeNodesRemoved(TreeModel* model,
-                                          TreeModelNode* parent,
+void CookiesViewHandler::TreeNodesRemoved(ui::TreeModel* model,
+                                          ui::TreeModelNode* parent,
                                           int start,
                                           int count) {
   // Skip if there is a batch update in progress.
@@ -300,7 +313,7 @@ void CookiesViewHandler::TreeNodesRemoved(TreeModel* model,
       Value::CreateStringValue(PointerToHexString(parent)));
   args.Append(Value::CreateIntegerValue(start));
   args.Append(Value::CreateIntegerValue(count));
-  dom_ui_->CallJavascriptFunction(L"CookiesView.onTreeItemRemoved", args);
+  web_ui_->CallJavascriptFunction(L"CookiesView.onTreeItemRemoved", args);
 }
 
 void CookiesViewHandler::TreeModelBeginBatch(CookiesTreeModel* model) {
@@ -322,7 +335,7 @@ void CookiesViewHandler::UpdateSearchResults(const ListValue* args) {
   }
 
   if (!cookies_tree_model_.get()) {
-    Profile* profile = dom_ui_->GetProfile();
+    Profile* profile = web_ui_->GetProfile();
     cookies_tree_model_.reset(new CookiesTreeModel(
         profile->GetRequestContext()->GetCookieStore()->GetCookieMonster(),
         new BrowsingDataDatabaseHelper(profile),
@@ -330,7 +343,7 @@ void CookiesViewHandler::UpdateSearchResults(const ListValue* args) {
         NULL,
         new BrowsingDataAppCacheHelper(profile),
         BrowsingDataIndexedDBHelper::Create(profile)));
-    cookies_tree_model_->AddObserver(this);
+    cookies_tree_model_->AddCookiesTreeObserver(this);
   }
 
   cookies_tree_model_->UpdateSearchResults(UTF8ToWide(query));
@@ -396,5 +409,5 @@ void CookiesViewHandler::SendChildren(CookieTreeNode* parent) {
       Value::CreateStringValue(PointerToHexString(parent)));
   args.Append(children);
 
-  dom_ui_->CallJavascriptFunction(L"CookiesView.loadChildren", args);
+  web_ui_->CallJavascriptFunction(L"CookiesView.loadChildren", args);
 }

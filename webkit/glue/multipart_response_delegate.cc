@@ -9,10 +9,10 @@
 #include "base/string_util.h"
 #include "net/base/net_util.h"
 #include "net/http/http_util.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebHTTPHeaderVisitor.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebString.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURL.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLLoaderClient.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebHTTPHeaderVisitor.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebString.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURL.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLLoaderClient.h"
 
 using WebKit::WebHTTPHeaderVisitor;
 using WebKit::WebString;
@@ -291,9 +291,8 @@ bool MultipartResponseDelegate::ReadMultipartBoundary(
       response.httpHeaderField(WebString::fromUTF8("Content-Type")).utf8();
 
   size_t boundary_start_offset = content_type.find("boundary=");
-  if (boundary_start_offset == std::wstring::npos) {
+  if (boundary_start_offset == std::string::npos)
     return false;
-  }
 
   boundary_start_offset += strlen("boundary=");
 

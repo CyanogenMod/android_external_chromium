@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <map>
 
-#include "app/l10n_util.h"
 #include "base/i18n/time_formatting.h"
 #include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
@@ -15,10 +14,12 @@
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_thread.h"
+#include "chrome/browser/chromeos/network_login_observer.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/common/time_format.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
@@ -83,6 +84,9 @@ static const char* kNetworkTechnologyLteAdvanced = "LTE Advanced";
 static const char* kRoamingStateHome = "home";
 static const char* kRoamingStateRoaming = "roaming";
 static const char* kRoamingStateUnknown = "unknown";
+
+// How long we should remember that cellular plan payment was received.
+const int kRecentPlanPaymentHours = 6;
 
 static ConnectionState ParseState(const std::string& state) {
   if (state == kStateIdle)
@@ -163,7 +167,7 @@ static NetworkRoamingState ParseRoamingState(
   return ROAMING_STATE_UNKNOWN;
 }
 
-}
+}  // namespace
 
 // Helper function to wrap Html with <th> tag.
 static std::string WrapWithTH(std::string text) {
@@ -467,6 +471,17 @@ string16 CellularDataPlan::GetUsageInfo() const {
   return string16();
 }
 
+std::string CellularDataPlan::GetUniqueIdentifier() const {
+  // A cellular plan is uniquely described by the union of name, type,
+  // start time, end time, and max bytes.
+  // So we just return a union of all these variables.
+  return plan_name + "|" +
+      base::Int64ToString(plan_type) + "|" +
+      base::Int64ToString(plan_start_time.ToInternalValue()) + "|" +
+      base::Int64ToString(plan_end_time.ToInternalValue()) + "|" +
+      base::Int64ToString(plan_data_bytes);
+}
+
 base::TimeDelta CellularDataPlan::remaining_time() const {
   base::TimeDelta time = plan_end_time - base::Time::Now();
   return time.InMicroseconds() < 0 ? base::TimeDelta() : time;
@@ -611,7 +626,7 @@ CellularNetwork::DataLeft CellularNetwork::GetDataLeft() const {
     return DATA_NONE;
   const CellularDataPlan* plan = GetSignificantDataPlan();
   if (!plan)
-    return DATA_NORMAL;
+    return DATA_UNKNOWN;
   if (plan->plan_type == CELLULAR_DATA_PLAN_UNLIMITED) {
     base::TimeDelta remaining = plan->remaining_time();
     if (remaining <= base::TimeDelta::FromSeconds(0))
@@ -620,6 +635,7 @@ CellularNetwork::DataLeft CellularNetwork::GetDataLeft() const {
       return DATA_VERY_LOW;
     if (remaining <= base::TimeDelta::FromSeconds(kCellularDataLowSecs))
       return DATA_LOW;
+    return DATA_NORMAL;
   } else if (plan->plan_type == CELLULAR_DATA_PLAN_METERED_PAID ||
              plan->plan_type == CELLULAR_DATA_PLAN_METERED_BASE) {
     int64 remaining = plan->remaining_data();
@@ -631,8 +647,9 @@ CellularNetwork::DataLeft CellularNetwork::GetDataLeft() const {
     if (remaining <= kCellularDataLowBytes &&
         plan->plan_type != CELLULAR_DATA_PLAN_METERED_BASE)
       return DATA_LOW;
+    return DATA_NORMAL;
   }
-  return DATA_NORMAL;
+  return DATA_UNKNOWN;
 }
 
 std::string CellularNetwork::GetNetworkTechnologyString() const {
@@ -838,6 +855,7 @@ class NetworkLibraryImpl : public NetworkLibrary  {
         connected_devices_(0),
         wifi_scanning_(false),
         offline_mode_(false),
+        is_locked_(false),
         update_task_(NULL) {
     if (EnsureCrosLoaded()) {
       Init();
@@ -846,6 +864,7 @@ class NetworkLibraryImpl : public NetworkLibrary  {
                                 this);
       data_plan_monitor_ = MonitorCellularDataPlan(&DataPlanUpdateHandler,
                                                    this);
+      network_login_observer_.reset(new NetworkLoginObserver(this));
     } else {
       InitTestData();
     }
@@ -868,8 +887,10 @@ class NetworkLibraryImpl : public NetworkLibrary  {
   }
 
   void NetworkStatusChanged() {
+    DVLOG(1) << "Got NetworkStatusChanged";
     CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
     if (update_task_) {
+      DVLOG(1) << "  found previous task";
       update_task_->Cancel();
     }
     update_task_ =
@@ -933,6 +954,25 @@ class NetworkLibraryImpl : public NetworkLibrary  {
         ++map_iter;
       }
     }
+  }
+
+  virtual void Lock() {
+    if (is_locked_)
+      return;
+    is_locked_ = true;
+    NotifyNetworkManagerChanged();
+  }
+
+  virtual void Unlock() {
+    DCHECK(is_locked_);
+    if (!is_locked_)
+      return;
+    is_locked_ = false;
+    NotifyNetworkManagerChanged();
+  }
+
+  virtual bool IsLocked() {
+    return is_locked_;
   }
 
   virtual void AddCellularDataPlanObserver(CellularDataPlanObserver* observer) {
@@ -1135,6 +1175,18 @@ class NetworkLibraryImpl : public NetworkLibrary  {
     RequestCellularDataPlanUpdate(network->service_path().c_str());
   }
 
+  // Records information that cellular play payment had happened.
+  virtual void SignalCellularPlanPayment() {
+    DCHECK(!HasRecentCellularPlanPayment());
+    cellular_plan_payment_time_ = base::Time::Now();
+  }
+
+  // Returns true if cellular plan payment had been recorded recently.
+  virtual bool HasRecentCellularPlanPayment() {
+    return (base::Time::Now() -
+              cellular_plan_payment_time_).InHours() < kRecentPlanPaymentHours;
+  }
+
   virtual void DisconnectFromWirelessNetwork(const WirelessNetwork* network) {
     DCHECK(network);
     if (!EnsureCrosLoaded() || !network)
@@ -1170,7 +1222,7 @@ class NetworkLibraryImpl : public NetworkLibrary  {
         GetWirelessNetworkByPath(cellular_networks_,
                                  network->service_path());
     if (!cellular) {
-      LOG(WARNING) << "Save to unknown network: " << cellular->service_path();
+      LOG(WARNING) << "Save to unknown network: " << network->service_path();
       return;
     }
 
@@ -1188,7 +1240,7 @@ class NetworkLibraryImpl : public NetworkLibrary  {
     WifiNetwork* wifi = GetWirelessNetworkByPath(wifi_networks_,
                                                  network->service_path());
     if (!wifi) {
-      LOG(WARNING) << "Save to unknown network: " << wifi->service_path();
+      LOG(WARNING) << "Save to unknown network: " << network->service_path();
       return;
     }
     // Immediately update properties in the cached structure.
@@ -1283,14 +1335,20 @@ class NetworkLibraryImpl : public NetworkLibrary  {
   }
 
   virtual void EnableEthernetNetworkDevice(bool enable) {
+    if (is_locked_)
+      return;
     EnableNetworkDeviceType(TYPE_ETHERNET, enable);
   }
 
   virtual void EnableWifiNetworkDevice(bool enable) {
+    if (is_locked_)
+      return;
     EnableNetworkDeviceType(TYPE_WIFI, enable);
   }
 
   virtual void EnableCellularNetworkDevice(bool enable) {
+    if (is_locked_)
+      return;
     EnableNetworkDeviceType(TYPE_CELLULAR, enable);
   }
 
@@ -1580,6 +1638,7 @@ class NetworkLibraryImpl : public NetworkLibrary  {
   }
 
   void InitTestData() {
+    is_locked_ = true;
     ethernet_ = new EthernetNetwork();
     ethernet_->set_connected(true);
     ethernet_->set_service_path("eth1");
@@ -1621,7 +1680,7 @@ class NetworkLibraryImpl : public NetworkLibrary  {
     cellular1->set_service_path("fc1");
     cellular1->set_name("Fake Cellular 1");
     cellular1->set_strength(70);
-    cellular1->set_connected(true);
+    cellular1->set_connected(false);
     cellular1->set_activation_state(ACTIVATION_STATE_ACTIVATED);
     cellular1->set_payment_url(std::string("http://www.google.com"));
     cellular1->set_network_technology(NETWORK_TECHNOLOGY_EVDO);
@@ -1768,7 +1827,7 @@ class NetworkLibraryImpl : public NetworkLibrary  {
     bool boolval = false;
     int intval = 0;
     std::string stringval;
-    Network* network;
+    Network* network = NULL;
     if (ethernet_->service_path() == path) {
       network = ethernet_;
     } else {
@@ -1779,7 +1838,7 @@ class NetworkLibraryImpl : public NetworkLibrary  {
       if (cellular == NULL && wifi == NULL)
         return;
 
-      WirelessNetwork* wireless;
+      WirelessNetwork* wireless = NULL;
       if (wifi != NULL)
         wireless = static_cast<WirelessNetwork*>(wifi);
       else
@@ -1822,7 +1881,8 @@ class NetworkLibraryImpl : public NetworkLibrary  {
         network->InitIPAddress();
       }
     }
-    NotifyNetworkChanged(network);
+    if (network)
+      NotifyNetworkChanged(network);
   }
 
   void UpdateCellularDataPlan(const CellularDataPlanList* data_plans) {
@@ -1860,6 +1920,9 @@ class NetworkLibraryImpl : public NetworkLibrary  {
   // For monitoring data plan changes to the connected cellular network.
   DataPlanUpdateMonitor data_plan_monitor_;
 
+  // Network login observer.
+  scoped_ptr<NetworkLoginObserver> network_login_observer_;
+
   // The ethernet network.
   EthernetNetwork* ethernet_;
 
@@ -1893,8 +1956,14 @@ class NetworkLibraryImpl : public NetworkLibrary  {
   // Currently not implemented. TODO: implement or eliminate.
   bool offline_mode_;
 
+  // True if access network library is locked.
+  bool is_locked_;
+
   // Delayed task to retrieve the network information.
   CancelableTask* update_task_;
+
+  // Cellular plan payment time.
+  base::Time cellular_plan_payment_time_;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkLibraryImpl);
 };
@@ -1915,6 +1984,9 @@ class NetworkLibraryStubImpl : public NetworkLibrary {
   virtual void RemoveNetworkObserver(const std::string& service_path,
                                      NetworkObserver* observer) {}
   virtual void RemoveObserverForAllNetworks(NetworkObserver* observer) {}
+  virtual void Lock() {}
+  virtual void Unlock() {}
+  virtual bool IsLocked() { return true; }
   virtual void AddCellularDataPlanObserver(
       CellularDataPlanObserver* observer) {}
   virtual void RemoveCellularDataPlanObserver(
@@ -1979,6 +2051,8 @@ class NetworkLibraryStubImpl : public NetworkLibrary {
     return true;
   }
   virtual void RefreshCellularDataPlans(const CellularNetwork* network) {}
+  virtual void SignalCellularPlanPayment() {}
+  virtual bool HasRecentCellularPlanPayment() { return false; }
   virtual void DisconnectFromWirelessNetwork(const WirelessNetwork* network) {}
   virtual void SaveCellularNetwork(const CellularNetwork* network) {}
   virtual void SaveWifiNetwork(const WifiNetwork* network) {}

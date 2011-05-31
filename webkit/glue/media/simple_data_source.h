@@ -16,11 +16,11 @@
 #include "base/message_loop.h"
 #include "base/scoped_ptr.h"
 #include "media/base/filters.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebFrame.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLLoader.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLLoaderClient.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLRequest.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLResponse.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebFrame.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLLoader.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLLoaderClient.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLRequest.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLResponse.h"
 #include "webkit/glue/media/web_data_source.h"
 
 class MessageLoop;
@@ -120,7 +120,7 @@ class SimpleDataSource : public WebDataSource,
   State state_;
 
   // Used for accessing |state_|.
-  Lock lock_;
+  base::Lock lock_;
 
   // Filter callbacks.
   scoped_ptr<media::FilterCallback> initialize_callback_;

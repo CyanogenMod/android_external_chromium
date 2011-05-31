@@ -93,8 +93,8 @@
                   # out of $(pkg-config --cflags nss) and GYP include paths
                   # come after cflags on the command line. So we have these
                   # bodges:
-                  '-Inet/third_party/nss/ssl',                  # for make
-                  '-IWebKit/chromium/net/third_party/nss/ssl',  # for make in webkit
+                  '-Inet/third_party/nss/ssl',                         # for make
+                  '-ISource/WebKit/chromium/net/third_party/nss/ssl',  # for make in webkit
                   '<!@(<(pkg-config) --cflags nss)',
                 ],
               },
@@ -345,6 +345,30 @@
           '-lresolv',
         ],
       },
+    },
+    {
+      'target_name': 'ibus',
+      'type': 'settings',
+      'conditions': [
+        ['"<!@(<(pkg-config) --atleast-version=1.3.99 ibus-1.0 || echo $?)"==""', {
+          'variables': {
+            'ibus': 1
+          },
+          'direct_dependent_settings': {
+            'cflags': [
+              '<!@(<(pkg-config) --cflags ibus-1.0)',
+            ],
+          },
+          'link_settings': {
+            'ldflags': [
+              '<!@(<(pkg-config) --libs-only-L --libs-only-other ibus-1.0)',
+            ],
+            'libraries': [
+              '<!@(<(pkg-config) --libs-only-l ibus-1.0)',
+            ],
+          },
+        }],
+      ],
     },
   ],
 }

@@ -1,34 +1,34 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/keyword_editor_view.h"
+#include "chrome/browser/ui/views/keyword_editor_view.h"
 
+#include <string>
 #include <vector>
 
-#include "app/l10n_util.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/search_engines/template_url_table_model.h"
-#include "chrome/browser/views/browser_dialogs.h"
-#include "chrome/browser/views/first_run_search_engine_view.h"
+#include "chrome/browser/ui/views/browser_dialogs.h"
+#include "chrome/browser/ui/views/first_run_search_engine_view.h"
 #include "chrome/common/pref_names.h"
-#include "gfx/point.h"
 #include "googleurl/src/gurl.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/point.h"
 #include "views/background.h"
-#include "views/grid_layout.h"
 #include "views/controls/button/native_button.h"
 #include "views/controls/table/table_view.h"
 #include "views/controls/textfield/textfield.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/widget.h"
 #include "views/window/dialog_delegate.h"
 #include "views/window/window.h"
@@ -153,14 +153,14 @@ views::View* KeywordEditorView::GetContentsView() {
 }
 
 void KeywordEditorView::Init() {
-  std::vector<TableColumn> columns;
+  std::vector<ui::TableColumn> columns;
   columns.push_back(
-      TableColumn(IDS_SEARCH_ENGINES_EDITOR_DESCRIPTION_COLUMN,
-                  TableColumn::LEFT, -1, .75));
+      ui::TableColumn(IDS_SEARCH_ENGINES_EDITOR_DESCRIPTION_COLUMN,
+                      ui::TableColumn::LEFT, -1, .75));
   columns.back().sortable = true;
   columns.push_back(
-      TableColumn(IDS_SEARCH_ENGINES_EDITOR_KEYWORD_COLUMN,
-                  TableColumn::LEFT, -1, .25));
+      ui::TableColumn(IDS_SEARCH_ENGINES_EDITOR_KEYWORD_COLUMN,
+                      ui::TableColumn::LEFT, -1, .25));
   columns.back().sortable = true;
   table_view_ = new views::TableView(controller_->table_model(), columns,
       views::ICON_AND_TEXT, false, true, true);
@@ -170,7 +170,7 @@ void KeywordEditorView::Init() {
       l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_NEW_BUTTON)));
   add_button_->SetEnabled(controller_->loaded());
   add_button_->AddAccelerator(
-      views::Accelerator(app::VKEY_A, false, false, true));
+      views::Accelerator(ui::VKEY_A, false, false, true));
   add_button_->SetAccessibleKeyboardShortcut(L"A");
 
   edit_button_ = new views::NativeButton(this, UTF16ToWide(
@@ -181,7 +181,7 @@ void KeywordEditorView::Init() {
       l10n_util::GetStringUTF16(IDS_SEARCH_ENGINES_EDITOR_REMOVE_BUTTON)));
   remove_button_->SetEnabled(false);
   remove_button_->AddAccelerator(
-      views::Accelerator(app::VKEY_R, false, false, true));
+      views::Accelerator(ui::VKEY_R, false, false, true));
   remove_button_->SetAccessibleKeyboardShortcut(L"R");
 
   make_default_button_ = new views::NativeButton(
@@ -194,11 +194,11 @@ void KeywordEditorView::Init() {
 }
 
 void KeywordEditorView::InitLayoutManager() {
-  const int related_x = kRelatedControlHorizontalSpacing;
-  const int related_y = kRelatedControlVerticalSpacing;
-  const int unrelated_y = kUnrelatedControlVerticalSpacing;
+  const int related_x = views::kRelatedControlHorizontalSpacing;
+  const int related_y = views::kRelatedControlVerticalSpacing;
+  const int unrelated_y = views::kUnrelatedControlVerticalSpacing;
 
-  GridLayout* contents_layout = CreatePanelGridLayout(this);
+  GridLayout* contents_layout = GridLayout::CreatePanel(this);
   SetLayoutManager(contents_layout);
 
   // For the table and buttons.
@@ -258,9 +258,9 @@ void KeywordEditorView::OnDoubleClick() {
   if (edit_button_->IsEnabled()) {
     DWORD pos = GetMessagePos();
     gfx::Point cursor_point(pos);
-    views::MouseEvent event(views::Event::ET_MOUSE_RELEASED,
+    views::MouseEvent event(ui::ET_MOUSE_RELEASED,
                             cursor_point.x(), cursor_point.y(),
-                            views::Event::EF_LEFT_BUTTON_DOWN);
+                            ui::EF_LEFT_BUTTON_DOWN);
     ButtonPressed(edit_button_, event);
   }
 }

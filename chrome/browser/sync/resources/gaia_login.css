@@ -1,0 +1,188 @@
+body {
+  -webkit-user-select: none;
+  background-color: #fff;
+  margin-bottom: 6px;
+  margin-top: 6px;
+}
+
+a:link {
+  color: #00c;
+}
+
+a:visited {
+  color: #551a8b;
+}
+
+a:active {
+  color: #f00;
+}
+
+hr {
+  background-color: #ddd;
+  border: 0;
+  height: 1px;
+  margin: 5px;
+  text-align: left;
+  width: 100%;
+}
+
+input[type='button'],
+input[type='submit'] {
+  min-height: 26px;
+  min-width: 87px;
+}
+
+.form-noindent {
+  background-color: #fff;
+  border: #c3d9ff 1px solid;
+}
+
+.endaligned {
+  text-align: end;
+}
+
+#gaia_account_text {
+  font-weight: bold;
+}
+
+#email_readonly {
+  display: none;
+  font-size: 10pt;
+  font-weight: bold;
+}
+
+div.errormsg {
+  color: red;
+  display: none;
+  font-size: smaller;
+}
+
+font.errormsg {
+  color: red;
+  font-size: smaller;
+}
+
+div.errormsgspacer {
+  min-height: 1em;
+}
+
+font.errormsgspacer {
+  font-size: smaller;
+}
+
+#gaia_loginform {
+  margin-bottom: 0;
+}
+
+#captcha_wrapper {
+  background: no-repeat;
+  background-color: #e8eefa;
+  background-position: center;
+  background-size: 200px 70px;
+  display: block;
+}
+
+.captcha_image {
+  display: block;
+  height: 70px;
+  width: 200px;
+}
+
+#logging_in_throbber {
+  margin: 0 10px;
+}
+
+.toppageverticalspace {
+  height: 15px;
+}
+
+.bottompaddedcell {
+  padding-bottom: 3px;
+}
+
+.noverticalpadding {
+  padding-bottom: 0;
+  padding-top: 0;
+}
+
+.cancelspacenocaptcha {
+  height: 22px;
+}
+
+.cancelspaceforcaptcha {
+  height: 5px;
+}
+
+#top_blurb {
+  font-size: 11pt;
+  line-height: 1.5em;
+}
+
+#top_blurb_error {
+  background-color: #eeb939;
+  border-radius: 4px;
+  display: block;
+  font-size: 11pt;
+  font-weight: bold;
+  margin-bottom: 10px;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 4px 10px;
+  text-align: center;
+  visibility: hidden;
+  width: 70%;
+}
+
+#content_table {
+ padding: 2px;
+}
+
+.access_code_row {
+  display: none;
+}
+
+.access_code_row > td {
+  padding-bottom: 1px;
+  text-align: center;
+}
+
+#access_code_label_row > td {
+  padding-top: 6px;
+}
+
+.centeredtext {
+  text-align: center;
+}
+
+.gaia.le.lbl,
+.gaia.le.val,
+.gaia.le.rem,
+.gaia.captchahtml.desc
+.gaia.captchahtml.cmt {
+  font-size: smaller;
+}
+
+.gaia.captchahtml.cmt {
+  font-style: italic;
+}
+
+.gaia.le.fpwd,
+.gaia.le.chusr {
+  font-size: 70%;
+}
+
+#error_custom {
+  display: none;
+}
+
+#captchadiv {
+  display: none;
+}
+
+#password_row {
+  margin-top: 2px;
+}
+
+#action-area {
+  margin-top: 2px;
+}

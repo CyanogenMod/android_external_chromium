@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
@@ -211,13 +210,13 @@ IN_PROC_BROWSER_TEST_F(RenderViewHostManagerTest,
 
   TabContents *contents = browser()->GetSelectedTabContents();
   ASSERT_TRUE(contents);
-  bool domui_responded = false;
+  bool webui_responded = false;
   EXPECT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractBool(
       contents->render_view_host(),
       L"",
-      L"window.domAutomationController.send(window.domui_responded_);",
-      &domui_responded));
-  EXPECT_TRUE(domui_responded);
+      L"window.domAutomationController.send(window.webui_responded_);",
+      &webui_responded));
+  EXPECT_TRUE(webui_responded);
 }
 
 class BrowserClosedObserver : public NotificationObserver {

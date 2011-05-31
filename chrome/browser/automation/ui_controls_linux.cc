@@ -1,19 +1,19 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/automation/ui_controls.h"
 
-#include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
+#include <gtk/gtk.h>
 
-#include "app/event_synthesis_gtk.h"
-#include "gfx/rect.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "chrome/browser/automation/ui_controls_internal.h"
-#include "chrome/browser/gtk/gtk_util.h"
+#include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/common/automation_constants.h"
+#include "ui/base/gtk/event_synthesis_gtk.h"
+#include "ui/gfx/rect.h"
 
 #if defined(TOOLKIT_VIEWS)
 #include "views/view.h"
@@ -96,7 +96,7 @@ void FakeAMouseMotionEvent(gint x, gint y) {
 namespace ui_controls {
 
 bool SendKeyPress(gfx::NativeWindow window,
-                  app::KeyboardCode key,
+                  ui::KeyboardCode key,
                   bool control, bool shift, bool alt, bool command) {
   DCHECK(command == false);  // No command key on Linux
   GdkWindow* event_window = NULL;
@@ -124,8 +124,7 @@ bool SendKeyPress(gfx::NativeWindow window,
   }
 
   std::vector<GdkEvent*> events;
-  app::SynthesizeKeyPressEvents(event_window, key, control, shift, alt,
-                                 &events);
+  ui::SynthesizeKeyPressEvents(event_window, key, control, shift, alt, &events);
   for (std::vector<GdkEvent*>::iterator iter = events.begin();
        iter != events.end(); ++iter) {
     gdk_event_put(*iter);
@@ -137,7 +136,7 @@ bool SendKeyPress(gfx::NativeWindow window,
 }
 
 bool SendKeyPressNotifyWhenDone(gfx::NativeWindow window,
-                                app::KeyboardCode key,
+                                ui::KeyboardCode key,
                                 bool control, bool shift,
                                 bool alt, bool command,
                                 Task* task) {

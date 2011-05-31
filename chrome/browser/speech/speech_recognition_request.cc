@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <vector>
 
-#include "app/l10n_util.h"
 #include "base/json/json_reader.h"
 #include "base/string_util.h"
 #include "base/values.h"
@@ -15,6 +14,7 @@
 #include "net/base/load_flags.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_status.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
@@ -91,7 +91,7 @@ bool ParseServerResponse(const std::string& response_body,
 
     // It is not an error if the 'confidence' field is missing.
     double confidence = 0.0;
-    hypothesis_value->GetReal(kConfidenceString, &confidence);
+    hypothesis_value->GetDouble(kConfidenceString, &confidence);
 
     result->push_back(speech_input::SpeechInputResultItem(utterance,
                                                           confidence));
@@ -123,6 +123,7 @@ SpeechRecognitionRequest::~SpeechRecognitionRequest() {}
 bool SpeechRecognitionRequest::Send(const std::string& language,
                                     const std::string& grammar,
                                     const std::string& hardware_info,
+                                    const std::string& origin_url,
                                     const std::string& content_type,
                                     const std::string& audio_data) {
   DCHECK(!url_fetcher_.get());
@@ -134,7 +135,8 @@ bool SpeechRecognitionRequest::Send(const std::string& language,
     // If no language is provided then we use the first from the accepted
     // language list. If this list is empty then it defaults to "en-US".
     // Example of the contents of this list: "es,en-GB;q=0.8", ""
-    URLRequestContext* request_context = url_context_->GetURLRequestContext();
+    net::URLRequestContext* request_context =
+        url_context_->GetURLRequestContext();
     DCHECK(request_context);
     std::string accepted_language_list = request_context->accept_language();
     size_t separator = accepted_language_list.find_first_of(",;");
@@ -160,6 +162,7 @@ bool SpeechRecognitionRequest::Send(const std::string& language,
                                         this));
   url_fetcher_->set_upload_data(content_type, audio_data);
   url_fetcher_->set_request_context(url_context_);
+  url_fetcher_->set_referrer(origin_url);
 
   // The speech recognition API does not require user identification as part
   // of requests, so we don't send cookies or auth data for these requests to
@@ -175,7 +178,7 @@ bool SpeechRecognitionRequest::Send(const std::string& language,
 void SpeechRecognitionRequest::OnURLFetchComplete(
     const URLFetcher* source,
     const GURL& url,
-    const URLRequestStatus& status,
+    const net::URLRequestStatus& status,
     int response_code,
     const ResponseCookies& cookies,
     const std::string& data) {

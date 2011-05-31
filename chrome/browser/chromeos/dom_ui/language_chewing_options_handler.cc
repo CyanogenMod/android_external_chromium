@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <limits>
 
-#include "app/l10n_util.h"
 #include "base/logging.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
@@ -14,6 +13,7 @@
 #include "chrome/browser/chromeos/dom_ui/language_options_util.h"
 #include "chrome/browser/chromeos/language_preferences.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 const char kI18nPrefix[] = "Chewing_";
@@ -30,7 +30,10 @@ LanguageChewingOptionsHandler::~LanguageChewingOptionsHandler() {
 void LanguageChewingOptionsHandler::GetLocalizedValues(
     DictionaryValue* localized_strings) {
   DCHECK(localized_strings);
-  // Language Chewing page - ChromeOS
+
+  RegisterTitle(localized_strings, "languageChewingPage",
+                IDS_OPTIONS_SETTINGS_LANGUAGES_CHEWING_SETTINGS_TITLE);
+
   for (size_t i = 0; i < language_prefs::kNumChewingBooleanPrefs; ++i) {
     localized_strings->SetString(
         GetI18nContentValue(language_prefs::kChewingBooleanPrefs[i],

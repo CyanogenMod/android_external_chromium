@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,9 +46,19 @@ extern NSString* const kClearBrowsingDataControllerRemoveMask;
   NSInteger timePeriod_;
 }
 
+// Properties for bindings
+@property(nonatomic) BOOL clearBrowsingHistory;
+@property(nonatomic) BOOL clearDownloadHistory;
+@property(nonatomic) BOOL emptyCache;
+@property(nonatomic) BOOL deleteCookies;
+@property(nonatomic) BOOL clearSavedPasswords;
+@property(nonatomic) BOOL clearFormData;
+@property(nonatomic) NSInteger timePeriod;
+@property(nonatomic) BOOL isClearing;
+
 // Show the clear browsing data window.  Do not use |-initWithProfile:|,
 // go through this instead so we don't end up with multiple instances.
-// This function does not block, so it can be used from DOMUI calls.
+// This function does not block, so it can be used from WebUI calls.
 + (void)showClearBrowsingDialogForProfile:(Profile*)profile;
 + (ClearBrowsingDataController*)controllerForProfile:(Profile*)profile;
 
@@ -62,23 +72,14 @@ extern NSString* const kClearBrowsingDataControllerRemoveMask;
 - (IBAction)cancel:(id)sender;
 - (IBAction)openFlashPlayerSettings:(id)sender;
 
-// Properties for bindings
-@property (nonatomic) BOOL clearBrowsingHistory;
-@property (nonatomic) BOOL clearDownloadHistory;
-@property (nonatomic) BOOL emptyCache;
-@property (nonatomic) BOOL deleteCookies;
-@property (nonatomic) BOOL clearSavedPasswords;
-@property (nonatomic) BOOL clearFormData;
-@property (nonatomic) NSInteger timePeriod;
-@property (nonatomic) BOOL isClearing;
-
 @end
 
 
 @interface ClearBrowsingDataController (ExposedForUnitTests)
+@property(readonly) int removeMask;
+
 // Create the controller with the given profile (which must not be NULL).
 - (id)initWithProfile:(Profile*)profile;
-@property (readonly) int removeMask;
 - (void)persistToPrefs;
 - (void)closeDialog;
 - (void)dataRemoverDidFinish;

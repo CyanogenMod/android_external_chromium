@@ -156,7 +156,7 @@
       {
         "name": "getBackgroundPage",
         "type": "function",
-        "description": "Returns the JavaScript 'window' object for the background page running inside the current extension. Returns null if the extension has no backround page.",
+        "description": "Returns the JavaScript 'window' object for the background page running inside the current extension. Returns null if the extension has no background page.",
         "parameters": [],
         "returns": {
           "type": "object", "isInstanceOf": "DOMWindow", "properties": {}, "additionalProperties": { "type": "any" }
@@ -472,29 +472,7 @@
     ]
   },
   {
-    "namespace": "experimental.extension",
-    "nodoc": true,
-    "types": [],
-    "functions": [
-      {
-        "name": "getPopupView",
-        "type": "function",
-        "description": "Returns a reference to the JavaScript 'window' object of the popup view.  Returns undefined if no popup presently shown.",
-        "parameters": [],
-        "returns": {
-          "type": "object",
-          "isInstanceOf": "DOMWindow",
-          "properties": {},
-          "additionalProperties": { "type": "any" },
-          "optional": true
-        }
-      }
-    ],
-    "events": []
-  },
-  {
     "namespace": "experimental.tts",
-    "nodoc": true,
     "functions": [
       {
         "name": "speak",
@@ -504,13 +482,13 @@
           {
             "type": "string",
             "name": "utterance",
-            "description": "The text to speak."
+            "description": "The text to speak. May include SSML markup."
           },
           {
             "type": "object",
             "name": "options",
             "optional": true,
-            "description": "The speak options. This parameter is currently ignored.",
+            "description": "The speech options.",
             "properties": {
               "enqueue": {
 	        "type": "boolean",
@@ -520,12 +498,12 @@
 	      "voiceName": {
                 "type": "string",
                 "optional": true,
-                "description": "The name of the voice to use for synthesis."
+                "description": "The name of the voice to use for synthesis. If empty, uses any available voice."
               },
 	      "locale": {
                 "type": "string",
                 "optional": true,
-                "description": "The language and region code that specify the language and dialect to be used for synthesis, in the form <language>-<region>, e.g. en-US, en-GB, fr-CA, zh-CN, etc."
+                "description": "The language and optional region code that specify the language and dialect to be used for synthesis, in the form &lt;language&gt;-&lt;region&gt;. Examples: 'en', 'en-US', 'en-GB', 'zh-CN', etc."
               },
               "gender": {
                 "type": "string",
@@ -538,21 +516,21 @@
                 "optional": true,
                 "minimum": 0,
                 "maximum": 1,
-                "description": "Speaking speed between 0 and 1 inclusive, with 0 being slowest and 1 being fastest."
+                "description": "Speaking speed between 0 and 1 inclusive, with 0 being slowest and 1 being fastest, with a default of 0.5."
               },
               "pitch": {
                 "type": "number",
                 "optional": true,
                 "minimum": 0,
                 "maximum": 1,
-                "description": "Speaking pitch between 0 and 1 inclusive, with 0 being lowest and 1 being highest."
+                "description": "Speaking pitch between 0 and 1 inclusive, with 0 being lowest and 1 being highest, with a default of 0.5."
               },
               "volume": {
                 "type": "number",
                 "optional": true,
                 "minimum": 0,
                 "maximum": 1,
-                "description": "Speaking volume between 0 and 1 inclusive, with 0 being lowest and 1 being highest."
+                "description": "Speaking volume between 0 and 1 inclusive, with 0 being lowest and 1 being highest, with a default of 1.0."
               }
             }
           },
@@ -617,7 +595,7 @@
           {
             "type": "string",
             "name": "utterance",
-            "description": "The text to speak."
+            "description": "The text to speak. This may include SSML, so if your engine does not support SSML, you should strip out all XML markup and synthesize only the underlying text content."
           },
           {
             "type": "object",
@@ -681,7 +659,7 @@
       {
         "name": "onStop",
         "type": "function",
-        "description": "Fired when a call is made to tts.stop and this extension may be in the middle of speaking."
+        "description": "Fired when a call is made to tts.stop and this extension may be in the middle of speaking. If an extension receives a call to onStop and speech is already stopped, it should do nothing (not raise an error)."
       }
     ]
   },
@@ -2406,94 +2384,6 @@
     "events": []
   },
   {
-    "namespace": "experimental.popup",
-    "nodoc": true,
-    "types": [],
-    "functions": [
-      {
-        "name": "show",
-        "type": "function",
-        "description": "Displays a pop-up window hosting an extension view.",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "url",
-            "description": "The URL of the contents to which the pop-up will be navigated."
-          },
-          {
-            "type": "object",
-            "name": "showDetails",
-            "properties": {
-              "relativeTo": {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": { "type": "any" },
-                "isInstanceOf": "HTMLElement",
-                "description": "A HTML DOM object to which the pop-up's position will be made relative."
-              },
-              "giveFocus": {
-                "type": "boolean",
-                "description": "Pass true to give the focus to the popup window.  The default behaviour is true.",
-                "optional": true
-              },
-              "borderStyle": {
-                "type": "string",
-                "description": "Pass 'bubble' to give the pop-up window a bubble-chrome border, including an arrow pointing at the relative-to point.  Pass 'rectangle' to give the pop-up a rectangular black border with drop-shadow.  Default behaviour is to pass 'bubble'.",
-                "optional": true,
-                "enum": ["bubble", "rectangle"]
-              },
-              "maxSize": {
-                "type": "object",
-                "optional": true,
-                "properties": {
-                  "width": {
-                    "type": "integer",
-                    "description": "The maximal width to which the popup will resize.  If not present, the popup will be no wider than 800 pixels.  The popup will widen to no larger than the minimum of the width parameter and the width of the screen.",
-                    "optional": true,
-                    "minimum": 32
-                  },
-                  "height": {
-                    "type": "integer",
-                    "description": "The maximal height to which the popup will resize.  If not present, the popup will be no taller than 600 pixels.  The popup will grow to no taller than than the minimum of the height parameter and the width of the screen.",
-                    "optional": true,
-                    "minimum": 32
-                  }
-                }
-              }
-            }
-          },
-          {
-            "type": "function",
-            "name": "callback",
-            "optional": true,
-            "parameters": []
-          }
-        ]
-      },
-      {
-        "name": "getParentWindow",
-        "type": "function",
-        "description": "Returns a reference to the JavaScript 'window' object of the extension view that launched the popup.  Returns undefined if called outside of a popup window.",
-        "parameters": [],
-        "returns": {
-          "type": "object",
-          "isInstanceOf": "DOMWindow",
-          "properties": {},
-          "additionalProperties": { "type": "any" },
-          "optional": true
-        }
-      }
-    ],
-    "events": [
-      {
-        "name": "onClosed",
-        "type": "function",
-        "description": "Fired when the popup view is closed.",
-        "parameters": []
-      }
-    ]
-  },
-  {
     "namespace": "experimental.bookmarkManager",
     "nodoc": true,
     "types": [
@@ -2573,10 +2463,18 @@
       {
         "name": "paste",
         "type": "function",
-        "description": "Pastes bookmarks from the clipboard into the parent folder",
+        "description": "Pastes bookmarks from the clipboard into the parent folder after the last selected node",
         "nodoc": "true",
         "parameters": [
           {"type": "string", "name": "parentId"},
+          {
+            "name": "selectedIdList",
+            "description": "An array of string-valued ids for selected bookmarks",
+            "optional": true,
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 0
+          },
           {"type": "function", "name": "callback", "optional": true, "parameters": []}
         ]
       },
@@ -3065,6 +2963,39 @@
     ],
     "functions": [
       {
+        "name": "getEnabled",
+        "type": "function",
+        "description": "Get the user preference to send UMA and crash reports to Google.",
+        "parameters": [
+          {
+            "type": "function",
+            "name": "callback",
+            "parameters": [
+              {"name": "enabled", "type": "boolean"}
+            ]
+          }
+        ]
+      },
+      {
+        "name": "setEnabled",
+        "type": "function",
+        "description": "Set the user preference to send UMA and crash reports to Google.",
+        "parameters": [
+          {"name": "enabled", "type": "boolean", "description": "True for setting Chrome to actively send UMA and crash reports, false for disabling this."},
+          {
+            "type": "function",
+            "name": "callback",
+            "parameters": [
+              {
+                "name": "enabled", 
+                "type": "boolean",
+                "description": "The actual value set. If it is not the one passed in parameter, the value couldn't be changed (e.g. because of security)."
+              }
+            ]
+          }          
+        ]
+      },
+      {
         "name": "recordUserAction",
         "type": "function",
         "description": "Records an action performed by the user.",
@@ -3476,8 +3407,58 @@
   },
   {
     "namespace": "experimental.webRequest",
-    "types": [],
-    "functions": [],
+    "types": [
+      {
+        "id": "RequestFilter",
+        "type": "object",
+        "description": "An object describing filters to apply to webRequest events.",
+        "properties": {
+          "urls": {
+            "type": "array",
+            "optional": true,
+            "description": "A list of URLs or URL patterns. Requests that cannot match any of the URLs will be filtered out.",
+            "items": { "type": "string" }
+          },
+          "types": {
+            "type": "array",
+            "optional": true,
+            "description": "A list of request types. Requests that cannot match any of the types will be filtered out.",
+            "items": { "type": "string", "enum": ["main_frame", "sub_frame", "stylesheet", "script", "image", "object", "other"] }
+          },
+          "tabId": { "type": "integer", "optional": true },
+          "windowId": { "type": "integer", "optional": true }
+        }
+      }
+    ],
+    "functions": [
+      {
+        "name": "addEventListener",
+        "nodoc": true,
+        "type": "function",
+        "description": "Used internally to implement the special form of addListener for the webRequest events.",
+        "parameters": [
+          {"type": "function", "name": "callback"},
+          {
+            "$ref": "RequestFilter",
+            "optional": true,
+            "name": "filter",
+            "description": "A set of filters that restricts the events that will be sent to this listener."
+          },
+          {
+            "type": "array",
+            "optional": true,
+            "name": "extraInfoSpec",
+            "description": "Array of extra information that should be passed to the listener function.",
+            "items": {
+              "type": "string",
+              "enum": ["requestLine", "requestHeaders", "statusLine", "responseHeaders", "redirectRequestLine", "redirectRequestHeaders"]
+            }
+          },
+          {"type": "string", "name": "eventName"},
+          {"type": "string", "name": "subEventName"}
+        ]
+      }
+    ],
     "events": [
       {
         "name": "onBeforeRequest",
@@ -3703,7 +3684,7 @@
         "type": "object",
         "description": "An object encapsulating a single proxy server's specification.",
         "properties": {
-          "scheme": {"type": "string", "optional": true, "enum": ["http", "socks", "socks4", "socks5"], "description": "The scheme (protocol) of the proxy server itself."},
+          "scheme": {"type": "string", "optional": true, "enum": ["http", "https", "socks", "socks4", "socks5"], "description": "The scheme (protocol) of the proxy server itself."},
           "host": {"type": "string", "description": "The URI of the proxy server."},
           "port": {"type": "integer", "optional": true, "description": "The port of the proxy server."}
         }
@@ -3711,13 +3692,14 @@
       {
         "id": "ProxyRules",
         "type": "object",
-        "description": "An object encapsulating the set of proxy rules for all protocols.",
+        "description": "An object encapsulating the set of proxy rules for all protocols. Use either 'singleProxy' or (a subset of) 'proxyForHttp', 'proxyForHttps', 'proxyForFtp' and 'socksProxy'.",
         "properties": {
           "singleProxy": {"$ref": "ProxyServer", "optional": true, "description": "The proxy server to be used for all per-URL requests (i.e., http, https, and ftp)."},
           "proxyForHttp": {"$ref": "ProxyServer", "optional": true, "description": "The proxy server to be used for HTTP requests."},
           "proxyForHttps": {"$ref": "ProxyServer", "optional": true, "description": "The proxy server to be used for HTTPS requests."},
           "proxyForFtp": {"$ref": "ProxyServer", "optional": true, "description": "The proxy server to be used for FTP requests."},
-          "socksProxy": {"$ref": "ProxyServer", "optional": true, "description": "The proxy server to be used for SOCKS requests."}
+          "socksProxy": {"$ref": "ProxyServer", "optional": true, "description": "The proxy server to be used for SOCKS requests."},
+          "bypassList": {"type": "array", "items": {"type": "string"}, "optional": true, "description": "List of servers to connect to without a proxy server."}
         }
       },
       {
@@ -3733,8 +3715,8 @@
         "type": "object",
         "description": "An object encapsulating a complete proxy configuration.",
         "properties": {
-          "rules": {"$ref": "ProxyRules", "optional": true, "description": "The proxy rules describing this configuration."},
-          "pacScript": {"$ref": "PacScript", "optional": true, "description": "The proxy auto-config (PAC) script for this configuration."},
+          "rules": {"$ref": "ProxyRules", "optional": true, "description": "The proxy rules describing this configuration. Use this for 'fixed_servers' mode."},
+          "pacScript": {"$ref": "PacScript", "optional": true, "description": "The proxy auto-config (PAC) script for this configuration. Use this for 'pac_script' mode."},
           "mode": {
             "type": "string",
             "enum": ["direct", "auto_detect", "pac_script", "fixed_servers", "system"],
@@ -3749,7 +3731,52 @@
         "type": "function",
         "description": "Apply the given proxy configuration.",
         "parameters": [
-          {"name": "config", "$ref": "ProxyConfig"}
+          {
+            "name": "config",
+            "$ref": "ProxyConfig"
+          },
+          {
+            "name": "incognito",
+            "type": "boolean",
+            "description": "If true, the proxy settings apply only to incognito windows. Otherwise they apply to regular windows (and incognito windows if no specific settings are provided for incognito windows)",
+            "optional": true
+          }
+        ]
+      },
+      {
+        "name": "removeCustomProxySettings",
+        "type": "function",
+        "description": "Remove a custom proxy set by the current extension. This is the inverse of useCustomProxySettings.",
+        "parameters": [
+          {
+            "name": "incognito",
+            "type": "boolean",
+            "description": "See incognito parameter of useCustomProxySettings.",
+            "optional": true
+          }
+        ]
+      },
+      {
+        "name": "getCurrentProxySettings",
+        "type": "function",
+        "description": "Returns the currently effective proxy settings. These can originate from default values, command line options, the extension settings API, policies and possibly other sources in the future.",
+        "parameters": [
+          {
+            "name": "incognito",
+            "type": "boolean",
+            "description": "See incognito parameter of useCustomProxySettings."
+          },
+          {
+            "name": "callback",
+            "type": "function",
+            "parameters": [
+              {
+                "name": "config",
+                "$ref": "ProxyConfig",
+                "description": "Configuration, not necessarily a literal copy of the configuration passed to useCustomProxySettings."
+              }
+            ]
+          }
         ]
       }
     ]
@@ -3875,7 +3902,7 @@
       {
         "name": "navigate",
         "type": "function",
-        "description": "Navigates sidebar for the specified tab to the specified URL.",
+        "description": "Loads the the specified html file into the sidebar for the specified tab.",
         "parameters": [
           {
             "type": "object",
@@ -3887,7 +3914,10 @@
                 "optional": true,
                 "description": "Defaults to the selected tab of the <a href='windows.html#current-window'>current window</a>."
               },
-              "url": { "type": "string" }
+              "path": {
+                "type": "string",
+                "description": "Relative path to the html file in the extension to show in the sidebar."
+              }
             }
           }
         ]

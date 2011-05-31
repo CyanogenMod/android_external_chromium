@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,6 @@
 
 #include <algorithm>
 
-#include "app/l10n_util_mac.h"
-#include "app/resource_bundle.h"
 #include "base/mac/mac_util.h"
 #include "base/sys_string_conversions.h"
 #include "base/time.h"
@@ -18,6 +16,8 @@
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #import "third_party/GTM/AppKit/GTMUILocalizerAndLayoutTweaker.h"
+#include "ui/base/l10n/l10n_util_mac.h"
+#include "ui/base/resource/resource_bundle.h"
 
 // Horizontal spacing between search engine choices.
 const int kSearchEngineSpacing = 20;
@@ -205,7 +205,7 @@ void SearchEngineDialogControllerBridge::OnTemplateURLModelChanged() {
     [logoView setEditable:NO];
 
     // Tooltip text provides accessibility.
-    [logoView setToolTip:base::SysWideToNSString(engine->short_name())];
+    [logoView setToolTip:base::SysUTF16ToNSString(engine->short_name())];
     engineIdentifier = logoView;
   } else {
     // No logo -- we must show a text label.
@@ -224,7 +224,7 @@ void SearchEngineDialogControllerBridge::OnTemplateURLModelChanged() {
         paragraphStyle.get(), NSParagraphStyleAttributeName,
         nil];
 
-    NSString* value = base::SysWideToNSString(engine->short_name());
+    NSString* value = base::SysUTF16ToNSString(engine->short_name());
     scoped_nsobject<NSAttributedString> attrValue(
         [[NSAttributedString alloc] initWithString:value
                                         attributes:attrs]);

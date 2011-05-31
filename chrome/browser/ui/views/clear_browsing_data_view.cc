@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/clear_browsing_data_view.h"
+#include "chrome/browser/ui/views/clear_browsing_data_view.h"
 
-#include "app/l10n_util.h"
 #include "base/string16.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_window.h"
@@ -13,17 +12,18 @@
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/pref_names.h"
-#include "gfx/insets.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "net/url_request/url_request_context.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/insets.h"
 #include "views/background.h"
 #include "views/controls/button/checkbox.h"
 #include "views/controls/label.h"
 #include "views/controls/separator.h"
 #include "views/controls/throbber.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/widget.h"
 #include "views/window/dialog_client_view.h"
 #include "views/window/window.h"
@@ -117,7 +117,7 @@ void ClearBrowsingDataView2::Init() {
 
   clear_browsing_data_button_ = new views::NativeButton(
       this,
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_CLEAR_BROWSING_DATA_BUTTON)));
+      UTF16ToWide(l10n_util::GetStringUTF16(IDS_CLEAR_BROWSING_DATA_COMMIT)));
 
   // Add a label which appears before the combo box for the time period.
   time_period_label_ = new views::Label(UTF16ToWide(
@@ -128,7 +128,8 @@ void ClearBrowsingDataView2::Init() {
   time_period_combobox_->SetSelectedItem(profile_->GetPrefs()->GetInteger(
                                          prefs::kDeleteTimePeriod));
   time_period_combobox_->set_listener(this);
-  time_period_combobox_->SetAccessibleName(time_period_label_->GetText());
+  time_period_combobox_->SetAccessibleName(
+      WideToUTF16Hack(time_period_label_->GetText()));
 
   // Create the throbber and related views. The throbber and status link are
   // contained in throbber_view_, which is positioned by DialogClientView right
@@ -142,11 +143,13 @@ void ClearBrowsingDataView2::Init() {
   // DialogClientView positions the extra view at kButtonHEdgeMargin, but we
   // put all our controls at kPanelHorizMargin. Add a padding column so things
   // line up nicely.
-  if (kPanelHorizMargin - kButtonHEdgeMargin > 0)
-    column_set->AddPaddingColumn(0, kPanelHorizMargin - kButtonHEdgeMargin);
+  if (kPanelHorizMargin - views::kButtonHEdgeMargin > 0) {
+    column_set->AddPaddingColumn(
+        0, kPanelHorizMargin - views::kButtonHEdgeMargin);
+  }
   column_set->AddColumn(GridLayout::CENTER, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::CENTER, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
   layout->StartRow(1, 0);
@@ -155,7 +158,7 @@ void ClearBrowsingDataView2::Init() {
 }
 
 void ClearBrowsingDataView2::InitControlLayout() {
-  GridLayout* layout = CreatePanelGridLayout(this);
+  GridLayout* layout = GridLayout::CreatePanel(this);
   this->SetLayoutManager(layout);
 
   int leading_column_set_id = 0;
@@ -173,7 +176,7 @@ void ClearBrowsingDataView2::InitControlLayout() {
   column_set = layout->AddColumnSet(two_column_set_id);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 1,
                         GridLayout::USE_PREF, 0, 0);
 
@@ -185,32 +188,32 @@ void ClearBrowsingDataView2::InitControlLayout() {
   // Delete All label goes to the top left corner.
   layout->StartRow(0, leading_column_set_id);
   layout->AddView(delete_all_label_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   // Check-boxes go beneath it (with a little indentation).
   layout->StartRow(0, indented_column_set_id);
   layout->AddView(del_history_checkbox_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   layout->StartRow(0, indented_column_set_id);
   layout->AddView(del_downloads_checkbox_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   layout->StartRow(0, indented_column_set_id);
   layout->AddView(del_cache_checkbox_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   layout->StartRow(0, indented_column_set_id);
   layout->AddView(del_cookies_checkbox_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   layout->StartRow(0, indented_column_set_id);
   layout->AddView(del_passwords_checkbox_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   layout->StartRow(0, indented_column_set_id);
   layout->AddView(del_form_data_checkbox_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   // Time period label is next below the combo boxes followed by time
   // period combo box
@@ -220,7 +223,7 @@ void ClearBrowsingDataView2::InitControlLayout() {
   layout->AddView(time_period_combobox_, 1, 1, views::GridLayout::LEADING,
                   views::GridLayout::CENTER);
 
-  layout->AddPaddingRow(0, kUnrelatedControlLargeVerticalSpacing);
+  layout->AddPaddingRow(0, views::kUnrelatedControlLargeVerticalSpacing);
 
   // Left-align the throbber
   layout->StartRow(0, two_column_set_id);

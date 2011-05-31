@@ -1,8 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
+
+#include <set>
 
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -15,7 +17,6 @@
 #include "chrome/browser/translate/translate_infobar_delegate.h"
 #include "chrome/browser/translate/translate_manager.h"
 #include "chrome/browser/translate/translate_prefs.h"
-#include "chrome/common/ipc_test_sink.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_observer_mock.h"
 #include "chrome/common/notification_registrar.h"
@@ -26,9 +27,10 @@
 #include "chrome/test/testing_browser_process.h"
 #include "chrome/test/testing_profile.h"
 #include "grit/generated_resources.h"
+#include "ipc/ipc_test_sink.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/cld/languages/public/languages.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebContextMenuData.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebContextMenuData.h"
 
 using testing::_;
 using testing::Pointee;
@@ -84,15 +86,15 @@ class TranslateManagerTest : public RenderViewHostTestHarness,
   // Returns the translate infobar if there is 1 infobar and it is a translate
   // infobar.
   TranslateInfoBarDelegate* GetTranslateInfoBar() {
-    if (contents()->infobar_delegate_count() != 1)
-      return NULL;
-    return contents()->GetInfoBarDelegateAt(0)->AsTranslateInfoBarDelegate();
+    return (contents()->infobar_count() == 1) ?
+        contents()->GetInfoBarDelegateAt(0)->AsTranslateInfoBarDelegate() :
+        NULL;
   }
 
   // If there is 1 infobar and it is a translate infobar, closes it and returns
   // true.  Returns false otherwise.
   bool CloseTranslateInfoBar() {
-    TranslateInfoBarDelegate* infobar = GetTranslateInfoBar();
+    InfoBarDelegate* infobar = GetTranslateInfoBar();
     if (!infobar)
       return false;
     infobar->InfoBarDismissed();  // Simulates closing the infobar.
@@ -102,9 +104,8 @@ class TranslateManagerTest : public RenderViewHostTestHarness,
 
   // Checks whether |infobar| has been removed and clears the removed infobar
   // list.
-  bool CheckInfoBarRemovedAndReset(InfoBarDelegate* infobar) {
-    bool found = std::find(removed_infobars_.begin(), removed_infobars_.end(),
-                           infobar) != removed_infobars_.end();
+  bool CheckInfoBarRemovedAndReset(InfoBarDelegate* delegate) {
+    bool found = removed_infobars_.count(delegate) != 0;
     removed_infobars_.clear();
     return found;
   }
@@ -137,8 +138,8 @@ class TranslateManagerTest : public RenderViewHostTestHarness,
   virtual void Observe(NotificationType type,
                        const NotificationSource& source,
                        const NotificationDetails& details) {
-    DCHECK(type == NotificationType::TAB_CONTENTS_INFOBAR_REMOVED);
-    removed_infobars_.push_back(Details<InfoBarDelegate>(details).ptr());
+    DCHECK_EQ(NotificationType::TAB_CONTENTS_INFOBAR_REMOVED, type.value);
+    removed_infobars_.insert(Details<InfoBarDelegate>(details).ptr());
   }
 
  protected:
@@ -159,8 +160,7 @@ class TranslateManagerTest : public RenderViewHostTestHarness,
 
     RenderViewHostTestHarness::SetUp();
 
-    notification_registrar_.Add(
-        this,
+    notification_registrar_.Add(this,
         NotificationType::TAB_CONTENTS_INFOBAR_REMOVED,
         Source<TabContents>(contents()));
   }
@@ -168,8 +168,7 @@ class TranslateManagerTest : public RenderViewHostTestHarness,
   virtual void TearDown() {
     process()->sink().ClearMessages();
 
-    notification_registrar_.Remove(
-        this,
+    notification_registrar_.Remove(this,
         NotificationType::TAB_CONTENTS_INFOBAR_REMOVED,
         Source<TabContents>(contents()));
 
@@ -181,9 +180,9 @@ class TranslateManagerTest : public RenderViewHostTestHarness,
   void SimulateURLFetch(bool success) {
     TestURLFetcher* fetcher = url_fetcher_factory_.GetFetcherByID(0);
     ASSERT_TRUE(fetcher);
-    URLRequestStatus status;
-    status.set_status(success ? URLRequestStatus::SUCCESS :
-                                URLRequestStatus::FAILED);
+    net::URLRequestStatus status;
+    status.set_status(success ? net::URLRequestStatus::SUCCESS :
+                                net::URLRequestStatus::FAILED);
     fetcher->delegate()->OnURLFetchComplete(fetcher, fetcher->original_url(),
                                             status, success ? 200 : 500,
                                             ResponseCookies(),
@@ -204,9 +203,9 @@ class TranslateManagerTest : public RenderViewHostTestHarness,
   NotificationRegistrar notification_registrar_;
   TestURLFetcherFactory url_fetcher_factory_;
 
-  // The list of infobars that have been removed.
-  // WARNING: the pointers points to deleted objects, use only for comparison.
-  std::vector<InfoBarDelegate*> removed_infobars_;
+  // The infobars that have been removed.
+  // WARNING: the pointers point to deleted objects, use only for comparison.
+  std::set<InfoBarDelegate*> removed_infobars_;
 
   DISALLOW_COPY_AND_ASSIGN(TranslateManagerTest);
 };
@@ -268,7 +267,7 @@ class TestRenderViewContextMenu : public RenderViewContextMenu {
   virtual void PlatformInit() { }
   virtual bool GetAcceleratorForCommandId(
       int command_id,
-      menus::Accelerator* accelerator) { return false; }
+      ui::Accelerator* accelerator) { return false; }
 
  private:
   TestRenderViewContextMenu(TabContents* tab_contents,
@@ -546,21 +545,21 @@ TEST_F(TranslateManagerTest, MultipleOnPageContents) {
 
   // Simulate clicking 'Nope' (don't translate).
   EXPECT_TRUE(DenyTranslation());
-  EXPECT_EQ(0, contents()->infobar_delegate_count());
+  EXPECT_EQ(0U, contents()->infobar_count());
 
   // Send a new PageContents, we should not show an infobar.
   SimulateOnPageContents(GURL("http://www.google.fr"), 0, "Le Google", "fr",
                          true);
-  EXPECT_EQ(0, contents()->infobar_delegate_count());
+  EXPECT_EQ(0U, contents()->infobar_count());
 
   // Do the same steps but simulate closing the infobar this time.
   SimulateNavigation(GURL("http://www.youtube.fr"), "Le YouTube", "fr",
                      true);
   EXPECT_TRUE(CloseTranslateInfoBar());
-  EXPECT_EQ(0, contents()->infobar_delegate_count());
+  EXPECT_EQ(0U, contents()->infobar_count());
   SimulateOnPageContents(GURL("http://www.youtube.fr"), 1, "Le YouTube", "fr",
                          true);
-  EXPECT_EQ(0, contents()->infobar_delegate_count());
+  EXPECT_EQ(0U, contents()->infobar_count());
 }
 
 // Test that reloading the page brings back the infobar.

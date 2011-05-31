@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -106,7 +106,7 @@ IPCResourceLoaderBridge::IPCResourceLoaderBridge(
   request_.main_frame_origin = request_info.main_frame_origin;
   request_.headers = request_info.headers;
   request_.load_flags = request_info.load_flags;
-  request_.origin_child_id = request_info.requestor_pid;
+  request_.origin_pid = request_info.requestor_pid;
   request_.resource_type = request_info.request_type;
   request_.request_context = request_info.request_context;
   request_.appcache_host_id = request_info.appcache_host_id;
@@ -213,7 +213,7 @@ void IPCResourceLoaderBridge::SetDefersLoading(bool value) {
 void IPCResourceLoaderBridge::SyncLoad(SyncLoadResponse* response) {
   if (request_id_ != -1) {
     NOTREACHED() << "Starting a request twice";
-    response->status.set_status(URLRequestStatus::FAILED);
+    response->status.set_status(net::URLRequestStatus::FAILED);
     return;
   }
 
@@ -224,7 +224,7 @@ void IPCResourceLoaderBridge::SyncLoad(SyncLoadResponse* response) {
                                                    request_, &result);
   // NOTE: This may pump events (see RenderThread::Send).
   if (!dispatcher_->message_sender()->Send(msg)) {
-    response->status.set_status(URLRequestStatus::FAILED);
+    response->status.set_status(net::URLRequestStatus::FAILED);
     return;
   }
 
@@ -402,6 +402,11 @@ void ResourceDispatcher::OnReceivedRedirect(
   if (request_info->peer->OnReceivedRedirect(new_url, info,
                                             &has_new_first_party_for_cookies,
                                             &new_first_party_for_cookies)) {
+    // Double-check if the request is still around. The call above could
+    // potentially remove it.
+    request_info = GetPendingRequestInfo(request_id);
+    if (!request_info)
+      return;
     request_info->pending_redirect_message.reset(
         new ViewHostMsg_FollowRedirect(routing_id, request_id,
                                        has_new_first_party_for_cookies,
@@ -423,7 +428,7 @@ void ResourceDispatcher::FollowPendingRedirect(
 }
 
 void ResourceDispatcher::OnRequestComplete(int request_id,
-                                           const URLRequestStatus& status,
+                                           const net::URLRequestStatus& status,
                                            const std::string& security_info,
                                            const base::Time& completion_time) {
   PendingRequestInfo* request_info = GetPendingRequestInfo(request_id);
@@ -432,7 +437,7 @@ void ResourceDispatcher::OnRequestComplete(int request_id,
 
   webkit_glue::ResourceLoaderBridge::Peer* peer = request_info->peer;
 
-  if (status.status() == URLRequestStatus::CANCELED &&
+  if (status.status() == net::URLRequestStatus::CANCELED &&
       status.os_error() != net::ERR_ABORTED) {
     // Resource canceled with a specific error are filtered.
     SecurityFilterPeer* new_peer =

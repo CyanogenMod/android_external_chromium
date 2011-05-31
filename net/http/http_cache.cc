@@ -34,9 +34,37 @@
 #include "net/http/http_response_info.h"
 #include "net/http/http_util.h"
 #include "net/socket/ssl_host_info.h"
-#include "net/spdy/spdy_session_pool.h"
 
 namespace net {
+
+namespace {
+
+HttpNetworkSession* CreateNetworkSession(
+    HostResolver* host_resolver,
+    CertVerifier* cert_verifier,
+    DnsRRResolver* dnsrr_resolver,
+    DnsCertProvenanceChecker* dns_cert_checker,
+    ProxyService* proxy_service,
+    SSLHostInfoFactory* ssl_host_info_factory,
+    SSLConfigService* ssl_config_service,
+    HttpAuthHandlerFactory* http_auth_handler_factory,
+    HttpNetworkDelegate* network_delegate,
+    NetLog* net_log) {
+  HttpNetworkSession::Params params;
+  params.host_resolver = host_resolver;
+  params.cert_verifier = cert_verifier;
+  params.dnsrr_resolver = dnsrr_resolver;
+  params.dns_cert_checker = dns_cert_checker;
+  params.proxy_service = proxy_service;
+  params.ssl_host_info_factory = ssl_host_info_factory;
+  params.ssl_config_service = ssl_config_service;
+  params.http_auth_handler_factory = http_auth_handler_factory;
+  params.network_delegate = network_delegate;
+  params.net_log = net_log;
+  return new HttpNetworkSession(params);
+}
+
+}  // namespace
 
 HttpCache::DefaultBackend::DefaultBackend(CacheType type,
                                           const FilePath& path,
@@ -264,21 +292,23 @@ void HttpCache::MetadataWriter::OnIOComplete(int result) {
 
 class HttpCache::SSLHostInfoFactoryAdaptor : public SSLHostInfoFactory {
  public:
-  explicit SSLHostInfoFactoryAdaptor(HttpCache* http_cache)
-      : http_cache_(http_cache) {
+  SSLHostInfoFactoryAdaptor(CertVerifier* cert_verifier, HttpCache* http_cache)
+      : cert_verifier_(cert_verifier),
+        http_cache_(http_cache) {
   }
 
-  SSLHostInfo* GetForHost(const std::string& hostname,
-                          const SSLConfig& ssl_config) {
-    return new DiskCacheBasedSSLHostInfo(hostname, ssl_config, http_cache_);
+  virtual SSLHostInfo* GetForHost(const std::string& hostname,
+                                  const SSLConfig& ssl_config) {
+    return new DiskCacheBasedSSLHostInfo(
+        hostname, ssl_config, cert_verifier_, http_cache_);
   }
 
  private:
+  CertVerifier* const cert_verifier_;
   HttpCache* const http_cache_;
 };
 
 //-----------------------------------------------------------------------------
-
 HttpCache::HttpCache(HostResolver* host_resolver,
                      CertVerifier* cert_verifier,
                      DnsRRResolver* dnsrr_resolver,
@@ -294,14 +324,24 @@ HttpCache::HttpCache(HostResolver* host_resolver,
       building_backend_(false),
       mode_(NORMAL),
       ssl_host_info_factory_(new SSLHostInfoFactoryAdaptor(
-            ALLOW_THIS_IN_INITIALIZER_LIST(this))),
-      network_layer_(HttpNetworkLayer::CreateFactory(host_resolver,
-          cert_verifier, dnsrr_resolver, dns_cert_checker_,
-          ssl_host_info_factory_.get(),
-          proxy_service, ssl_config_service,
-          http_auth_handler_factory, network_delegate, net_log)),
+          cert_verifier,
+          ALLOW_THIS_IN_INITIALIZER_LIST(this))),
+      network_layer_(
+          new HttpNetworkLayer(
+              CreateNetworkSession(
+                  host_resolver,
+                  cert_verifier,
+                  dnsrr_resolver,
+                  dns_cert_checker_,
+                  proxy_service,
+                  ssl_host_info_factory_.get(),
+                  ssl_config_service,
+                  http_auth_handler_factory,
+                  network_delegate,
+                  net_log))),
       ALLOW_THIS_IN_INITIALIZER_LIST(task_factory_(this)) {
 }
+
 
 HttpCache::HttpCache(HttpNetworkSession* session,
                      BackendFactory* backend_factory)
@@ -309,7 +349,10 @@ HttpCache::HttpCache(HttpNetworkSession* session,
       backend_factory_(backend_factory),
       building_backend_(false),
       mode_(NORMAL),
-      network_layer_(HttpNetworkLayer::CreateFactory(session)),
+      ssl_host_info_factory_(new SSLHostInfoFactoryAdaptor(
+          session->cert_verifier(),
+          ALLOW_THIS_IN_INITIALIZER_LIST(this))),
+      network_layer_(new HttpNetworkLayer(session)),
       ALLOW_THIS_IN_INITIALIZER_LIST(task_factory_(this)) {
 }
 
@@ -383,29 +426,6 @@ disk_cache::Backend* HttpCache::GetCurrentBackend() {
   return disk_cache_.get();
 }
 
-int HttpCache::CreateTransaction(scoped_ptr<HttpTransaction>* trans) {
-  // Do lazy initialization of disk cache if needed.
-  if (!disk_cache_.get())
-    CreateBackend(NULL, NULL);  // We don't care about the result.
-
-  trans->reset(new HttpCache::Transaction(this));
-  return OK;
-}
-
-HttpCache* HttpCache::GetCache() {
-  return this;
-}
-
-HttpNetworkSession* HttpCache::GetSession() {
-  net::HttpNetworkLayer* network =
-      static_cast<net::HttpNetworkLayer*>(network_layer_.get());
-  return network->GetSession();
-}
-
-void HttpCache::Suspend(bool suspend) {
-  network_layer_->Suspend(suspend);
-}
-
 // static
 bool HttpCache::ParseResponseInfo(const char* data, int len,
                                   HttpResponseInfo* response_info,
@@ -440,6 +460,29 @@ void HttpCache::CloseCurrentConnections() {
     if (session->spdy_session_pool())
       session->spdy_session_pool()->CloseCurrentSessions();
   }
+}
+
+int HttpCache::CreateTransaction(scoped_ptr<HttpTransaction>* trans) {
+  // Do lazy initialization of disk cache if needed.
+  if (!disk_cache_.get())
+    CreateBackend(NULL, NULL);  // We don't care about the result.
+
+  trans->reset(new HttpCache::Transaction(this));
+  return OK;
+}
+
+HttpCache* HttpCache::GetCache() {
+  return this;
+}
+
+HttpNetworkSession* HttpCache::GetSession() {
+  net::HttpNetworkLayer* network =
+      static_cast<net::HttpNetworkLayer*>(network_layer_.get());
+  return network->GetSession();
+}
+
+void HttpCache::Suspend(bool suspend) {
+  network_layer_->Suspend(suspend);
 }
 
 //-----------------------------------------------------------------------------

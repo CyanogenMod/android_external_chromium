@@ -14,8 +14,9 @@
 #include "base/scoped_nsobject.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/ui/cocoa/base_view.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "gfx/size.h"
+#include "ui/gfx/size.h"
 
 @class FocusTracker;
 @class SadTabController;
@@ -60,7 +61,8 @@ class TabContentsViewMac : public TabContentsView,
   virtual void GetContainerBounds(gfx::Rect* out) const;
   virtual void RenderViewCreated(RenderViewHost* host);
   virtual void SetPageTitle(const std::wstring& title);
-  virtual void OnTabCrashed();
+  virtual void OnTabCrashed(base::TerminationStatus status,
+                            int error_code);
   virtual void SizeContents(const gfx::Size& size);
   virtual void Focus();
   virtual void SetInitialFocus();
@@ -74,6 +76,7 @@ class TabContentsViewMac : public TabContentsView,
                                          const gfx::Rect& initial_pos);
   virtual bool IsEventTracking() const;
   virtual void CloseTabAfterEventTracking();
+  virtual void GetViewBounds(gfx::Rect* out) const;
 
   // Backend implementation of RenderViewHostDelegate::View.
   virtual void ShowContextMenu(const ContextMenuParams& params);

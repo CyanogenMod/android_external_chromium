@@ -15,17 +15,24 @@ cr.define('gpu', function() {
   /**
    * Provides information on the GPU process and underlying graphics hardware.
    * @constructor
+   * @extends {Tab}
    */
-  function InfoView(mainBoxId) {
-    DivView.call(this, mainBoxId);
-
-    this.beginRequestClientInfo();
-    this.beginRequestGpuInfo();
-    this.refresh();
-  }
+  var InfoView = cr.ui.define(gpu.Tab);
 
   InfoView.prototype = {
-    __proto__: DivView.prototype,
+    __proto__: gpu.Tab.prototype,
+
+    decorate : function() {
+      gpu.Tab.prototype.decorate.apply(this);
+
+      this.beginRequestClientInfo();
+      this.beginRequestGpuInfo();
+
+      this.logMessages_ = [];
+      this.beginRequestLogMessages();
+
+      this.refresh();
+    },
 
     /**
      * This function begins a request for the ClientInfo. If it comes back
@@ -49,11 +56,28 @@ cr.define('gpu', function() {
       browserBridge.callAsync('requestGpuInfo', undefined, (function(data) {
         this.gpuInfo_ = data;
         this.refresh();
-        if (!data || data.progress != 'complete') { // try again in 250 ms
+        if (!data || data.level != 'complete') { // try again in 250 ms
           window.setTimeout(this.beginRequestGpuInfo.bind(this), 250);
         }
       }).bind(this));
     },
+
+    /**
+     * This function checks for new GPU_LOG messages.
+     * If any are found, a refresh is triggered.
+     */
+    beginRequestLogMessages : function() {
+      browserBridge.callAsync('requestLogMessages', undefined,
+        (function(messages) {
+           if(messages.length != this.logMessages_.length) {
+             this.logMessages_ = messages;
+             this.refresh();
+           }
+           // check again in 250 ms
+           window.setTimeout(this.beginRequestLogMessages.bind(this), 250);
+         }).bind(this));
+    },
+
 
     /**
     * Updates the view based on its currently known data
@@ -83,7 +107,8 @@ cr.define('gpu', function() {
         this.setTable_('basic-info', this.gpuInfo_.basic_info);
         if (this.gpuInfo_.diagnostics) {
           this.setTable_('diagnostics', this.gpuInfo_.diagnostics);
-        } else if (this.gpuInfo_.progress == 'partial') {
+        } else if (this.gpuInfo_.level == 'partial' ||
+                   this.gpuInfo_.level == 'completing') {
           this.setText_('diagnostics', '... loading...');
         } else {
           this.setText_('diagnostics', 'None');
@@ -92,6 +117,10 @@ cr.define('gpu', function() {
         this.setText_('basic-info', '... loading ...');
         this.setText_('diagnostics', '... loading ...');
       }
+
+      // Log messages
+      jstProcess(new JsEvalContext({values: this.logMessages_}),
+                 document.getElementById('log-messages'));
     },
 
     setText_: function(outputElementId, text) {

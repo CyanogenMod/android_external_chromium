@@ -16,6 +16,7 @@
 #include "chrome/browser/autocomplete/autocomplete_popup_view.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
+#include "ui/gfx/font.h"
 #include "webkit/glue/window_open_disposition.h"
 
 class AutocompleteEditModel;
@@ -28,7 +29,8 @@ class SkBitmap;
 class AutocompletePopupViewGtk : public AutocompletePopupView,
                                  public NotificationObserver {
  public:
-  AutocompletePopupViewGtk(AutocompleteEditView* edit_view,
+  AutocompletePopupViewGtk(const gfx::Font& font,
+                           AutocompleteEditView* edit_view,
                            AutocompleteEditModel* edit_model,
                            Profile* profile,
                            GtkWidget* location_bar);
@@ -53,7 +55,7 @@ class AutocompletePopupViewGtk : public AutocompletePopupView,
   friend class AutocompletePopupViewGtkTest;
   static void SetupLayoutForMatch(
       PangoLayout* layout,
-      const std::wstring& text,
+      const string16& text,
       const AutocompleteMatch::ACMatchClassifications& classifications,
       const GdkColor* base_color,
       const GdkColor* dim_color,
@@ -116,6 +118,10 @@ class AutocompletePopupViewGtk : public AutocompletePopupView,
 
   GtkThemeProvider* theme_provider_;
   NotificationRegistrar registrar_;
+
+  // Font used for suggestions after being derived from the constructor's
+  // |font|.
+  gfx::Font font_;
 
   // Used to cache GdkPixbufs and map them from the SkBitmaps they were created
   // from.

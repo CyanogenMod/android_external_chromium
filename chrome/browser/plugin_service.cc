@@ -1,10 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "build/build_config.h"
-
 #include "chrome/browser/plugin_service.h"
+
+#include <vector>
 
 #include "base/command_line.h"
 #include "base/path_service.h"
@@ -18,9 +18,10 @@
 #include "chrome/browser/chrome_plugin_host.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/plugin_updater.h"
-#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/ppapi_plugin_process_host.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
+#include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/common/chrome_plugin_lib.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -32,15 +33,10 @@
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pepper_plugin_registry.h"
 #include "chrome/common/plugin_messages.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
 #include "webkit/plugins/npapi/plugin_constants_win.h"
 #include "webkit/plugins/npapi/plugin_list.h"
 #include "webkit/plugins/npapi/webplugininfo.h"
-
-#ifndef DISABLE_NACL
-#include "native_client/src/trusted/plugin/nacl_entry_points.h"
-#endif
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/plugin_selection_policy.h"
@@ -56,6 +52,29 @@ static void NotifyPluginsOfActivation() {
     plugin->OnAppActivation();
   }
 }
+#endif
+
+static void PurgePluginListCache(bool reload_pages) {
+  for (RenderProcessHost::iterator it = RenderProcessHost::AllHostsIterator();
+       !it.IsAtEnd(); it.Advance()) {
+    it.GetCurrentValue()->Send(new ViewMsg_PurgePluginListCache(reload_pages));
+  }
+}
+
+#if defined(OS_LINUX)
+// Delegate class for monitoring directories.
+class PluginDirWatcherDelegate : public FilePathWatcher::Delegate {
+  virtual void OnFilePathChanged(const FilePath& path) {
+    VLOG(1) << "Watched path changed: " << path.value();
+    // Make the plugin list update itself
+    webkit::npapi::PluginList::Singleton()->RefreshPlugins();
+  }
+  virtual void OnError() {
+    // TODO(pastarmovj): Add some sensible error handling. Maybe silently
+    // stopping the watcher would be enough. Or possibly restart it.
+    NOTREACHED();
+  }
+};
 #endif
 
 // static
@@ -109,12 +128,6 @@ PluginService::PluginService()
     webkit::npapi::PluginList::Singleton()->AddExtraPluginPath(path);
   }
 
-#ifndef DISABLE_NACL
-  if (command_line->HasSwitch(switches::kInternalNaCl)) {
-    RegisterInternalNaClPlugin();
-  }
-#endif
-
 #if defined(OS_CHROMEOS)
   plugin_selection_policy_ = new chromeos::PluginSelectionPolicy;
   plugin_selection_policy_->StartInit();
@@ -122,17 +135,20 @@ PluginService::PluginService()
 
   chrome::RegisterInternalGPUPlugin();
 
+  // Start watching for changes in the plugin list. This means watching
+  // for changes in the Windows registry keys and on both Windows and POSIX
+  // watch for changes in the paths that are expected to contain plugins.
 #if defined(OS_WIN)
   hkcu_key_.Create(
       HKEY_CURRENT_USER, webkit::npapi::kRegistryMozillaPlugins, KEY_NOTIFY);
   hklm_key_.Create(
       HKEY_LOCAL_MACHINE, webkit::npapi::kRegistryMozillaPlugins, KEY_NOTIFY);
-  if (hkcu_key_.StartWatching()) {
+  if (hkcu_key_.StartWatching() == ERROR_SUCCESS) {
     hkcu_event_.reset(new base::WaitableEvent(hkcu_key_.watch_event()));
     hkcu_watcher_.StartWatching(hkcu_event_.get(), this);
   }
 
-  if (hklm_key_.StartWatching()) {
+  if (hklm_key_.StartWatching() == ERROR_SUCCESS) {
     hklm_event_.reset(new base::WaitableEvent(hklm_key_.watch_event()));
     hklm_watcher_.StartWatching(hklm_event_.get(), this);
   }
@@ -145,7 +161,36 @@ PluginService::PluginService()
         user_data_dir.Append("Plugins"));
   }
 #endif
+// The FilePathWatcher produces too many false positives on MacOS (access time
+// updates?) which will lead to enforcing updates of the plugins way too often.
+// On ChromeOS the user can't install plugins anyway and on Windows all
+// important plugins register themselves in the registry so no need to do that.
+#if defined(OS_LINUX)
+  file_watcher_delegate_ = new PluginDirWatcherDelegate();
+  // Get the list of all paths for registering the FilePathWatchers
+  // that will track and if needed reload the list of plugins on runtime.
+  std::vector<FilePath> plugin_dirs;
+  webkit::npapi::PluginList::Singleton()->GetPluginDirectories(
+      &plugin_dirs);
 
+  for (size_t i = 0; i < plugin_dirs.size(); ++i) {
+    FilePathWatcher* watcher = new FilePathWatcher();
+    // FilePathWatcher can not handle non-absolute paths under windows.
+    // We don't watch for file changes in windows now but if this should ever
+    // be extended to Windows these lines might save some time of debugging.
+#if defined(OS_WIN)
+    if (!plugin_dirs[i].IsAbsolute())
+      continue;
+#endif
+    VLOG(1) << "Watching for changes in: " << plugin_dirs[i].value();
+    BrowserThread::PostTask(
+        BrowserThread::FILE, FROM_HERE,
+        NewRunnableFunction(
+            &PluginService::RegisterFilePathWatcher,
+            watcher, plugin_dirs[i], file_watcher_delegate_));
+    file_watchers_.push_back(watcher);
+  }
+#endif
   registrar_.Add(this, NotificationType::EXTENSION_LOADED,
                  NotificationService::AllSources());
   registrar_.Add(this, NotificationType::EXTENSION_UNLOADED,
@@ -158,6 +203,9 @@ PluginService::PluginService()
 #endif
   registrar_.Add(this, NotificationType::PLUGIN_ENABLE_STATUS_CHANGED,
                  NotificationService::AllSources());
+  registrar_.Add(this,
+                 NotificationType::RENDERER_PROCESS_CLOSED,
+                 NotificationService::AllSources());
 }
 
 PluginService::~PluginService() {
@@ -165,8 +213,10 @@ PluginService::~PluginService() {
   // Release the events since they're owned by RegKey, not WaitableEvent.
   hkcu_watcher_.StopWatching();
   hklm_watcher_.StopWatching();
-  hkcu_event_->Release();
-  hklm_event_->Release();
+  if (hkcu_event_.get())
+    hkcu_event_->Release();
+  if (hklm_event_.get())
+    hklm_event_->Release();
 #endif
 }
 
@@ -191,7 +241,7 @@ const std::string& PluginService::GetUILocale() {
   return ui_locale_;
 }
 
-PluginProcessHost* PluginService::FindPluginProcess(
+PluginProcessHost* PluginService::FindNpapiPluginProcess(
     const FilePath& plugin_path) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
@@ -205,11 +255,27 @@ PluginProcessHost* PluginService::FindPluginProcess(
   return NULL;
 }
 
-PluginProcessHost* PluginService::FindOrStartPluginProcess(
+PpapiPluginProcessHost* PluginService::FindPpapiPluginProcess(
     const FilePath& plugin_path) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
-  PluginProcessHost* plugin_host = FindPluginProcess(plugin_path);
+  for (BrowserChildProcessHost::Iterator iter(
+           ChildProcessInfo::PPAPI_PLUGIN_PROCESS);
+       !iter.Done(); ++iter) {
+    PpapiPluginProcessHost* plugin =
+        static_cast<PpapiPluginProcessHost*>(*iter);
+    if (plugin->plugin_path() == plugin_path)
+      return plugin;
+  }
+
+  return NULL;
+}
+
+PluginProcessHost* PluginService::FindOrStartNpapiPluginProcess(
+    const FilePath& plugin_path) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+
+  PluginProcessHost* plugin_host = FindNpapiPluginProcess(plugin_path);
   if (plugin_host)
     return plugin_host;
 
@@ -222,14 +288,44 @@ PluginProcessHost* PluginService::FindOrStartPluginProcess(
   // This plugin isn't loaded by any plugin process, so create a new process.
   scoped_ptr<PluginProcessHost> new_host(new PluginProcessHost());
   if (!new_host->Init(info, ui_locale_)) {
-    NOTREACHED();  // Init is not expected to fail
+    NOTREACHED();  // Init is not expected to fail.
     return NULL;
   }
-
   return new_host.release();
 }
 
-void PluginService::OpenChannelToPlugin(
+PpapiPluginProcessHost* PluginService::FindOrStartPpapiPluginProcess(
+    const FilePath& plugin_path) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+
+  PpapiPluginProcessHost* plugin_host = FindPpapiPluginProcess(plugin_path);
+  if (plugin_host)
+    return plugin_host;
+
+  // Validate that the plugin is actually registered. There should generally
+  // be very few plugins so a brute-force search is fine.
+  PepperPluginInfo* info = NULL;
+  for (size_t i = 0; i < ppapi_plugins_.size(); i++) {
+    if (ppapi_plugins_[i].path == plugin_path) {
+      info = &ppapi_plugins_[i];
+      break;
+    }
+  }
+  if (!info)
+    return NULL;
+
+  // This plugin isn't loaded by any plugin process, so create a new process.
+  scoped_ptr<PpapiPluginProcessHost> new_host(new PpapiPluginProcessHost);
+  if (!new_host->Init(plugin_path)) {
+    NOTREACHED();  // Init is not expected to fail.
+    return NULL;
+  }
+  return new_host.release();
+}
+
+void PluginService::OpenChannelToNpapiPlugin(
+    int render_process_id,
+    int render_view_id,
     const GURL& url,
     const std::string& mime_type,
     PluginProcessHost::Client* client) {
@@ -239,18 +335,31 @@ void PluginService::OpenChannelToPlugin(
       BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(
           this, &PluginService::GetAllowedPluginForOpenChannelToPlugin,
-          url, mime_type, client));
+          render_process_id, render_view_id, url, mime_type, client));
+}
+
+void PluginService::OpenChannelToPpapiPlugin(
+    const FilePath& path,
+    PpapiPluginProcessHost::Client* client) {
+  PpapiPluginProcessHost* plugin_host = FindOrStartPpapiPluginProcess(path);
+  if (plugin_host)
+    plugin_host->OpenChannelToPlugin(client);
+  else  // Send error.
+    client->OnChannelOpened(base::kNullProcessHandle, IPC::ChannelHandle());
 }
 
 void PluginService::GetAllowedPluginForOpenChannelToPlugin(
+    int render_process_id,
+    int render_view_id,
     const GURL& url,
     const std::string& mime_type,
     PluginProcessHost::Client* client) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
   webkit::npapi::WebPluginInfo info;
-  bool found = GetFirstAllowedPluginInfo(url, mime_type, &info, NULL);
+  bool found = GetFirstAllowedPluginInfo(
+      render_process_id, render_view_id, url, mime_type, &info, NULL);
   FilePath plugin_path;
-  if (found && info.enabled)
+  if (found && webkit::npapi::IsPluginEnabled(info))
     plugin_path = FilePath(info.path);
 
   // Now we jump back to the IO thread to finish opening the channel.
@@ -266,7 +375,7 @@ void PluginService::FinishOpenChannelToPlugin(
     PluginProcessHost::Client* client) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
-  PluginProcessHost* plugin_host = FindOrStartPluginProcess(plugin_path);
+  PluginProcessHost* plugin_host = FindOrStartNpapiPluginProcess(plugin_path);
   if (plugin_host)
     plugin_host->OpenChannelToPlugin(client);
   else
@@ -274,6 +383,8 @@ void PluginService::FinishOpenChannelToPlugin(
 }
 
 bool PluginService::GetFirstAllowedPluginInfo(
+    int render_process_id,
+    int render_view_id,
     const GURL& url,
     const std::string& mime_type,
     webkit::npapi::WebPluginInfo* info,
@@ -299,16 +410,22 @@ bool PluginService::GetFirstAllowedPluginInfo(
   }
   return false;
 #else
+  {
+    base::AutoLock auto_lock(overridden_plugins_lock_);
+    for (size_t i = 0; i < overridden_plugins_.size(); ++i) {
+      if (overridden_plugins_[i].render_process_id == render_process_id &&
+          overridden_plugins_[i].render_view_id == render_view_id &&
+          overridden_plugins_[i].url == url) {
+        if (actual_mime_type)
+          *actual_mime_type = mime_type;
+        *info = overridden_plugins_[i].plugin;
+        return true;
+      }
+    }
+  }
   return webkit::npapi::PluginList::Singleton()->GetPluginInfo(
       url, mime_type, allow_wildcard, info, actual_mime_type);
 #endif
-}
-
-static void PurgePluginListCache(bool reload_pages) {
-  for (RenderProcessHost::iterator it = RenderProcessHost::AllHostsIterator();
-       !it.IsAtEnd(); it.Advance()) {
-    it.GetCurrentValue()->Send(new ViewMsg_PurgePluginListCache(reload_pages));
-  }
 }
 
 void PluginService::OnWaitableEventSignaled(
@@ -322,12 +439,15 @@ void PluginService::OnWaitableEventSignaled(
 
   webkit::npapi::PluginList::Singleton()->RefreshPlugins();
   PurgePluginListCache(true);
+#else
+  // This event should only get signaled on a Windows machine.
+  NOTREACHED();
 #endif  // defined(OS_WIN)
 }
 
 static void ForceShutdownPlugin(const FilePath& plugin_path) {
   PluginProcessHost* plugin =
-      PluginService::GetInstance()->FindPluginProcess(plugin_path);
+      PluginService::GetInstance()->FindNpapiPluginProcess(plugin_path);
   if (plugin)
     plugin->ForceShutdown();
 }
@@ -382,11 +502,24 @@ void PluginService::Observe(NotificationType type,
 #endif
 
     case NotificationType::PLUGIN_ENABLE_STATUS_CHANGED: {
+      webkit::npapi::PluginList::Singleton()->RefreshPlugins();
       PurgePluginListCache(false);
       break;
     }
+    case NotificationType::RENDERER_PROCESS_CLOSED: {
+      int render_process_id = Source<RenderProcessHost>(source).ptr()->id();
+
+      base::AutoLock auto_lock(overridden_plugins_lock_);
+      for (size_t i = 0; i < overridden_plugins_.size(); ++i) {
+        if (overridden_plugins_[i].render_process_id == render_process_id) {
+          overridden_plugins_.erase(overridden_plugins_.begin() + i);
+          break;
+        }
+      }
+      break;
+    }
     default:
-      DCHECK(false);
+      NOTREACHED();
   }
 }
 
@@ -406,25 +539,45 @@ bool PluginService::PrivatePluginAllowedForURL(const FilePath& plugin_path,
           url.host() == required_url.host());
 }
 
-void PluginService::RegisterPepperPlugins() {
-  std::vector<PepperPluginInfo> plugins;
-  PepperPluginRegistry::GetList(&plugins);
-  for (size_t i = 0; i < plugins.size(); ++i) {
-    webkit::npapi::PluginVersionInfo info;
-    info.path = plugins[i].path;
-    info.product_name = plugins[i].name.empty() ?
-        plugins[i].path.BaseName().ToWStringHack() :
-        ASCIIToWide(plugins[i].name);
-    info.file_description = ASCIIToWide(plugins[i].description);
-    info.file_extensions = ASCIIToWide(plugins[i].file_extensions);
-    info.file_description = ASCIIToWide(plugins[i].type_descriptions);
-    info.mime_types = ASCIIToWide(JoinString(plugins[i].mime_types, '|'));
+void PluginService::OverridePluginForTab(OverriddenPlugin plugin) {
+  base::AutoLock auto_lock(overridden_plugins_lock_);
+  overridden_plugins_.push_back(plugin);
+}
 
-    // These NPAPI entry points will never be called.  TODO(darin): Come up
-    // with a cleaner way to register pepper plugins with the NPAPI PluginList,
-    // or perhaps refactor the PluginList to be less specific to NPAPI.
-    memset(&info.entry_points, 0, sizeof(info.entry_points));
+void PluginService::RegisterPepperPlugins() {
+  PepperPluginRegistry::ComputeList(&ppapi_plugins_);
+  for (size_t i = 0; i < ppapi_plugins_.size(); ++i) {
+    webkit::npapi::WebPluginInfo info;
+    info.path = ppapi_plugins_[i].path;
+    info.name = ppapi_plugins_[i].name.empty() ?
+        ppapi_plugins_[i].path.BaseName().LossyDisplayName() :
+        ASCIIToUTF16(ppapi_plugins_[i].name);
+    info.desc = ASCIIToUTF16(ppapi_plugins_[i].description);
+    info.enabled = webkit::npapi::WebPluginInfo::USER_ENABLED_POLICY_UNMANAGED;
+
+    // TODO(evan): Pepper shouldn't require us to parse strings to get
+    // the list of mime types out.
+    if (!webkit::npapi::PluginList::ParseMimeTypes(
+            JoinString(ppapi_plugins_[i].mime_types, '|'),
+            ppapi_plugins_[i].file_extensions,
+            ASCIIToUTF16(ppapi_plugins_[i].type_descriptions),
+            &info.mime_types)) {
+      LOG(ERROR) << "Error parsing mime types for "
+                 << ppapi_plugins_[i].path.LossyDisplayName();
+      return;
+    }
 
     webkit::npapi::PluginList::Singleton()->RegisterInternalPlugin(info);
   }
 }
+
+#if defined(OS_LINUX)
+// static
+void PluginService::RegisterFilePathWatcher(
+    FilePathWatcher *watcher,
+    const FilePath& path,
+    FilePathWatcher::Delegate* delegate) {
+  bool result = watcher->Watch(path, delegate);
+  DCHECK(result);
+}
+#endif

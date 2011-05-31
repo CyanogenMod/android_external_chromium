@@ -6,26 +6,25 @@
 
 #include <vector>
 
-#include "app/resource_bundle.h"
 #include "base/logging.h"
 #include "base/scoped_ptr.h"
 #include "base/singleton.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
-#include "chrome/browser/ui/browser.h"
 #include "chrome/common/notification_service.h"
-#include "gfx/canvas_skia.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "third_party/cros/chromeos_wm_ipc_enums.h"
 #include "third_party/skia/include/effects/SkBlurMaskFilter.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas_skia.h"
 #include "views/controls/button/image_button.h"
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
-#include "views/event.h"
+#include "views/events/event.h"
 #include "views/painter.h"
 #include "views/view.h"
 #include "views/widget/widget_gtk.h"
@@ -71,7 +70,7 @@ class TitleBackgroundPainter : public views::Painter {
     SkPaint paint;
     paint.setStyle(SkPaint::kFill_Style);
     paint.setFlags(SkPaint::kAntiAlias_Flag);
-    SkPoint p[2] = {{0, 0}, {0, h}};
+    SkPoint p[2] = { {0, 0}, {0, h} };
     SkColor colors[2] = {kTitleActiveGradientStart, kTitleActiveGradientEnd};
     SkShader* s = SkGradientShader::CreateLinear(
         p, colors, NULL, 2, SkShader::kClamp_TileMode, NULL);
@@ -108,7 +107,7 @@ PanelController::PanelController(Delegate* delegate,
                                  GtkWindow* window)
     :  delegate_(delegate),
        panel_(window),
-       panel_xid_(x11_util::GetX11WindowFromGtkWidget(GTK_WIDGET(panel_))),
+       panel_xid_(ui::GetX11WindowFromGtkWidget(GTK_WIDGET(panel_))),
        title_window_(NULL),
        title_(NULL),
        title_content_(NULL),
@@ -130,7 +129,7 @@ void PanelController::Init(bool initial_focus,
   gtk_widget_set_size_request(title_window_->GetNativeView(),
                               title_bounds.width(), title_bounds.height());
   title_ = title_window_->GetNativeView();
-  title_xid_ = x11_util::GetX11WindowFromGtkWidget(title_);
+  title_xid_ = ui::GetX11WindowFromGtkWidget(title_);
 
   WmIpc::instance()->SetWindowType(
       title_,
@@ -306,8 +305,11 @@ void PanelController::Close() {
 void PanelController::OnCloseButtonPressed() {
   DCHECK(title_content_);
   if (title_window_) {
-    if (delegate_)
+    if (delegate_) {
+      if (!delegate_->CanClosePanel())
+        return;
       delegate_->ClosePanel();
+    }
     Close();
   }
 }

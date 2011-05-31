@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,6 +31,8 @@
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/net/url_request_tracking.h"
 #include "chrome/browser/plugin_service.h"
+#include "chrome/browser/prerender/prerender_manager.h"
+#include "chrome/browser/prerender/prerender_resource_handler.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/async_resource_handler.h"
 #include "chrome/browser/renderer_host/buffered_resource_handler.h"
@@ -126,9 +128,11 @@ bool ShouldServiceRequest(ChildProcessInfo::ProcessType process_type,
   if (process_type == ChildProcessInfo::PLUGIN_PROCESS)
     return true;
 
-  if (request_data.resource_type == ResourceType::PREFETCH &&
-      !ResourceDispatcherHost::is_prefetch_enabled())
-    return false;
+  if (request_data.resource_type == ResourceType::PREFETCH) {
+    PrerenderManager::RecordPrefetchTagObserved();
+    if (!ResourceDispatcherHost::is_prefetch_enabled())
+      return false;
+  }
 
   ChildProcessSecurityPolicy* policy =
       ChildProcessSecurityPolicy::GetInstance();
@@ -193,6 +197,16 @@ std::vector<int> GetAllNetErrorCodes() {
 #undef NET_ERROR
   return all_error_codes;
 }
+
+#if defined(OS_WIN)
+#pragma warning(disable: 4748)
+#pragma optimize("", off)
+#endif
+
+#if defined(OS_WIN)
+#pragma optimize("", on)
+#pragma warning(default: 4748)
+#endif
 
 }  // namespace
 
@@ -285,10 +299,10 @@ bool ResourceDispatcherHost::HandleExternalProtocol(int request_id,
       NewRunnableFunction(
           &ExternalProtocolHandler::LaunchUrl, url, child_id, route_id));
 
-  handler->OnResponseCompleted(request_id, URLRequestStatus(
-                                               URLRequestStatus::FAILED,
-                                               net::ERR_ABORTED),
-                               std::string());  // No security info necessary.
+  handler->OnResponseCompleted(
+      request_id,
+      net::URLRequestStatus(net::URLRequestStatus::FAILED, net::ERR_ABORTED),
+      std::string());  // No security info necessary.
   return true;
 }
 
@@ -347,7 +361,7 @@ void ResourceDispatcherHost::BeginRequest(
   int child_id = filter_->child_id();
 
   ChromeURLRequestContext* context = filter_->GetURLRequestContext(
-      request_id, request_data.resource_type);
+      request_data);
 
   // Might need to resolve the blob references in the upload data.
   if (request_data.upload_data && context) {
@@ -357,7 +371,8 @@ void ResourceDispatcherHost::BeginRequest(
 
   if (is_shutdown_ ||
       !ShouldServiceRequest(process_type, child_id, request_data)) {
-    URLRequestStatus status(URLRequestStatus::FAILED, net::ERR_ABORTED);
+    net::URLRequestStatus status(net::URLRequestStatus::FAILED,
+                                 net::ERR_ABORTED);
     if (sync_result) {
       SyncLoadResult result;
       result.status = status;
@@ -444,6 +459,15 @@ void ResourceDispatcherHost::BeginRequest(
     upload_size = request_data.upload_data->GetContentLength();
   }
 
+  // Install a PrerenderResourceHandler if the requested URL could
+  // be prerendered. This should be in front of the [a]syncResourceHandler,
+  // but after the BufferedResourceHandler since it depends on the MIME
+  // sniffing capabilities in the BufferedResourceHandler.
+  PrerenderResourceHandler* pre_handler = PrerenderResourceHandler::MaybeCreate(
+      *request, context, handler);
+  if (pre_handler)
+    handler = pre_handler;
+
   // Install a CrossSiteResourceHandler if this request is coming from a
   // RenderViewHost with a pending cross-site request.  We only check this for
   // MAIN_FRAME requests. Unblock requests only come from a blocked page, do
@@ -497,8 +521,8 @@ void ResourceDispatcherHost::BeginRequest(
   ApplyExtensionLocalizationFilter(request_data.url, request_data.resource_type,
                                    extra_info);
   SetRequestInfo(request, extra_info);  // Request takes ownership.
-  chrome_browser_net::SetOriginProcessUniqueIDForRequest(
-      request_data.origin_child_id, request);
+  chrome_browser_net::SetOriginPIDForRequest(
+      request_data.origin_pid, request);
 
   if (request->url().SchemeIs(chrome::kBlobScheme) && context) {
     // Hang on to a reference to ensure the blob is not released prior
@@ -661,7 +685,7 @@ void ResourceDispatcherHost::BeginDownload(
     bool prompt_for_save_location,
     int child_id,
     int route_id,
-    URLRequestContext* request_context) {
+    net::URLRequestContext* request_context) {
   if (is_shutdown_)
     return;
 
@@ -712,17 +736,17 @@ void ResourceDispatcherHost::BeginDownload(
   ResourceDispatcherHostRequestInfo* extra_info =
       CreateRequestInfoForBrowserRequest(handler, child_id, route_id, true);
   SetRequestInfo(request, extra_info);  // Request takes ownership.
-  chrome_browser_net::SetOriginProcessUniqueIDForRequest(child_id, request);
 
   BeginRequestInternal(request);
 }
 
 // This function is only used for saving feature.
-void ResourceDispatcherHost::BeginSaveFile(const GURL& url,
-                                           const GURL& referrer,
-                                           int child_id,
-                                           int route_id,
-                                           URLRequestContext* request_context) {
+void ResourceDispatcherHost::BeginSaveFile(
+    const GURL& url,
+    const GURL& referrer,
+    int child_id,
+    int route_id,
+    net::URLRequestContext* request_context) {
   if (is_shutdown_)
     return;
 
@@ -759,7 +783,6 @@ void ResourceDispatcherHost::BeginSaveFile(const GURL& url,
   ResourceDispatcherHostRequestInfo* extra_info =
       CreateRequestInfoForBrowserRequest(handler, child_id, route_id, false);
   SetRequestInfo(request, extra_info);  // Request takes ownership.
-  chrome_browser_net::SetOriginProcessUniqueIDForRequest(child_id, request);
 
   BeginRequestInternal(request);
 }
@@ -1008,6 +1031,10 @@ void ResourceDispatcherHost::OnReceivedRedirect(net::URLRequest* request,
 void ResourceDispatcherHost::OnAuthRequired(
     net::URLRequest* request,
     net::AuthChallengeInfo* auth_info) {
+  if (request->load_flags() & net::LOAD_PREFETCH) {
+    request->CancelAuth();
+    return;
+  }
   // Create a login dialog on the UI thread to get authentication data,
   // or pull from cache and continue on the IO thread.
   // TODO(mpcomplete): We should block the parent tab while waiting for
@@ -1056,10 +1083,7 @@ void ResourceDispatcherHost::OnGetCookies(
   if (!RenderViewForRequest(request, &render_process_id, &render_view_id))
     return;
 
-  ChromeURLRequestContext* context =
-      static_cast<ChromeURLRequestContext*>(request->context());
-  if (context->IsExternal())
-    return;
+  net::URLRequestContext* context = request->context();
 
   net::CookieMonster* cookie_monster =
       context->cookie_store()->GetCookieMonster();
@@ -1301,8 +1325,9 @@ void ResourceDispatcherHost::BeginRequestInternal(net::URLRequest* request) {
     return;
   }
 
-  if (!defer_start)
+  if (!defer_start) {
     InsertIntoResourceQueue(request, *info);
+  }
 }
 
 void ResourceDispatcherHost::InsertIntoResourceQueue(
@@ -1618,11 +1643,11 @@ void ResourceDispatcherHost::NotifyOnUI(NotificationType type,
                                         T* detail) {
   RenderViewHost* rvh =
       RenderViewHost::FromID(render_process_id, render_view_id);
-  if (!rvh)
-    return;
-  RenderViewHostDelegate* rvhd = rvh->delegate();
-  NotificationService::current()->Notify(
-      type, Source<RenderViewHostDelegate>(rvhd), Details<T>(detail));
+  if (rvh) {
+    RenderViewHostDelegate* rvhd = rvh->delegate();
+    NotificationService::current()->Notify(
+        type, Source<RenderViewHostDelegate>(rvhd), Details<T>(detail));
+  }
   delete detail;
 }
 

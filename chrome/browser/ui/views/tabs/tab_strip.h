@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
 
 #include "base/ref_counted.h"
 #include "base/timer.h"
-#include "chrome/browser/views/tabs/base_tab_strip.h"
-#include "gfx/point.h"
-#include "gfx/rect.h"
+#include "chrome/browser/ui/views/tabs/base_tab_strip.h"
 #include "ui/base/animation/animation_container.h"
+#include "ui/gfx/point.h"
+#include "ui/gfx/rect.h"
 #include "views/controls/button/image_button.h"
 #include "views/mouse_watcher.h"
 
@@ -56,7 +56,6 @@ class TabStrip : public BaseTabStrip,
   virtual void MouseMovedOutOfView();
 
   // BaseTabStrip implementation:
-  virtual int GetPreferredHeight();
   virtual void SetBackgroundOffset(const gfx::Point& offset);
   virtual bool IsPositionInWindowCaption(const gfx::Point& point);
   virtual void PrepareForCloseAt(int model_index);
@@ -69,7 +68,7 @@ class TabStrip : public BaseTabStrip,
 
   // views::View overrides:
   virtual void PaintChildren(gfx::Canvas* canvas);
-  virtual views::View* GetViewByID(int id) const;
+  virtual const views::View* GetViewByID(int id) const;
   virtual gfx::Size GetPreferredSize();
   // NOTE: the drag and drop methods are invoked from FrameView. This is done to
   // allow for a drop region that extends outside the bounds of the TabStrip.
@@ -85,7 +84,6 @@ class TabStrip : public BaseTabStrip,
   // BaseTabStrip overrides:
   virtual BaseTab* CreateTab();
   virtual void StartInsertTabAnimation(int model_index, bool foreground);
-  virtual void StartMoveTabAnimation();
   virtual void AnimateToIdealBounds();
   virtual bool ShouldHighlightCloseButtonAfterRemove();
   virtual void DoLayout();
@@ -220,10 +218,6 @@ class TabStrip : public BaseTabStrip,
   void StartMiniTabAnimation();
   void StartMouseInitiatedRemoveTabAnimation(int model_index);
 
-  // Stops any ongoing animations. If |layout| is true and an animation is
-  // ongoing this does a layout.
-  virtual void StopAnimating(bool layout);
-
   // Calculates the available width for tabs, assuming a Tab is to be closed.
   int GetAvailableWidthForTabs(Tab* last_tab) const;
 
@@ -261,7 +255,7 @@ class TabStrip : public BaseTabStrip,
 
   // The size of the new tab button must be hardcoded because we need to be
   // able to lay it out before we are able to get its image from the
-  // ThemeProvider.  It also makes sense to do this, because the size of the
+  // ui::ThemeProvider.  It also makes sense to do this, because the size of the
   // new tab button should not need to be calculated dynamically.
   static const int kNewTabButtonWidth = 28;
   static const int kNewTabButtonHeight = 18;

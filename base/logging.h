@@ -165,6 +165,11 @@ enum LogLockingState { LOCK_LOG_FILE, DONT_LOCK_LOG_FILE };
 // Defaults to APPEND_TO_OLD_LOG_FILE.
 enum OldFileDeletionState { DELETE_OLD_LOG_FILE, APPEND_TO_OLD_LOG_FILE };
 
+enum DcheckState {
+  DISABLE_DCHECK_FOR_NON_OFFICIAL_RELEASE_BUILDS,
+  ENABLE_DCHECK_FOR_NON_OFFICIAL_RELEASE_BUILDS
+};
+
 // TODO(avi): do we want to do a unification of character types here?
 #if defined(OS_WIN)
 typedef wchar_t PathChar;
@@ -188,7 +193,8 @@ typedef char PathChar;
 bool BaseInitLoggingImpl(const PathChar* log_file,
                          LoggingDestination logging_dest,
                          LogLockingState lock_log,
-                         OldFileDeletionState delete_old);
+                         OldFileDeletionState delete_old,
+                         DcheckState dcheck_state);
 
 // Sets the log file name and other global logging state. Calling this function
 // is recommended, and is normally done at the beginning of application init.
@@ -203,8 +209,10 @@ bool BaseInitLoggingImpl(const PathChar* log_file,
 inline bool InitLogging(const PathChar* log_file,
                         LoggingDestination logging_dest,
                         LogLockingState lock_log,
-                        OldFileDeletionState delete_old) {
-  return BaseInitLoggingImpl(log_file, logging_dest, lock_log, delete_old);
+                        OldFileDeletionState delete_old,
+                        DcheckState dcheck_state) {
+  return BaseInitLoggingImpl(log_file, logging_dest, lock_log,
+                             delete_old, dcheck_state);
 }
 
 // Sets the log level. Anything at or above this level will be written to the
@@ -428,19 +436,10 @@ const LogSeverity LOG_0 = LOG_ERROR;
   LAZY_STREAM(PLOG_STREAM(FATAL), !(condition)) \
   << "Check failed: " #condition ". "
 
-// A container for a string pointer which can be evaluated to a bool -
-// true iff the pointer is NULL.
-struct CheckOpString {
-  CheckOpString(std::string* str) : str_(str) { }
-  // No destructor: if str_ is non-NULL, we're about to LOG(FATAL),
-  // so there's no point in cleaning up str_.
-  operator bool() const { return str_ != NULL; }
-  std::string* str_;
-};
-
 // Build the error message string.  This is separate from the "Impl"
 // function template because it is not performance critical and so can
-// be out of line, while the "Impl" code should be inline.
+// be out of line, while the "Impl" code should be inline.  Caller
+// takes ownership of the returned string.
 template<class t1, class t2>
 std::string* MakeCheckOpString(const t1& v1, const t2& v2, const char* names) {
   std::ostringstream ss;
@@ -471,7 +470,7 @@ extern template std::string* MakeCheckOpString<std::string, std::string>(
 // TODO(akalin): Rewrite this so that constructs like if (...)
 // CHECK_EQ(...) else { ... } work properly.
 #define CHECK_OP(name, op, val1, val2)                          \
-  if (logging::CheckOpString _result =                          \
+  if (std::string* _result =                                    \
       logging::Check##name##Impl((val1), (val2),                \
                                  #val1 " " #op " " #val2))      \
     logging::LogMessage(__FILE__, __LINE__, _result).stream()
@@ -600,10 +599,11 @@ enum { DEBUG_MODE = ENABLE_DLOG };
   COMPACT_GOOGLE_LOG_EX_ERROR_REPORT(ClassName , ##__VA_ARGS__)
 #define COMPACT_GOOGLE_LOG_DCHECK COMPACT_GOOGLE_LOG_ERROR_REPORT
 const LogSeverity LOG_DCHECK = LOG_ERROR_REPORT;
-// This is set to true in InitLogging when we want to enable the
-// DCHECKs in release.
-extern bool g_enable_dcheck;
-#define DCHECK_IS_ON() (::logging::g_enable_dcheck && LOG_IS_ON(DCHECK))
+extern DcheckState g_dcheck_state;
+#define DCHECK_IS_ON()                                                  \
+  ((::logging::g_dcheck_state ==                                        \
+    ::logging::ENABLE_DCHECK_FOR_NON_OFFICIAL_RELEASE_BUILDS) &&        \
+   LOG_IS_ON(DCHECK))
 
 #else  // defined(NDEBUG)
 
@@ -646,7 +646,7 @@ const LogSeverity LOG_DCHECK = LOG_INFO;
 // Don't use this macro directly in your code, use DCHECK_EQ et al below.
 #define DCHECK_OP(name, op, val1, val2)                         \
   if (DCHECK_IS_ON())                                           \
-    if (logging::CheckOpString _result =                        \
+    if (std::string* _result =                                  \
         logging::Check##name##Impl((val1), (val2),              \
                                    #val1 " " #op " " #val2))    \
       logging::LogMessage(                                      \
@@ -714,14 +714,15 @@ class LogMessage {
   // saves a couple of bytes per call site.
   LogMessage(const char* file, int line, LogSeverity severity);
 
-  // A special constructor used for check failures.
+  // A special constructor used for check failures.  Takes ownership
+  // of the given string.
   // Implied severity = LOG_FATAL
-  LogMessage(const char* file, int line, const CheckOpString& result);
+  LogMessage(const char* file, int line, std::string* result);
 
   // A special constructor used for check failures, with the option to
-  // specify severity.
+  // specify severity.  Takes ownership of the given string.
   LogMessage(const char* file, int line, LogSeverity severity,
-             const CheckOpString& result);
+             std::string* result);
 
   ~LogMessage();
 
@@ -909,5 +910,14 @@ inline std::ostream& operator<<(std::ostream& out, const std::wstring& wstr) {
   LOG_IF(ERROR, 0 == count++) << NOTIMPLEMENTED_MSG;\
 } while(0)
 #endif
+
+namespace base {
+
+class StringPiece;
+
+// allow StringPiece to be logged (needed for unit testing).
+extern std::ostream& operator<<(std::ostream& o, const StringPiece& piece);
+
+}  // namespace base
 
 #endif  // BASE_LOGGING_H_

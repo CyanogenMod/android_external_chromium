@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,11 @@ PrefValueStore::PrefStoreKeeper::PrefStoreKeeper()
 }
 
 PrefValueStore::PrefStoreKeeper::~PrefStoreKeeper() {
-  if (pref_store_.get())
+  if (pref_store_.get()) {
     pref_store_->RemoveObserver(this);
+    pref_store_ = NULL;
+  }
+  pref_value_store_ = NULL;
 }
 
 void PrefValueStore::PrefStoreKeeper::Initialize(
@@ -25,7 +28,7 @@ void PrefValueStore::PrefStoreKeeper::Initialize(
     pref_store_->RemoveObserver(this);
   type_ = type;
   pref_value_store_ = store;
-  pref_store_.reset(pref_store);
+  pref_store_ = pref_store;
   if (pref_store_.get())
     pref_store_->AddObserver(this);
 }
@@ -40,20 +43,22 @@ void PrefValueStore::PrefStoreKeeper::OnInitializationCompleted() {
 }
 
 PrefValueStore::PrefValueStore(PrefStore* managed_platform_prefs,
-                               PrefStore* device_management_prefs,
+                               PrefStore* managed_cloud_prefs,
                                PrefStore* extension_prefs,
                                PrefStore* command_line_prefs,
                                PrefStore* user_prefs,
-                               PrefStore* recommended_prefs,
+                               PrefStore* recommended_platform_prefs,
+                               PrefStore* recommended_cloud_prefs,
                                PrefStore* default_prefs,
                                PrefNotifier* pref_notifier)
     : pref_notifier_(pref_notifier) {
   InitPrefStore(MANAGED_PLATFORM_STORE, managed_platform_prefs);
-  InitPrefStore(DEVICE_MANAGEMENT_STORE, device_management_prefs);
+  InitPrefStore(MANAGED_CLOUD_STORE, managed_cloud_prefs);
   InitPrefStore(EXTENSION_STORE, extension_prefs);
   InitPrefStore(COMMAND_LINE_STORE, command_line_prefs);
   InitPrefStore(USER_STORE, user_prefs);
-  InitPrefStore(RECOMMENDED_STORE, recommended_prefs);
+  InitPrefStore(RECOMMENDED_PLATFORM_STORE, recommended_platform_prefs);
+  InitPrefStore(RECOMMENDED_CLOUD_STORE, recommended_cloud_prefs);
   InitPrefStore(DEFAULT_STORE, default_prefs);
 
   CheckInitializationCompleted();
@@ -61,38 +66,60 @@ PrefValueStore::PrefValueStore(PrefStore* managed_platform_prefs,
 
 PrefValueStore::~PrefValueStore() {}
 
+PrefValueStore* PrefValueStore::CloneAndSpecialize(
+    PrefStore* managed_platform_prefs,
+    PrefStore* managed_cloud_prefs,
+    PrefStore* extension_prefs,
+    PrefStore* command_line_prefs,
+    PrefStore* user_prefs,
+    PrefStore* recommended_platform_prefs,
+    PrefStore* recommended_cloud_prefs,
+    PrefStore* default_prefs,
+    PrefNotifier* pref_notifier) {
+  DCHECK(pref_notifier);
+  if (!managed_platform_prefs)
+    managed_platform_prefs = GetPrefStore(MANAGED_PLATFORM_STORE);
+  if (!managed_cloud_prefs)
+    managed_cloud_prefs = GetPrefStore(MANAGED_CLOUD_STORE);
+  if (!extension_prefs)
+    extension_prefs = GetPrefStore(EXTENSION_STORE);
+  if (!command_line_prefs)
+    command_line_prefs = GetPrefStore(COMMAND_LINE_STORE);
+  if (!user_prefs)
+    user_prefs = GetPrefStore(USER_STORE);
+  if (!recommended_platform_prefs)
+    recommended_platform_prefs = GetPrefStore(RECOMMENDED_PLATFORM_STORE);
+  if (!recommended_cloud_prefs)
+    recommended_cloud_prefs = GetPrefStore(RECOMMENDED_CLOUD_STORE);
+  if (!default_prefs)
+    default_prefs = GetPrefStore(DEFAULT_STORE);
+
+  return new PrefValueStore(
+      managed_platform_prefs, managed_cloud_prefs, extension_prefs,
+      command_line_prefs, user_prefs, recommended_platform_prefs,
+      recommended_cloud_prefs, default_prefs,
+      pref_notifier);
+}
+
 bool PrefValueStore::GetValue(const std::string& name,
+                              Value::ValueType type,
                               Value** out_value) const {
+  *out_value = NULL;
   // Check the |PrefStore|s in order of their priority from highest to lowest
   // to find the value of the preference described by the given preference name.
   for (size_t i = 0; i <= PREF_STORE_TYPE_MAX; ++i) {
     if (GetValueFromStore(name.c_str(), static_cast<PrefStoreType>(i),
-                          out_value))
+                          out_value)) {
+      if (!(*out_value)->IsType(type)) {
+        LOG(WARNING) << "Expected type for " << name << " is " << type
+                     << " but got " << (*out_value)->GetType()
+                     << " in store " << i;
+        continue;
+      }
       return true;
+    }
   }
   return false;
-}
-
-void PrefValueStore::RegisterPreferenceType(const std::string& name,
-                                            Value::ValueType type) {
-  pref_types_[name] = type;
-}
-
-Value::ValueType PrefValueStore::GetRegisteredType(
-    const std::string& name) const {
-  PrefTypeMap::const_iterator found = pref_types_.find(name);
-  if (found == pref_types_.end())
-    return Value::TYPE_NULL;
-  return found->second;
-}
-
-bool PrefValueStore::HasPrefPath(const char* path) const {
-  Value* tmp_value = NULL;
-  const std::string name(path);
-  bool rv = GetValue(name, &tmp_value);
-  // Merely registering a pref doesn't count as "having" it: we require a
-  // non-default value set.
-  return rv && !PrefValueFromDefaultStore(path);
 }
 
 void PrefValueStore::NotifyPrefChanged(
@@ -100,6 +127,7 @@ void PrefValueStore::NotifyPrefChanged(
     PrefValueStore::PrefStoreType new_store) {
   DCHECK(new_store != INVALID_STORE);
 
+<<<<<<< HEAD
   // If this pref is not registered, just discard the notification.
   if (!pref_types_.count(path))
     return;
@@ -120,16 +148,19 @@ void PrefValueStore::NotifyPrefChanged(
 
 #ifndef ANDROID
   if (changed)
+=======
+  // If the pref is controlled by a higher-priority store, its effective value
+  // cannot have changed.
+  PrefStoreType controller = ControllingPrefStoreForPref(path);
+  if (controller == INVALID_STORE || controller >= new_store)
+>>>>>>> chromium.org at r11.0.672.0
     pref_notifier_->OnPreferenceChanged(path);
 #endif
 }
 
-bool PrefValueStore::PrefValueInManagedPlatformStore(const char* name) const {
-  return PrefValueInStore(name, MANAGED_PLATFORM_STORE);
-}
-
-bool PrefValueStore::PrefValueInDeviceManagementStore(const char* name) const {
-  return PrefValueInStore(name, DEVICE_MANAGEMENT_STORE);
+bool PrefValueStore::PrefValueInManagedStore(const char* name) const {
+  return PrefValueInStore(name, MANAGED_PLATFORM_STORE) ||
+         PrefValueInStore(name, MANAGED_CLOUD_STORE);
 }
 
 bool PrefValueStore::PrefValueInExtensionStore(const char* name) const {
@@ -156,24 +187,6 @@ bool PrefValueStore::PrefValueUserModifiable(const char* name) const {
   PrefStoreType effective_store = ControllingPrefStoreForPref(name);
   return effective_store >= USER_STORE ||
          effective_store == INVALID_STORE;
-}
-
-// Returns true if the actual value is a valid type for the expected type when
-// found in the given store.
-bool PrefValueStore::IsValidType(Value::ValueType expected,
-                                 Value::ValueType actual,
-                                 PrefValueStore::PrefStoreType store) {
-  if (expected == actual)
-    return true;
-
-  // Dictionaries and lists are allowed to hold TYPE_NULL values too, but only
-  // in the default pref store.
-  if (store == DEFAULT_STORE &&
-      actual == Value::TYPE_NULL &&
-      (expected == Value::TYPE_DICTIONARY || expected == Value::TYPE_LIST)) {
-    return true;
-  }
-  return false;
 }
 
 bool PrefValueStore::PrefValueInStore(
@@ -227,12 +240,7 @@ bool PrefValueStore::GetValueFromStore(const char* name,
         }
         // Fall through...
       case PrefStore::READ_OK:
-        if (IsValidType(GetRegisteredType(name),
-                        (*out_value)->GetType(),
-                        store_type)) {
-          return true;
-        }
-        break;
+        return true;
       case PrefStore::READ_NO_VALUE:
         break;
     }
@@ -260,7 +268,8 @@ void PrefValueStore::InitPrefStore(PrefValueStore::PrefStoreType type,
 
 void PrefValueStore::CheckInitializationCompleted() {
   for (size_t i = 0; i <= PREF_STORE_TYPE_MAX; ++i) {
-    PrefStore* store = GetPrefStore(static_cast<PrefStoreType>(i));
+    scoped_refptr<PrefStore> store =
+        GetPrefStore(static_cast<PrefStoreType>(i));
     if (store && !store->IsInitializationComplete())
       return;
   }

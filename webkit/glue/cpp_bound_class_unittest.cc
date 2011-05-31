@@ -10,10 +10,10 @@
 
 #include "base/message_loop.h"
 #include "base/string_util.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebData.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebFrame.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURL.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebView.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebData.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebFrame.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURL.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebView.h"
 #include "webkit/glue/cpp_binding_example.h"
 #include "webkit/glue/webkit_glue.h"
 #include "webkit/tools/test_shell/test_shell_test.h"
@@ -230,8 +230,7 @@ TEST_F(CppBoundClassTest, SetAndGetPropertiesWithCallbacks) {
   CheckJavaScriptSuccess(js);
 }
 
-// Disabled, http://crbug.com/68445.
-TEST_F(CppBoundClassTest, DISABLED_InvokeMethods) {
+TEST_F(CppBoundClassTest, InvokeMethods) {
   // The expression on the left is expected to return the value on the right.
   static const std::string tests[] = {
     "example.echoValue(true)", "true",

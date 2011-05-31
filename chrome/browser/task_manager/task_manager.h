@@ -13,7 +13,6 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
-#include "base/lock.h"
 #include "base/observer_list.h"
 #include "base/process_util.h"
 #include "base/ref_counted.h"
@@ -22,7 +21,7 @@
 #include "base/timer.h"
 #include "chrome/browser/renderer_host/web_cache_manager.h"
 #include "net/url_request/url_request_job_tracker.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebCache.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebCache.h"
 
 class Extension;
 class SkBitmap;
@@ -58,7 +57,7 @@ class TaskManager {
       GPU              // A graphics process.
     };
 
-    virtual std::wstring GetTitle() const = 0;
+    virtual string16 GetTitle() const = 0;
     virtual SkBitmap GetIcon() const = 0;
     virtual base::ProcessHandle GetProcess() const = 0;
     virtual Type GetType() const = 0;
@@ -346,21 +345,20 @@ class TaskManagerModel : public net::URLRequestJobTracker::JobObserver,
 
   // This struct is used to exchange information between the io and ui threads.
   struct BytesReadParam {
-    BytesReadParam(int origin_child_id,
+    BytesReadParam(int origin_pid,
                    int render_process_host_child_id,
                    int routing_id,
                    int byte_count)
-        : origin_child_id(origin_child_id),
+        : origin_pid(origin_pid),
           render_process_host_child_id(render_process_host_child_id),
           routing_id(routing_id),
           byte_count(byte_count) {}
 
-    // This is the child ID of the originator of the request. It will often be
-    // the same as the render_process_host_child_id, but will be different when
-    // another sub-process like a plugin is routing requests through a renderer.
-    int origin_child_id;
+    // The process ID that triggered the request.  For plugin requests this
+    // will differ from the renderer process ID.
+    int origin_pid;
 
-    // The child ID of the RenderProcessHist this request was routed through.
+    // The child ID of the RenderProcessHost this request was routed through.
     int render_process_host_child_id;
 
     int routing_id;

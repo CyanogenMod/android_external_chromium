@@ -49,7 +49,7 @@ private:
 #include "base/gtest_prod_util.h"
 #include "base/scoped_ptr.h"
 #include "base/string16.h"
-#include "chrome/browser/dom_ui/dom_ui_factory.h"
+#include "chrome/browser/dom_ui/web_ui_factory.h"
 #include "chrome/browser/download/save_package.h"
 #include "chrome/browser/extensions/image_loading_tracker.h"
 #include "chrome/browser/fav_icon_helper.h"
@@ -63,15 +63,13 @@ private:
 #include "chrome/browser/tab_contents/render_view_host_manager.h"
 #include "chrome/browser/tab_contents/tab_specific_content_settings.h"
 #include "chrome/browser/ui/app_modal_dialogs/js_modal_dialog.h"
-#include "chrome/browser/ui/find_bar/find_bar_controller.h"
-#include "chrome/browser/ui/find_bar/find_notification_details.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/property_bag.h"
 #include "chrome/common/renderer_preferences.h"
 #include "chrome/common/translate_errors.h"
 #include "chrome/common/web_apps.h"
-#include "gfx/native_widget_types.h"
 #include "net/base/load_states.h"
+#include "ui/gfx/native_widget_types.h"
 
 #if defined(OS_WIN)
 #include "base/win/scoped_handle.h"
@@ -86,40 +84,40 @@ class HistoryAddPageArgs;
 }
 
 namespace printing {
+class PrintPreviewMessageHandler;
 class PrintViewManager;
-}
-
-namespace webkit_glue {
-struct PasswordForm;
 }
 
 class AutocompleteHistoryManager;
 class AutoFillManager;
 class BlockedContentContainer;
-class DOMUI;
+class WebUI;
+class DesktopNotificationHandler;
 class DownloadItem;
 class Extension;
 class FileSelectHelper;
 class InfoBarDelegate;
 class LoadNotificationDetails;
 class OmniboxSearchHint;
-class PluginInstaller;
+class PluginObserver;
 class Profile;
 class PrerenderManager;
-struct RendererPreferences;
+class PrerenderPLTRecorder;
 class RenderViewHost;
 class SessionStorageNamespace;
 class SiteInstance;
 class SkBitmap;
 class TabContents;
 class TabContentsDelegate;
+class TabContentsObserver;
 class TabContentsSSLHelper;
 class TabContentsView;
 class URLPattern;
+struct RendererPreferences;
 struct ThumbnailScore;
 struct ViewHostMsg_DomMessage_Params;
 struct ViewHostMsg_FrameNavigate_Params;
-class WebNavigationObserver;
+struct ViewHostMsg_RunFileChooser_Params;
 struct WebPreferences;
 
 // Describes what goes in the main content area of a tab. TabContents is
@@ -127,7 +125,6 @@ struct WebPreferences;
 class TabContents : public PageNavigator,
                     public NotificationObserver,
                     public RenderViewHostDelegate,
-                    public RenderViewHostDelegate::BrowserIntegration,
                     public RenderViewHostManager::Delegate,
                     public JavaScriptAppModalDialogDelegate,
                     public ImageLoadingTracker::Observer,
@@ -184,12 +181,6 @@ class TabContents : public PageNavigator,
   // Returns true if contains content rendered by an extension.
   bool HostsExtension() const;
 
-  // Returns the AutoFillManager, creating it if necessary.
-  AutoFillManager* GetAutoFillManager();
-
-  // Returns the PluginInstaller, creating it if necessary.
-  PluginInstaller* GetPluginInstaller();
-
   // Returns the TabContentsSSLHelper, creating it if necessary.
   TabContentsSSLHelper* GetSSLHelper();
 
@@ -203,9 +194,9 @@ class TabContents : public PageNavigator,
     return render_manager_.current_host();
   }
 
-  DOMUI* dom_ui() const {
-    return render_manager_.dom_ui() ? render_manager_.dom_ui()
-        : render_manager_.pending_dom_ui();
+  WebUI* web_ui() const {
+    return render_manager_.web_ui() ? render_manager_.web_ui()
+        : render_manager_.pending_web_ui();
   }
 
   // Returns the currently active RenderWidgetHostView. This may change over
@@ -246,7 +237,7 @@ class TabContents : public PageNavigator,
   // If an app extension has been explicitly set for this TabContents its icon
   // is returned.
   //
-  // NOTE: the returned icon is larger than 16x16 (it's size is
+  // NOTE: the returned icon is larger than 16x16 (its size is
   // Extension::EXTENSION_ICON_SMALLISH).
   SkBitmap* GetExtensionAppIcon();
 
@@ -300,8 +291,8 @@ class TabContents : public PageNavigator,
   // removing multiple times has no effect. The order in which notifications
   // are sent to observers is undefined. Clients must be sure to remove the
   // observer before they go away.
-  void AddNavigationObserver(WebNavigationObserver* observer);
-  void RemoveNavigationObserver(WebNavigationObserver* observer);
+  void AddObserver(TabContentsObserver* observer);
+  void RemoveObserver(TabContentsObserver* observer);
 
   // Return whether this tab contents is loading a resource.
   bool is_loading() const { return is_loading_; }
@@ -310,8 +301,6 @@ class TabContents : public PageNavigator,
   // main resource of the page. This controls whether the throbber state is
   // "waiting" or "loading."
   bool waiting_for_response() const { return waiting_for_response_; }
-
-  bool is_starred() const { return is_starred_; }
 
   const std::string& encoding() const { return encoding_; }
   void set_encoding(const std::string& encoding);
@@ -526,9 +515,10 @@ class TabContents : public PageNavigator,
                       InfoBarDelegate* new_delegate);
 
   // Enumeration and access functions.
-  int infobar_delegate_count() const { return infobar_delegates_.size(); }
-  InfoBarDelegate* GetInfoBarDelegateAt(int index) {
-    return infobar_delegates_.at(index);
+  size_t infobar_count() const { return infobar_delegates_.size(); }
+  // WARNING: This does not sanity-check |index|!
+  InfoBarDelegate* GetInfoBarDelegateAt(size_t index) {
+    return infobar_delegates_[index];
   }
 
   // Toolbars and such ---------------------------------------------------------
@@ -581,50 +571,6 @@ class TabContents : public PageNavigator,
     return render_manager_.interstitial_page();
   }
 
-  // Find in Page --------------------------------------------------------------
-
-  // Starts the Find operation by calling StartFinding on the Tab. This function
-  // can be called from the outside as a result of hot-keys, so it uses the
-  // last remembered search string as specified with set_find_string(). This
-  // function does not block while a search is in progress. The controller will
-  // receive the results through the notification mechanism. See Observe(...)
-  // for details.
-  void StartFinding(string16 search_string,
-                    bool forward_direction,
-                    bool case_sensitive);
-
-  // Stops the current Find operation.
-  void StopFinding(FindBarController::SelectionAction selection_action);
-
-  // Accessors/Setters for find_ui_active_.
-  bool find_ui_active() const { return find_ui_active_; }
-  void set_find_ui_active(bool find_ui_active) {
-      find_ui_active_ = find_ui_active;
-  }
-
-  // Setter for find_op_aborted_.
-  void set_find_op_aborted(bool find_op_aborted) {
-    find_op_aborted_ = find_op_aborted;
-  }
-
-  // Used _only_ by testing to get or set the current request ID.
-  int current_find_request_id() { return current_find_request_id_; }
-  void set_current_find_request_id(int current_find_request_id) {
-    current_find_request_id_ = current_find_request_id;
-  }
-
-  // Accessor for find_text_. Used to determine if this TabContents has any
-  // active searches.
-  string16 find_text() const { return find_text_; }
-
-  // Accessor for the previous search we issued.
-  string16 previous_find_text() const { return previous_find_text_; }
-
-  // Accessor for find_result_.
-  const FindNotificationDetails& find_result() const {
-    return last_search_result_;
-  }
-
   // Misc state & callbacks ----------------------------------------------------
 
   // Set whether the contents should block javascript message boxes or not.
@@ -641,6 +587,9 @@ class TabContents : public PageNavigator,
   // saving process has been initiated successfully.
   bool SavePage(const FilePath& main_file, const FilePath& dir_path,
                 SavePackage::SavePackageType save_type);
+
+  // Sets save_package_, taking care to register and unregister the observers.
+  void SetSavePackage(SavePackage* save_package);
 
   // Tells the user's email client to open a compose window containing the
   // current page's URL.
@@ -698,8 +647,8 @@ class TabContents : public PageNavigator,
     return &renderer_preferences_;
   }
 
-  void set_opener_dom_ui_type(DOMUITypeID opener_dom_ui_type) {
-    opener_dom_ui_type_ = opener_dom_ui_type;
+  void set_opener_web_ui_type(WebUITypeID opener_web_ui_type) {
+    opener_web_ui_type_ = opener_web_ui_type;
   }
 
   // We want to time how long it takes to create a new tab page.  This method
@@ -722,6 +671,10 @@ class TabContents : public PageNavigator,
 
   // Returns true if underlying TabContentsView should accept drag-n-drop.
   bool ShouldAcceptDragAndDrop() const;
+
+  // A render view-originated drag has ended. Informs the render view host and
+  // tab contents delegate.
+  void SystemDragEnded();
 
   // Indicates if this tab was explicitly closed by the user (control-w, close
   // tab menu item...). This is false for actions that indirectly close the tab,
@@ -786,6 +739,15 @@ class TabContents : public PageNavigator,
 
   int content_restrictions() const { return content_restrictions_; }
 
+  AutocompleteHistoryManager* autocomplete_history_manager() {
+    return autocomplete_history_manager_.get();
+  }
+  AutoFillManager* autofill_manager() { return autofill_manager_.get(); }
+
+ protected:
+  // from RenderViewHostDelegate.
+  virtual bool OnMessageReceived(const IPC::Message& message);
+
  private:
   friend class NavigationController;
   // Used to access the child_windows_ (ConstrainedWindowList) for testing
@@ -795,6 +757,9 @@ class TabContents : public PageNavigator,
   FRIEND_TEST_ALL_PREFIXES(TabContentsTest, NoJSMessageOnInterstitials);
   FRIEND_TEST_ALL_PREFIXES(TabContentsTest, UpdateTitle);
   FRIEND_TEST_ALL_PREFIXES(TabContentsTest, CrossSiteCantPreemptAfterUnload);
+  FRIEND_TEST_ALL_PREFIXES(FormStructureBrowserTest, HTMLFiles);
+  FRIEND_TEST_ALL_PREFIXES(NavigationControllerTest, HistoryNavigate);
+  FRIEND_TEST_ALL_PREFIXES(RenderViewHostManagerTest, PageDoesBackAndReload);
 
   // Temporary until the view/contents separation is complete.
   friend class TabContentsView;
@@ -835,9 +800,29 @@ class TabContents : public PageNavigator,
                                         const std::string& main_frame_origin,
                                         const std::string& security_info);
   void OnDidDisplayInsecureContent();
-  void OnDidRunInsecureContent(const std::string& security_origin);
+  void OnDidRunInsecureContent(const std::string& security_origin,
+                               const GURL& target_url);
   void OnDocumentLoadedInFrame(int64 frame_id);
   void OnDidFinishLoad(int64 frame_id);
+  void OnUpdateContentRestrictions(int restrictions);
+  void OnPDFHasUnsupportedFeature();
+
+  void OnGoToEntryAtOffset(int offset);
+  void OnDidGetApplicationInfo(int32 page_id, const WebApplicationInfo& info);
+  void OnInstallApplication(const WebApplicationInfo& info);
+  void OnPageContents(const GURL& url,
+                      int32 page_id,
+                      const string16& contents,
+                      const std::string& language,
+                      bool page_translatable);
+  void OnPageTranslated(int32 page_id,
+                        const std::string& original_lang,
+                        const std::string& translated_lang,
+                        TranslateErrors::Type error_type);
+  void OnSetSuggestions(int32 page_id,
+                        const std::vector<std::string>& suggestions);
+  void OnInstantSupportDetermined(int32 page_id, bool result);
+  void OnRunFileChooser(const ViewHostMsg_RunFileChooser_Params& params);
 
   // Changes the IsLoading state and notifies delegate as needed
   // |details| is used to provide details on the load that just finished
@@ -862,9 +847,9 @@ class TabContents : public PageNavigator,
   void ExpireInfoBars(
       const NavigationController::LoadCommittedDetails& details);
 
-  // Returns the DOMUI for the current state of the tab. This will either be
-  // the pending DOMUI, the committed DOMUI, or NULL.
-  DOMUI* GetDOMUIForCurrentState();
+  // Returns the WebUI for the current state of the tab. This will either be
+  // the pending WebUI, the committed WebUI, or NULL.
+  WebUI* GetWebUIForCurrentState();
 
   // Navigation helpers --------------------------------------------------------
   //
@@ -884,10 +869,6 @@ class TabContents : public PageNavigator,
 
   // Closes all constrained windows.
   void CloseConstrainedWindows();
-
-  // Updates the starred state from the bookmark bar model. If the state has
-  // changed, the delegate is notified.
-  void UpdateStarredStateForCurrentURL();
 
   // Send the alternate error page URL to the renderer. This method is virtual
   // so special html pages can override this (e.g., the new tab page).
@@ -944,54 +925,15 @@ class TabContents : public PageNavigator,
 
   // RenderViewHostDelegate ----------------------------------------------------
 
-  // RenderViewHostDelegate::BrowserIntegration implementation.
-  virtual void OnUserGesture();
-  virtual void OnFindReply(int request_id,
-                           int number_of_matches,
-                           const gfx::Rect& selection_rect,
-                           int active_match_ordinal,
-                           bool final_update);
-  virtual void GoToEntryAtOffset(int offset);
-  virtual void OnMissingPluginStatus(int status);
-  virtual void OnCrashedPlugin(const FilePath& plugin_path);
-  virtual void OnCrashedWorker();
-  virtual void OnDidGetApplicationInfo(int32 page_id,
-                                       const WebApplicationInfo& info);
-  virtual void OnInstallApplication(const WebApplicationInfo& info);
-  virtual void OnBlockedOutdatedPlugin(const string16& name,
-                                       const GURL& update_url);
-  virtual void OnPageContents(const GURL& url,
-                              int renderer_process_id,
-                              int32 page_id,
-                              const string16& contents,
-                              const std::string& language,
-                              bool page_translatable);
-  virtual void OnPageTranslated(int32 page_id,
-                                const std::string& original_lang,
-                                const std::string& translated_lang,
-                                TranslateErrors::Type error_type);
-  virtual void OnSetSuggestions(int32 page_id,
-                                const std::vector<std::string>& suggestions);
-  virtual void OnInstantSupportDetermined(int32 page_id, bool result);
-
   // RenderViewHostDelegate implementation.
   virtual RenderViewHostDelegate::View* GetViewDelegate();
   virtual RenderViewHostDelegate::RendererManagement*
       GetRendererManagementDelegate();
-  virtual RenderViewHostDelegate::BrowserIntegration*
-      GetBrowserIntegrationDelegate();
   virtual RenderViewHostDelegate::ContentSettings* GetContentSettingsDelegate();
-  virtual RenderViewHostDelegate::Save* GetSaveDelegate();
-  virtual RenderViewHostDelegate::Printing* GetPrintingDelegate();
-  virtual RenderViewHostDelegate::FavIcon* GetFavIconDelegate();
-  virtual RenderViewHostDelegate::Autocomplete* GetAutocompleteDelegate();
-  virtual RenderViewHostDelegate::AutoFill* GetAutoFillDelegate();
   virtual RenderViewHostDelegate::SSL* GetSSLDelegate();
-  virtual RenderViewHostDelegate::FileSelect* GetFileSelectDelegate();
   virtual AutomationResourceRoutingDelegate*
       GetAutomationResourceRoutingDelegate();
   virtual TabContents* GetAsTabContents();
-  virtual bool OnMessageReceived(const IPC::Message& message);
   virtual ViewType::Type GetRenderViewType() const;
   virtual int GetBrowserWindowID() const;
   virtual void RenderViewCreated(RenderViewHost* render_view_host);
@@ -1029,7 +971,7 @@ class TabContents : public PageNavigator,
                               WindowOpenDisposition disposition);
   virtual void DomOperationResponse(const std::string& json_string,
                                     int automation_id);
-  virtual void ProcessDOMUIMessage(const ViewHostMsg_DomMessage_Params& params);
+  virtual void ProcessWebUIMessage(const ViewHostMsg_DomMessage_Params& params);
   virtual void ProcessExternalHostMessage(const std::string& message,
                                           const std::string& origin,
                                           const std::string& target);
@@ -1044,10 +986,6 @@ class TabContents : public PageNavigator,
   virtual void ShowModalHTMLDialog(const GURL& url, int width, int height,
                                    const std::string& json_arguments,
                                    IPC::Message* reply_msg);
-  virtual void PasswordFormsFound(
-      const std::vector<webkit_glue::PasswordForm>& forms);
-  virtual void PasswordFormsVisible(
-      const std::vector<webkit_glue::PasswordForm>& visible_forms);
   virtual void PageHasOSDD(RenderViewHost* render_view_host,
                            int32 page_id,
                            const GURL& url,
@@ -1055,6 +993,7 @@ class TabContents : public PageNavigator,
   virtual GURL GetAlternateErrorPageURL() const;
   virtual RendererPreferences GetRendererPrefs(Profile* profile) const;
   virtual WebPreferences GetWebkitPrefs();
+  virtual void OnUserGesture();
   virtual void OnIgnoredUIEvent();
   virtual void OnJSOutOfMemory();
   virtual void OnCrossSiteResponse(int new_render_process_host_id,
@@ -1070,7 +1009,7 @@ class TabContents : public PageNavigator,
   virtual void UpdateZoomLimits(int minimum_percent,
                                 int maximum_percent,
                                 bool remember);
-  virtual void UpdateContentRestrictions(int restrictions);
+  virtual void WorkerCrashed();
 
   // RenderViewHostManager::Delegate -------------------------------------------
 
@@ -1087,7 +1026,7 @@ class TabContents : public PageNavigator,
   virtual void UpdateRenderViewSizeForRenderManager();
   virtual void NotifySwappedFromRenderManager();
   virtual NavigationController& GetControllerForRenderManager();
-  virtual DOMUI* CreateDOMUIForRenderManager(const GURL& url);
+  virtual WebUI* CreateWebUIForRenderManager(const GURL& url);
   virtual NavigationEntry* GetLastCommittedNavigationEntryForRenderManager();
 
   // Initializes the given renderer if necessary and creates the view ID
@@ -1120,6 +1059,11 @@ class TabContents : public PageNavigator,
   virtual void OnImageLoaded(SkBitmap* image, ExtensionResource resource,
                              int index);
 
+  // Checks with the PrerenderManager if the specified URL has been preloaded,
+  // and if so, swap the RenderViewHost with the preload into this TabContents
+  // object.
+  bool MaybeUsePreloadedPage(const GURL& url);
+
   // Data for core operation ---------------------------------------------------
 
   // Delegate for notifying our owner about stuff. Not owned by us.
@@ -1145,20 +1089,26 @@ class TabContents : public PageNavigator,
   // Registers and unregisters for pref notifications.
   PrefChangeRegistrar pref_change_registrar_;
 
-  // Handles print preview and print job for this contents.
+  // Handles print job for this contents.
   scoped_ptr<printing::PrintViewManager> printing_;
+
+  // Handles print preview for this contents.
+  scoped_ptr<printing::PrintPreviewMessageHandler> print_preview_;
 
   // SavePackage, lazily created.
   scoped_refptr<SavePackage> save_package_;
 
-  // AutocompleteHistoryManager, lazily created.
+  // AutocompleteHistoryManager.
   scoped_ptr<AutocompleteHistoryManager> autocomplete_history_manager_;
 
-  // AutoFillManager, lazily created.
+  // AutoFillManager.
   scoped_ptr<AutoFillManager> autofill_manager_;
 
-  // PluginInstaller, lazily created.
-  scoped_ptr<PluginInstaller> plugin_installer_;
+  // Handles plugin messages.
+  scoped_ptr<PluginObserver> plugin_observer_;
+
+  // Prerender PageLoadTime Recorder.
+  scoped_ptr<PrerenderPLTRecorder> prerender_plt_recorder_;
 
   // TabContentsSSLHelper, lazily created.
   scoped_ptr<TabContentsSSLHelper> ssl_helper_;
@@ -1180,6 +1130,10 @@ class TabContents : public PageNavigator,
 
   // RenderViewHost::ContentSettingsDelegate.
   scoped_ptr<TabSpecificContentSettings> content_settings_delegate_;
+
+  // Handles desktop notification IPCs.
+  scoped_ptr<DesktopNotificationHandler> desktop_notification_handler_;
+
 
   // Data for loading state ----------------------------------------------------
 
@@ -1218,9 +1172,6 @@ class TabContents : public PageNavigator,
   // messages.
   bool received_page_title_;
 
-  // Whether the current URL is starred
-  bool is_starred_;
-
   // When a navigation occurs, we record its contents MIME type. It can be
   // used to check whether we can do something for some special contents.
   std::string contents_mime_type_;
@@ -1244,45 +1195,6 @@ class TabContents : public PageNavigator,
 
   // Delegates for InfoBars associated with this TabContents.
   std::vector<InfoBarDelegate*> infobar_delegates_;
-
-  // Data for find in page -----------------------------------------------------
-
-  // TODO(brettw) this should be separated into a helper class.
-
-  // Each time a search request comes in we assign it an id before passing it
-  // over the IPC so that when the results come in we can evaluate whether we
-  // still care about the results of the search (in some cases we don't because
-  // the user has issued a new search).
-  static int find_request_id_counter_;
-
-  // True if the Find UI is active for this Tab.
-  bool find_ui_active_;
-
-  // True if a Find operation was aborted. This can happen if the Find box is
-  // closed or if the search term inside the Find box is erased while a search
-  // is in progress. This can also be set if a page has been reloaded, and will
-  // on FindNext result in a full Find operation so that the highlighting for
-  // inactive matches can be repainted.
-  bool find_op_aborted_;
-
-  // This variable keeps track of what the most recent request id is.
-  int current_find_request_id_;
-
-  // The current string we are/just finished searching for. This is used to
-  // figure out if this is a Find or a FindNext operation (FindNext should not
-  // increase the request id).
-  string16 find_text_;
-
-  // The string we searched for before |find_text_|.
-  string16 previous_find_text_;
-
-  // Whether the last search was case sensitive or not.
-  bool last_search_case_sensitive_;
-
-  // The last find result. This object contains details about the number of
-  // matches, the find selection rectangle, etc. The UI can access this
-  // information to build its presentation.
-  FindNotificationDetails last_search_result_;
 
   // Data for app extensions ---------------------------------------------------
 
@@ -1341,8 +1253,8 @@ class TabContents : public PageNavigator,
   RendererPreferences renderer_preferences_;
 
   // If this tab was created from a renderer using window.open, this will be
-  // non-NULL and represent the DOMUI of the opening renderer.
-  DOMUITypeID opener_dom_ui_type_;
+  // non-NULL and represent the WebUI of the opening renderer.
+  WebUITypeID opener_web_ui_type_;
 
   // The time that we started to create the new tab page.
   base::TimeTicks new_tab_start_time_;
@@ -1368,13 +1280,11 @@ class TabContents : public PageNavigator,
   bool temporary_zoom_settings_;
 
   // A list of observers notified when page state changes. Weak references.
-  ObserverList<WebNavigationObserver> web_navigation_observers_;
+  ObserverList<TabContentsObserver> observers_;
 
   // Content restrictions, used to disable print/copy etc based on content's
   // (full-page plugins for now only) permissions.
   int content_restrictions_;
-
-  // ---------------------------------------------------------------------------
 
   DISALLOW_COPY_AND_ASSIGN(TabContents);
 };

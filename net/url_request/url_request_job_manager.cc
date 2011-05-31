@@ -41,15 +41,6 @@ static const SchemeToFactory kBuiltinFactories[] = {
 #endif
 };
 
-URLRequestJobManager::URLRequestJobManager() : enable_file_access_(false) {
-#ifndef NDEBUG
-  allowed_thread_ = 0;
-  allowed_thread_initialized_ = false;
-#endif
-}
-
-URLRequestJobManager::~URLRequestJobManager() {}
-
 // static
 URLRequestJobManager* URLRequestJobManager::GetInstance() {
   return Singleton<URLRequestJobManager>::get();
@@ -154,7 +145,7 @@ net::URLRequestJob* URLRequestJobManager::MaybeInterceptResponse(
 bool URLRequestJobManager::SupportsScheme(const std::string& scheme) const {
   // The set of registered factories may change on another thread.
   {
-    AutoLock locked(lock_);
+    base::AutoLock locked(lock_);
     if (factories_.find(scheme) != factories_.end())
       return true;
   }
@@ -173,7 +164,7 @@ net::URLRequest::ProtocolFactory* URLRequestJobManager::RegisterProtocolFactory(
   DCHECK(IsAllowedThread());
 #endif
 
-  AutoLock locked(lock_);
+  base::AutoLock locked(lock_);
 
   net::URLRequest::ProtocolFactory* old_factory;
   FactoryMap::iterator i = factories_.find(scheme);
@@ -196,7 +187,7 @@ void URLRequestJobManager::RegisterRequestInterceptor(
   DCHECK(IsAllowedThread());
 #endif
 
-  AutoLock locked(lock_);
+  base::AutoLock locked(lock_);
 
   DCHECK(std::find(interceptors_.begin(), interceptors_.end(), interceptor) ==
          interceptors_.end());
@@ -209,12 +200,21 @@ void URLRequestJobManager::UnregisterRequestInterceptor(
   DCHECK(IsAllowedThread());
 #endif
 
-  AutoLock locked(lock_);
+  base::AutoLock locked(lock_);
 
   InterceptorList::iterator i =
       std::find(interceptors_.begin(), interceptors_.end(), interceptor);
   DCHECK(i != interceptors_.end());
   interceptors_.erase(i);
 }
+
+URLRequestJobManager::URLRequestJobManager() : enable_file_access_(false) {
+#ifndef NDEBUG
+  allowed_thread_ = 0;
+  allowed_thread_initialized_ = false;
+#endif
+}
+
+URLRequestJobManager::~URLRequestJobManager() {}
 
 }  // namespace net

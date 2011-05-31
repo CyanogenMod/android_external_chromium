@@ -9,12 +9,16 @@
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
 #include "chrome/browser/in_process_webkit/indexed_db_dispatcher_host.h"
-#include "chrome/common/indexed_db_messages.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebIDBCallbacks.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebIDBCursor.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebIDBDatabaseError.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebIDBTransaction.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebIDBTransactionCallbacks.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBCallbacks.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBCursor.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBDatabaseError.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBTransaction.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebIDBTransactionCallbacks.h"
+
+class IndexedDBMsg_CallbacksSuccessIDBDatabase;
+class IndexedDBMsg_CallbacksSuccessIDBIndex;
+class IndexedDBMsg_CallbacksSuccessIDBObjectStore;
+class IndexedDBMsg_CallbacksSuccessIDBTransaction;
 
 // Template magic to figure out what message to send to the renderer based on
 // which (overloaded) onSuccess method we expect to be called.
@@ -41,6 +45,7 @@ class IndexedDBCallbacksBase : public WebKit::WebIDBCallbacks {
   virtual ~IndexedDBCallbacksBase();
 
   virtual void onError(const WebKit::WebIDBDatabaseError& error);
+  virtual void onBlocked();
 
  protected:
   IndexedDBDispatcherHost* dispatcher_host() const {
@@ -85,16 +90,8 @@ class IndexedDBCallbacks<WebKit::WebIDBCursor>
       IndexedDBDispatcherHost* dispatcher_host, int32 response_id)
       : IndexedDBCallbacksBase(dispatcher_host, response_id) { }
 
-  virtual void onSuccess(WebKit::WebIDBCursor* idb_object) {
-    int32 object_id = dispatcher_host()->Add(idb_object);
-    dispatcher_host()->Send(
-        new IndexedDBMsg_CallbacksSuccessIDBCursor(response_id(), object_id));
-  }
-
-  virtual void onSuccess() {
-    dispatcher_host()->Send(new IndexedDBMsg_CallbacksSuccessNull(
-        response_id()));
-  }
+  virtual void onSuccess(WebKit::WebIDBCursor* idb_object);
+  virtual void onSuccess(const WebKit::WebSerializedScriptValue& value);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(IndexedDBCallbacks);
@@ -111,11 +108,7 @@ class IndexedDBCallbacks<WebKit::WebIDBKey>
       IndexedDBDispatcherHost* dispatcher_host, int32 response_id)
       : IndexedDBCallbacksBase(dispatcher_host, response_id) { }
 
-  virtual void onSuccess(const WebKit::WebIDBKey& value) {
-    dispatcher_host()->Send(
-        new IndexedDBMsg_CallbacksSuccessIndexedDBKey(
-            response_id(), IndexedDBKey(value)));
-  }
+  virtual void onSuccess(const WebKit::WebIDBKey& value);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(IndexedDBCallbacks);
@@ -132,28 +125,7 @@ class IndexedDBCallbacks<WebKit::WebSerializedScriptValue>
       IndexedDBDispatcherHost* dispatcher_host, int32 response_id)
       : IndexedDBCallbacksBase(dispatcher_host, response_id) { }
 
-  virtual void onSuccess(const WebKit::WebSerializedScriptValue& value) {
-    dispatcher_host()->Send(
-        new IndexedDBMsg_CallbacksSuccessSerializedScriptValue(
-            response_id(), SerializedScriptValue(value)));
-  }
-
- private:
-  DISALLOW_IMPLICIT_CONSTRUCTORS(IndexedDBCallbacks);
-};
-
-// A WebIDBCallbacks implementation that doesn't return a result.
-template <>
-class IndexedDBCallbacks<void> : public IndexedDBCallbacksBase {
- public:
-  IndexedDBCallbacks(
-      IndexedDBDispatcherHost* dispatcher_host, int32 response_id)
-      : IndexedDBCallbacksBase(dispatcher_host, response_id) { }
-
-  virtual void onSuccess() {
-    dispatcher_host()->Send(
-        new IndexedDBMsg_CallbacksSuccessNull(response_id()));
-  }
+  virtual void onSuccess(const WebKit::WebSerializedScriptValue& value);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(IndexedDBCallbacks);

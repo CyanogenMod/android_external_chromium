@@ -1,15 +1,15 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/dom_ui/options/content_settings_handler.h"
 
-#include "app/l10n_util.h"
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_list.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/content_settings/content_settings_details.h"
 #include "chrome/browser/content_settings/host_content_settings_map.h"
 #include "chrome/browser/geolocation/geolocation_content_settings_map.h"
@@ -24,6 +24,7 @@
 #include "chrome/common/url_constants.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
@@ -176,133 +177,84 @@ void ContentSettingsHandler::GetLocalizedValues(
     DictionaryValue* localized_strings) {
   DCHECK(localized_strings);
 
-  localized_strings->SetString("content_exceptions",
-      l10n_util::GetStringUTF16(IDS_COOKIES_EXCEPTIONS_BUTTON));
-  localized_strings->SetString("contentSettingsPage",
-      l10n_util::GetStringUTF16(IDS_CONTENT_SETTINGS_TITLE));
-  localized_strings->SetString("allowException",
-      l10n_util::GetStringUTF16(IDS_EXCEPTIONS_ALLOW_BUTTON));
-  localized_strings->SetString("blockException",
-      l10n_util::GetStringUTF16(IDS_EXCEPTIONS_BLOCK_BUTTON));
-  localized_strings->SetString("sessionException",
-      l10n_util::GetStringUTF16(IDS_EXCEPTIONS_SESSION_ONLY_BUTTON));
-  localized_strings->SetString("askException",
-      l10n_util::GetStringUTF16(IDS_EXCEPTIONS_ASK_BUTTON));
-  localized_strings->SetString("addExceptionRow",
-      l10n_util::GetStringUTF16(IDS_EXCEPTIONS_ADD_BUTTON));
-  localized_strings->SetString("removeExceptionRow",
-      l10n_util::GetStringUTF16(IDS_EXCEPTIONS_REMOVE_BUTTON));
-  localized_strings->SetString("editExceptionRow",
-      l10n_util::GetStringUTF16(IDS_EXCEPTIONS_EDIT_BUTTON));
-  localized_strings->SetString("otr_exceptions_explanation",
-      l10n_util::GetStringUTF16(IDS_EXCEPTIONS_OTR_LABEL));
-  localized_strings->SetString("examplePattern",
-      l10n_util::GetStringUTF16(IDS_EXCEPTIONS_PATTERN_EXAMPLE));
-  localized_strings->SetString("addNewExceptionInstructions",
-      l10n_util::GetStringUTF16(IDS_EXCEPTIONS_ADD_NEW_INSTRUCTIONS));
-  localized_strings->SetString("manage_exceptions",
-      l10n_util::GetStringUTF16(IDS_EXCEPTIONS_MANAGE));
+  static OptionsStringResource resources[] = {
+    { "content_exceptions", IDS_COOKIES_EXCEPTIONS_BUTTON },
+    { "allowException", IDS_EXCEPTIONS_ALLOW_BUTTON },
+    { "blockException", IDS_EXCEPTIONS_BLOCK_BUTTON },
+    { "sessionException", IDS_EXCEPTIONS_SESSION_ONLY_BUTTON },
+    { "askException", IDS_EXCEPTIONS_ASK_BUTTON },
+    { "addExceptionRow", IDS_EXCEPTIONS_ADD_BUTTON },
+    { "removeExceptionRow", IDS_EXCEPTIONS_REMOVE_BUTTON },
+    { "editExceptionRow", IDS_EXCEPTIONS_EDIT_BUTTON },
+    { "otr_exceptions_explanation", IDS_EXCEPTIONS_OTR_LABEL },
+    { "examplePattern", IDS_EXCEPTIONS_PATTERN_EXAMPLE },
+    { "addNewExceptionInstructions", IDS_EXCEPTIONS_ADD_NEW_INSTRUCTIONS },
+    { "manage_exceptions", IDS_EXCEPTIONS_MANAGE },
+    // Cookies filter.
+    { "cookies_tab_label", IDS_COOKIES_TAB_LABEL },
+    { "cookies_header", IDS_COOKIES_HEADER },
+    { "cookies_allow", IDS_COOKIES_ALLOW_RADIO },
+    { "cookies_ask", IDS_COOKIES_ASK_EVERY_TIME_RADIO },
+    { "cookies_block", IDS_COOKIES_BLOCK_RADIO },
+    { "cookies_block_3rd_party", IDS_COOKIES_BLOCK_3RDPARTY_CHKBOX },
+    { "cookies_show_cookies", IDS_COOKIES_SHOW_COOKIES_BUTTON },
+    { "flash_storage_settings", IDS_FLASH_STORAGE_SETTINGS },
+    { "flash_storage_url", IDS_FLASH_STORAGE_URL },
+    // Image filter.
+    { "images_tab_label", IDS_IMAGES_TAB_LABEL },
+    { "images_header", IDS_IMAGES_HEADER },
+    { "images_allow", IDS_IMAGES_LOAD_RADIO },
+    { "images_block", IDS_IMAGES_NOLOAD_RADIO },
+    // JavaScript filter.
+    { "javascript_tab_label", IDS_JAVASCRIPT_TAB_LABEL },
+    { "javascript_header", IDS_JAVASCRIPT_HEADER },
+    { "javascript_allow", IDS_JS_ALLOW_RADIO },
+    { "javascript_block", IDS_JS_DONOTALLOW_RADIO },
+    // Plug-ins filter.
+    { "plugins_tab_label", IDS_PLUGIN_TAB_LABEL },
+    { "plugins_header", IDS_PLUGIN_HEADER },
+    { "plugins_ask", IDS_PLUGIN_ASK_RADIO },
+    { "plugins_allow", IDS_PLUGIN_LOAD_RADIO },
+    { "plugins_block", IDS_PLUGIN_NOLOAD_RADIO },
+    { "disable_individual_plugins", IDS_PLUGIN_SELECTIVE_DISABLE },
+    // Pop-ups filter.
+    { "popups_tab_label", IDS_POPUP_TAB_LABEL },
+    { "popups_header", IDS_POPUP_HEADER },
+    { "popups_allow", IDS_POPUP_ALLOW_RADIO },
+    { "popups_block", IDS_POPUP_BLOCK_RADIO },
+    // Location filter.
+    { "location_tab_label", IDS_GEOLOCATION_TAB_LABEL },
+    { "location_header", IDS_GEOLOCATION_HEADER },
+    { "location_allow", IDS_GEOLOCATION_ALLOW_RADIO },
+    { "location_ask", IDS_GEOLOCATION_ASK_RADIO },
+    { "location_block", IDS_GEOLOCATION_BLOCK_RADIO },
+    // Notifications filter.
+    { "notifications_tab_label", IDS_NOTIFICATIONS_TAB_LABEL },
+    { "notifications_header", IDS_NOTIFICATIONS_HEADER },
+    { "notifications_allow", IDS_NOTIFICATIONS_ALLOW_RADIO },
+    { "notifications_ask", IDS_NOTIFICATIONS_ASK_RADIO },
+    { "notifications_block", IDS_NOTIFICATIONS_BLOCK_RADIO },
+  };
 
-  // Cookies filter.
-  localized_strings->SetString("cookies_tab_label",
-      l10n_util::GetStringUTF16(IDS_COOKIES_TAB_LABEL));
-  localized_strings->SetString("cookies_header",
-      l10n_util::GetStringUTF16(IDS_COOKIES_HEADER));
-  localized_strings->SetString("cookies_allow",
-      l10n_util::GetStringUTF16(IDS_COOKIES_ALLOW_RADIO));
-  localized_strings->SetString("cookies_ask",
-      l10n_util::GetStringUTF16(IDS_COOKIES_ASK_EVERY_TIME_RADIO));
-  localized_strings->SetString("cookies_block",
-      l10n_util::GetStringUTF16(IDS_COOKIES_BLOCK_RADIO));
-  localized_strings->SetString("cookies_block_3rd_party",
-      l10n_util::GetStringUTF16(IDS_COOKIES_BLOCK_3RDPARTY_CHKBOX));
-  localized_strings->SetString("cookies_clear_on_exit",
-      l10n_util::GetStringUTF16(IDS_COOKIES_CLEAR_WHEN_CLOSE_CHKBOX));
-  localized_strings->SetString("cookies_show_cookies",
-      l10n_util::GetStringUTF16(IDS_COOKIES_SHOW_COOKIES_BUTTON));
-  localized_strings->SetString("flash_storage_settings",
-      l10n_util::GetStringUTF16(IDS_FLASH_STORAGE_SETTINGS));
-  localized_strings->SetString("flash_storage_url",
-      l10n_util::GetStringUTF16(IDS_FLASH_STORAGE_URL));
-
-  // Image filter.
-  localized_strings->SetString("images_tab_label",
-      l10n_util::GetStringUTF16(IDS_IMAGES_TAB_LABEL));
-  localized_strings->SetString("images_header",
-      l10n_util::GetStringUTF16(IDS_IMAGES_HEADER));
-  localized_strings->SetString("images_allow",
-      l10n_util::GetStringUTF16(IDS_IMAGES_LOAD_RADIO));
-  localized_strings->SetString("images_block",
-      l10n_util::GetStringUTF16(IDS_IMAGES_NOLOAD_RADIO));
-
-  // JavaScript filter.
-  localized_strings->SetString("javascript_tab_label",
-      l10n_util::GetStringUTF16(IDS_JAVASCRIPT_TAB_LABEL));
-  localized_strings->SetString("javascript_header",
-      l10n_util::GetStringUTF16(IDS_JAVASCRIPT_HEADER));
-  localized_strings->SetString("javascript_allow",
-      l10n_util::GetStringUTF16(IDS_JS_ALLOW_RADIO));
-  localized_strings->SetString("javascript_block",
-      l10n_util::GetStringUTF16(IDS_JS_DONOTALLOW_RADIO));
-
-  // Plug-ins filter.
-  localized_strings->SetString("plugins_tab_label",
-      l10n_util::GetStringUTF16(IDS_PLUGIN_TAB_LABEL));
-  localized_strings->SetString("plugins_header",
-      l10n_util::GetStringUTF16(IDS_PLUGIN_HEADER));
-  localized_strings->SetString("plugins_ask",
-      l10n_util::GetStringUTF16(IDS_PLUGIN_ASK_RADIO));
-  localized_strings->SetString("plugins_allow",
-      l10n_util::GetStringUTF16(IDS_PLUGIN_LOAD_RADIO));
-  localized_strings->SetString("plugins_block",
-      l10n_util::GetStringUTF16(IDS_PLUGIN_NOLOAD_RADIO));
-  localized_strings->SetString("disable_individual_plugins",
-      l10n_util::GetStringUTF16(IDS_PLUGIN_SELECTIVE_DISABLE));
+  RegisterStrings(localized_strings, resources, arraysize(resources));
+  RegisterTitle(localized_strings, "contentSettingsPage",
+                IDS_CONTENT_SETTINGS_TITLE);
   localized_strings->SetBoolean("enable_click_to_play",
       CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableClickToPlay));
-
-  // Pop-ups filter.
-  localized_strings->SetString("popups_tab_label",
-      l10n_util::GetStringUTF16(IDS_POPUP_TAB_LABEL));
-  localized_strings->SetString("popups_header",
-      l10n_util::GetStringUTF16(IDS_POPUP_HEADER));
-  localized_strings->SetString("popups_allow",
-      l10n_util::GetStringUTF16(IDS_POPUP_ALLOW_RADIO));
-  localized_strings->SetString("popups_block",
-      l10n_util::GetStringUTF16(IDS_POPUP_BLOCK_RADIO));
-
-  // Location filter.
-  localized_strings->SetString("location_tab_label",
-      l10n_util::GetStringUTF16(IDS_GEOLOCATION_TAB_LABEL));
-  localized_strings->SetString("location_header",
-      l10n_util::GetStringUTF16(IDS_GEOLOCATION_HEADER));
-  localized_strings->SetString("location_allow",
-      l10n_util::GetStringUTF16(IDS_GEOLOCATION_ALLOW_RADIO));
-  localized_strings->SetString("location_ask",
-      l10n_util::GetStringUTF16(IDS_GEOLOCATION_ASK_RADIO));
-  localized_strings->SetString("location_block",
-      l10n_util::GetStringUTF16(IDS_GEOLOCATION_BLOCK_RADIO));
-
-  // Notifications filter.
-  localized_strings->SetString("notifications_tab_label",
-      l10n_util::GetStringUTF16(IDS_NOTIFICATIONS_TAB_LABEL));
-  localized_strings->SetString("notifications_header",
-      l10n_util::GetStringUTF16(IDS_NOTIFICATIONS_HEADER));
-  localized_strings->SetString("notifications_allow",
-      l10n_util::GetStringUTF16(IDS_NOTIFICATIONS_ALLOW_RADIO));
-  localized_strings->SetString("notifications_ask",
-      l10n_util::GetStringUTF16(IDS_NOTIFICATIONS_ASK_RADIO));
-  localized_strings->SetString("notifications_block",
-      l10n_util::GetStringUTF16(IDS_NOTIFICATIONS_BLOCK_RADIO));
 }
 
 void ContentSettingsHandler::Initialize() {
   const HostContentSettingsMap* settings_map = GetContentSettingsMap();
   scoped_ptr<Value> block_3rd_party(Value::CreateBooleanValue(
       settings_map->BlockThirdPartyCookies()));
-  dom_ui_->CallJavascriptFunction(
+  web_ui_->CallJavascriptFunction(
       L"ContentSettings.setBlockThirdPartyCookies", *block_3rd_party.get());
+
+  clear_plugin_lso_data_enabled_.Init(prefs::kClearPluginLSODataEnabled,
+                                      g_browser_process->local_state(),
+                                      this);
+  UpdateClearPluginLSOData();
 
   notification_registrar_.Add(
       this, NotificationType::OTR_PROFILE_CREATED,
@@ -322,7 +274,7 @@ void ContentSettingsHandler::Initialize() {
       this, NotificationType::DESKTOP_NOTIFICATION_SETTINGS_CHANGED,
       NotificationService::AllSources());
 
-  PrefService* prefs = dom_ui_->GetProfile()->GetPrefs();
+  PrefService* prefs = web_ui_->GetProfile()->GetPrefs();
   pref_change_registrar_.Init(prefs);
   pref_change_registrar_.Add(prefs::kGeolocationDefaultContentSetting, this);
   pref_change_registrar_.Add(prefs::kGeolocationContentSettings, this);
@@ -335,7 +287,7 @@ void ContentSettingsHandler::Observe(NotificationType type,
     case NotificationType::PROFILE_DESTROYED: {
       Profile* profile = static_cast<Source<Profile> >(source).ptr();
       if (profile->IsOffTheRecord()) {
-        dom_ui_->CallJavascriptFunction(
+        web_ui_->CallJavascriptFunction(
             L"ContentSettingsExceptionsArea.OTRProfileDestroyed");
       }
       break;
@@ -364,6 +316,8 @@ void ContentSettingsHandler::Observe(NotificationType type,
         UpdateSettingDefaultFromModel(CONTENT_SETTINGS_TYPE_GEOLOCATION);
       else if (pref_name == prefs::kGeolocationContentSettings)
         UpdateGeolocationExceptionsView();
+      else if (pref_name == prefs::kClearPluginLSODataEnabled)
+        UpdateClearPluginLSOData();
       break;
     }
 
@@ -382,6 +336,16 @@ void ContentSettingsHandler::Observe(NotificationType type,
   }
 }
 
+void ContentSettingsHandler::UpdateClearPluginLSOData() {
+  int label_id = clear_plugin_lso_data_enabled_.GetValue() ?
+      IDS_COOKIES_LSO_CLEAR_WHEN_CLOSE_CHKBOX :
+      IDS_COOKIES_CLEAR_WHEN_CLOSE_CHKBOX;
+  scoped_ptr<Value> label(
+      Value::CreateStringValue(l10n_util::GetStringUTF16(label_id)));
+  web_ui_->CallJavascriptFunction(
+      L"ContentSettings.setClearLocalDataOnShutdownLabel", *label);
+}
+
 void ContentSettingsHandler::UpdateSettingDefaultFromModel(
     ContentSettingsType type) {
   DictionaryValue filter_settings;
@@ -390,7 +354,7 @@ void ContentSettingsHandler::UpdateSettingDefaultFromModel(
   filter_settings.SetBoolean(ContentSettingsTypeToGroupName(type) + ".managed",
       GetDefaultSettingManagedFromModel(type));
 
-  dom_ui_->CallJavascriptFunction(
+  web_ui_->CallJavascriptFunction(
       L"ContentSettings.setContentFilterSettingsValue", filter_settings);
 }
 
@@ -398,10 +362,10 @@ std::string ContentSettingsHandler::GetSettingDefaultFromModel(
     ContentSettingsType type) {
   ContentSetting default_setting;
   if (type == CONTENT_SETTINGS_TYPE_GEOLOCATION) {
-    default_setting = dom_ui_->GetProfile()->
+    default_setting = web_ui_->GetProfile()->
         GetGeolocationContentSettingsMap()->GetDefaultContentSetting();
   } else if (type == CONTENT_SETTINGS_TYPE_NOTIFICATIONS) {
-    default_setting = dom_ui_->GetProfile()->
+    default_setting = web_ui_->GetProfile()->
         GetDesktopNotificationService()->GetDefaultContentSetting();
   } else {
     default_setting = GetContentSettingsMap()->GetDefaultContentSetting(type);
@@ -413,10 +377,10 @@ std::string ContentSettingsHandler::GetSettingDefaultFromModel(
 bool ContentSettingsHandler::GetDefaultSettingManagedFromModel(
     ContentSettingsType type) {
   if (type == CONTENT_SETTINGS_TYPE_GEOLOCATION) {
-    return dom_ui_->GetProfile()->
+    return web_ui_->GetProfile()->
         GetGeolocationContentSettingsMap()->IsDefaultContentSettingManaged();
   } else if (type == CONTENT_SETTINGS_TYPE_NOTIFICATIONS) {
-    return dom_ui_->GetProfile()->
+    return web_ui_->GetProfile()->
         GetDesktopNotificationService()->IsDefaultContentSettingManaged();
   } else {
     return GetContentSettingsMap()->IsDefaultContentSettingManaged(type);
@@ -455,7 +419,7 @@ void ContentSettingsHandler::UpdateExceptionsViewFromModel(
 
 void ContentSettingsHandler::UpdateGeolocationExceptionsView() {
   GeolocationContentSettingsMap* map =
-      dom_ui_->GetProfile()->GetGeolocationContentSettingsMap();
+      web_ui_->GetProfile()->GetGeolocationContentSettingsMap();
   GeolocationContentSettingsMap::AllOriginsSettings all_settings =
       map->GetAllOriginsSettings();
   GeolocationContentSettingsMap::AllOriginsSettings::const_iterator i;
@@ -489,7 +453,7 @@ void ContentSettingsHandler::UpdateGeolocationExceptionsView() {
 
   StringValue type_string(
       ContentSettingsTypeToGroupName(CONTENT_SETTINGS_TYPE_GEOLOCATION));
-  dom_ui_->CallJavascriptFunction(
+  web_ui_->CallJavascriptFunction(
       L"ContentSettings.setExceptions", type_string, exceptions);
 
   // This is mainly here to keep this function ideologically parallel to
@@ -499,7 +463,7 @@ void ContentSettingsHandler::UpdateGeolocationExceptionsView() {
 
 void ContentSettingsHandler::UpdateNotificationExceptionsView() {
   DesktopNotificationService* service =
-      dom_ui_->GetProfile()->GetDesktopNotificationService();
+      web_ui_->GetProfile()->GetDesktopNotificationService();
 
   std::vector<GURL> allowed(service->GetAllowedOrigins());
   std::vector<GURL> blocked(service->GetBlockedOrigins());
@@ -516,7 +480,7 @@ void ContentSettingsHandler::UpdateNotificationExceptionsView() {
 
   StringValue type_string(
       ContentSettingsTypeToGroupName(CONTENT_SETTINGS_TYPE_NOTIFICATIONS));
-  dom_ui_->CallJavascriptFunction(
+  web_ui_->CallJavascriptFunction(
       L"ContentSettings.setExceptions", type_string, exceptions);
 
   // This is mainly here to keep this function ideologically parallel to
@@ -535,7 +499,7 @@ void ContentSettingsHandler::UpdateExceptionsViewFromHostContentSettingsMap(
   }
 
   StringValue type_string(ContentSettingsTypeToGroupName(type));
-  dom_ui_->CallJavascriptFunction(
+  web_ui_->CallJavascriptFunction(
       L"ContentSettings.setExceptions", type_string, exceptions);
 
   UpdateExceptionsViewFromOTRHostContentSettingsMap(type);
@@ -561,29 +525,26 @@ void ContentSettingsHandler::UpdateExceptionsViewFromOTRHostContentSettingsMap(
   }
 
   StringValue type_string(ContentSettingsTypeToGroupName(type));
-  dom_ui_->CallJavascriptFunction(
+  web_ui_->CallJavascriptFunction(
       L"ContentSettings.setOTRExceptions", type_string, otr_exceptions);
 }
 
 void ContentSettingsHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("setContentFilter",
+  web_ui_->RegisterMessageCallback("setContentFilter",
       NewCallback(this,
                   &ContentSettingsHandler::SetContentFilter));
-  dom_ui_->RegisterMessageCallback("setAllowThirdPartyCookies",
+  web_ui_->RegisterMessageCallback("setAllowThirdPartyCookies",
       NewCallback(this,
                   &ContentSettingsHandler::SetAllowThirdPartyCookies));
-  dom_ui_->RegisterMessageCallback("removeException",
+  web_ui_->RegisterMessageCallback("removeException",
       NewCallback(this,
                   &ContentSettingsHandler::RemoveException));
-  dom_ui_->RegisterMessageCallback("setException",
+  web_ui_->RegisterMessageCallback("setException",
       NewCallback(this,
                   &ContentSettingsHandler::SetException));
-  dom_ui_->RegisterMessageCallback("checkExceptionPatternValidity",
+  web_ui_->RegisterMessageCallback("checkExceptionPatternValidity",
       NewCallback(this,
                   &ContentSettingsHandler::CheckExceptionPatternValidity));
-  dom_ui_->RegisterMessageCallback(
-      "openPluginsTab",
-      NewCallback(this, &ContentSettingsHandler::OpenPluginsTab));
 }
 
 void ContentSettingsHandler::SetContentFilter(const ListValue* args) {
@@ -598,10 +559,10 @@ void ContentSettingsHandler::SetContentFilter(const ListValue* args) {
   ContentSetting default_setting = ContentSettingFromString(setting);
   ContentSettingsType content_type = ContentSettingsTypeFromGroupName(group);
   if (content_type == CONTENT_SETTINGS_TYPE_GEOLOCATION) {
-    dom_ui_->GetProfile()->GetGeolocationContentSettingsMap()->
+    web_ui_->GetProfile()->GetGeolocationContentSettingsMap()->
         SetDefaultContentSetting(default_setting);
   } else if (content_type == CONTENT_SETTINGS_TYPE_NOTIFICATIONS) {
-    dom_ui_->GetProfile()->GetDesktopNotificationService()->
+    web_ui_->GetProfile()->GetDesktopNotificationService()->
         SetDefaultContentSetting(default_setting);
   } else {
     GetContentSettingsMap()->
@@ -629,7 +590,7 @@ void ContentSettingsHandler::RemoveException(const ListValue* args) {
     rv = args->GetString(arg_i++, &embedding_origin);
     DCHECK(rv);
 
-    dom_ui_->GetProfile()->GetGeolocationContentSettingsMap()->
+    web_ui_->GetProfile()->GetGeolocationContentSettingsMap()->
         SetContentSetting(GURL(origin),
                           GURL(embedding_origin),
                           CONTENT_SETTING_DEFAULT);
@@ -642,11 +603,11 @@ void ContentSettingsHandler::RemoveException(const ListValue* args) {
     DCHECK(rv);
     ContentSetting content_setting = ContentSettingFromString(setting);
     if (content_setting == CONTENT_SETTING_ALLOW) {
-      dom_ui_->GetProfile()->GetDesktopNotificationService()->
+      web_ui_->GetProfile()->GetDesktopNotificationService()->
           ResetAllowedOrigin(GURL(origin));
     } else {
       DCHECK_EQ(content_setting, CONTENT_SETTING_BLOCK);
-      dom_ui_->GetProfile()->GetDesktopNotificationService()->
+      web_ui_->GetProfile()->GetDesktopNotificationService()->
           ResetBlockedOrigin(GURL(origin));
     }
   } else {
@@ -722,15 +683,11 @@ void ContentSettingsHandler::CheckExceptionPatternValidity(
   scoped_ptr<Value> pattern_value(Value::CreateStringValue(pattern_string));
   scoped_ptr<Value> valid_value(Value::CreateBooleanValue(pattern.IsValid()));
 
-  dom_ui_->CallJavascriptFunction(
+  web_ui_->CallJavascriptFunction(
       L"ContentSettings.patternValidityCheckComplete", *type,
                                                        *mode_value.get(),
                                                        *pattern_value.get(),
                                                        *valid_value.get());
-}
-
-void ContentSettingsHandler::OpenPluginsTab(const ListValue* args) {
-  BrowserList::GetLastActive()->OpenPluginsTabAndActivate();
 }
 
 // static
@@ -759,12 +716,12 @@ std::string ContentSettingsHandler::ContentSettingsTypeToGroupName(
 }
 
 HostContentSettingsMap* ContentSettingsHandler::GetContentSettingsMap() {
-  return dom_ui_->GetProfile()->GetHostContentSettingsMap();
+  return web_ui_->GetProfile()->GetHostContentSettingsMap();
 }
 
 HostContentSettingsMap*
     ContentSettingsHandler::GetOTRContentSettingsMap() {
-  Profile* profile = dom_ui_->GetProfile();
+  Profile* profile = web_ui_->GetProfile();
   if (profile->HasOffTheRecordProfile())
     return profile->GetOffTheRecordProfile()->GetHostContentSettingsMap();
   return NULL;

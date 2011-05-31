@@ -10,10 +10,10 @@
 #include "chrome/browser/in_process_webkit/indexed_db_key_utility_client.h"
 #include "chrome/common/indexed_db_key.h"
 #include "chrome/common/serialized_script_value.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebData.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebSerializedScriptValue.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebString.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURL.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebData.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebSerializedScriptValue.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebString.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURL.h"
 #include "webkit/glue/webkit_glue.h"
 
 BrowserWebKitClientImpl::BrowserWebKitClientImpl() {
@@ -147,19 +147,10 @@ int BrowserWebKitClientImpl::databaseDeleteFile(
   return file_util::Delete(path, false) ? 0 : 1;
 }
 
-void BrowserWebKitClientImpl::idbShutdown() {
-  if (indexed_db_key_utility_client_.get())
-    indexed_db_key_utility_client_->EndUtilityProcess();
-}
-
 void BrowserWebKitClientImpl::createIDBKeysFromSerializedValuesAndKeyPath(
     const WebKit::WebVector<WebKit::WebSerializedScriptValue>& values,
     const WebKit::WebString& keyPath,
     WebKit::WebVector<WebKit::WebIDBKey>& keys) {
-  if (!indexed_db_key_utility_client_.get()) {
-    indexed_db_key_utility_client_ = new IndexedDBKeyUtilityClient();
-    indexed_db_key_utility_client_->StartUtilityProcess();
-  }
 
   std::vector<SerializedScriptValue> std_values;
   size_t size = values.size();
@@ -168,8 +159,9 @@ void BrowserWebKitClientImpl::createIDBKeysFromSerializedValuesAndKeyPath(
     std_values.push_back(SerializedScriptValue(values[i]));
 
   std::vector<IndexedDBKey> std_keys;
-  indexed_db_key_utility_client_->CreateIDBKeysFromSerializedValuesAndKeyPath(
-      std_values, keyPath, &std_keys);
+  IndexedDBKeyUtilityClient::
+      CreateIDBKeysFromSerializedValuesAndKeyPath(std_values, keyPath,
+                                                  &std_keys);
 
   keys = std_keys;
 }

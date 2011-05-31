@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "chrome/browser/ui/cocoa/clear_browsing_data_controller.h"
 
-#include "app/l10n_util.h"
 #include "base/lazy_instance.h"
 #include "base/mac/mac_util.h"
 #include "base/scoped_nsobject.h"
@@ -16,6 +15,7 @@
 #include "chrome/common/pref_names.h"
 #include "grit/locale_settings.h"
 #import "third_party/GTM/AppKit/GTMUILocalizerAndLayoutTweaker.h"
+#include "ui/base/l10n/l10n_util.h"
 
 NSString* const kClearBrowsingDataControllerDidDelete =
     @"kClearBrowsingDataControllerDidDelete";
@@ -63,7 +63,7 @@ static base::LazyInstance<ProfileControllerMap> g_profile_controller_map(
   if (![controller isWindowLoaded]) {
     // This function needs to return instead of blocking, to match the windows
     // api call.  It caused problems when launching the dialog from the
-    // DomUI history page.  See bug and code review for more details.
+    // WebUI history page.  See bug and code review for more details.
     // http://crbug.com/37976
     [controller performSelector:@selector(runModalDialog)
                      withObject:nil

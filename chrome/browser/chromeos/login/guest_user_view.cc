@@ -4,11 +4,11 @@
 
 #include "chrome/browser/chromeos/login/guest_user_view.h"
 
-#include "app/l10n_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/login/user_controller.h"
 #include "chrome/browser/chromeos/login/wizard_accessibility_helper.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace chromeos {
 
@@ -23,7 +23,7 @@ class UserEntryButton : public login::WideButton {
 
   // Overridden from views::View:
   virtual bool OnKeyPressed(const views::KeyEvent& e) {
-    if (e.GetKeyCode() == app::VKEY_TAB) {
+    if (e.key_code() == ui::VKEY_TAB) {
       user_controller_->SelectUserRelative(e.IsShiftDown() ? -1 : 1);
       return true;
     }
@@ -31,7 +31,7 @@ class UserEntryButton : public login::WideButton {
   }
 
   virtual bool SkipDefaultKeyEventProcessing(const views::KeyEvent& e) {
-    if (e.GetKeyCode() == app::VKEY_TAB)
+    if (e.key_code() == ui::VKEY_TAB)
       return true;
     return WideButton::SkipDefaultKeyEventProcessing(e);
   }
@@ -49,11 +49,11 @@ GuestUserView::GuestUserView(UserController* uc)
       accel_toggle_accessibility_(
           WizardAccessibilityHelper::GetAccelerator()),
       accel_login_off_the_record_(
-          views::Accelerator(app::VKEY_B, false, false, true)),
+          views::Accelerator(ui::VKEY_B, false, false, true)),
       accel_previous_pod_by_arrow_(
-          views::Accelerator(app::VKEY_LEFT, false, false, false)),
+          views::Accelerator(ui::VKEY_LEFT, false, false, false)),
       accel_next_pod_by_arrow_(
-          views::Accelerator(app::VKEY_RIGHT, false, false, false)) {
+          views::Accelerator(ui::VKEY_RIGHT, false, false, false)) {
   AddAccelerator(accel_toggle_accessibility_);
   AddAccelerator(accel_login_off_the_record_);
   AddAccelerator(accel_previous_pod_by_arrow_);
@@ -71,16 +71,12 @@ void GuestUserView::RecreateFields() {
   SchedulePaint();
 }
 
-void GuestUserView::FocusSignInButton() {
-  submit_button_->RequestFocus();
-}
-
 bool GuestUserView::AcceleratorPressed(
     const views::Accelerator& accelerator) {
   if (accelerator == accel_login_off_the_record_)
-    user_controller_->OnLoginOffTheRecord();
+    user_controller_->OnLoginAsGuest();
   else if (accelerator == accel_toggle_accessibility_)
-    WizardAccessibilityHelper::GetInstance()->ToggleAccessibility(this);
+    WizardAccessibilityHelper::GetInstance()->ToggleAccessibility();
   else if (accelerator == accel_previous_pod_by_arrow_)
     user_controller_->SelectUserRelative(-1);
   else if (accelerator == accel_next_pod_by_arrow_)
@@ -90,21 +86,18 @@ bool GuestUserView::AcceleratorPressed(
   return true;
 }
 
+void GuestUserView::RequestFocus() {
+  submit_button_->RequestFocus();
+}
+
 void GuestUserView::ButtonPressed(
     views::Button* sender, const views::Event& event) {
   DCHECK(sender == submit_button_);
-  user_controller_->OnLoginOffTheRecord();
+  user_controller_->OnLoginAsGuest();
 }
 
 void GuestUserView::EnableInputControls(bool enabled) {
   submit_button_->SetEnabled(enabled);
-}
-
-void GuestUserView::ViewHierarchyChanged(bool is_add,
-                                         views::View* parent,
-                                         views::View* child) {
-  if (is_add && this == child)
-    WizardAccessibilityHelper::GetInstance()->MaybeEnableAccessibility(this);
 }
 
 void GuestUserView::OnLocaleChanged() {

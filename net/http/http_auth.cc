@@ -26,7 +26,7 @@ void HttpAuth::ChooseBestChallenge(
     const HttpResponseHeaders* headers,
     Target target,
     const GURL& origin,
-    const std::set<std::string>& disabled_schemes,
+    const std::set<Scheme>& disabled_schemes,
     const BoundNetLog& net_log,
     scoped_ptr<HttpAuthHandler>* handler) {
   DCHECK(http_auth_handler_factory);
@@ -47,7 +47,7 @@ void HttpAuth::ChooseBestChallenge(
       continue;
     }
     if (cur.get() && (!best.get() || best->score() < cur->score()) &&
-        (disabled_schemes.find(cur->scheme()) == disabled_schemes.end()))
+        (disabled_schemes.find(cur->auth_scheme()) == disabled_schemes.end()))
       best.swap(cur);
   }
   handler->swap(best);
@@ -58,15 +58,16 @@ HttpAuth::AuthorizationResult HttpAuth::HandleChallengeResponse(
     HttpAuthHandler* handler,
     const HttpResponseHeaders* headers,
     Target target,
-    const std::set<std::string>& disabled_schemes,
+    const std::set<Scheme>& disabled_schemes,
     std::string* challenge_used) {
   DCHECK(handler);
   DCHECK(headers);
   DCHECK(challenge_used);
   challenge_used->clear();
-  const std::string& current_scheme = handler->scheme();
+  HttpAuth::Scheme current_scheme = handler->auth_scheme();
   if (disabled_schemes.find(current_scheme) != disabled_schemes.end())
     return HttpAuth::AUTHORIZATION_RESULT_REJECT;
+  std::string current_scheme_name = SchemeToString(current_scheme);
   const std::string header_name = GetChallengeHeaderName(target);
   void* iter = NULL;
   std::string challenge;
@@ -74,7 +75,7 @@ HttpAuth::AuthorizationResult HttpAuth::HandleChallengeResponse(
       HttpAuth::AUTHORIZATION_RESULT_INVALID;
   while (headers->EnumerateHeader(&iter, header_name, &challenge)) {
     HttpAuth::ChallengeTokenizer props(challenge.begin(), challenge.end());
-    if (!LowerCaseEqualsASCII(props.scheme(), current_scheme.c_str()))
+    if (!LowerCaseEqualsASCII(props.scheme(), current_scheme_name.c_str()))
       continue;
     authorization_result = handler->HandleAnotherChallenge(&props);
     if (authorization_result != HttpAuth::AUTHORIZATION_RESULT_INVALID) {
@@ -84,6 +85,24 @@ HttpAuth::AuthorizationResult HttpAuth::HandleChallengeResponse(
   }
   // Finding no matches is equivalent to rejection.
   return HttpAuth::AUTHORIZATION_RESULT_REJECT;
+}
+
+HttpUtil::NameValuePairsIterator HttpAuth::ChallengeTokenizer::param_pairs()
+    const {
+  return HttpUtil::NameValuePairsIterator(params_begin_, params_end_, ',');
+}
+
+std::string HttpAuth::ChallengeTokenizer::base64_param() const {
+  // Strip off any padding.
+  // (See https://bugzilla.mozilla.org/show_bug.cgi?id=230351.)
+  //
+  // Our base64 decoder requires that the length be a multiple of 4.
+  int encoded_length = params_end_ - params_begin_;
+  while (encoded_length > 0 && encoded_length % 4 != 0 &&
+         params_begin_[encoded_length - 1] == '=') {
+    --encoded_length;
+  }
+  return std::string(params_begin_, params_begin_ + encoded_length);
 }
 
 void HttpAuth::ChallengeTokenizer::Init(std::string::const_iterator begin,
@@ -104,24 +123,6 @@ void HttpAuth::ChallengeTokenizer::Init(std::string::const_iterator begin,
   params_begin_ = scheme_end_;
   params_end_ = end;
   HttpUtil::TrimLWS(&params_begin_, &params_end_);
-}
-
-HttpUtil::NameValuePairsIterator HttpAuth::ChallengeTokenizer::param_pairs()
-    const {
-  return HttpUtil::NameValuePairsIterator(params_begin_, params_end_, ',');
-}
-
-std::string HttpAuth::ChallengeTokenizer::base64_param() const {
-  // Strip off any padding.
-  // (See https://bugzilla.mozilla.org/show_bug.cgi?id=230351.)
-  //
-  // Our base64 decoder requires that the length be a multiple of 4.
-  int encoded_length = params_end_ - params_begin_;
-  while (encoded_length > 0 && encoded_length % 4 != 0 &&
-         params_begin_[encoded_length - 1] == '=') {
-    --encoded_length;
-  }
-  return std::string(params_begin_, params_begin_ + encoded_length);
 }
 
 // static
@@ -151,9 +152,34 @@ std::string HttpAuth::GetAuthorizationHeaderName(Target target) {
 }
 
 // static
-std::string HttpAuth::GetAuthTargetString(
-    HttpAuth::Target target) {
-  return target == HttpAuth::AUTH_PROXY ? "proxy" : "server";
+std::string HttpAuth::GetAuthTargetString(Target target) {
+  switch (target) {
+    case AUTH_PROXY:
+      return "proxy";
+    case AUTH_SERVER:
+      return "server";
+    default:
+      NOTREACHED();
+      return "";
+  }
+}
+
+// static
+const char* HttpAuth::SchemeToString(Scheme scheme) {
+  static const char* const kSchemeNames[] = {
+    "basic",
+    "digest",
+    "ntlm",
+    "negotiate",
+    "mock",
+  };
+  COMPILE_ASSERT(arraysize(kSchemeNames) == AUTH_SCHEME_MAX,
+                 http_auth_scheme_names_incorrect_size);
+  if (scheme < AUTH_SCHEME_BASIC || scheme >= AUTH_SCHEME_MAX) {
+    NOTREACHED();
+    return "invalid_scheme";
+  }
+  return kSchemeNames[scheme];
 }
 
 }  // namespace net

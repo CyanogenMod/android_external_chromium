@@ -1,10 +1,9 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/printing/print_view_manager.h"
 
-#include "app/l10n_util.h"
 #include "base/scoped_ptr.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
@@ -16,17 +15,20 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_source.h"
+#include "chrome/common/render_messages.h"
 #include "chrome/common/render_messages_params.h"
 #include "grit/generated_resources.h"
 #include "printing/native_metafile.h"
 #include "printing/printed_document.h"
+#include "ui/base/l10n/l10n_util.h"
 
 using base::TimeDelta;
 
 namespace printing {
 
 PrintViewManager::PrintViewManager(TabContents& owner)
-    : waiting_to_print_(false),
+    : number_pages_(0),
+      waiting_to_print_(false),
       printing_succeeded_(false),
       inside_inner_message_loop_(false),
       owner_(owner) {
@@ -73,8 +75,10 @@ GURL PrintViewManager::RenderSourceUrl() {
     return GURL();
 }
 
-void PrintViewManager::DidGetPrintedPagesCount(int cookie, int number_pages) {
+void PrintViewManager::OnDidGetPrintedPagesCount(int cookie, int number_pages) {
   DCHECK_GT(cookie, 0);
+  DCHECK_GT(number_pages, 0);
+  number_pages_ = number_pages;
   if (!OpportunisticallyCreatePrintJob(cookie))
     return;
 
@@ -84,14 +88,9 @@ void PrintViewManager::DidGetPrintedPagesCount(int cookie, int number_pages) {
     // spurious message can happen if one of the processes is overloaded.
     return;
   }
-
-  // Time to inform our print job. Make sure it is for the right document.
-  if (!document->page_count()) {
-    document->set_page_count(number_pages);
-  }
 }
 
-void PrintViewManager::DidPrintPage(
+void PrintViewManager::OnDidPrintPage(
     const ViewHostMsg_DidPrintPage_Params& params) {
   if (!OpportunisticallyCreatePrintJob(params.document_cookie))
     return;
@@ -141,6 +140,17 @@ void PrintViewManager::DidPrintPage(
                     params.has_visible_overlays);
 #endif
   ShouldQuitFromInnerMessageLoop();
+}
+
+bool PrintViewManager::OnMessageReceived(const IPC::Message& message) {
+  bool handled = true;
+  IPC_BEGIN_MESSAGE_MAP(PrintViewManager, message)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_DidGetPrintedPagesCount,
+                        OnDidGetPrintedPagesCount)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_DidPrintPage, OnDidPrintPage)
+    IPC_MESSAGE_UNHANDLED(handled = false)
+  IPC_END_MESSAGE_MAP()
+  return handled;
 }
 
 void PrintViewManager::Observe(NotificationType type,
@@ -278,7 +288,7 @@ bool PrintViewManager::CreateNewPrintJob(PrintJobWorkerOwner* job) {
     return false;
 
   print_job_ = new PrintJob();
-  print_job_->Initialize(job, this);
+  print_job_->Initialize(job, this, number_pages_);
   registrar_.Add(this, NotificationType::PRINT_JOB_EVENT,
                  Source<PrintJob>(print_job_.get()));
   printing_succeeded_ = false;

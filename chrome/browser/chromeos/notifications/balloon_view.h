@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,10 +14,10 @@
 #include "chrome/browser/notifications/balloon.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "gfx/path.h"
-#include "gfx/point.h"
-#include "gfx/rect.h"
-#include "gfx/size.h"
+#include "ui/gfx/path.h"
+#include "ui/gfx/point.h"
+#include "ui/gfx/rect.h"
+#include "ui/gfx/size.h"
 #include "views/view.h"
 
 namespace views {
@@ -123,8 +123,8 @@ class BalloonViewImpl : public BalloonView,
   bool controls_;
   // True if the notification is being closed.
   bool closed_;
-  // True to enable domui in the notification.
-  bool dom_ui_;
+  // True to enable WebUI in the notification.
+  bool web_ui_;
 
   DISALLOW_COPY_AND_ASSIGN(BalloonViewImpl);
 };

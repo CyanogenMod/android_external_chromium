@@ -1,27 +1,27 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/frame/opaque_browser_frame_view.h"
+#include "chrome/browser/ui/views/frame/opaque_browser_frame_view.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
-#include "app/theme_provider.h"
 #include "base/compiler_specific.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
-#include "chrome/browser/views/frame/browser_frame.h"
-#include "chrome/browser/views/frame/browser_view.h"
-#include "chrome/browser/views/tabs/tab_strip.h"
-#include "chrome/browser/views/toolbar_view.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/font.h"
-#include "gfx/path.h"
+#include "chrome/browser/ui/views/frame/browser_frame.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/tabs/tab_strip.h"
+#include "chrome/browser/ui/views/toolbar_view.h"
 #include "grit/app_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/theme_provider.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/font.h"
+#include "ui/gfx/path.h"
 #include "views/controls/button/image_button.h"
 #include "views/controls/image_view.h"
 #include "views/widget/root_view.h"
@@ -107,7 +107,7 @@ OpaqueBrowserFrameView::OpaqueBrowserFrameView(BrowserFrame* frame,
       window_icon_(NULL),
       frame_(frame),
       browser_view_(browser_view) {
-  ThemeProvider* tp = frame_->GetThemeProviderForFrame();
+  ui::ThemeProvider* tp = frame_->GetThemeProviderForFrame();
   SkColor color = tp->GetColor(BrowserThemeProvider::COLOR_BUTTON_BACKGROUND);
   SkBitmap* background =
       tp->GetBitmapNamed(IDR_THEME_WINDOW_CONTROL_BACKGROUND);
@@ -122,7 +122,7 @@ OpaqueBrowserFrameView::OpaqueBrowserFrameView(BrowserFrame* frame,
         tp->GetBitmapNamed(IDR_MINIMIZE_BUTTON_MASK));
   }
   minimize_button_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_MINIMIZE)));
+      l10n_util::GetStringUTF16(IDS_ACCNAME_MINIMIZE));
   AddChildView(minimize_button_);
 
   maximize_button_->SetImage(views::CustomButton::BS_NORMAL,
@@ -136,7 +136,7 @@ OpaqueBrowserFrameView::OpaqueBrowserFrameView(BrowserFrame* frame,
         tp->GetBitmapNamed(IDR_MAXIMIZE_BUTTON_MASK));
   }
   maximize_button_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_MAXIMIZE)));
+      l10n_util::GetStringUTF16(IDS_ACCNAME_MAXIMIZE));
   AddChildView(maximize_button_);
 
   restore_button_->SetImage(views::CustomButton::BS_NORMAL,
@@ -150,7 +150,7 @@ OpaqueBrowserFrameView::OpaqueBrowserFrameView(BrowserFrame* frame,
         tp->GetBitmapNamed(IDR_RESTORE_BUTTON_MASK));
   }
   restore_button_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_RESTORE)));
+      l10n_util::GetStringUTF16(IDS_ACCNAME_RESTORE));
   AddChildView(restore_button_);
 
   close_button_->SetImage(views::CustomButton::BS_NORMAL,
@@ -164,7 +164,7 @@ OpaqueBrowserFrameView::OpaqueBrowserFrameView(BrowserFrame* frame,
         tp->GetBitmapNamed(IDR_CLOSE_BUTTON_MASK));
   }
   close_button_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_CLOSE)));
+      l10n_util::GetStringUTF16(IDS_ACCNAME_CLOSE));
   AddChildView(close_button_);
 
   // Initializing the TabIconView is expensive, so only do it if we need to.
@@ -199,7 +199,7 @@ gfx::Rect OpaqueBrowserFrameView::GetBoundsForReservedArea() const {
 // OpaqueBrowserFrameView, BrowserNonClientFrameView implementation:
 
 gfx::Rect OpaqueBrowserFrameView::GetBoundsForTabStrip(
-    BaseTabStrip* tabstrip) const {
+    views::View* tabstrip) const {
   if (browser_view_->UseVerticalTabs()) {
     gfx::Size ps = tabstrip->GetPreferredSize();
     return gfx::Rect(NonClientBorderThickness(),
@@ -215,7 +215,8 @@ gfx::Rect OpaqueBrowserFrameView::GetBoundsForTabStrip(
       (frame_->GetWindow()->IsMaximized() ?
       kNewTabCaptionMaximizedSpacing : kNewTabCaptionRestoredSpacing);
   return gfx::Rect(tabstrip_x, GetHorizontalTabStripVerticalOffset(false),
-                   std::max(0, tabstrip_width), tabstrip->GetPreferredHeight());
+                   std::max(0, tabstrip_width),
+                   tabstrip->GetPreferredSize().height());
 }
 
 int OpaqueBrowserFrameView::GetHorizontalTabStripVerticalOffset(
@@ -291,7 +292,7 @@ int OpaqueBrowserFrameView::NonClientHitTest(const gfx::Point& point) {
   // of Fitts' Law.
   if (frame_->GetWindow()->IsMaximized())
     sysmenu_rect.SetRect(0, 0, sysmenu_rect.right(), sysmenu_rect.bottom());
-  sysmenu_rect.set_x(MirroredLeftPointForRect(sysmenu_rect));
+  sysmenu_rect.set_x(GetMirroredXForRect(sysmenu_rect));
   if (sysmenu_rect.Contains(point))
     return (frame_component == HTCLIENT) ? HTCLIENT : HTSYSMENU;
 
@@ -300,19 +301,16 @@ int OpaqueBrowserFrameView::NonClientHitTest(const gfx::Point& point) {
 
   // Then see if the point is within any of the window controls.
   if (close_button_->IsVisible() &&
-      close_button_->GetBounds(APPLY_MIRRORING_TRANSFORMATION).Contains(point))
+      close_button_->GetMirroredBounds().Contains(point))
     return HTCLOSE;
   if (restore_button_->IsVisible() &&
-      restore_button_->GetBounds(APPLY_MIRRORING_TRANSFORMATION).Contains(
-      point))
+      restore_button_->GetMirroredBounds().Contains(point))
     return HTMAXBUTTON;
   if (maximize_button_->IsVisible() &&
-      maximize_button_->GetBounds(APPLY_MIRRORING_TRANSFORMATION).Contains(
-      point))
+      maximize_button_->GetMirroredBounds().Contains(point))
     return HTMAXBUTTON;
   if (minimize_button_->IsVisible() &&
-      minimize_button_->GetBounds(APPLY_MIRRORING_TRANSFORMATION).Contains(
-      point))
+      minimize_button_->GetMirroredBounds().Contains(point))
     return HTMINBUTTON;
 
   views::WindowDelegate* delegate = frame_->GetWindow()->GetDelegate();
@@ -398,7 +396,7 @@ bool OpaqueBrowserFrameView::HitTest(const gfx::Point& l) const {
   // completely. We need to do this since we're not a parent of the tabstrip,
   // meaning ConvertPointToView would otherwise return something bogus.
   gfx::Point browser_view_point(l);
-  View::ConvertPointToView(GetParent(), browser_view_, &browser_view_point);
+  View::ConvertPointToView(parent(), browser_view_, &browser_view_point);
   return browser_view_->IsPositionInWindowCaption(browser_view_point);
 }
 
@@ -541,7 +539,7 @@ gfx::Rect OpaqueBrowserFrameView::IconBounds() const {
 }
 
 void OpaqueBrowserFrameView::PaintRestoredFrameBorder(gfx::Canvas* canvas) {
-  ThemeProvider* tp = GetThemeProvider();
+  ui::ThemeProvider* tp = GetThemeProvider();
 
   SkBitmap* top_left_corner = tp->GetBitmapNamed(IDR_WINDOW_TOP_LEFT_CORNER);
   SkBitmap* top_right_corner =
@@ -659,7 +657,7 @@ void OpaqueBrowserFrameView::PaintRestoredFrameBorder(gfx::Canvas* canvas) {
 
 
 void OpaqueBrowserFrameView::PaintMaximizedFrameBorder(gfx::Canvas* canvas) {
-  ThemeProvider* tp = GetThemeProvider();
+  ui::ThemeProvider* tp = GetThemeProvider();
   views::Window* window = frame_->GetWindow();
 
   // Window frame mode and color
@@ -712,9 +710,9 @@ void OpaqueBrowserFrameView::PaintTitleBar(gfx::Canvas* canvas) {
     return;
   }
   if (delegate->ShouldShowWindowTitle()) {
-    canvas->DrawStringInt(delegate->GetWindowTitle(),
+    canvas->DrawStringInt(WideToUTF16Hack(delegate->GetWindowTitle()),
                           BrowserFrame::GetTitleFont(),
-        SK_ColorWHITE, MirroredLeftPointForRect(title_bounds_),
+        SK_ColorWHITE, GetMirroredXForRect(title_bounds_),
         title_bounds_.y(), title_bounds_.width(), title_bounds_.height());
     /* TODO(pkasting):  If this window is active, we should also draw a drop
      * shadow on the title.  This is tricky, because we don't want to hardcode a
@@ -752,7 +750,7 @@ void OpaqueBrowserFrameView::PaintToolbarBackground(gfx::Canvas* canvas) {
   // section so that we never break the gradient.
   int split_point = kFrameShadowThickness * 2;
   int bottom_y = y + split_point;
-  ThemeProvider* tp = GetThemeProvider();
+  ui::ThemeProvider* tp = GetThemeProvider();
   SkBitmap* toolbar_left = tp->GetBitmapNamed(IDR_CONTENT_TOP_LEFT_CORNER);
   int bottom_edge_height = std::min(toolbar_left->height(), h) - split_point;
 
@@ -857,7 +855,7 @@ void OpaqueBrowserFrameView::PaintOTRAvatar(gfx::Canvas* canvas) {
 }
 
 void OpaqueBrowserFrameView::PaintRestoredClientEdge(gfx::Canvas* canvas) {
-  ThemeProvider* tp = GetThemeProvider();
+  ui::ThemeProvider* tp = GetThemeProvider();
   int client_area_top = frame_->GetWindow()->GetClientView()->y();
   int image_top = client_area_top;
 
@@ -1023,7 +1021,7 @@ void OpaqueBrowserFrameView::LayoutTitleBar() {
   gfx::Rect icon_bounds(IconBounds());
   views::WindowDelegate* delegate = frame_->GetWindow()->GetDelegate();
   if (delegate && delegate->ShouldShowWindowIcon())
-    window_icon_->SetBounds(icon_bounds);
+    window_icon_->SetBoundsRect(icon_bounds);
 
   // Size the title, if visible.
   if (delegate && delegate->ShouldShowWindowTitle()) {

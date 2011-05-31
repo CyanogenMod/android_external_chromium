@@ -5,6 +5,7 @@
 #include "chrome/browser/chromeos/login/account_creation_view.h"
 
 #include "base/string_util.h"
+#include "chrome/common/autofill_messages.h"
 #include "webkit/glue/form_data.h"
 
 using webkit_glue::FormData;
@@ -15,8 +16,7 @@ const char kCreateAccountFormName[] = "createaccount";
 const char kEmailFieldName[] = "Email";
 const char kDomainFieldName[] = "edk";
 
-class AccountCreationTabContents : public WizardWebPageViewTabContents,
-                                   public RenderViewHostDelegate::AutoFill {
+class AccountCreationTabContents : public WizardWebPageViewTabContents {
  public:
   AccountCreationTabContents(Profile* profile,
                              SiteInstance* site_instance,
@@ -26,11 +26,27 @@ class AccountCreationTabContents : public WizardWebPageViewTabContents,
         delegate_(delegate) {
   }
 
-  virtual RenderViewHostDelegate::AutoFill* GetAutoFillDelegate() {
-    return this;
+  // Overriden from TabContents.
+  virtual bool OnMessageReceived(const IPC::Message& message) {
+    bool handled = true;
+    IPC_BEGIN_MESSAGE_MAP(AccountCreationTabContents, message)
+      IPC_MESSAGE_HANDLER(AutoFillHostMsg_FormSubmitted, OnFormSubmitted)
+      IPC_MESSAGE_HANDLER_GENERIC(AutoFillHostMsg_FormsSeen, )
+      IPC_MESSAGE_HANDLER_GENERIC(AutoFillHostMsg_QueryFormFieldAutoFill, )
+      IPC_MESSAGE_HANDLER_GENERIC(AutoFillHostMsg_ShowAutoFillDialog, )
+      IPC_MESSAGE_HANDLER_GENERIC(AutoFillHostMsg_FillAutoFillFormData, )
+      IPC_MESSAGE_HANDLER_GENERIC(AutoFillHostMsg_DidFillAutoFillFormData, )
+      IPC_MESSAGE_HANDLER_GENERIC(AutoFillHostMsg_DidShowAutoFillSuggestions, )
+      IPC_MESSAGE_UNHANDLED(handled = false)
+    IPC_END_MESSAGE_MAP()
+
+    if (handled)
+      return true;
+    return TabContents::OnMessageReceived(message);
   }
 
-  virtual void FormSubmitted(const FormData& form) {
+ private:
+  void OnFormSubmitted(const FormData& form) {
     if (UTF16ToASCII(form.name) == kCreateAccountFormName) {
       std::string user_name;
       std::string domain;
@@ -51,26 +67,6 @@ class AccountCreationTabContents : public WizardWebPageViewTabContents,
     }
   }
 
-  virtual void FormsSeen(const std::vector<FormData>& forms) {
-  }
-
-  virtual bool GetAutoFillSuggestions(const webkit_glue::FormData& form,
-                                      const webkit_glue::FormField& field) {
-    return false;
-  }
-
-  virtual bool FillAutoFillFormData(int query_id,
-                                    const webkit_glue::FormData& form,
-                                    const webkit_glue::FormField& field,
-                                    int unique_id) {
-    return false;
-  }
-
-  virtual void ShowAutoFillDialog() {}
-
-  virtual void Reset() {}
-
- private:
   AccountCreationViewDelegate* delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(AccountCreationTabContents);

@@ -1,25 +1,26 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <Cocoa/Cocoa.h>
 #import "chrome/browser/ui/cocoa/translate/translate_infobar_base.h"
 
-#include "app/l10n_util.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/translate/translate_infobar_delegate.h"
 #import "chrome/browser/ui/cocoa/hover_close_button.h"
-#include "chrome/browser/ui/cocoa/infobar.h"
-#import "chrome/browser/ui/cocoa/infobar_controller.h"
-#import "chrome/browser/ui/cocoa/infobar_gradient_view.h"
+#include "chrome/browser/ui/cocoa/infobars/infobar.h"
+#import "chrome/browser/ui/cocoa/infobars/infobar_container_controller.h"
+#import "chrome/browser/ui/cocoa/infobars/infobar_controller.h"
+#import "chrome/browser/ui/cocoa/infobars/infobar_gradient_view.h"
 #include "chrome/browser/ui/cocoa/translate/after_translate_infobar_controller.h"
 #import "chrome/browser/ui/cocoa/translate/before_translate_infobar_controller.h"
 #include "chrome/browser/ui/cocoa/translate/translate_message_infobar_controller.h"
 #include "grit/generated_resources.h"
 #include "third_party/GTM/AppKit/GTMUILocalizerAndLayoutTweaker.h"
+#include "ui/base/l10n/l10n_util.h"
 
 using TranslateInfoBarUtilities::MoveControl;
 using TranslateInfoBarUtilities::VerticallyCenterView;
@@ -61,11 +62,17 @@ bool VerifyControlOrderAndSpacing(id before, id after) {
 }
 
 // Vertically center |toMove| in its container.
-void VerticallyCenterView(NSView *toMove) {
+void VerticallyCenterView(NSView* toMove) {
   NSRect superViewFrame = [[toMove superview] frame];
   NSRect viewFrame = [toMove frame];
+  // If the superview is the infobar view, then subtract out the anti-spoof
+  // height so that the content is centered in the content area of the infobar,
+  // rather than in the total height (which includes the bulge).
+  CGFloat superHeight = NSHeight(superViewFrame);
+  if ([[toMove superview] isKindOfClass:[InfoBarGradientView class]])
+    superHeight -= infobars::kAntiSpoofHeight;
   viewFrame.origin.y =
-      floor((NSHeight(superViewFrame) - NSHeight(viewFrame))/2.0);
+      floor((superHeight - NSHeight(viewFrame)) / 2.0);
   [toMove setFrame:viewFrame];
 }
 
@@ -209,20 +216,22 @@ InfoBar* TranslateInfoBarDelegate::CreateInfoBar() {
 }
 
 - (void)sourceLanguageModified:(NSInteger)newLanguageIdx {
-  DCHECK_GT(newLanguageIdx, -1);
-  if (newLanguageIdx == [self delegate]->original_language_index())
+  size_t newLanguageIdxSizeT = static_cast<size_t>(newLanguageIdx);
+  DCHECK_NE(TranslateInfoBarDelegate::kNoIndex, newLanguageIdxSizeT);
+  if (newLanguageIdxSizeT == [self delegate]->original_language_index())
     return;
-  [self delegate]->SetOriginalLanguage(newLanguageIdx);
+  [self delegate]->SetOriginalLanguage(newLanguageIdxSizeT);
   int commandId = IDC_TRANSLATE_ORIGINAL_LANGUAGE_BASE + newLanguageIdx;
   int newMenuIdx = [fromLanguagePopUp_ indexOfItemWithTag:commandId];
   [fromLanguagePopUp_ selectItemAtIndex:newMenuIdx];
 }
 
 - (void)targetLanguageModified:(NSInteger)newLanguageIdx {
-  DCHECK_GT(newLanguageIdx, -1);
-  if (newLanguageIdx == [self delegate]->target_language_index())
+  size_t newLanguageIdxSizeT = static_cast<size_t>(newLanguageIdx);
+  DCHECK_NE(TranslateInfoBarDelegate::kNoIndex, newLanguageIdxSizeT);
+  if (newLanguageIdxSizeT == [self delegate]->target_language_index())
     return;
-  [self delegate]->SetTargetLanguage(newLanguageIdx);
+  [self delegate]->SetTargetLanguage(newLanguageIdxSizeT);
   int commandId = IDC_TRANSLATE_TARGET_LANGUAGE_BASE + newLanguageIdx;
   int newMenuIdx = [toLanguagePopUp_ indexOfItemWithTag:commandId];
   [toLanguagePopUp_ selectItemAtIndex:newMenuIdx];
@@ -348,7 +357,8 @@ InfoBar* TranslateInfoBarDelegate::CreateInfoBar() {
   NSMenu* originalLanguageMenu = [fromLanguagePopUp_ menu];
   [originalLanguageMenu setAutoenablesItems:NO];
   int selectedMenuIndex = 0;
-  int selectedLangIndex = [self delegate]->original_language_index();
+  int selectedLangIndex =
+      static_cast<int>([self delegate]->original_language_index());
   for (int i = 0; i < originalLanguageMenuModel_->GetItemCount(); ++i) {
     NSString* title = base::SysUTF16ToNSString(
         originalLanguageMenuModel_->GetLabelAt(i));
@@ -370,7 +380,8 @@ InfoBar* TranslateInfoBarDelegate::CreateInfoBar() {
 
   NSMenu* targetLanguageMenu = [toLanguagePopUp_ menu];
   [targetLanguageMenu setAutoenablesItems:NO];
-  selectedLangIndex = [self delegate]->target_language_index();
+  selectedLangIndex =
+      static_cast<int>([self delegate]->target_language_index());
   for (int i = 0; i < targetLanguageMenuModel_->GetItemCount(); ++i) {
     NSString* title = base::SysUTF16ToNSString(
         targetLanguageMenuModel_->GetLabelAt(i));
@@ -471,6 +482,11 @@ InfoBar* TranslateInfoBarDelegate::CreateInfoBar() {
            object:infoBarView_];
   // Show and place GUI elements.
   [self updateState];
+}
+
+- (void)infobarWillClose {
+  [[optionsPopUp_ menu] cancelTracking];
+  [super infobarWillClose];
 }
 
 - (void)adjustOptionsButtonSizeAndVisibilityForView:(NSView*)lastView {

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,9 @@
 #include "chrome/browser/bookmarks/bookmark_node_data.h"
 #include "chrome/browser/bookmarks/bookmark_model_observer.h"
 #include "chrome/browser/sync/profile_sync_service.h"
-#include "chrome/browser/views/bookmark_bar_instructions_view.h"
-#include "chrome/browser/views/bookmark_menu_controller_views.h"
-#include "chrome/browser/views/detachable_toolbar_view.h"
+#include "chrome/browser/ui/views/bookmark_bar_instructions_view.h"
+#include "chrome/browser/ui/views/bookmark_menu_controller_views.h"
+#include "chrome/browser/ui/views/detachable_toolbar_view.h"
 #include "chrome/common/notification_registrar.h"
 #include "ui/base/animation/animation_delegate.h"
 #include "views/controls/button/button.h"
@@ -121,15 +121,13 @@ class BookmarkBarView : public DetachableToolbarView,
   virtual gfx::Size GetPreferredSize();
   virtual gfx::Size GetMinimumSize();
   virtual void Layout();
-  virtual void DidChangeBounds(const gfx::Rect& previous,
-                               const gfx::Rect& current);
   virtual void ViewHierarchyChanged(bool is_add, View* parent, View* child);
   virtual void PaintChildren(gfx::Canvas* canvas);
   virtual bool GetDropFormats(
       int* formats,
-      std::set<OSExchangeData::CustomFormat>* custom_formats);
+      std::set<ui::OSExchangeData::CustomFormat>* custom_formats);
   virtual bool AreDropTypesRequired();
-  virtual bool CanDrop(const OSExchangeData& data);
+  virtual bool CanDrop(const ui::OSExchangeData& data);
   virtual void OnDragEntered(const views::DropTargetEvent& event);
   virtual int OnDragUpdated(const views::DropTargetEvent& event);
   virtual void OnDragExited();
@@ -241,6 +239,17 @@ class BookmarkBarView : public DetachableToolbarView,
   // bookmark bar model has.
   int GetBookmarkButtonCount();
 
+  // Returns the tooltip text for the specified url and title. The returned
+  // text is clipped to fit within the bounds of the monitor.
+  //
+  // Note that we adjust the direction of both the URL and the title based on
+  // the locale so that pure LTR strings are displayed properly in RTL locales.
+  static std::wstring CreateToolTipForURLAndTitle(
+      const gfx::Point& screen_loc,
+      const GURL& url,
+      const std::wstring& title,
+      Profile* profile);
+
   // If true we're running tests. This short circuits a couple of animations.
   static bool testing_;
 
@@ -347,7 +356,7 @@ class BookmarkBarView : public DetachableToolbarView,
   // WriteDragData to write the actual data.
   virtual void WriteDragData(views::View* sender,
                              const gfx::Point& press_pt,
-                             OSExchangeData* data);
+                             ui::OSExchangeData* data);
 
   virtual int GetDragOperations(views::View* sender, const gfx::Point& p);
 
@@ -356,7 +365,7 @@ class BookmarkBarView : public DetachableToolbarView,
                             const gfx::Point& p);
 
   // Writes a BookmarkNodeData for node to data.
-  void WriteDragData(const BookmarkNode* node, OSExchangeData* data);
+  void WriteDragData(const BookmarkNode* node, ui::OSExchangeData* data);
 
   // ViewMenuDelegate method. Ends up creating a BookmarkMenuController to
   // show the menu.
@@ -409,7 +418,7 @@ class BookmarkBarView : public DetachableToolbarView,
   void StartShowFolderDropMenuTimer(const BookmarkNode* node);
 
   // Returns the drop operation and index for the drop based on the event
-  // and data. Returns DragDropTypes::DRAG_NONE if not a valid location.
+  // and data. Returns ui::DragDropTypes::DRAG_NONE if not a valid location.
   int CalculateDropOperation(const views::DropTargetEvent& event,
                              const BookmarkNodeData& data,
                              int* index,
@@ -429,6 +438,10 @@ class BookmarkBarView : public DetachableToolbarView,
 
   // Updates the colors for all the child objects in the bookmarks bar.
   void UpdateColors();
+
+  // Updates the visibility of |other_bookmarked_button_| and
+  // |bookmarks_separator_view_|.
+  void UpdateOtherBookmarksVisibility();
 
   // This method computes the bounds for the bookmark bar items. If
   // |compute_bounds_only| = TRUE, the bounds for the items are just computed,

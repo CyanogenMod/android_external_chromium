@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include <string>
 #include <vector>
 
-#include "app/clipboard/clipboard.h"
 #include "app/surface/transport_dib.h"
 #include "base/file_path.h"
 #include "base/linked_ptr.h"
@@ -25,16 +24,16 @@
 #include "chrome/browser/net/resolve_proxy_msg_helper.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/common/content_settings.h"
-#include "gfx/native_widget_types.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebCache.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebPopupType.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebCache.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebPopupType.h"
+#include "ui/base/clipboard/clipboard.h"
+#include "ui/gfx/native_widget_types.h"
 
 class ChromeURLRequestContext;
 struct FontDescriptor;
 class HostContentSettingsMap;
 class HostZoomMap;
 class NotificationsPrefsCache;
-class PpapiPluginProcessHost;
 class Profile;
 class RenderWidgetHelper;
 class URLRequestContextGetter;
@@ -84,8 +83,8 @@ class RenderMessageFilter : public BrowserMessageFilter,
   }
   bool off_the_record() { return off_the_record_; }
 
-  // Returns either the extension URLRequestContext or regular URLRequestContext
-  // depending on whether |url| is an extension URL.
+  // Returns either the extension net::URLRequestContext or regular
+  // net::URLRequestContext depending on whether |url| is an extension URL.
   // Only call on the IO thread.
   ChromeURLRequestContext* GetRequestContextForURL(const GURL& url);
 
@@ -101,9 +100,7 @@ class RenderMessageFilter : public BrowserMessageFilter,
   void OnMsgCreateWidget(int opener_id,
                          WebKit::WebPopupType popup_type,
                          int* route_id);
-  void OnMsgCreateFullscreenWidget(int opener_id,
-                                   WebKit::WebPopupType popup_type,
-                                   int* route_id);
+  void OnMsgCreateFullscreenWidget(int opener_id, int* route_id);
   void OnSetCookie(const IPC::Message& message,
                    const GURL& url,
                    const GURL& first_party_for_cookies,
@@ -143,11 +140,13 @@ class RenderMessageFilter : public BrowserMessageFilter,
 #endif
   void OnGetPlugins(bool refresh, IPC::Message* reply_msg);
   void OnGetPluginsOnFileThread(bool refresh, IPC::Message* reply_msg);
-  void OnGetPluginInfo(const GURL& url,
+  void OnGetPluginInfo(int routing_id,
+                       const GURL& url,
                        const GURL& policy_url,
                        const std::string& mime_type,
                        IPC::Message* reply_msg);
-  void OnGetPluginInfoOnFileThread(const GURL& url,
+  void OnGetPluginInfoOnFileThread(int render_view_id,
+                                   const GURL& url,
                                    const GURL& policy_url,
                                    const std::string& mime_type,
                                    IPC::Message* reply_msg);
@@ -156,7 +155,8 @@ class RenderMessageFilter : public BrowserMessageFilter,
                        const std::string& actual_mime_type,
                        const GURL& policy_url,
                        IPC::Message* reply_msg);
-  void OnOpenChannelToPlugin(const GURL& url,
+  void OnOpenChannelToPlugin(int routing_id,
+                             const GURL& url,
                              const std::string& mime_type,
                              IPC::Message* reply_msg);
   void OnOpenChannelToPepperPlugin(const FilePath& path,
@@ -164,6 +164,7 @@ class RenderMessageFilter : public BrowserMessageFilter,
   void OnLaunchNaCl(const std::wstring& url,
                     int channel_descriptor,
                     IPC::Message* reply_msg);
+  void OnGenerateRoutingID(int* route_id);
   void OnDownloadUrl(const IPC::Message& message,
                      const GURL& url,
                      const GURL& referrer);
@@ -182,24 +183,26 @@ class RenderMessageFilter : public BrowserMessageFilter,
 #endif
   void OnReceiveContextMenuMsg(const IPC::Message& msg);
   // Clipboard messages
-  void OnClipboardWriteObjectsAsync(const Clipboard::ObjectMap& objects);
-  void OnClipboardWriteObjectsSync(const Clipboard::ObjectMap& objects,
+  void OnClipboardWriteObjectsAsync(const ui::Clipboard::ObjectMap& objects);
+  void OnClipboardWriteObjectsSync(const ui::Clipboard::ObjectMap& objects,
                                    base::SharedMemoryHandle bitmap_handle);
 
-  void OnClipboardIsFormatAvailable(Clipboard::FormatType format,
-                                    Clipboard::Buffer buffer,
+  void OnClipboardIsFormatAvailable(ui::Clipboard::FormatType format,
+                                    ui::Clipboard::Buffer buffer,
                                     IPC::Message* reply);
-  void OnClipboardReadText(Clipboard::Buffer buffer, IPC::Message* reply);
-  void OnClipboardReadAsciiText(Clipboard::Buffer buffer, IPC::Message* reply);
-  void OnClipboardReadHTML(Clipboard::Buffer buffer, IPC::Message* reply);
+  void OnClipboardReadText(ui::Clipboard::Buffer buffer, IPC::Message* reply);
+  void OnClipboardReadAsciiText(ui::Clipboard::Buffer buffer,
+                                IPC::Message* reply);
+  void OnClipboardReadHTML(ui::Clipboard::Buffer buffer, IPC::Message* reply);
 #if defined(OS_MACOSX)
   void OnClipboardFindPboardWriteString(const string16& text);
 #endif
-  void OnClipboardReadAvailableTypes(Clipboard::Buffer buffer,
+  void OnClipboardReadAvailableTypes(ui::Clipboard::Buffer buffer,
                                      IPC::Message* reply);
-  void OnClipboardReadData(Clipboard::Buffer buffer, const string16& type,
+  void OnClipboardReadData(ui::Clipboard::Buffer buffer, const string16& type,
                            IPC::Message* reply);
-  void OnClipboardReadFilenames(Clipboard::Buffer buffer, IPC::Message* reply);
+  void OnClipboardReadFilenames(ui::Clipboard::Buffer buffer,
+                                IPC::Message* reply);
 
   void OnCheckNotificationPermission(const GURL& source_url,
                                      int* permission_level);
@@ -223,7 +226,7 @@ class RenderMessageFilter : public BrowserMessageFilter,
   // Used to ask the browser allocate a temporary file for the renderer
   // to fill in resulting PDF in renderer.
   void OnAllocateTempFileForPrinting(IPC::Message* reply_msg);
-  void OnTempFileForPrintingWritten(int fd_in_browser);
+  void OnTempFileForPrintingWritten(int sequence_number);
 #endif
 
 #if defined(OS_POSIX)
@@ -324,9 +327,6 @@ class RenderMessageFilter : public BrowserMessageFilter,
       const std::string& extension_id,
       const std::string& default_locale,
       IPC::Message* reply_msg);
-  void OnEstablishGpuChannel();
-  void OnSynchronizeGpu(IPC::Message* reply);
-
   void OnAsyncOpenFile(const IPC::Message& msg,
                        const FilePath& path,
                        int flags,
@@ -340,20 +340,23 @@ class RenderMessageFilter : public BrowserMessageFilter,
   void DoOnGetScreenInfo(gfx::NativeViewId view, IPC::Message* reply_msg);
   void DoOnGetWindowRect(gfx::NativeViewId view, IPC::Message* reply_msg);
   void DoOnGetRootWindowRect(gfx::NativeViewId view, IPC::Message* reply_msg);
-  void DoOnClipboardIsFormatAvailable(Clipboard::FormatType format,
-                                      Clipboard::Buffer buffer,
+  void DoOnClipboardIsFormatAvailable(ui::Clipboard::FormatType format,
+                                      ui::Clipboard::Buffer buffer,
                                       IPC::Message* reply_msg);
-  void DoOnClipboardReadText(Clipboard::Buffer buffer, IPC::Message* reply_msg);
-  void DoOnClipboardReadAsciiText(Clipboard::Buffer buffer,
-                                  IPC::Message* reply_msg);
-  void DoOnClipboardReadHTML(Clipboard::Buffer buffer, IPC::Message* reply_msg);
-  void DoOnClipboardReadAvailableTypes(Clipboard::Buffer buffer,
-                                       IPC::Message* reply_msg);
-  void DoOnClipboardReadData(Clipboard::Buffer buffer, const string16& type,
+  void DoOnClipboardReadText(ui::Clipboard::Buffer buffer,
                              IPC::Message* reply_msg);
-  void DoOnClipboardReadFilenames(Clipboard::Buffer buffer,
+  void DoOnClipboardReadAsciiText(ui::Clipboard::Buffer buffer,
+                                  IPC::Message* reply_msg);
+  void DoOnClipboardReadHTML(ui::Clipboard::Buffer buffer,
+                             IPC::Message* reply_msg);
+  void DoOnClipboardReadAvailableTypes(ui::Clipboard::Buffer buffer,
+                                       IPC::Message* reply_msg);
+  void DoOnClipboardReadData(ui::Clipboard::Buffer buffer, const string16& type,
+                             IPC::Message* reply_msg);
+  void DoOnClipboardReadFilenames(ui::Clipboard::Buffer buffer,
                                   IPC::Message* reply_msg);
   void DoOnAllocateTempFileForPrinting(IPC::Message* reply_msg);
+  void DoOnTempFileForPrintingWritten(int sequence_number);
 #endif
 
   bool CheckBenchmarkingEnabled() const;
@@ -363,7 +366,7 @@ class RenderMessageFilter : public BrowserMessageFilter,
   // IO thread instead of forwarding (possibly synchronous) messages to the UI
   // thread. This instance of the clipboard should be accessed only on the IO
   // thread.
-  static Clipboard* GetClipboard();
+  static ui::Clipboard* GetClipboard();
 
   // Cached resource request dispatcher host and plugin service, guaranteed to
   // be non-null if Init succeeds. We do not own the objects, they are managed
@@ -405,9 +408,6 @@ class RenderMessageFilter : public BrowserMessageFilter,
   bool cloud_print_enabled_;
 
   base::TimeTicks last_plugin_refresh_time_;  // Initialized to 0.
-
-  // A list of all Ppapi plugin processes for this renderer.
-  std::vector<linked_ptr<PpapiPluginProcessHost> > ppapi_plugin_hosts_;
 
   scoped_refptr<WebKitContext> webkit_context_;
 

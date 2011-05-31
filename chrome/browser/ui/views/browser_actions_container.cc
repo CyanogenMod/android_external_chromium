@@ -1,11 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/browser_actions_container.h"
+#include "chrome/browser/ui/views/browser_actions_container.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -30,14 +28,16 @@
 #include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
-#include "gfx/canvas.h"
-#include "gfx/canvas_skia.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkTypeface.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
 #include "ui/base/animation/slide_animation.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/canvas_skia.h"
 #include "views/controls/button/menu_button.h"
 #include "views/controls/button/text_button.h"
 #include "views/controls/menu/menu_2.h"
@@ -165,12 +165,12 @@ void BrowserActionButton::UpdateState() {
   }
 
   // If the browser action name is empty, show the extension name instead.
-  std::wstring name = UTF8ToWide(browser_action()->GetTitle(tab_id));
+  string16 name = UTF8ToUTF16(browser_action()->GetTitle(tab_id));
   if (name.empty())
-    name = UTF8ToWide(extension()->name());
-  SetTooltipText(name);
+    name = UTF8ToUTF16(extension()->name());
+  SetTooltipText(UTF16ToWideHack(name));
   SetAccessibleName(name);
-  GetParent()->SchedulePaint();
+  parent()->SchedulePaint();
 }
 
 void BrowserActionButton::Observe(NotificationType type,
@@ -251,6 +251,9 @@ void BrowserActionButton::OnMouseExited(const views::MouseEvent& e) {
 
 void BrowserActionButton::ShowContextMenu(const gfx::Point& p,
                                           bool is_mouse_gesture) {
+  if (!extension()->ShowConfigureContextMenus())
+    return;
+
   showing_context_menu_ = true;
   SetButtonPushed();
 
@@ -288,8 +291,8 @@ BrowserActionView::BrowserActionView(const Extension* extension,
   button_->SetDragController(panel_);
   AddChildView(button_);
   button_->UpdateState();
-  SetAccessibleName(UTF16ToWide(
-      l10n_util::GetStringUTF16(IDS_ACCNAME_EXTENSIONS_BROWSER_ACTION)));
+  SetAccessibleName(
+      l10n_util::GetStringUTF16(IDS_ACCNAME_EXTENSIONS_BROWSER_ACTION));
 }
 
 BrowserActionView::~BrowserActionView() {
@@ -369,19 +372,18 @@ BrowserActionsContainer::BrowserActionsContainer(Browser* browser,
   resize_animation_.reset(new ui::SlideAnimation(this));
   resize_area_ = new views::ResizeArea(this);
   resize_area_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_SEPARATOR)));
+      l10n_util::GetStringUTF16(IDS_ACCNAME_SEPARATOR));
   AddChildView(resize_area_);
 
   chevron_ = new views::MenuButton(NULL, std::wstring(), this, false);
   chevron_->set_border(NULL);
   chevron_->EnableCanvasFlippingForRTLUI(true);
   chevron_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_EXTENSIONS_CHEVRON)));
+      l10n_util::GetStringUTF16(IDS_ACCNAME_EXTENSIONS_CHEVRON));
   chevron_->SetVisible(false);
   AddChildView(chevron_);
 
-  SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_EXTENSIONS)));
+  SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_EXTENSIONS));
 }
 
 BrowserActionsContainer::~BrowserActionsContainer() {
@@ -484,7 +486,8 @@ void BrowserActionsContainer::OnBrowserActionExecuted(
   // Popups just display.  No notification to the extension.
   // TODO(erikkay): should there be?
   if (!button->IsPopup()) {
-    ExtensionBrowserEventRouter::GetInstance()->BrowserActionExecuted(
+    ExtensionService* service = profile_->GetExtensionService();
+    service->browser_event_router()->BrowserActionExecuted(
         profile_, browser_action->extension_id(), browser_);
     return;
   }
@@ -502,19 +505,18 @@ void BrowserActionsContainer::OnBrowserActionExecuted(
   // We can get the execute event for browser actions that are not visible,
   // since buttons can be activated from the overflow menu (chevron). In that
   // case we show the popup as originating from the chevron.
-  View* reference_view = button->GetParent()->IsVisible() ? button : chevron_;
+  View* reference_view = button->parent()->IsVisible() ? button : chevron_;
   gfx::Point origin;
   View::ConvertPointToScreen(reference_view, &origin);
   gfx::Rect rect = reference_view->bounds();
   rect.set_origin(origin);
 
-  gfx::NativeWindow frame_window = browser_->window()->GetNativeHandle();
   BubbleBorder::ArrowLocation arrow_location = base::i18n::IsRTL() ?
       BubbleBorder::TOP_LEFT : BubbleBorder::TOP_RIGHT;
 
-  popup_ = ExtensionPopup::Show(button->GetPopupUrl(), browser_,
-      browser_->profile(), frame_window, rect, arrow_location, true,
-      inspect_with_devtools, ExtensionPopup::BUBBLE_CHROME, this);
+  popup_ = ExtensionPopup::Show(button->GetPopupUrl(), browser_, rect,
+                                arrow_location, inspect_with_devtools,
+                                this);
   popup_button_ = button;
   popup_button_->SetButtonPushed();
 }
@@ -634,7 +636,7 @@ int BrowserActionsContainer::OnDragUpdated(
   if (GetViewForPoint(event.location()) == chevron_) {
     if (show_menu_task_factory_.empty() && !overflow_menu_)
       StartShowFolderDropMenuTimer();
-    return DragDropTypes::DRAG_MOVE;
+    return ui::DragDropTypes::DRAG_MOVE;
   }
   StopShowFolderDropMenuTimer();
 
@@ -684,7 +686,7 @@ int BrowserActionsContainer::OnDragUpdated(
   SetDropIndicator(width_before_icons + (before_icon * IconWidth(true)) -
       (kItemSpacing / 2));
 
-  return DragDropTypes::DRAG_MOVE;
+  return ui::DragDropTypes::DRAG_MOVE;
 }
 
 void BrowserActionsContainer::OnDragExited() {
@@ -696,8 +698,8 @@ void BrowserActionsContainer::OnDragExited() {
 int BrowserActionsContainer::OnPerformDrop(
     const views::DropTargetEvent& event) {
   BrowserActionDragData data;
-  if (!data.Read(event.GetData()))
-    return DragDropTypes::DRAG_NONE;
+  if (!data.Read(event.data()))
+    return ui::DragDropTypes::DRAG_NONE;
 
   // Make sure we have the same view as we started with.
   DCHECK_EQ(browser_action_views_[data.index()]->button()->extension()->id(),
@@ -706,8 +708,7 @@ int BrowserActionsContainer::OnPerformDrop(
 
   size_t i = 0;
   for (; i < browser_action_views_.size(); ++i) {
-    int view_x =
-        browser_action_views_[i]->GetBounds(APPLY_MIRRORING_TRANSFORMATION).x();
+    int view_x = browser_action_views_[i]->GetMirroredBounds().x();
     if (!browser_action_views_[i]->IsVisible() ||
         (base::i18n::IsRTL() ? (view_x < drop_indicator_position_) :
             (view_x >= drop_indicator_position_))) {
@@ -732,7 +733,7 @@ int BrowserActionsContainer::OnPerformDrop(
       browser_action_views_[data.index()]->button()->extension(), i);
 
   OnDragExited();  // Perform clean up after dragging.
-  return DragDropTypes::DRAG_MOVE;
+  return ui::DragDropTypes::DRAG_MOVE;
 }
 
 void BrowserActionsContainer::OnThemeChanged() {
@@ -777,7 +778,7 @@ void BrowserActionsContainer::WriteDragData(View* sender,
 
 int BrowserActionsContainer::GetDragOperations(View* sender,
                                                const gfx::Point& p) {
-  return DragDropTypes::DRAG_MOVE;
+  return ui::DragDropTypes::DRAG_MOVE;
 }
 
 bool BrowserActionsContainer::CanStartDrag(View* sender,
@@ -910,7 +911,7 @@ void BrowserActionsContainer::BrowserActionAdded(const Extension* extension,
     index = model_->OriginalIndexToIncognito(index);
   BrowserActionView* view = new BrowserActionView(extension, this);
   browser_action_views_.insert(browser_action_views_.begin() + index, view);
-  AddChildView(index, view);
+  AddChildViewAt(view, index);
 
   // If we are still initializing the container, don't bother animating.
   if (!model_->extensions_initialized())
@@ -986,7 +987,7 @@ void BrowserActionsContainer::ModelLoaded() {
 }
 
 void BrowserActionsContainer::LoadImages() {
-  ThemeProvider* tp = GetThemeProvider();
+  ui::ThemeProvider* tp = GetThemeProvider();
   chevron_->SetIcon(*tp->GetBitmapNamed(IDR_BROWSER_ACTIONS_OVERFLOW));
   chevron_->SetHoverIcon(*tp->GetBitmapNamed(IDR_BROWSER_ACTIONS_OVERFLOW_H));
   chevron_->SetPushedIcon(*tp->GetBitmapNamed(IDR_BROWSER_ACTIONS_OVERFLOW_P));

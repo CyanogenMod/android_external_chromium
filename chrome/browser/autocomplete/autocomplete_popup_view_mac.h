@@ -17,7 +17,7 @@
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_view.h"
 #import "chrome/browser/ui/cocoa/location_bar/instant_opt_in_controller.h"
-#include "gfx/font.h"
+#include "ui/gfx/font.h"
 #include "webkit/glue/window_open_disposition.h"
 
 
@@ -102,7 +102,7 @@ class AutocompletePopupViewMac : public AutocompletePopupView,
   // and description cases.  Returns NSMutableAttributedString as a
   // convenience for MatchText().
   static NSMutableAttributedString* DecorateMatchedString(
-      const std::wstring &matchString,
+      const string16 &matchString,
       const AutocompleteMatch::ACMatchClassifications &classifications,
       NSColor* textColor, NSColor* dimTextColor, gfx::Font& font);
 
@@ -114,7 +114,7 @@ class AutocompletePopupViewMac : public AutocompletePopupView,
   // cleaner.
   static NSMutableAttributedString* ElideString(
       NSMutableAttributedString* aString,
-      const std::wstring originalString,
+      const string16 originalString,
       const gfx::Font& font,
       const float cellWidth);
 

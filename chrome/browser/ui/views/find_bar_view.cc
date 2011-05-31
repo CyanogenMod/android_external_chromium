@@ -1,13 +1,11 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/find_bar_view.h"
+#include "chrome/browser/ui/views/find_bar_view.h"
 
 #include <algorithm>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -16,13 +14,17 @@
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
 #include "chrome/browser/ui/find_bar/find_bar_state.h"
+#include "chrome/browser/ui/find_bar/find_manager.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/find_bar_host.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "gfx/canvas.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
 #include "views/background.h"
 #include "views/controls/button/image_button.h"
 #include "views/controls/label.h"
@@ -102,8 +104,7 @@ FindBarView::FindBarView(FindBarHost* host)
   find_text_->SetFont(rb.GetFont(ResourceBundle::BaseFont));
   find_text_->set_default_width_in_chars(kDefaultCharWidth);
   find_text_->SetController(this);
-  find_text_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_FIND)));
+  find_text_->SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_FIND));
   AddChildView(find_text_);
 
   match_count_text_ = new views::Label();
@@ -128,7 +129,7 @@ FindBarView::FindBarView(FindBarHost* host)
   find_previous_button_->SetTooltipText(UTF16ToWide(
       l10n_util::GetStringUTF16(IDS_FIND_IN_PAGE_PREVIOUS_TOOLTIP)));
   find_previous_button_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_PREVIOUS)));
+      l10n_util::GetStringUTF16(IDS_ACCNAME_PREVIOUS));
   AddChildView(find_previous_button_);
 
   find_next_button_ = new views::ImageButton(this);
@@ -143,7 +144,7 @@ FindBarView::FindBarView(FindBarHost* host)
   find_next_button_->SetTooltipText(
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_FIND_IN_PAGE_NEXT_TOOLTIP)));
   find_next_button_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_NEXT)));
+      l10n_util::GetStringUTF16(IDS_ACCNAME_NEXT));
   AddChildView(find_next_button_);
 
   close_button_ = new views::ImageButton(this);
@@ -158,7 +159,7 @@ FindBarView::FindBarView(FindBarHost* host)
   close_button_->SetTooltipText(
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_FIND_IN_PAGE_CLOSE_TOOLTIP)));
   close_button_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_CLOSE)));
+      l10n_util::GetStringUTF16(IDS_ACCNAME_CLOSE));
   AddChildView(close_button_);
 
   if (kDialog_left == NULL) {
@@ -287,7 +288,7 @@ void FindBarView::Paint(gfx::Canvas* canvas) {
   // controller, so the whitespace in the left and right background images is
   // actually outside the window region and is therefore not drawn. See
   // FindInPageWidgetWin::CreateRoundedWindowEdges() for details.
-  ThemeProvider* tp = GetThemeProvider();
+  ui::ThemeProvider* tp = GetThemeProvider();
   canvas->TileImageInt(*tp->GetBitmapNamed(IDR_THEME_TOOLBAR), origin.x(),
                        origin.y(), 0, 0, bounds.width(), bounds.height());
 
@@ -440,9 +441,9 @@ void FindBarView::ButtonPressed(
     case FIND_NEXT_TAG:
       if (!find_text_->text().empty()) {
         find_bar_host()->GetFindBarController()->tab_contents()->
-            StartFinding(find_text_->text(),
-                         sender->tag() == FIND_NEXT_TAG,
-                         false);  // Not case sensitive.
+            GetFindManager()->StartFinding(find_text_->text(),
+                                           sender->tag() == FIND_NEXT_TAG,
+                                           false);  // Not case sensitive.
       }
       if (event.IsMouseEvent()) {
         // If mouse event, we move the focus back to the text-field, so that the
@@ -481,16 +482,17 @@ void FindBarView::ContentsChanged(views::Textfield* sender,
   // can lead to crashes, as exposed by automation testing in issue 8048.
   if (!controller->tab_contents())
     return;
+  FindManager* find_manager = controller->tab_contents()->GetFindManager();
 
   // When the user changes something in the text box we check the contents and
   // if the textbox contains something we set it as the new search string and
   // initiate search (even though old searches might be in progress).
   if (!new_contents.empty()) {
     // The last two params here are forward (true) and case sensitive (false).
-    controller->tab_contents()->StartFinding(new_contents, true, false);
+    find_manager->StartFinding(new_contents, true, false);
   } else {
-    controller->tab_contents()->StopFinding(FindBarController::kClearSelection);
-    UpdateForResult(controller->tab_contents()->find_result(), string16());
+    find_manager->StopFinding(FindBarController::kClearSelection);
+    UpdateForResult(find_manager->find_result(), string16());
 
     // Clearing the text box should clear the prepopulate state so that when
     // we close and reopen the Find box it doesn't show the search we just
@@ -512,15 +514,16 @@ bool FindBarView::HandleKeyEvent(views::Textfield* sender,
   if (find_bar_host()->MaybeForwardKeyEventToWebpage(key_event))
     return true;  // Handled, we are done!
 
-  if (key_event.GetKeyCode() == app::VKEY_RETURN) {
+  if (key_event.key_code() == ui::VKEY_RETURN) {
     // Pressing Return/Enter starts the search (unless text box is empty).
     string16 find_string = find_text_->text();
     if (!find_string.empty()) {
+      FindBarController* controller = find_bar_host()->GetFindBarController();
+      FindManager* find_manager = controller->tab_contents()->GetFindManager();
       // Search forwards for enter, backwards for shift-enter.
-      find_bar_host()->GetFindBarController()->tab_contents()->StartFinding(
-          find_string,
-          !key_event.IsShiftDown(),
-          false);  // Not case sensitive.
+      find_manager->StartFinding(find_string,
+                                 !key_event.IsShiftDown(),
+                                 false);  // Not case sensitive.
     }
   }
 

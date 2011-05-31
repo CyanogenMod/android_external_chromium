@@ -19,6 +19,8 @@
 #include "chrome/browser/webdata/web_data_service.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/pref_names.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebRegularExpression.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebString.h"
 
 namespace {
 
@@ -67,6 +69,27 @@ class DereferenceFunctor {
 template<typename T>
 T* address_of(T& v) {
   return &v;
+}
+
+bool IsValidEmail(const string16& value) {
+  // This regex is more permissive than the official rfc2822 spec on the
+  // subject, but it does reject obvious non-email addresses.
+  const string16 kEmailPattern =
+      ASCIIToUTF16("^[^@]+@[^@]+\\.[a-z]{2,6}$");
+  WebKit::WebRegularExpression re(WebKit::WebString(kEmailPattern),
+                                  WebKit::WebTextCaseInsensitive);
+  return re.match(WebKit::WebString(StringToLowerASCII(value))) != -1;
+}
+
+// Returns true if minimum requirements for import of a given |profile| have
+// been met.  An address submitted via a form must have at least these fields
+// filled.  No verification of validity of the contents is preformed.  This is
+// and existence check only.
+bool IsMinimumAddress(const AutoFillProfile& profile) {
+  return !profile.GetFieldText(AutoFillType(ADDRESS_HOME_LINE1)).empty() &&
+         !profile.GetFieldText(AutoFillType(ADDRESS_HOME_CITY)).empty() &&
+         !profile.GetFieldText(AutoFillType(ADDRESS_HOME_STATE)).empty() &&
+         !profile.GetFieldText(AutoFillType(ADDRESS_HOME_ZIP)).empty();
 }
 
 }  // namespace
@@ -140,21 +163,26 @@ void PersonalDataManager::RemoveObserver(
 }
 
 bool PersonalDataManager::ImportFormData(
+<<<<<<< HEAD
     const std::vector<FormStructure*>& form_structures) {
 #ifdef ANDROID
   // TODO: Is this the funcionality that tries to create a profile for the user
   // based on what they've entered into forms?
   return false;
 #else
+=======
+    const std::vector<const FormStructure*>& form_structures,
+    const CreditCard** imported_credit_card) {
+  scoped_ptr<AutoFillProfile> imported_profile(new AutoFillProfile);
+  scoped_ptr<CreditCard> local_imported_credit_card(new CreditCard);
+
+>>>>>>> chromium.org at r11.0.672.0
   // Parse the form and construct a profile based on the information that is
   // possible to import.
   int importable_fields = 0;
   int importable_credit_card_fields = 0;
-  imported_profile_.reset(new AutoFillProfile);
-  // TODO(jhawkins): Use a hash of the CC# instead of a list of unique IDs?
-  imported_credit_card_.reset(new CreditCard);
 
-  std::vector<FormStructure*>::const_iterator iter;
+  std::vector<const FormStructure*>::const_iterator iter;
   for (iter = form_structures.begin(); iter != form_structures.end(); ++iter) {
     const FormStructure* form = *iter;
     for (size_t i = 0; i < form->field_count(); ++i) {
@@ -173,8 +201,13 @@ bool PersonalDataManager::ImportFormData(
         // If the user has a password set, we have no way of setting credit
         // card numbers.
         if (!HasPassword()) {
-          imported_credit_card_->SetInfo(AutoFillType(field_type.field_type()),
-                                         value);
+          if (LowerCaseEqualsASCII(field->form_control_type(), "month")) {
+            DCHECK_EQ(CREDIT_CARD_EXP_MONTH, field_type.field_type());
+            local_imported_credit_card->SetInfoForMonthInputType(value);
+          } else {
+            local_imported_credit_card->SetInfo(
+                AutoFillType(field_type.field_type()), value);
+          }
           ++importable_credit_card_fields;
         }
       } else {
@@ -192,17 +225,17 @@ bool PersonalDataManager::ImportFormData(
             continue;
 
           if (group == AutoFillType::PHONE_HOME) {
-            imported_profile_->SetInfo(AutoFillType(PHONE_HOME_COUNTRY_CODE),
-                                       country_code);
-            imported_profile_->SetInfo(AutoFillType(PHONE_HOME_CITY_CODE),
-                                       city_code);
-            imported_profile_->SetInfo(AutoFillType(PHONE_HOME_NUMBER), number);
+            imported_profile->SetInfo(AutoFillType(PHONE_HOME_COUNTRY_CODE),
+                                      country_code);
+            imported_profile->SetInfo(AutoFillType(PHONE_HOME_CITY_CODE),
+                                      city_code);
+            imported_profile->SetInfo(AutoFillType(PHONE_HOME_NUMBER), number);
           } else if (group == AutoFillType::PHONE_FAX) {
-            imported_profile_->SetInfo(AutoFillType(PHONE_FAX_COUNTRY_CODE),
-                                       country_code);
-            imported_profile_->SetInfo(AutoFillType(PHONE_FAX_CITY_CODE),
-                                       city_code);
-            imported_profile_->SetInfo(AutoFillType(PHONE_FAX_NUMBER), number);
+            imported_profile->SetInfo(AutoFillType(PHONE_FAX_COUNTRY_CODE),
+                                      country_code);
+            imported_profile->SetInfo(AutoFillType(PHONE_FAX_CITY_CODE),
+                                      city_code);
+            imported_profile->SetInfo(AutoFillType(PHONE_FAX_NUMBER), number);
           }
 
           continue;
@@ -217,7 +250,7 @@ bool PersonalDataManager::ImportFormData(
           if (group == AutoFillType::PHONE_FAX)
             number_type = AutoFillType(PHONE_FAX_NUMBER);
 
-          string16 stored_number = imported_profile_->GetFieldText(number_type);
+          string16 stored_number = imported_profile->GetFieldText(number_type);
           if (stored_number.size() ==
                   static_cast<size_t>(PhoneNumber::kPrefixLength) &&
               value.size() == static_cast<size_t>(PhoneNumber::kSuffixLength)) {
@@ -225,7 +258,10 @@ bool PersonalDataManager::ImportFormData(
           }
         }
 
-        imported_profile_->SetInfo(AutoFillType(field_type.field_type()),
+        if (field_type.field_type() == EMAIL_ADDRESS && !IsValidEmail(value))
+          continue;
+
+        imported_profile->SetInfo(AutoFillType(field_type.field_type()),
                                    value);
         ++importable_fields;
       }
@@ -235,34 +271,38 @@ bool PersonalDataManager::ImportFormData(
   // If the user did not enter enough information on the page then don't bother
   // importing the data.
   if (importable_fields < kMinProfileImportSize)
-    imported_profile_.reset();
+    imported_profile.reset();
   if (importable_credit_card_fields < kMinCreditCardImportSize)
-    imported_credit_card_.reset();
+    local_imported_credit_card.reset();
 
-  if (imported_credit_card_.get()) {
-    if (!CreditCard::IsCreditCardNumber(imported_credit_card_->GetFieldText(
+  if (imported_profile.get() && !IsMinimumAddress(*imported_profile.get()))
+    imported_profile.reset();
+
+  if (local_imported_credit_card.get() &&
+      !CreditCard::IsCreditCardNumber(local_imported_credit_card->GetFieldText(
           AutoFillType(CREDIT_CARD_NUMBER)))) {
-      imported_credit_card_.reset();
-    }
+    local_imported_credit_card.reset();
   }
 
   // Don't import if we already have this info.
-  if (imported_credit_card_.get()) {
+  if (local_imported_credit_card.get()) {
     for (std::vector<CreditCard*>::const_iterator iter = credit_cards_.begin();
          iter != credit_cards_.end();
          ++iter) {
-      if (imported_credit_card_->IsSubsetOf(**iter)) {
-        imported_credit_card_.reset();
+      if (local_imported_credit_card->IsSubsetOf(**iter)) {
+        local_imported_credit_card.reset();
         break;
       }
     }
   }
 
-  if (imported_profile_.get()) {
+  if (imported_profile.get()) {
     // We always save imported profiles.
-    SaveImportedProfile();
+    SaveImportedProfile(*imported_profile);
   }
+  *imported_credit_card = local_imported_credit_card.release();
 
+<<<<<<< HEAD
   return imported_profile_.get() || imported_credit_card_.get();
 #endif
 }
@@ -274,6 +314,9 @@ void PersonalDataManager::GetImportedFormData(AutoFillProfile** profile,
 
   *profile = imported_profile_.get();
   *credit_card = imported_credit_card_.get();
+=======
+  return imported_profile.get() || *imported_credit_card;
+>>>>>>> chromium.org at r11.0.672.0
 }
 
 void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
@@ -406,53 +449,8 @@ void PersonalDataManager::AddProfile(const AutoFillProfile& profile) {
       return;
   }
 
-  // Set to true if |profile| is merged into the profile list.
-  bool merged = false;
-
-  // First preference is to add missing values to an existing profile.
-  // Only merge with the first match.
   std::vector<AutoFillProfile> profiles;
-  for (std::vector<AutoFillProfile*>::const_iterator iter =
-           web_profiles_.begin();
-       iter != web_profiles_.end(); ++iter) {
-    if (!merged) {
-      if (profile.IsSubsetOf(**iter)) {
-        // In this case, the existing profile already contains all of the data
-        // in |profile|, so consider the profiles already merged.
-        merged = true;
-      } else if ((*iter)->IntersectionOfTypesHasEqualValues(profile)) {
-        // |profile| contains all of the data in this profile, plus more.
-        merged = true;
-        (*iter)->MergeWith(profile);
-      }
-    }
-    profiles.push_back(**iter);
-  }
-
-  // The second preference, if not merged above, is to alter non-primary values
-  // where the primary values match.
-  // Again, only merge with the first match.
-  if (!merged) {
-    profiles.clear();
-    for (std::vector<AutoFillProfile*>::const_iterator iter =
-             web_profiles_.begin();
-         iter != web_profiles_.end(); ++iter) {
-      if (!merged) {
-        if (!profile.PrimaryValue().empty() &&
-            (*iter)->PrimaryValue() == profile.PrimaryValue()) {
-          merged = true;
-          (*iter)->OverwriteWith(profile);
-        }
-      }
-      profiles.push_back(**iter);
-    }
-  }
-
-  // Finally, if the new profile was not merged with an existing profile then
-  // add the new profile to the list.
-  if (!merged)
-    profiles.push_back(profile);
-
+  MergeProfile(profile, web_profiles_.get(), &profiles);
   SetProfiles(&profiles);
 }
 
@@ -786,57 +784,118 @@ void PersonalDataManager::SetUniqueCreditCardLabels(
   }
 }
 
+<<<<<<< HEAD
 void PersonalDataManager::SaveImportedProfile() {
 #ifdef ANDROID
   // TODO: This should update the profile in Java land.
   return;
 #else
+=======
+void PersonalDataManager::SaveImportedProfile(
+    const AutoFillProfile& imported_profile) {
+>>>>>>> chromium.org at r11.0.672.0
   if (profile_->IsOffTheRecord())
     return;
 
-  if (!imported_profile_.get())
-    return;
-
-  AddProfile(*imported_profile_);
-#endif
+  AddProfile(imported_profile);
 }
 
-// TODO(jhawkins): Refactor and merge this with SaveImportedProfile.
-void PersonalDataManager::SaveImportedCreditCard() {
+bool PersonalDataManager::MergeProfile(
+    const AutoFillProfile& profile,
+    const std::vector<AutoFillProfile*>& existing_profiles,
+    std::vector<AutoFillProfile>* merged_profiles) {
+  DCHECK(merged_profiles);
+  merged_profiles->clear();
+
+  // Set to true if |profile| is merged into |existing_profiles|.
+  bool merged = false;
+
+  // First preference is to add missing values to an existing profile.
+  // Only merge with the first match.
+  for (std::vector<AutoFillProfile*>::const_iterator iter =
+           existing_profiles.begin();
+       iter != existing_profiles.end(); ++iter) {
+    if (!merged) {
+      if (profile.IsSubsetOf(**iter)) {
+        // In this case, the existing profile already contains all of the data
+        // in |profile|, so consider the profiles already merged.
+        merged = true;
+      } else if ((*iter)->IntersectionOfTypesHasEqualValues(profile)) {
+        // |profile| contains all of the data in this profile, plus more.
+        merged = true;
+        (*iter)->MergeWith(profile);
+      }
+    }
+    merged_profiles->push_back(**iter);
+  }
+
+<<<<<<< HEAD
+  AddProfile(*imported_profile_);
+#endif
+=======
+  // The second preference, if not merged above, is to alter non-primary values
+  // where the primary values match.
+  // Again, only merge with the first match.
+  if (!merged) {
+    merged_profiles->clear();
+    for (std::vector<AutoFillProfile*>::const_iterator iter =
+             existing_profiles.begin();
+         iter != existing_profiles.end(); ++iter) {
+      if (!merged) {
+        if (!profile.PrimaryValue().empty() &&
+            (*iter)->PrimaryValue() == profile.PrimaryValue()) {
+          merged = true;
+          (*iter)->OverwriteWith(profile);
+        }
+      }
+      merged_profiles->push_back(**iter);
+    }
+  }
+
+  // Finally, if the new profile was not merged with an existing profile then
+  // add the new profile to the list.
+  if (!merged)
+    merged_profiles->push_back(profile);
+
+  return merged;
+>>>>>>> chromium.org at r11.0.672.0
+}
+
+
+void PersonalDataManager::SaveImportedCreditCard(
+    const CreditCard& imported_credit_card) {
   if (profile_->IsOffTheRecord())
     return;
 
-  if (!imported_credit_card_.get())
-    return;
-
-  // Set to true if |imported_credit_card_| is merged into the profile list.
+  // Set to true if |imported_credit_card| is merged into the credit card list.
   bool merged = false;
 
   std::vector<CreditCard> creditcards;
-  for (std::vector<CreditCard*>::const_iterator iter =
-           credit_cards_.begin();
-       iter != credit_cards_.end(); ++iter) {
-    if (imported_credit_card_->IsSubsetOf(**iter)) {
+  for (std::vector<CreditCard*>::const_iterator iter = credit_cards_.begin();
+       iter != credit_cards_.end();
+       ++iter) {
+    if (imported_credit_card.IsSubsetOf(**iter)) {
       // In this case, the existing credit card already contains all of the data
-      // in |imported_credit_card_|, so consider the credit cards already
+      // in |imported_credit_card|, so consider the credit cards already
       // merged.
       merged = true;
     } else if ((*iter)->IntersectionOfTypesHasEqualValues(
-        *imported_credit_card_)) {
-      // |imported_profile| contains all of the data in this profile, plus more.
+        imported_credit_card)) {
+      // |imported_credit_card| contains all of the data in this credit card,
+      // plus more.
       merged = true;
-      (*iter)->MergeWith(*imported_credit_card_);
-    } else if (!imported_credit_card_->number().empty() &&
-               (*iter)->number() == imported_credit_card_->number()) {
+      (*iter)->MergeWith(imported_credit_card);
+    } else if (!imported_credit_card.number().empty() &&
+               (*iter)->number() == imported_credit_card.number()) {
       merged = true;
-      (*iter)->OverwriteWith(*imported_credit_card_);
+      (*iter)->OverwriteWith(imported_credit_card);
     }
 
     creditcards.push_back(**iter);
   }
 
   if (!merged)
-    creditcards.push_back(*imported_credit_card_);
+    creditcards.push_back(imported_credit_card);
 
   SetCreditCards(&creditcards);
 }

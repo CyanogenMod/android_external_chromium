@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #ifdef IPC_MESSAGE_LOG_ENABLED
 #define IPC_MESSAGE_MACROS_LOG_ENABLED
 
-#include "chrome/browser/views/about_ipc_dialog.h"
+#include "chrome/browser/ui/views/about_ipc_dialog.h"
 
 #include <set>
 
@@ -22,6 +22,7 @@
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/devtools_messages.h"
 #include "chrome/common/plugin_messages.h"
@@ -29,10 +30,10 @@
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_job.h"
 #include "net/url_request/url_request_job_tracker.h"
-#include "views/grid_layout.h"
 #include "views/controls/button/text_button.h"
 #include "views/controls/native/native_view_host.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/root_view.h"
 #include "views/widget/widget.h"
 #include "views/window/window.h"
@@ -67,7 +68,7 @@ RegisterLoggerFuncs g_register_logger_funcs;
 
 // The singleton dialog box. This is non-NULL when a dialog is active so we
 // know not to create a new one.
-AboutIPCDialog* active_dialog = NULL;
+AboutIPCDialog* g_active_dialog = NULL;
 
 std::set<int> disabled_messages;
 
@@ -207,22 +208,23 @@ AboutIPCDialog::AboutIPCDialog()
 }
 
 AboutIPCDialog::~AboutIPCDialog() {
-  active_dialog = NULL;
+  g_active_dialog = NULL;
   IPC::Logging::GetInstance()->SetConsumer(NULL);
 }
 
 // static
 void AboutIPCDialog::RunDialog() {
-  if (!active_dialog) {
-    active_dialog = new AboutIPCDialog;
-    views::Window::CreateChromeWindow(NULL, gfx::Rect(), active_dialog)->Show();
+  if (!g_active_dialog) {
+    g_active_dialog = new AboutIPCDialog;
+    views::Window::CreateChromeWindow(NULL, gfx::Rect(),
+                                      g_active_dialog)->Show();
   } else {
     // TOOD(brettw) it would be nice to focus the existing window.
   }
 }
 
 void AboutIPCDialog::SetupControls() {
-  views::GridLayout* layout = CreatePanelGridLayout(this);
+  views::GridLayout* layout = views::GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
 
   track_toggle_ = new views::TextButton(this, kStartTrackingLabel);
@@ -249,7 +251,7 @@ void AboutIPCDialog::SetupControls() {
   layout->AddView(track_toggle_);
   layout->AddView(clear_button_);
   layout->AddView(filter_button_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   layout->StartRow(1.0f, table_column_set);
   layout->AddView(table_);
 }
@@ -366,5 +368,13 @@ void AboutIPCDialog::ButtonPressed(
     RunSettingsDialog(GetRootView()->GetWidget()->GetNativeView());
   }
 }
+
+namespace browser {
+
+void ShowAboutIPCDialog() {
+  AboutIPCDialog::RunDialog();
+}
+
+} // namespace browser
 
 #endif  // IPC_MESSAGE_LOG_ENABLED

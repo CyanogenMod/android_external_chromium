@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include <map>
+#include <queue>
 #include <string>
 
 #include "base/callback.h"
@@ -15,15 +16,19 @@
 #include "base/scoped_ptr.h"
 #include "base/scoped_temp_dir.h"
 #include "base/task.h"
+#include "base/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "chrome/browser/browser_thread.h"
+#include "chrome/browser/renderer_host/test/test_render_view_host.h"
 #include "chrome/browser/safe_browsing/client_side_detection_service.h"
 #include "chrome/browser/safe_browsing/csd.pb.h"
+#include "chrome/common/render_messages.h"
 #include "chrome/common/net/test_url_fetcher_factory.h"
 #include "chrome/common/net/url_fetcher.h"
 #include "googleurl/src/gurl.h"
+#include "ipc/ipc_channel.h"
+#include "ipc/ipc_test_sink.h"
 #include "net/url_request/url_request_status.h"
-#include "third_party/skia/include/core/SkBitmap.h"
 
 namespace safe_browsing {
 
@@ -63,12 +68,10 @@ class ClientSideDetectionServiceTest : public testing::Test {
   }
 
   bool SendClientReportPhishingRequest(const GURL& phishing_url,
-                                       double score,
-                                       SkBitmap thumbnail) {
+                                       double score) {
     csd_service_->SendClientReportPhishingRequest(
         phishing_url,
         score,
-        thumbnail,
         NewCallback(this, &ClientSideDetectionServiceTest::SendRequestDone));
     phishing_url_ = phishing_url;
     msg_loop_.Run();  // Waits until callback is called.
@@ -85,6 +88,66 @@ class ClientSideDetectionServiceTest : public testing::Test {
     factory_->SetFakeResponse(
         ClientSideDetectionService::kClientReportPhishingUrl,
         response_data, success);
+  }
+
+  int GetNumReports() {
+    return csd_service_->GetNumReports();
+  }
+
+  std::queue<base::Time>& GetPhishingReportTimes() {
+    return csd_service_->phishing_report_times_;
+  }
+
+  void SetCache(const GURL& gurl, bool is_phishing, base::Time time) {
+    csd_service_->cache_[gurl] =
+        make_linked_ptr(new ClientSideDetectionService::CacheState(is_phishing,
+                                                                   time));
+  }
+
+  void TestCache() {
+    ClientSideDetectionService::PhishingCache& cache = csd_service_->cache_;
+    base::Time now = base::Time::Now();
+    base::Time time = now - ClientSideDetectionService::kNegativeCacheInterval +
+        base::TimeDelta::FromMinutes(5);
+    cache[GURL("http://first.url.com/")] =
+        make_linked_ptr(new ClientSideDetectionService::CacheState(false,
+                                                                   time));
+
+    time = now - ClientSideDetectionService::kNegativeCacheInterval -
+        base::TimeDelta::FromHours(1);
+    cache[GURL("http://second.url.com/")] =
+        make_linked_ptr(new ClientSideDetectionService::CacheState(false,
+                                                                   time));
+
+    time = now - ClientSideDetectionService::kPositiveCacheInterval -
+        base::TimeDelta::FromMinutes(5);
+    cache[GURL("http://third.url.com/")] =
+        make_linked_ptr(new ClientSideDetectionService::CacheState(true, time));
+
+    time = now - ClientSideDetectionService::kPositiveCacheInterval +
+        base::TimeDelta::FromMinutes(5);
+    cache[GURL("http://fourth.url.com/")] =
+        make_linked_ptr(new ClientSideDetectionService::CacheState(true, time));
+
+    csd_service_->UpdateCache();
+
+    // 3 elements should be in the cache, the first, third, and fourth.
+    EXPECT_EQ(3U, cache.size());
+    EXPECT_TRUE(cache.find(GURL("http://first.url.com/")) != cache.end());
+    EXPECT_TRUE(cache.find(GURL("http://third.url.com/")) != cache.end());
+    EXPECT_TRUE(cache.find(GURL("http://fourth.url.com/")) != cache.end());
+
+    // While 3 elements remain, only the first and the fourth are actually
+    // valid.
+    bool is_phishing;
+    EXPECT_TRUE(csd_service_->GetCachedResult(GURL("http://first.url.com"),
+                                              &is_phishing));
+    EXPECT_FALSE(is_phishing);
+    EXPECT_FALSE(csd_service_->GetCachedResult(GURL("http://third.url.com"),
+                                               &is_phishing));
+    EXPECT_TRUE(csd_service_->GetCachedResult(GURL("http://fourth.url.com"),
+                                              &is_phishing));
+    EXPECT_TRUE(is_phishing);
   }
 
  protected:
@@ -166,33 +229,181 @@ TEST_F(ClientSideDetectionServiceTest, SendClientReportPhishingRequest) {
   csd_service_.reset(ClientSideDetectionService::Create(
       tmp_dir.path().AppendASCII("model"), NULL));
 
-  // Invalid thumbnail.
-  SkBitmap thumbnail;
   GURL url("http://a.com/");
   double score = 0.4;  // Some random client score.
-  EXPECT_FALSE(SendClientReportPhishingRequest(url, score, thumbnail));
 
-  // Valid thumbnail but the server returns an error.
-  thumbnail.setConfig(SkBitmap::kARGB_8888_Config, 100, 100);
-  ASSERT_TRUE(thumbnail.allocPixels());
-  thumbnail.eraseRGB(255, 0, 0);
-  SetClientReportPhishingResponse("", false /* fail */);
-  EXPECT_FALSE(SendClientReportPhishingRequest(url, score, thumbnail));
+  base::Time before = base::Time::Now();
 
   // Invalid response body from the server.
   SetClientReportPhishingResponse("invalid proto response", true /* success */);
-  EXPECT_FALSE(SendClientReportPhishingRequest(url, score, thumbnail));
+  EXPECT_FALSE(SendClientReportPhishingRequest(url, score));
 
   // Normal behavior.
   ClientPhishingResponse response;
   response.set_phishy(true);
   SetClientReportPhishingResponse(response.SerializeAsString(),
                                   true /* success */);
-  EXPECT_TRUE(SendClientReportPhishingRequest(url, score, thumbnail));
+  EXPECT_TRUE(SendClientReportPhishingRequest(url, score));
+
+  // Caching causes this to still count as phishy.
   response.set_phishy(false);
   SetClientReportPhishingResponse(response.SerializeAsString(),
                                   true /* success */);
-  EXPECT_FALSE(SendClientReportPhishingRequest(url, score, thumbnail));
+  EXPECT_TRUE(SendClientReportPhishingRequest(url, score));
+
+  // This request will fail and should not be cached.
+  GURL second_url("http://b.com/");
+  response.set_phishy(false);
+  SetClientReportPhishingResponse(response.SerializeAsString(),
+                                  false /* success*/);
+  EXPECT_FALSE(SendClientReportPhishingRequest(second_url, score));
+
+  // Verify that the previous request was not cached.
+  response.set_phishy(true);
+  SetClientReportPhishingResponse(response.SerializeAsString(),
+                                  true /* success */);
+  EXPECT_TRUE(SendClientReportPhishingRequest(second_url, score));
+
+  // This request is blocked because it's not in the cache and we have more
+  // than 3 requests.
+  GURL third_url("http://c.com");
+  response.set_phishy(true);
+  SetClientReportPhishingResponse(response.SerializeAsString(),
+                                  true /* success */);
+  EXPECT_FALSE(SendClientReportPhishingRequest(third_url, score));
+
+  // Verify that caching still works even when new requests are blocked.
+  response.set_phishy(true);
+  SetClientReportPhishingResponse(response.SerializeAsString(),
+                                  true /* success */);
+  EXPECT_TRUE(SendClientReportPhishingRequest(url, score));
+
+  // Verify that we allow cache refreshing even when requests are blocked.
+  base::Time cache_time = base::Time::Now() - base::TimeDelta::FromHours(1);
+  SetCache(second_url, true, cache_time);
+
+  // Even though this element is in the cache, it's not currently valid so
+  // we make request and return that value instead.
+  response.set_phishy(false);
+  SetClientReportPhishingResponse(response.SerializeAsString(),
+                                  true /* success */);
+  EXPECT_FALSE(SendClientReportPhishingRequest(second_url, score));
+
+  base::Time after = base::Time::Now();
+
+  // Check that we have recorded 5 requests, all within the correct time range.
+  // The blocked request and the cached requests should not be present.
+  std::queue<base::Time>& report_times = GetPhishingReportTimes();
+  EXPECT_EQ(5U, report_times.size());
+  while (!report_times.empty()) {
+    base::Time time = report_times.back();
+    report_times.pop();
+    EXPECT_LE(before, time);
+    EXPECT_GE(after, time);
+  }
+}
+
+TEST_F(ClientSideDetectionServiceTest, GetNumReportTest) {
+  SetModelFetchResponse("bogus model", true /* success */);
+  ScopedTempDir tmp_dir;
+  ASSERT_TRUE(tmp_dir.CreateUniqueTempDir());
+  csd_service_.reset(ClientSideDetectionService::Create(
+      tmp_dir.path().AppendASCII("model"), NULL));
+
+  std::queue<base::Time>& report_times = GetPhishingReportTimes();
+  base::Time now = base::Time::Now();
+  base::TimeDelta twenty_five_hours = base::TimeDelta::FromHours(25);
+  report_times.push(now - twenty_five_hours);
+  report_times.push(now - twenty_five_hours);
+  report_times.push(now);
+  report_times.push(now);
+
+  EXPECT_EQ(2, GetNumReports());
+}
+
+TEST_F(ClientSideDetectionServiceTest, CacheTest) {
+  SetModelFetchResponse("bogus model", true /* success */);
+  ScopedTempDir tmp_dir;
+  ASSERT_TRUE(tmp_dir.CreateUniqueTempDir());
+  csd_service_.reset(ClientSideDetectionService::Create(
+      tmp_dir.path().AppendASCII("model"), NULL));
+
+  TestCache();
+}
+
+// We use a separate test fixture for testing the ClientSideDetectionService's
+// handling of load notifications from TabContents.  This uses
+// RenderViewHostTestHarness to set up a fake TabContents and related objects.
+class ClientSideDetectionServiceHooksTest : public RenderViewHostTestHarness,
+                                            public IPC::Channel::Listener {
+ public:
+  // IPC::Channel::Listener
+  virtual bool OnMessageReceived(const IPC::Message& msg) {
+    if (msg.type() == ViewMsg_StartPhishingDetection::ID) {
+      received_msg_ = msg;
+      did_receive_msg_ = true;
+      return true;
+    }
+    return false;
+  }
+
+ protected:
+  virtual void SetUp() {
+    RenderViewHostTestHarness::SetUp();
+    file_thread_.reset(new BrowserThread(BrowserThread::FILE, &message_loop_));
+    ui_thread_.reset(new BrowserThread(BrowserThread::UI, &message_loop_));
+
+    // We're not exercising model fetching here, so just set up a canned
+    // success response.
+    factory_.reset(new FakeURLFetcherFactory());
+    factory_->SetFakeResponse(ClientSideDetectionService::kClientModelUrl,
+                              "dummy model data", true);
+    URLFetcher::set_factory(factory_.get());
+
+    process()->sink().AddFilter(this);
+  }
+
+  virtual void TearDown() {
+    process()->sink().RemoveFilter(this);
+    URLFetcher::set_factory(NULL);
+    file_thread_.reset();
+    ui_thread_.reset();
+    RenderViewHostTestHarness::TearDown();
+  }
+
+  scoped_ptr<FakeURLFetcherFactory> factory_;
+  scoped_ptr<BrowserThread> ui_thread_;
+  scoped_ptr<BrowserThread> file_thread_;
+  IPC::Message received_msg_;
+  bool did_receive_msg_;
+};
+
+TEST_F(ClientSideDetectionServiceHooksTest, ShouldClassifyUrl) {
+  ScopedTempDir tmp_dir;
+  ASSERT_TRUE(tmp_dir.CreateUniqueTempDir());
+  FilePath model_path = tmp_dir.path().AppendASCII("model");
+
+  scoped_ptr<ClientSideDetectionService> csd_service(
+      ClientSideDetectionService::Create(model_path, NULL));
+
+  // Navigate the tab to a page.  We should see a StartPhishingDetection IPC.
+  did_receive_msg_ = false;
+  NavigateAndCommit(GURL("http://host.com/"));
+  // The IPC is sent asynchronously, so run the message loop to wait for
+  // the message.
+  MessageLoop::current()->RunAllPending();
+  ASSERT_TRUE(did_receive_msg_);
+
+  Tuple1<GURL> url;
+  ViewMsg_StartPhishingDetection::Read(&received_msg_, &url);
+  EXPECT_EQ(GURL("http://host.com/"), url.a);
+  EXPECT_EQ(rvh()->routing_id(), received_msg_.routing_id());
+
+  // Now try an in-page navigation.  This should not trigger an IPC.
+  did_receive_msg_ = false;
+  NavigateAndCommit(GURL("http://host.com/#foo"));
+  MessageLoop::current()->RunAllPending();
+  ASSERT_FALSE(did_receive_msg_);
 }
 
 }  // namespace safe_browsing

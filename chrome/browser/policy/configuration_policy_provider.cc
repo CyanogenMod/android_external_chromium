@@ -17,6 +17,10 @@ ConfigurationPolicyProvider::ConfigurationPolicyProvider(
 
 ConfigurationPolicyProvider::~ConfigurationPolicyProvider() {}
 
+bool ConfigurationPolicyProvider::IsInitializationComplete() const {
+  return true;
+}
+
 void ConfigurationPolicyProvider::DecodePolicyValueTree(
     const DictionaryValue* policies,
     ConfigurationPolicyStoreInterface* store) {
@@ -34,7 +38,9 @@ void ConfigurationPolicyProvider::DecodePolicyValueTree(
 
 // Class ConfigurationPolicyObserverRegistrar.
 
-ConfigurationPolicyObserverRegistrar::ConfigurationPolicyObserverRegistrar() {}
+ConfigurationPolicyObserverRegistrar::ConfigurationPolicyObserverRegistrar()
+  : provider_(NULL),
+    observer_(NULL) {}
 
 ConfigurationPolicyObserverRegistrar::~ConfigurationPolicyObserverRegistrar() {
   if (provider_)

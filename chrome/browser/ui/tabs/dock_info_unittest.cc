@@ -4,8 +4,8 @@
 
 #include "base/basictypes.h"
 #include "chrome/browser/ui/tabs/dock_info.h"
-#include "gfx/point.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/gfx/point.h"
 
 namespace {
 // Distance in pixels between the hotspot and when the hint should be shown.
@@ -101,7 +101,7 @@ TEST(DockInfoTest, IsCloseToMonitorPoint) {
 
 TEST(DockInfoTest, IsValidForPoint) {
   DockInfo d;
-  EXPECT_EQ(false, d.IsValidForPoint(gfx::Point(0, 0)));
+  EXPECT_FALSE(d.IsValidForPoint(gfx::Point(0, 0)));
   d.set_monitor_bounds(gfx::Rect(0, 0, kPopupWidth, kPopupHeight));
   d.set_hot_spot(gfx::Point(0, 0));
   d.set_type(DockInfo::LEFT_HALF);
@@ -124,9 +124,9 @@ TEST(DockInfoTest, IsValidForPoint) {
 TEST(DockInfoTest, equals) {
   DockInfo d;
   DockInfo dd;
-  EXPECT_EQ(true, d.equals(dd));
+  EXPECT_TRUE(d.equals(dd));
   d.set_type(DockInfo::MAXIMIZE);
-  EXPECT_EQ(false, d.equals(dd));
+  EXPECT_FALSE(d.equals(dd));
 }
 
 TEST(DockInfoTest, CheckMonitorPoint) {

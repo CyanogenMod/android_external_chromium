@@ -7,6 +7,7 @@
 #include "net/base/net_errors.h"
 #include "net/http/http_auth_handler.h"
 #include "net/http/http_auth_handler_factory.h"
+#include "net/http/mock_allow_url_security_manager.h"
 #include "net/http/url_security_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -97,7 +98,7 @@ TEST(HttpAuthHandlerFactoryTest, RegistryFactory) {
 
 TEST(HttpAuthHandlerFactoryTest, DefaultFactory) {
   scoped_ptr<HostResolver> host_resolver(new MockHostResolver());
-  URLSecurityManagerAllow url_security_manager;
+  MockAllowURLSecurityManager url_security_manager;
   scoped_ptr<HttpAuthHandlerRegistryFactory> http_auth_handler_factory(
       HttpAuthHandlerFactory::CreateDefault(host_resolver.get()));
   http_auth_handler_factory->SetURLSecurityManager(
@@ -114,7 +115,7 @@ TEST(HttpAuthHandlerFactoryTest, DefaultFactory) {
         &handler);
     EXPECT_EQ(OK, rv);
     ASSERT_FALSE(handler.get() == NULL);
-    EXPECT_STREQ("basic", handler->scheme().c_str());
+    EXPECT_EQ(HttpAuth::AUTH_SCHEME_BASIC, handler->auth_scheme());
     EXPECT_STREQ("FooBar", handler->realm().c_str());
     EXPECT_EQ(HttpAuth::AUTH_SERVER, handler->target());
     EXPECT_FALSE(handler->encrypts_identity());
@@ -141,7 +142,7 @@ TEST(HttpAuthHandlerFactoryTest, DefaultFactory) {
         &handler);
     EXPECT_EQ(OK, rv);
     ASSERT_FALSE(handler.get() == NULL);
-    EXPECT_STREQ("digest", handler->scheme().c_str());
+    EXPECT_EQ(HttpAuth::AUTH_SCHEME_DIGEST, handler->auth_scheme());
     EXPECT_STREQ("FooBar", handler->realm().c_str());
     EXPECT_EQ(HttpAuth::AUTH_PROXY, handler->target());
     EXPECT_TRUE(handler->encrypts_identity());
@@ -157,7 +158,7 @@ TEST(HttpAuthHandlerFactoryTest, DefaultFactory) {
         &handler);
     EXPECT_EQ(OK, rv);
     ASSERT_FALSE(handler.get() == NULL);
-    EXPECT_STREQ("ntlm", handler->scheme().c_str());
+    EXPECT_EQ(HttpAuth::AUTH_SCHEME_NTLM, handler->auth_scheme());
     EXPECT_STREQ("", handler->realm().c_str());
     EXPECT_EQ(HttpAuth::AUTH_SERVER, handler->target());
     EXPECT_TRUE(handler->encrypts_identity());
@@ -173,7 +174,7 @@ TEST(HttpAuthHandlerFactoryTest, DefaultFactory) {
         &handler);
     EXPECT_EQ(OK, rv);
     ASSERT_FALSE(handler.get() == NULL);
-    EXPECT_STREQ("negotiate", handler->scheme().c_str());
+    EXPECT_EQ(HttpAuth::AUTH_SCHEME_NEGOTIATE, handler->auth_scheme());
     EXPECT_STREQ("", handler->realm().c_str());
     EXPECT_EQ(HttpAuth::AUTH_SERVER, handler->target());
     EXPECT_TRUE(handler->encrypts_identity());

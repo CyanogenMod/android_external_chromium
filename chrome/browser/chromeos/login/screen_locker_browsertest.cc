@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,9 @@
 #include "chrome/browser/chromeos/login/screen_locker.h"
 #include "chrome/browser/chromeos/login/screen_locker_tester.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/views/browser_dialogs.h"
+#include "chrome/browser/ui/views/browser_dialogs.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
@@ -135,6 +136,18 @@ class ScreenLockerTest : public CrosInProcessBrowserTest {
     EXPECT_FALSE(tester->IsLocked());
   }
 
+  void LockScreenWithUser(test::ScreenLockerTester* tester,
+                          const std::string& user) {
+    UserManager::Get()->UserLoggedIn(user);
+    ScreenLocker::Show();
+    tester->EmulateWindowManagerReady();
+    if (!tester->IsLocked()) {
+      ui_test_utils::WaitForNotification(
+          NotificationType::SCREEN_LOCK_STATE_CHANGED);
+    }
+    EXPECT_TRUE(tester->IsLocked());
+  }
+
  private:
   virtual void SetUpInProcessBrowserTestFixture() {
     cros_mock_->InitStatusAreaMocks();
@@ -161,8 +174,7 @@ class ScreenLockerTest : public CrosInProcessBrowserTest {
   DISALLOW_COPY_AND_ASSIGN(ScreenLockerTest);
 };
 
-// PulseAudioMixer sometimes crashes at exit. See http://crosbug.om/9303
-IN_PROC_BROWSER_TEST_F(ScreenLockerTest, FLAKY_TestBasic) {
+IN_PROC_BROWSER_TEST_F(ScreenLockerTest, TestBasic) {
   EXPECT_CALL(*mock_input_method_library_, GetNumActiveInputMethods())
       .Times(1)
       .WillRepeatedly((testing::Return(0)))
@@ -256,7 +268,7 @@ IN_PROC_BROWSER_TEST_F(ScreenLockerTest, TestNoPasswordWithMouseClick) {
 
 void KeyPress(views::Widget* widget) {
   ui_controls::SendKeyPress(GTK_WINDOW(widget->GetNativeView()),
-                            app::VKEY_SPACE, false, false, false, false);
+                            ui::VKEY_SPACE, false, false, false, false);
 }
 
 IN_PROC_BROWSER_TEST_F(ScreenLockerTest, TestNoPasswordWithKeyPress) {
@@ -267,19 +279,39 @@ IN_PROC_BROWSER_TEST_F(ScreenLockerTest, TestShowTwice) {
   EXPECT_CALL(*mock_screen_lock_library_, NotifyScreenLockCompleted())
       .Times(2)
       .RetiresOnSaturation();
-
-  UserManager::Get()->UserLoggedIn("user");
-  ScreenLocker::Show();
   scoped_ptr<test::ScreenLockerTester> tester(ScreenLocker::GetTester());
-  tester->EmulateWindowManagerReady();
-  if (!chromeos::ScreenLocker::GetTester()->IsLocked())
-    ui_test_utils::WaitForNotification(
-        NotificationType::SCREEN_LOCK_STATE_CHANGED);
-  EXPECT_TRUE(tester->IsLocked());
+  LockScreenWithUser(tester.get(), "user");
+
+  // Ensure there's a profile or this test crashes.
+  ProfileManager::GetDefaultProfile();
 
   // Calling Show again simply send LockCompleted signal.
   ScreenLocker::Show();
   EXPECT_TRUE(tester->IsLocked());
+
+  // Close the locker to match expectations.
+  ScreenLocker::Hide();
+  ui_test_utils::RunAllPendingInMessageLoop();
+  EXPECT_FALSE(tester->IsLocked());
+}
+
+IN_PROC_BROWSER_TEST_F(ScreenLockerTest, TestEscape) {
+  EXPECT_CALL(*mock_screen_lock_library_, NotifyScreenLockCompleted())
+      .Times(1)
+      .RetiresOnSaturation();
+  scoped_ptr<test::ScreenLockerTester> tester(ScreenLocker::GetTester());
+  LockScreenWithUser(tester.get(), "user");
+
+  // Ensure there's a profile or this test crashes.
+  ProfileManager::GetDefaultProfile();
+
+  tester->SetPassword("password");
+  EXPECT_EQ("password", tester->GetPassword());
+  // Escape clears the password.
+  ui_controls::SendKeyPress(GTK_WINDOW(tester->GetWidget()->GetNativeView()),
+                            ui::VKEY_ESCAPE, false, false, false, false);
+  ui_test_utils::RunAllPendingInMessageLoop();
+  EXPECT_EQ("", tester->GetPassword());
 
   // Close the locker to match expectations.
   ScreenLocker::Hide();

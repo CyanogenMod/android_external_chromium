@@ -22,22 +22,33 @@ class UsernameView : public views::Label {
  public:
   virtual ~UsernameView() {}
 
-  // Overriden from views::Label.
-  virtual void Paint(gfx::Canvas* canvas);
-
   // Returns the shaped username view to be used on the login screen. If
   // |user_small_shape| is true, then one pixel margins are used. This is done
   // to match the shape of the scaled frame of the user image. The caller gets
   // the ownership.
+  // Empty |username| stands for guest user.
   static UsernameView* CreateShapedUsernameView(const std::wstring& username,
                                                 bool use_small_shape);
 
  protected:
   // Constructs username view for the given |username|. Consider using
   // |CreateShapedUsernameView| to match the login page style.
-  explicit UsernameView(const std::wstring& username);
+  // Empty |username| stands for guest user.
+  UsernameView(const std::wstring& username, bool use_small_shape);
+
+  // Overriden from views::Label.
+  virtual void Paint(gfx::Canvas* canvas);
+
+  // True indicates that this UsernameView is used for a user pod not
+  // currently selected.
+  bool use_small_shape() const { return use_small_shape_; }
 
  private:
+  // Overriden from View.
+  virtual gfx::NativeCursor GetCursorForPoint(
+      ui::EventType event_type,
+      const gfx::Point& p);
+  virtual void OnLocaleChanged();
 
   // Paints username to the bitmap with the bounds given.
   void PaintUsername(const gfx::Rect& bounds);
@@ -47,6 +58,12 @@ class UsernameView : public views::Label {
 
   // Holds margins width (depends on the height).
   int margin_width_;
+
+  // Whether the shape for the smaller view should be used.
+  bool use_small_shape_;
+
+  // Whether it is a guest.
+  bool is_guest_;
 
   DISALLOW_COPY_AND_ASSIGN(UsernameView);
 };

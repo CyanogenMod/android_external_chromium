@@ -1,20 +1,21 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/options/exceptions_page_view.h"
+#include "chrome/browser/ui/views/options/exceptions_page_view.h"
 
-#include "app/l10n_util.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/text/text_elider.h"
 #include "views/background.h"
 #include "views/controls/button/native_button.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 
 using views::ColumnSet;
 using views::GridLayout;
@@ -55,7 +56,7 @@ void ExceptionsTableModel::OnPasswordStoreRequestDone(
       UTF8ToWide(profile_->GetPrefs()->GetString(prefs::kAcceptLanguages));
   for (size_t i = 0; i < result.size(); ++i) {
     saved_signons_.push_back(new PasswordRow(
-        gfx::SortedDisplayURL(result[i]->origin, languages), result[i]));
+        ui::SortedDisplayURL(result[i]->origin, languages), result[i]));
   }
   if (observer_)
     observer_->OnModelChanged();
@@ -128,7 +129,7 @@ void ExceptionsPageView::InitControlLayout() {
   SetupTable();
 
   // Do the layout thing.
-  GridLayout* layout = CreatePanelGridLayout(this);
+  GridLayout* layout = GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
 
   const int top_column_set_id = 0;
@@ -137,7 +138,7 @@ void ExceptionsPageView::InitControlLayout() {
   ColumnSet* column_set = layout->AddColumnSet(top_column_set_id);
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 1,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
 
@@ -147,11 +148,11 @@ void ExceptionsPageView::InitControlLayout() {
                   GridLayout::FILL);
   layout->AddView(&remove_button_);
   layout->StartRowWithPadding(0, top_column_set_id, 0,
-                              kRelatedControlVerticalSpacing);
+                              views::kRelatedControlVerticalSpacing);
   layout->SkipColumns(1);
   layout->AddView(&remove_all_button_);
   layout->StartRowWithPadding(0, top_column_set_id, 0,
-                              kRelatedControlVerticalSpacing);
+                              views::kRelatedControlVerticalSpacing);
 
   layout->SkipColumns(1);
   layout->AddView(&show_button_);
@@ -182,9 +183,9 @@ void ExceptionsPageView::SetupTable() {
 
   // Creates the different columns for the table.
   // The float resize values are the result of much tinkering.
-  std::vector<TableColumn> columns;
-  columns.push_back(TableColumn(IDS_PASSWORDS_PAGE_VIEW_SITE_COLUMN,
-                                TableColumn::LEFT, -1, 0.55f));
+  std::vector<ui::TableColumn> columns;
+  columns.push_back(ui::TableColumn(IDS_PASSWORDS_PAGE_VIEW_SITE_COLUMN,
+                                    ui::TableColumn::LEFT, -1, 0.55f));
   columns.back().sortable = true;
   table_view_ = new views::TableView(&table_model_, columns, views::TEXT_ONLY,
                                      true, true, true);

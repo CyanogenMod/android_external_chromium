@@ -31,8 +31,6 @@
 
 using base::Time;
 
-namespace {
-
 // NavigationControllerTest ----------------------------------------------------
 
 class NavigationControllerTest : public RenderViewHostTestHarness {
@@ -1641,7 +1639,7 @@ TEST_F(NavigationControllerTest, ViewSourceRedirect) {
   controller().RendererDidNavigate(params, 0, &details);
 
   EXPECT_EQ(ASCIIToUTF16(kExpected), contents()->GetTitle());
-  EXPECT_EQ(true, contents()->ShouldDisplayURL());
+  EXPECT_TRUE(contents()->ShouldDisplayURL());
 }
 
 // Make sure that on cloning a tabcontents and going back needs_reload is false.
@@ -1725,6 +1723,7 @@ TEST_F(NavigationControllerTest, CopyStateFromAndPrune) {
 
   scoped_ptr<TestTabContents> other_contents(CreateTestTabContents());
   NavigationController& other_controller = other_contents->controller();
+  SessionID other_id(other_controller.session_id());
   other_contents->NavigateAndCommit(url3);
   other_controller.CopyStateFromAndPrune(&controller());
 
@@ -1738,10 +1737,9 @@ TEST_F(NavigationControllerTest, CopyStateFromAndPrune) {
   EXPECT_EQ(url2, other_controller.GetEntryAtIndex(1)->url());
   EXPECT_EQ(url3, other_controller.GetEntryAtIndex(2)->url());
 
-  // The session id of the new tab should be that of the old, and the old should
-  // get a new id.
-  EXPECT_EQ(id.id(), other_controller.session_id().id());
-  EXPECT_NE(id.id(), controller().session_id().id());
+  // Make sure session ids didn't change.
+  EXPECT_EQ(id.id(), controller().session_id().id());
+  EXPECT_EQ(other_id.id(), other_controller.session_id().id());
 }
 
 // Test CopyStateFromAndPrune with 2 urls, the first selected and nothing in
@@ -1758,6 +1756,7 @@ TEST_F(NavigationControllerTest, CopyStateFromAndPrune2) {
 
   scoped_ptr<TestTabContents> other_contents(CreateTestTabContents());
   NavigationController& other_controller = other_contents->controller();
+  SessionID other_id(other_controller.session_id());
   other_controller.CopyStateFromAndPrune(&controller());
 
   // other_controller should now contain the 1 url: url1.
@@ -1768,10 +1767,9 @@ TEST_F(NavigationControllerTest, CopyStateFromAndPrune2) {
 
   EXPECT_EQ(url1, other_controller.GetEntryAtIndex(0)->url());
 
-  // The session id of the new tab should be that of the old, and the old should
-  // get a new id.
-  EXPECT_EQ(id.id(), other_controller.session_id().id());
-  EXPECT_NE(id.id(), controller().session_id().id());
+  // Make sure session ids didn't change.
+  EXPECT_EQ(id.id(), controller().session_id().id());
+  EXPECT_EQ(other_id.id(), other_controller.session_id().id());
 }
 
 // Test CopyStateFromAndPrune with 2 urls, the first selected and nothing in
@@ -1788,6 +1786,7 @@ TEST_F(NavigationControllerTest, CopyStateFromAndPrune3) {
 
   scoped_ptr<TestTabContents> other_contents(CreateTestTabContents());
   NavigationController& other_controller = other_contents->controller();
+  SessionID other_id(other_controller.session_id());
   other_controller.LoadURL(url3, GURL(), PageTransition::TYPED);
   other_controller.CopyStateFromAndPrune(&controller());
 
@@ -1805,10 +1804,9 @@ TEST_F(NavigationControllerTest, CopyStateFromAndPrune3) {
 
   EXPECT_EQ(url3, other_controller.pending_entry()->url());
 
-  // The session id of the new tab should be that of the old, and the old should
-  // be get a new id.
-  EXPECT_EQ(id.id(), other_controller.session_id().id());
-  EXPECT_NE(id.id(), controller().session_id().id());
+  // Make sure session ids didn't change.
+  EXPECT_EQ(id.id(), controller().session_id().id());
+  EXPECT_EQ(other_id.id(), other_controller.session_id().id());
 }
 
 // Tests that navigations initiated from the page (with the history object)
@@ -1824,14 +1822,9 @@ TEST_F(NavigationControllerTest, HistoryNavigate) {
   controller().GoBack();
   contents()->CommitPendingNavigation();
 
-  // Casts the TabContents to a RenderViewHostDelegate::BrowserIntegration so we
-  // can call GoToEntryAtOffset which is private.
-  RenderViewHostDelegate::BrowserIntegration* rvh_delegate =
-      static_cast<RenderViewHostDelegate::BrowserIntegration*>(contents());
-
   // Simulate the page calling history.back(), it should not create a pending
   // entry.
-  rvh_delegate->GoToEntryAtOffset(-1);
+  contents()->OnGoToEntryAtOffset(-1);
   EXPECT_EQ(-1, controller().pending_entry_index());
   // The actual cross-navigation is suspended until the current RVH tells us
   // it unloaded, simulate that.
@@ -1846,7 +1839,7 @@ TEST_F(NavigationControllerTest, HistoryNavigate) {
   process()->sink().ClearMessages();
 
   // Now test history.forward()
-  rvh_delegate->GoToEntryAtOffset(1);
+  contents()->OnGoToEntryAtOffset(1);
   EXPECT_EQ(-1, controller().pending_entry_index());
   // The actual cross-navigation is suspended until the current RVH tells us
   // it unloaded, simulate that.
@@ -1858,7 +1851,7 @@ TEST_F(NavigationControllerTest, HistoryNavigate) {
   process()->sink().ClearMessages();
 
   // Make sure an extravagant history.go() doesn't break.
-  rvh_delegate->GoToEntryAtOffset(120);  // Out of bounds.
+  contents()->OnGoToEntryAtOffset(120);  // Out of bounds.
   EXPECT_EQ(-1, controller().pending_entry_index());
   message = process()->sink().GetFirstMessageMatching(ViewMsg_Navigate::ID);
   EXPECT_TRUE(message == NULL);
@@ -2030,5 +2023,3 @@ TEST_F(NavigationControllerHistoryTest, NavigationPruning) {
                                          windows_[0]->tabs[0]->navigations[1]);
 }
 */
-
-}  // namespace

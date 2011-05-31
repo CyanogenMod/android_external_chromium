@@ -4,12 +4,12 @@
 
 #include "chrome/common/badge_util.h"
 
-#include "app/resource_bundle.h"
 #include "base/utf_string_conversions.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/font.h"
 #include "third_party/skia/include/core/SkPaint.h"
 #include "third_party/skia/include/core/SkTypeface.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/font.h"
 
 namespace badge_util {
 
@@ -40,7 +40,7 @@ SkPaint* GetBadgeTextPaintSingleton() {
       ResourceBundle& rb = ResourceBundle::GetSharedInstance();
       const gfx::Font& base_font = rb.GetFont(ResourceBundle::BaseFont);
       typeface = SkTypeface::CreateFromName(
-          WideToUTF8(base_font.GetFontName()).c_str(), SkTypeface::kNormal);
+          UTF16ToUTF8(base_font.GetFontName()).c_str(), SkTypeface::kNormal);
     }
 
     text_paint->setTypeface(typeface);

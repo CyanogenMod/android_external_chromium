@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,6 +27,8 @@ extern const char kURLsToRestoreOnStartup[];
 extern const char kApplicationLocale[];
 #if defined(OS_CHROMEOS)
 extern const char kApplicationLocaleBackup[];
+extern const char kApplicationLocaleAccepted[];
+extern const char kOwnerLocale[];
 #endif
 
 extern const char kDefaultCharset[];
@@ -61,6 +63,7 @@ extern const char kPasswordManagerAllowShowPasswords[];
 extern const char kFormAutofillEnabled[];  // OBSOLETE
 extern const char kSafeBrowsingEnabled[];
 extern const char kSafeBrowsingReportingEnabled[];
+extern const char kIncognitoEnabled[];
 extern const char kSearchSuggestEnabled[];
 extern const char kCookieBehavior[];  // OBSOLETE
 extern const char kDefaultSearchProviderEnabled[];
@@ -96,6 +99,8 @@ extern const char kSSL3Enabled[];
 extern const char kTLS1Enabled[];
 #endif
 #if defined(OS_CHROMEOS)
+extern const char kAudioMute[];
+extern const char kAudioVolume[];
 extern const char kTapToClickEnabled[];
 extern const char kTouchpadSensitivity[];
 extern const char kLanguageCurrentInputMethod[];
@@ -173,7 +178,6 @@ extern const char kDeleteCache[];
 extern const char kDeleteCookies[];
 extern const char kDeletePasswords[];
 extern const char kDeleteFormData[];
-extern const char kDeleteLSOData[];
 extern const char kClearPluginLSODataEnabled[];
 extern const char kEnableSpellCheck[];
 extern const char kEnabledLabsExperiments[];
@@ -202,7 +206,10 @@ extern const char kPluginsLastInternalDirectory[];
 extern const char kPluginsPluginsList[];
 extern const char kPluginsPluginsBlacklist[];
 extern const char kPluginsEnabledInternalPDF[];
+extern const char kPluginsShowSetReaderDefaultInfobar[];
+extern const char kPluginsShowDetails[];
 extern const char kCheckDefaultBrowser[];
+extern const char kDefaultBrowserSettingEnabled[];
 #if defined(OS_MACOSX)
 extern const char kShowUpdatePromotionInfoBar[];
 #endif
@@ -219,7 +226,6 @@ extern const char kContentSettingsPatterns[];
 extern const char kBlockThirdPartyCookies[];
 extern const char kBlockNonsandboxedPlugins[];
 extern const char kClearSiteDataOnExit[];
-extern const char kClearPluginLSODataOnExit[];
 extern const char kDefaultZoomLevel[];
 extern const char kPerHostZoomLevels[];
 extern const char kAutoFillEnabled[];
@@ -232,6 +238,7 @@ extern const char kAutoFillPersonalDataManagerFirstRun[];
 extern const char kUseVerticalTabs[];
 extern const char kEnableTranslate[];
 extern const char kPinnedTabs[];
+extern const char kPolicyRefreshRate[];
 
 // Local state
 extern const char kMetricsClientID[];
@@ -258,6 +265,9 @@ extern const char kStabilityLaunchTimeSec[];
 extern const char kStabilityLastTimestampSec[];
 extern const char kStabilityRendererHangCount[];
 extern const char kStabilityChildProcessCrashCount[];
+extern const char kStabilityOtherUserCrashCount[];
+extern const char kStabilityKernelCrashCount[];
+extern const char kStabilitySystemUncleanShutdownCount[];
 
 extern const char kStabilityBreakpadRegistrationSuccess[];
 extern const char kStabilityBreakpadRegistrationFail[];
@@ -289,6 +299,7 @@ extern const char kDownloadExtensionsToOpen[];
 extern const char kDownloadDirUpgraded[];
 
 extern const char kSaveFileDefaultDirectory[];
+extern const char kSaveFileType[];
 
 extern const char kSelectFileLastDirectory[];
 
@@ -363,6 +374,9 @@ extern const char kNTPPromoStart[];
 extern const char kNTPPromoEnd[];
 extern const char kNTPPromoLine[];
 extern const char kNTPPromoClosed[];
+extern const char kNTPPromoGroup[];
+extern const char kNTPPromoGroupTimeSlice[];
+extern const char kNTPPromoBuild[];
 
 extern const char kDevToolsDisabled[];
 extern const char kDevToolsOpenDocked[];
@@ -412,10 +426,7 @@ extern const char kCloudPrintPrintSystemSettings[];
 extern const char kRemotingHasSetupCompleted[];
 extern const char kRemotingHostEnabled[];
 
-extern const char kProxyMode[];
-extern const char kProxyServer[];
-extern const char kProxyPacUrl[];
-extern const char kProxyBypassList[];
+extern const char kProxy[];
 
 extern const char kManagedDefaultCookiesSetting[];
 extern const char kManagedDefaultImagesSetting[];
@@ -425,6 +436,7 @@ extern const char kManagedDefaultPopupsSetting[];
 
 #if defined(OS_CHROMEOS)
 extern const char kSignedSettingsTempStorage[];
+extern const char kHardwareKeyboardLayout[];
 #endif
 
 extern const char kRegisteredBackgroundContents[];

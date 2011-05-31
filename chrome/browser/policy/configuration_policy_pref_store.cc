@@ -23,14 +23,13 @@
 #include "chrome/browser/policy/device_management_policy_provider.h"
 #include "chrome/browser/policy/profile_policy_context.h"
 #include "chrome/browser/prefs/pref_value_map.h"
-#include "chrome/browser/prefs/proxy_prefs.h"
+#include "chrome/browser/prefs/proxy_config_dictionary.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/search_terms_data.h"
 #include "chrome/browser/search_engines/template_url.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
-#include "chrome/common/policy_constants.h"
 #include "chrome/common/pref_names.h"
+#include "policy/policy_constants.h"
 
 namespace policy {
 
@@ -107,8 +106,9 @@ class ConfigurationPolicyPrefKeeper
   // respective values in |prefs_|.
   void FinalizeProxyPolicySettings();
 
-  // Returns true if the policy values stored in proxy_* represent a valid
-  // proxy configuration.
+  // Returns true if the policy values stored in proxy_* represent a valid proxy
+  // configuration, including the case in which there is no configuration at
+  // all.
   bool CheckProxySettings();
 
   // Assumes CheckProxySettings returns true and applies the values stored
@@ -150,12 +150,12 @@ class ConfigurationPolicyPrefKeeper
 
 const ConfigurationPolicyPrefKeeper::PolicyToPreferenceMapEntry
     ConfigurationPolicyPrefKeeper::kSimplePolicyMap[] = {
-  { Value::TYPE_STRING, kPolicyHomePage,  prefs::kHomePage },
+  { Value::TYPE_STRING, kPolicyHomepageLocation,  prefs::kHomePage },
   { Value::TYPE_BOOLEAN, kPolicyHomepageIsNewTabPage,
     prefs::kHomePageIsNewTabPage },
   { Value::TYPE_INTEGER, kPolicyRestoreOnStartup,
     prefs::kRestoreOnStartup},
-  { Value::TYPE_LIST, kPolicyURLsToRestoreOnStartup,
+  { Value::TYPE_LIST, kPolicyRestoreOnStartupURLs,
     prefs::kURLsToRestoreOnStartup },
   { Value::TYPE_BOOLEAN, kPolicyAlternateErrorPagesEnabled,
     prefs::kAlternateErrorPagesEnabled },
@@ -175,13 +175,13 @@ const ConfigurationPolicyPrefKeeper::PolicyToPreferenceMapEntry
     prefs::kPrintingEnabled },
   { Value::TYPE_BOOLEAN, kPolicyMetricsReportingEnabled,
     prefs::kMetricsReportingEnabled },
-  { Value::TYPE_STRING, kPolicyApplicationLocale,
+  { Value::TYPE_STRING, kPolicyApplicationLocaleValue,
     prefs::kApplicationLocale},
-  { Value::TYPE_LIST, kPolicyExtensionInstallAllowList,
+  { Value::TYPE_LIST, kPolicyExtensionInstallWhitelist,
     prefs::kExtensionInstallAllowList},
-  { Value::TYPE_LIST, kPolicyExtensionInstallDenyList,
+  { Value::TYPE_LIST, kPolicyExtensionInstallBlacklist,
     prefs::kExtensionInstallDenyList},
-  { Value::TYPE_LIST, kPolicyExtensionInstallForceList,
+  { Value::TYPE_LIST, kPolicyExtensionInstallForcelist,
     prefs::kExtensionInstallForceList},
   { Value::TYPE_LIST, kPolicyDisabledPlugins,
     prefs::kPluginsPluginsBlacklist},
@@ -189,6 +189,8 @@ const ConfigurationPolicyPrefKeeper::PolicyToPreferenceMapEntry
     prefs::kShowHomeButton },
   { Value::TYPE_BOOLEAN, kPolicyJavascriptEnabled,
     prefs::kWebKitJavascriptEnabled },
+  { Value::TYPE_BOOLEAN, kPolicyIncognitoEnabled,
+    prefs::kIncognitoEnabled },
   { Value::TYPE_BOOLEAN, kPolicySavingBrowserHistoryDisabled,
     prefs::kSavingBrowserHistoryDisabled },
   { Value::TYPE_BOOLEAN, kPolicyDeveloperToolsDisabled,
@@ -223,6 +225,13 @@ const ConfigurationPolicyPrefKeeper::PolicyToPreferenceMapEntry
     prefs::kGSSAPILibraryName },
   { Value::TYPE_BOOLEAN, kPolicyDisable3DAPIs,
     prefs::kDisable3DAPIs },
+  { Value::TYPE_INTEGER, kPolicyPolicyRefreshRate,
+    prefs::kPolicyRefreshRate },
+  { Value::TYPE_BOOLEAN, kPolicyInstantEnabled, prefs::kInstantEnabled },
+  { Value::TYPE_BOOLEAN, kPolicyDefaultBrowserSettingEnabled,
+    prefs::kDefaultBrowserSettingEnabled },
+  { Value::TYPE_BOOLEAN, kPolicyCloudPrintProxyEnabled,
+    prefs::kCloudPrintProxyEnabled },
 
 #if defined(OS_CHROMEOS)
   { Value::TYPE_BOOLEAN, kPolicyChromeOsLockOnIdleSuspend,
@@ -246,13 +255,6 @@ const ConfigurationPolicyPrefKeeper::PolicyToPreferenceMapEntry
     prefs::kDefaultSearchProviderIconURL },
   { Value::TYPE_STRING, kPolicyDefaultSearchProviderEncodings,
     prefs::kDefaultSearchProviderEncodings },
-};
-
-const ConfigurationPolicyPrefKeeper::PolicyToPreferenceMapEntry
-    ConfigurationPolicyPrefKeeper::kProxyPolicyMap[] = {
-  { Value::TYPE_STRING, kPolicyProxyServer, prefs::kProxyServer },
-  { Value::TYPE_STRING, kPolicyProxyPacUrl, prefs::kProxyPacUrl },
-  { Value::TYPE_STRING, kPolicyProxyBypassList, prefs::kProxyBypassList }
 };
 
 ConfigurationPolicyPrefKeeper::ConfigurationPolicyPrefKeeper(
@@ -364,6 +366,7 @@ bool ConfigurationPolicyPrefKeeper::ApplyProxyPolicy(
   // FinalizeProxyPolicySettings() is called to determine whether the presented
   // values were correct and apply them in that case.
   if (policy == kPolicyProxyMode ||
+      policy == kPolicyProxyServerMode ||
       policy == kPolicyProxyServer ||
       policy == kPolicyProxyPacUrl ||
       policy == kPolicyProxyBypassList) {
@@ -423,8 +426,8 @@ class SearchTermsDataForValidation : public SearchTermsData {
     return "en";
   }
 #if defined(OS_WIN) && defined(GOOGLE_CHROME_BUILD)
-  virtual std::wstring GetRlzParameterValue() const {
-    return std::wstring();
+  virtual string16 GetRlzParameterValue() const {
+    return string16();
   }
 #endif
  private:
@@ -444,6 +447,7 @@ void ConfigurationPolicyPrefKeeper::FinalizeDefaultSearchPolicySettings() {
     prefs_.SetString(prefs::kDefaultSearchProviderIconURL, std::string());
     prefs_.SetString(prefs::kDefaultSearchProviderEncodings, std::string());
     prefs_.SetString(prefs::kDefaultSearchProviderKeyword, std::string());
+    prefs_.SetString(prefs::kDefaultSearchProviderInstantURL, std::string());
     return;
   }
   std::string search_url;
@@ -460,6 +464,7 @@ void ConfigurationPolicyPrefKeeper::FinalizeDefaultSearchPolicySettings() {
       EnsureStringPrefExists(prefs::kDefaultSearchProviderIconURL);
       EnsureStringPrefExists(prefs::kDefaultSearchProviderEncodings);
       EnsureStringPrefExists(prefs::kDefaultSearchProviderKeyword);
+      EnsureStringPrefExists(prefs::kDefaultSearchProviderInstantURL);
 
       // For the name, default to the host if not specified.
       std::string name;
@@ -491,117 +496,183 @@ void ConfigurationPolicyPrefKeeper::FinalizeProxyPolicySettings() {
 
 bool ConfigurationPolicyPrefKeeper::CheckProxySettings() {
   bool mode = HasProxyPolicy(kPolicyProxyMode);
+  bool server_mode = HasProxyPolicy(kPolicyProxyServerMode);  // deprecated
   bool server = HasProxyPolicy(kPolicyProxyServer);
   bool pac_url = HasProxyPolicy(kPolicyProxyPacUrl);
   bool bypass_list = HasProxyPolicy(kPolicyProxyBypassList);
 
-  if ((server || pac_url || bypass_list) && !mode) {
+  if ((server || pac_url || bypass_list) && !(mode || server_mode)) {
     LOG(WARNING) << "A centrally-administered policy defines proxy setting"
                  << " details without setting a proxy mode.";
     return false;
   }
 
-  if (!mode)
-    return true;
+  // If there's a server mode, convert it into a mode.
+  std::string mode_value;
+  if (mode) {
+    if (server_mode)
+      LOG(WARNING) << "Both ProxyMode and ProxyServerMode policies defined, "
+                   << "ignoring ProxyMode.";
+    if (!proxy_policies_[kPolicyProxyMode]->GetAsString(&mode_value)) {
+      LOG(WARNING) << "Invalid ProxyMode value.";
+      return false;
+    }
+  } else if (server_mode) {
+    int server_mode_value;
+    if (!proxy_policies_[kPolicyProxyServerMode]->GetAsInteger(
+        &server_mode_value)) {
+      LOG(WARNING) << "Invalid ProxyServerMode value.";
+      return false;
+    }
 
-  int mode_value;
-  if (!proxy_policies_[kPolicyProxyMode]->GetAsInteger(&mode_value)) {
-    LOG(WARNING) << "Invalid proxy mode value.";
-    return false;
+    switch (server_mode_value) {
+      case kPolicyNoProxyServerMode:
+        mode_value = ProxyPrefs::kDirectProxyModeName;
+        break;
+      case kPolicyAutoDetectProxyServerMode:
+        mode_value = ProxyPrefs::kAutoDetectProxyModeName;
+        break;
+      case kPolicyManuallyConfiguredProxyServerMode:
+        if (server && pac_url) {
+          LOG(WARNING) << "A centrally-administered policy dictates that"
+                       << " both fixed proxy servers and a .pac url. should"
+                       << " be used for proxy configuration.";
+          return false;
+        }
+        if (!server && !pac_url) {
+          LOG(WARNING) << "A centrally-administered policy dictates that the"
+                       << " proxy settings should use either fixed proxy"
+                       << " servers or a .pac url, but specifies neither.";
+          return false;
+        }
+        if (pac_url)
+          mode_value = ProxyPrefs::kPacScriptProxyModeName;
+        else
+          mode_value = ProxyPrefs::kFixedServersProxyModeName;
+        break;
+      case kPolicyUseSystemProxyServerMode:
+        mode_value = ProxyPrefs::kSystemProxyModeName;
+        break;
+      default:
+        LOG(WARNING) << "Invalid proxy mode " << server_mode_value;
+        return false;
+    }
   }
 
-  switch (mode_value) {
-    case kPolicyNoProxyServerMode:
-      if (server || pac_url || bypass_list) {
-        LOG(WARNING) << "A centrally-administered policy disables the use of"
-                     << " a proxy but also specifies an explicit proxy"
-                     << " configuration.";
-        return false;
-      }
-      break;
-    case kPolicyAutoDetectProxyMode:
-      if (server || bypass_list || pac_url) {
-        LOG(WARNING) << "A centrally-administered policy dictates that a proxy"
-                     << " shall be auto configured but specifies fixed proxy"
-                     << " servers, a by-pass list or a .pac script URL.";
-        return false;
-      }
-      break;
-    case kPolicyManuallyConfiguredProxyMode:
-      if (server && pac_url) {
-        LOG(WARNING) << "A centrally-administered policy dictates that the"
-                     << " system proxy settings should use both a fixed"
-                     << " proxy server and a .pac url.";
-        return false;
-      }
-      if (!server && !pac_url) {
-        LOG(WARNING) << "A centrally-administered policy dictates that the"
-                     << " system proxy settings should use either a fixed"
-                     << " proxy server or a .pac url, but specifies neither.";
-        return false;
-      }
-      break;
-    case kPolicyUseSystemProxyMode:
-      if (server || pac_url || bypass_list) {
-        LOG(WARNING) << "A centrally-administered policy dictates that the"
-                     << " system proxy settings should be used but also "
-                     << " specifies an explicit proxy configuration.";
-        return false;
-      }
-      break;
-    default:
-      LOG(WARNING) << "Invalid proxy mode " << mode_value;
+  // If neither ProxyMode nor ProxyServerMode are specified, mode_value will be
+  // empty and the proxy shouldn't be configured at all.
+  if (mode_value.empty())
+    return true;
+
+  if (mode_value == ProxyPrefs::kDirectProxyModeName) {
+    if (server || pac_url || bypass_list) {
+      LOG(WARNING) << "A centrally-administered policy disables the use of"
+                   << " a proxy but also specifies an explicit proxy"
+                   << " configuration.";
       return false;
+    }
+  } else if (mode_value == ProxyPrefs::kAutoDetectProxyModeName) {
+    if (server || bypass_list || pac_url) {
+      LOG(WARNING) << "A centrally-administered policy dictates that a proxy"
+                   << " shall be auto configured but specifies fixed proxy"
+                   << " servers, a by-pass list or a .pac script URL.";
+      return false;
+    }
+  } else if (mode_value == ProxyPrefs::kPacScriptProxyModeName) {
+    if (server || bypass_list) {
+      LOG(WARNING) << "A centrally-administered policy dictates that a .pac"
+                   << " script URL should be used for proxy configuration but"
+                   << " also specifies policies required only for fixed"
+                   << " proxy servers.";
+      return false;
+    }
+  } else if (mode_value == ProxyPrefs::kFixedServersProxyModeName) {
+    if (pac_url) {
+      LOG(WARNING) << "A centrally-administered policy dictates that"
+                   << " fixed proxy servers should be used but also"
+                   << " specifies a .pac script URL.";
+      return false;
+    }
+  } else if (mode_value == ProxyPrefs::kSystemProxyModeName) {
+    if (server || pac_url || bypass_list) {
+      LOG(WARNING) << "A centrally-administered policy dictates that the"
+                   << " system proxy settings should be used but also "
+                   << " specifies an explicit proxy configuration.";
+      return false;
+    }
+  } else {
+    LOG(WARNING) << "Invalid proxy mode " << mode_value;
+    return false;
   }
   return true;
 }
 
 void ConfigurationPolicyPrefKeeper::ApplyProxySettings() {
-  if (!HasProxyPolicy(kPolicyProxyMode))
-    return;
-
-  int int_mode;
-  CHECK(proxy_policies_[kPolicyProxyMode]->GetAsInteger(&int_mode));
   ProxyPrefs::ProxyMode mode;
-  switch (int_mode) {
-    case kPolicyNoProxyServerMode:
-      mode = ProxyPrefs::MODE_DIRECT;
+  if (HasProxyPolicy(kPolicyProxyMode)) {
+    std::string string_mode;
+    CHECK(proxy_policies_[kPolicyProxyMode]->GetAsString(&string_mode));
+    if (!ProxyPrefs::StringToProxyMode(string_mode, &mode)) {
+      LOG(WARNING) << "A centrally-administered policy specifies a value for"
+                   << "the ProxyMode policy that isn't recognized.";
+      return;
+    }
+  } else if (HasProxyPolicy(kPolicyProxyServerMode)) {
+    int int_mode = 0;
+    CHECK(proxy_policies_[kPolicyProxyServerMode]->GetAsInteger(&int_mode));
+    switch (int_mode) {
+      case kPolicyNoProxyServerMode:
+        mode = ProxyPrefs::MODE_DIRECT;
+        break;
+      case kPolicyAutoDetectProxyServerMode:
+        mode = ProxyPrefs::MODE_AUTO_DETECT;
+        break;
+      case kPolicyManuallyConfiguredProxyServerMode:
+        mode = ProxyPrefs::MODE_FIXED_SERVERS;
+        if (HasProxyPolicy(kPolicyProxyPacUrl))
+          mode = ProxyPrefs::MODE_PAC_SCRIPT;
+        break;
+      case kPolicyUseSystemProxyServerMode:
+        mode = ProxyPrefs::MODE_SYSTEM;
+        break;
+      default:
+        mode = ProxyPrefs::MODE_DIRECT;
+        NOTREACHED();
+    }
+  } else {
+    return;
+  }
+  switch (mode) {
+    case ProxyPrefs::MODE_DIRECT:
+      prefs_.SetValue(prefs::kProxy, ProxyConfigDictionary::CreateDirect());
       break;
-    case kPolicyAutoDetectProxyMode:
-      mode = ProxyPrefs::MODE_AUTO_DETECT;
+    case ProxyPrefs::MODE_AUTO_DETECT:
+      prefs_.SetValue(prefs::kProxy, ProxyConfigDictionary::CreateAutoDetect());
       break;
-    case kPolicyManuallyConfiguredProxyMode:
-      mode = ProxyPrefs::MODE_FIXED_SERVERS;
-      if (HasProxyPolicy(kPolicyProxyPacUrl))
-        mode = ProxyPrefs::MODE_PAC_SCRIPT;
+    case ProxyPrefs::MODE_PAC_SCRIPT: {
+      std::string pac_url;
+      proxy_policies_[kPolicyProxyPacUrl]->GetAsString(&pac_url);
+      prefs_.SetValue(prefs::kProxy,
+                      ProxyConfigDictionary::CreatePacScript(pac_url));
       break;
-    case kPolicyUseSystemProxyMode:
-      mode = ProxyPrefs::MODE_SYSTEM;
+    }
+    case ProxyPrefs::MODE_FIXED_SERVERS: {
+      std::string proxy_server;
+      proxy_policies_[kPolicyProxyServer]->GetAsString(&proxy_server);
+      std::string bypass_list;
+      if (HasProxyPolicy(kPolicyProxyBypassList))
+        proxy_policies_[kPolicyProxyBypassList]->GetAsString(&bypass_list);
+      prefs_.SetValue(prefs::kProxy,
+                      ProxyConfigDictionary::CreateFixedServers(proxy_server,
+                                                                bypass_list));
       break;
-    default:
-      mode = ProxyPrefs::MODE_DIRECT;
+    }
+    case ProxyPrefs::MODE_SYSTEM:
+      prefs_.SetValue(prefs::kProxy,
+                      ProxyConfigDictionary::CreateSystem());
+      break;
+    case ProxyPrefs::kModeCount:
       NOTREACHED();
-  }
-  prefs_.SetValue(prefs::kProxyMode, Value::CreateIntegerValue(mode));
-
-  if (HasProxyPolicy(kPolicyProxyServer)) {
-    prefs_.SetValue(prefs::kProxyServer, proxy_policies_[kPolicyProxyServer]);
-    proxy_policies_[kPolicyProxyServer] = NULL;
-  } else {
-    prefs_.SetValue(prefs::kProxyServer, Value::CreateNullValue());
-  }
-  if (HasProxyPolicy(kPolicyProxyPacUrl)) {
-    prefs_.SetValue(prefs::kProxyPacUrl, proxy_policies_[kPolicyProxyPacUrl]);
-    proxy_policies_[kPolicyProxyPacUrl] = NULL;
-  } else {
-    prefs_.SetValue(prefs::kProxyPacUrl, Value::CreateNullValue());
-  }
-  if (HasProxyPolicy(kPolicyProxyBypassList)) {
-    prefs_.SetValue(prefs::kProxyBypassList,
-                proxy_policies_[kPolicyProxyBypassList]);
-    proxy_policies_[kPolicyProxyBypassList] = NULL;
-  } else {
-    prefs_.SetValue(prefs::kProxyBypassList, Value::CreateNullValue());
   }
 }
 
@@ -616,11 +687,15 @@ bool ConfigurationPolicyPrefKeeper::HasProxyPolicy(
 ConfigurationPolicyPrefStore::ConfigurationPolicyPrefStore(
     ConfigurationPolicyProvider* provider)
     : provider_(provider),
-      initialization_complete_(provider->IsInitializationComplete()) {
-  // Read initial policy.
-  policy_keeper_.reset(new ConfigurationPolicyPrefKeeper(provider));
-
-  registrar_.Init(provider_, this);
+      initialization_complete_(false) {
+  if (provider_) {
+    // Read initial policy.
+    policy_keeper_.reset(new ConfigurationPolicyPrefKeeper(provider));
+    registrar_.Init(provider_, this);
+    initialization_complete_ = provider->IsInitializationComplete();
+  } else {
+    initialization_complete_ = true;
+  }
 }
 
 ConfigurationPolicyPrefStore::~ConfigurationPolicyPrefStore() {
@@ -642,7 +717,10 @@ bool ConfigurationPolicyPrefStore::IsInitializationComplete() const {
 PrefStore::ReadResult
 ConfigurationPolicyPrefStore::GetValue(const std::string& key,
                                        Value** value) const {
-  return policy_keeper_->GetValue(key, value);
+  if (policy_keeper_.get())
+    return policy_keeper_->GetValue(key, value);
+
+  return PrefStore::READ_NO_VALUE;
 }
 
 void ConfigurationPolicyPrefStore::OnUpdatePolicy() {
@@ -663,36 +741,40 @@ ConfigurationPolicyPrefStore::CreateManagedPlatformPolicyPrefStore() {
 
 // static
 ConfigurationPolicyPrefStore*
-ConfigurationPolicyPrefStore::CreateDeviceManagementPolicyPrefStore(
+ConfigurationPolicyPrefStore::CreateManagedCloudPolicyPrefStore(
     Profile* profile) {
-  ConfigurationPolicyProviderKeeper* keeper =
-      g_browser_process->configuration_policy_provider_keeper();
-  ConfigurationPolicyProvider* provider = NULL;
-  if (profile)
-    provider = profile->GetPolicyContext()->GetDeviceManagementPolicyProvider();
-  if (!provider)
-    provider = keeper->device_management_provider();
-  return new ConfigurationPolicyPrefStore(provider);
+  if (profile) {
+    return new ConfigurationPolicyPrefStore(
+        profile->GetPolicyContext()->GetDeviceManagementPolicyProvider());
+  }
+  return new ConfigurationPolicyPrefStore(NULL);
 }
 
 // static
 ConfigurationPolicyPrefStore*
-ConfigurationPolicyPrefStore::CreateRecommendedPolicyPrefStore() {
+ConfigurationPolicyPrefStore::CreateRecommendedPlatformPolicyPrefStore() {
   ConfigurationPolicyProviderKeeper* keeper =
       g_browser_process->configuration_policy_provider_keeper();
   return new ConfigurationPolicyPrefStore(keeper->recommended_provider());
+}
+
+// static
+ConfigurationPolicyPrefStore*
+ConfigurationPolicyPrefStore::CreateRecommendedCloudPolicyPrefStore(
+    Profile* profile) {
+  return new ConfigurationPolicyPrefStore(NULL);
 }
 
 /* static */
 const ConfigurationPolicyProvider::PolicyDefinitionList*
 ConfigurationPolicyPrefStore::GetChromePolicyDefinitionList() {
   static ConfigurationPolicyProvider::PolicyDefinitionList::Entry entries[] = {
-    { kPolicyHomePage, Value::TYPE_STRING, key::kHomepageLocation },
+    { kPolicyHomepageLocation, Value::TYPE_STRING, key::kHomepageLocation },
     { kPolicyHomepageIsNewTabPage, Value::TYPE_BOOLEAN,
       key::kHomepageIsNewTabPage },
     { kPolicyRestoreOnStartup, Value::TYPE_INTEGER, key::kRestoreOnStartup },
-    { kPolicyURLsToRestoreOnStartup, Value::TYPE_LIST,
-      key::kURLsToRestoreOnStartup },
+    { kPolicyRestoreOnStartupURLs, Value::TYPE_LIST,
+      key::kRestoreOnStartupURLs },
     { kPolicyDefaultSearchProviderEnabled, Value::TYPE_BOOLEAN,
       key::kDefaultSearchProviderEnabled },
     { kPolicyDefaultSearchProviderName, Value::TYPE_STRING,
@@ -703,11 +785,14 @@ ConfigurationPolicyPrefStore::GetChromePolicyDefinitionList() {
       key::kDefaultSearchProviderSearchURL },
     { kPolicyDefaultSearchProviderSuggestURL, Value::TYPE_STRING,
       key::kDefaultSearchProviderSuggestURL },
+    { kPolicyDefaultSearchProviderInstantURL, Value::TYPE_STRING,
+      key::kDefaultSearchProviderInstantURL },
     { kPolicyDefaultSearchProviderIconURL, Value::TYPE_STRING,
       key::kDefaultSearchProviderIconURL },
     { kPolicyDefaultSearchProviderEncodings, Value::TYPE_STRING,
       key::kDefaultSearchProviderEncodings },
-    { kPolicyProxyMode, Value::TYPE_INTEGER, key::kProxyMode },
+    { kPolicyProxyMode, Value::TYPE_STRING, key::kProxyMode },
+    { kPolicyProxyServerMode, Value::TYPE_INTEGER, key::kProxyServerMode },
     { kPolicyProxyServer, Value::TYPE_STRING, key::kProxyServer },
     { kPolicyProxyPacUrl, Value::TYPE_STRING, key::kProxyPacUrl },
     { kPolicyProxyBypassList, Value::TYPE_STRING, key::kProxyBypassList },
@@ -728,18 +813,19 @@ ConfigurationPolicyPrefStore::GetChromePolicyDefinitionList() {
       key::kPasswordManagerAllowShowPasswords },
     { kPolicyAutoFillEnabled, Value::TYPE_BOOLEAN, key::kAutoFillEnabled },
     { kPolicyDisabledPlugins, Value::TYPE_LIST, key::kDisabledPlugins },
-    { kPolicyApplicationLocale, Value::TYPE_STRING,
+    { kPolicyApplicationLocaleValue, Value::TYPE_STRING,
       key::kApplicationLocaleValue },
     { kPolicySyncDisabled, Value::TYPE_BOOLEAN, key::kSyncDisabled },
-    { kPolicyExtensionInstallAllowList, Value::TYPE_LIST,
-      key::kExtensionInstallAllowList },
-    { kPolicyExtensionInstallDenyList, Value::TYPE_LIST,
-      key::kExtensionInstallDenyList },
-    { kPolicyExtensionInstallForceList, Value::TYPE_LIST,
-      key::kExtensionInstallForceList },
+    { kPolicyExtensionInstallWhitelist, Value::TYPE_LIST,
+      key::kExtensionInstallWhitelist },
+    { kPolicyExtensionInstallBlacklist, Value::TYPE_LIST,
+      key::kExtensionInstallBlacklist },
+    { kPolicyExtensionInstallForcelist, Value::TYPE_LIST,
+      key::kExtensionInstallForcelist },
     { kPolicyShowHomeButton, Value::TYPE_BOOLEAN, key::kShowHomeButton },
     { kPolicyPrintingEnabled, Value::TYPE_BOOLEAN, key::kPrintingEnabled },
     { kPolicyJavascriptEnabled, Value::TYPE_BOOLEAN, key::kJavascriptEnabled },
+    { kPolicyIncognitoEnabled, Value::TYPE_BOOLEAN, key::kIncognitoEnabled },
     { kPolicySavingBrowserHistoryDisabled, Value::TYPE_BOOLEAN,
       key::kSavingBrowserHistoryDisabled },
     { kPolicyDeveloperToolsDisabled, Value::TYPE_BOOLEAN,
@@ -773,6 +859,13 @@ ConfigurationPolicyPrefStore::GetChromePolicyDefinitionList() {
       key::kGSSAPILibraryName },
     { kPolicyDisable3DAPIs, Value::TYPE_BOOLEAN,
       key::kDisable3DAPIs },
+    { kPolicyPolicyRefreshRate, Value::TYPE_INTEGER,
+      key::kPolicyRefreshRate },
+    { kPolicyInstantEnabled, Value::TYPE_BOOLEAN, key::kInstantEnabled },
+    { kPolicyDefaultBrowserSettingEnabled, Value::TYPE_BOOLEAN,
+      key::kDefaultBrowserSettingEnabled },
+    { kPolicyCloudPrintProxyEnabled, Value::TYPE_BOOLEAN,
+      key::kCloudPrintProxyEnabled },
 
 #if defined(OS_CHROMEOS)
     { kPolicyChromeOsLockOnIdleSuspend, Value::TYPE_BOOLEAN,

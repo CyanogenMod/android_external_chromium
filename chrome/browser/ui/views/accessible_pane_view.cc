@@ -1,12 +1,12 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/logging.h"
 #include "chrome/browser/ui/view_ids.h"
+#include "chrome/browser/ui/views/accessible_pane_view.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
-#include "chrome/browser/ui/views/accessible_pane_view.h"
 #include "views/controls/button/menu_button.h"
 #include "views/controls/native/native_view_host.h"
 #include "views/focus/focus_search.h"
@@ -18,11 +18,11 @@ AccessiblePaneView::AccessiblePaneView()
     : pane_has_focus_(false),
       ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)),
       focus_manager_(NULL),
-      home_key_(app::VKEY_HOME, false, false, false),
-      end_key_(app::VKEY_END, false, false, false),
-      escape_key_(app::VKEY_ESCAPE, false, false, false),
-      left_key_(app::VKEY_LEFT, false, false, false),
-      right_key_(app::VKEY_RIGHT, false, false, false),
+      home_key_(ui::VKEY_HOME, false, false, false),
+      end_key_(ui::VKEY_END, false, false, false),
+      escape_key_(ui::VKEY_ESCAPE, false, false, false),
+      left_key_(ui::VKEY_LEFT, false, false, false),
+      right_key_(ui::VKEY_RIGHT, false, false, false),
       last_focused_view_storage_id_(-1) {
   focus_search_.reset(new views::FocusSearch(this, true, true));
 }
@@ -48,7 +48,7 @@ bool AccessiblePaneView::SetPaneFocus(int view_storage_id,
   // Use the provided initial focus if it's visible and enabled, otherwise
   // use the first focusable child.
   if (!initial_focus ||
-      !IsParentOf(initial_focus) ||
+      !Contains(initial_focus) ||
       !initial_focus->IsVisible() ||
       !initial_focus->IsEnabled()) {
     initial_focus = GetFirstFocusableChild();
@@ -161,21 +161,21 @@ bool AccessiblePaneView::AcceleratorPressed(
   }
 
   switch (accelerator.GetKeyCode()) {
-    case app::VKEY_ESCAPE:
+    case ui::VKEY_ESCAPE:
       RemovePaneFocus();
       RestoreLastFocusedView();
       return true;
-    case app::VKEY_LEFT:
+    case ui::VKEY_LEFT:
       focus_manager_->AdvanceFocus(true);
       return true;
-    case app::VKEY_RIGHT:
+    case ui::VKEY_RIGHT:
       focus_manager_->AdvanceFocus(false);
       return true;
-    case app::VKEY_HOME:
+    case ui::VKEY_HOME:
       focus_manager_->SetFocusedViewWithReason(
           GetFirstFocusableChild(), views::FocusManager::kReasonFocusTraversal);
       return true;
-    case app::VKEY_END:
+    case ui::VKEY_END:
       focus_manager_->SetFocusedViewWithReason(
           GetLastFocusableChild(), views::FocusManager::kReasonFocusTraversal);
       return true;
@@ -216,7 +216,7 @@ void AccessiblePaneView::FocusWillChange(views::View* focused_before,
             &AccessiblePaneView::LocationBarSelectAll));
   }
 
-  if (!IsParentOf(focused_now) ||
+  if (!Contains(focused_now) ||
       reason == views::FocusManager::kReasonDirectFocusChange) {
     // We should remove pane focus (i.e. make most of the controls
     // not focusable again) either because the focus is leaving the pane,

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,15 +9,14 @@
 #include <vector>
 
 #include "base/scoped_ptr.h"
-#include "chrome/browser/views/tabs/base_tab.h"
-#include "chrome/browser/views/tabs/tab_controller.h"
+#include "chrome/browser/ui/views/tabs/base_tab.h"
+#include "chrome/browser/ui/views/tabs/tab_controller.h"
 #include "views/animation/bounds_animator.h"
 #include "views/view.h"
 
 class BaseTab;
 class DraggedTabController;
 class TabStripController;
-class ThemeProvider;
 
 // Base class for the view tab strip implementations.
 class BaseTabStrip : public views::View,
@@ -32,10 +31,6 @@ class BaseTabStrip : public views::View,
   virtual ~BaseTabStrip();
 
   Type type() const { return type_; }
-
-  // Returns the preferred height of this TabStrip. This is based on the
-  // typical height of its constituent tabs.
-  virtual int GetPreferredHeight() = 0;
 
   // Set the background offset used by inactive tabs to match the frame image.
   virtual void SetBackgroundOffset(const gfx::Point& offset) = 0;
@@ -172,7 +167,7 @@ class BaseTabStrip : public views::View,
 
   // Invoked from |MoveTab| after |tab_data_| has been updated to animate the
   // move.
-  virtual void StartMoveTabAnimation() = 0;
+  virtual void StartMoveTabAnimation();
 
   // Starts the remove tab animation.
   virtual void StartRemoveTabAnimation(int model_index);
@@ -205,7 +200,7 @@ class BaseTabStrip : public views::View,
 
   // Stops any ongoing animations. If |layout| is true and an animation is
   // ongoing this does a layout.
-  virtual void StopAnimating(bool layout) = 0;
+  virtual void StopAnimating(bool layout);
 
   // Destroys the active drag controller.
   void DestroyDragController();

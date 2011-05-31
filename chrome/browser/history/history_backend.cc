@@ -4,7 +4,10 @@
 
 #include "chrome/browser/history/history_backend.h"
 
+#include <list>
+#include <map>
 #include <set>
+#include <vector>
 
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
@@ -24,7 +27,6 @@
 #include "chrome/browser/history/page_usage_data.h"
 #include "chrome/browser/history/top_sites.h"
 #include "chrome/common/chrome_constants.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/url_constants.h"
 #include "googleurl/src/gurl.h"
@@ -581,7 +583,7 @@ void HistoryBackend::InitImpl(const std::string& languages) {
 
   // Thumbnail database.
   thumbnail_db_.reset(new ThumbnailDatabase());
-  if (history::TopSites::IsEnabled() && !db_->GetNeedsThumbnailMigration()) {
+  if (!db_->GetNeedsThumbnailMigration()) {
     // No convertion needed - use new filename right away.
     thumbnail_name = GetFaviconsFileName();
   }
@@ -596,7 +598,7 @@ void HistoryBackend::InitImpl(const std::string& languages) {
     thumbnail_db_.reset();
   }
 
-  if (history::TopSites::IsEnabled() && db_->GetNeedsThumbnailMigration()) {
+  if (db_->GetNeedsThumbnailMigration()) {
     VLOG(1) << "Starting TopSites migration";
     delegate_->StartTopSitesMigration();
   }
@@ -719,6 +721,9 @@ std::pair<URLID, VisitID> HistoryBackend::AddPageVisit(
     // Re-enable this.
     // GetMostRecentRedirectsTo(url, &details->redirects);
     BroadcastNotifications(NotificationType::HISTORY_URL_VISITED, details);
+  } else {
+    VLOG(0) << "Failed to build visit insert statement:  "
+            << "url_id = " << url_id;
   }
 
   return std::make_pair(url_id, visit_id);
@@ -1201,10 +1206,18 @@ void HistoryBackend::QueryHistoryBasic(URLDatabase* url_db,
     const VisitRow visit = visits[i];
 
     // Add a result row for this visit, get the URL info from the DB.
-    if (!url_db->GetURLRow(visit.url_id, &url_result))
+    if (!url_db->GetURLRow(visit.url_id, &url_result)) {
+      VLOG(0) << "Failed to get id " << visit.url_id
+              << " from history.urls.";
       continue;  // DB out of sync and URL doesn't exist, try to recover.
-    if (!url_result.url().is_valid())
+    }
+
+    if (!url_result.url().is_valid()) {
+      VLOG(0) << "Got invalid URL from history.urls with id "
+              << visit.url_id << ":  "
+              << url_result.url().possibly_invalid_spec();
       continue;  // Don't report invalid URLs in case of corruption.
+    }
 
     // The archived database may be out of sync with respect to starring,
     // titles, last visit date, etc. Therefore, we query the main DB if the

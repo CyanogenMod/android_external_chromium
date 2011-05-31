@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@
 #include "chrome/browser/prefs/pref_observer_mock.h"
 #include "chrome/browser/prefs/pref_service_mock_builder.h"
 #include "chrome/browser/prefs/pref_value_store.h"
-#include "chrome/browser/prefs/proxy_prefs.h"
+#include "chrome/browser/prefs/proxy_config_dictionary.h"
 #include "chrome/browser/prefs/testing_pref_store.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -148,15 +148,84 @@ TEST(PrefServiceTest, Observers) {
   Mock::VerifyAndClearExpectations(&obs2);
 }
 
+// Make sure that if a preference changes type, so the wrong type is stored in
+// the user pref file, it uses the correct fallback value instead.
+TEST(PrefServiceTest, GetValueChangedType) {
+  const int kTestValue = 10;
+  TestingPrefService prefs;
+  prefs.RegisterIntegerPref(prefs::kStabilityLaunchCount, kTestValue);
+
+  // Check falling back to a recommended value.
+  prefs.SetUserPref(prefs::kStabilityLaunchCount,
+                    Value::CreateStringValue("not an integer"));
+  const PrefService::Preference* pref =
+      prefs.FindPreference(prefs::kStabilityLaunchCount);
+  ASSERT_TRUE(pref);
+  const Value* value = pref->GetValue();
+  ASSERT_TRUE(value);
+  EXPECT_EQ(Value::TYPE_INTEGER, value->GetType());
+  int actual_int_value = -1;
+  EXPECT_TRUE(value->GetAsInteger(&actual_int_value));
+  EXPECT_EQ(kTestValue, actual_int_value);
+}
+
+void assertProxyMode(const ProxyConfigDictionary& dict,
+                     ProxyPrefs::ProxyMode expected_mode) {
+  ProxyPrefs::ProxyMode actual_mode;
+  ASSERT_TRUE(dict.GetMode(&actual_mode));
+  EXPECT_EQ(expected_mode, actual_mode);
+}
+
+void assertProxyServer(const ProxyConfigDictionary& dict,
+                       const std::string& expected) {
+  std::string actual;
+  if (!expected.empty()) {
+    ASSERT_TRUE(dict.GetProxyServer(&actual));
+    EXPECT_EQ(expected, actual);
+  } else {
+    EXPECT_FALSE(dict.GetProxyServer(&actual));
+  }
+}
+
+void assertPacUrl(const ProxyConfigDictionary& dict,
+                  const std::string& expected) {
+  std::string actual;
+  if (!expected.empty()) {
+    ASSERT_TRUE(dict.GetPacUrl(&actual));
+    EXPECT_EQ(expected, actual);
+  } else {
+    EXPECT_FALSE(dict.GetPacUrl(&actual));
+  }
+}
+
+void assertBypassList(const ProxyConfigDictionary& dict,
+                      const std::string& expected) {
+  std::string actual;
+  if (!expected.empty()) {
+    ASSERT_TRUE(dict.GetBypassList(&actual));
+    EXPECT_EQ(expected, actual);
+  } else {
+    EXPECT_FALSE(dict.GetBypassList(&actual));
+  }
+}
+
+void assertProxyModeWithoutParams(const ProxyConfigDictionary& dict,
+                                  ProxyPrefs::ProxyMode proxy_mode) {
+  assertProxyMode(dict, proxy_mode);
+  assertProxyServer(dict, "");
+  assertPacUrl(dict, "");
+  assertBypassList(dict, "");
+}
+
 TEST(PrefServiceTest, ProxyPolicyOverridesCommandLineOptions) {
   CommandLine command_line(CommandLine::NO_PROGRAM);
   command_line.AppendSwitchASCII(switches::kProxyBypassList, "123");
   command_line.AppendSwitchASCII(switches::kProxyServer, "789");
   scoped_ptr<policy::MockConfigurationPolicyProvider> provider(
       new policy::MockConfigurationPolicyProvider());
-  Value* mode_value = Value::CreateIntegerValue(
-      policy::kPolicyManuallyConfiguredProxyMode);
-  provider->AddPolicy(policy::kPolicyProxyMode, mode_value);
+  Value* mode_name = Value::CreateStringValue(
+      ProxyPrefs::kFixedServersProxyModeName);
+  provider->AddPolicy(policy::kPolicyProxyMode, mode_name);
   provider->AddPolicy(policy::kPolicyProxyBypassList,
                       Value::CreateStringValue("abc"));
   provider->AddPolicy(policy::kPolicyProxyServer,
@@ -168,11 +237,11 @@ TEST(PrefServiceTest, ProxyPolicyOverridesCommandLineOptions) {
   builder.WithCommandLine(&command_line);
   scoped_ptr<PrefService> prefs(builder.Create());
   browser::RegisterUserPrefs(prefs.get());
-  EXPECT_EQ(ProxyPrefs::MODE_FIXED_SERVERS,
-            prefs->GetInteger(prefs::kProxyMode));
-  EXPECT_EQ("789", prefs->GetString(prefs::kProxyServer));
-  EXPECT_EQ(std::string(), prefs->GetString(prefs::kProxyPacUrl));
-  EXPECT_EQ("123", prefs->GetString(prefs::kProxyBypassList));
+  ProxyConfigDictionary dict(prefs->GetDictionary(prefs::kProxy));
+  assertProxyMode(dict, ProxyPrefs::MODE_FIXED_SERVERS);
+  assertProxyServer(dict, "789");
+  assertPacUrl(dict, "");
+  assertBypassList(dict, "123");
 
   // Try a second time time with the managed PrefStore in place, the
   // manual proxy policy should have removed all traces of the command
@@ -181,11 +250,11 @@ TEST(PrefServiceTest, ProxyPolicyOverridesCommandLineOptions) {
   builder.WithManagedPlatformProvider(provider.get());
   scoped_ptr<PrefService> prefs2(builder.Create());
   browser::RegisterUserPrefs(prefs2.get());
-  EXPECT_EQ(ProxyPrefs::MODE_FIXED_SERVERS,
-            prefs2->GetInteger(prefs::kProxyMode));
-  EXPECT_EQ("ghi", prefs2->GetString(prefs::kProxyServer));
-  EXPECT_EQ(std::string(), prefs2->GetString(prefs::kProxyPacUrl));
-  EXPECT_EQ("abc", prefs2->GetString(prefs::kProxyBypassList));
+  ProxyConfigDictionary dict2(prefs2->GetDictionary(prefs::kProxy));
+  assertProxyMode(dict2, ProxyPrefs::MODE_FIXED_SERVERS);
+  assertProxyServer(dict2, "ghi");
+  assertPacUrl(dict2, "");
+  assertBypassList(dict2, "abc");
 }
 
 TEST(PrefServiceTest, ProxyPolicyOverridesUnrelatedCommandLineOptions) {
@@ -194,9 +263,9 @@ TEST(PrefServiceTest, ProxyPolicyOverridesUnrelatedCommandLineOptions) {
   command_line.AppendSwitchASCII(switches::kProxyServer, "789");
   scoped_ptr<policy::MockConfigurationPolicyProvider> provider(
       new policy::MockConfigurationPolicyProvider());
-  Value* mode_value = Value::CreateIntegerValue(
-      policy::kPolicyAutoDetectProxyMode);
-  provider->AddPolicy(policy::kPolicyProxyMode, mode_value);
+  Value* mode_name = Value::CreateStringValue(
+      ProxyPrefs::kAutoDetectProxyModeName);
+  provider->AddPolicy(policy::kPolicyProxyMode, mode_name);
 
   // First verify that command-line options are set correctly when
   // there is no policy in effect.
@@ -204,10 +273,11 @@ TEST(PrefServiceTest, ProxyPolicyOverridesUnrelatedCommandLineOptions) {
   builder.WithCommandLine(&command_line);
   scoped_ptr<PrefService> prefs(builder.Create());
   browser::RegisterUserPrefs(prefs.get());
-  EXPECT_EQ(ProxyPrefs::MODE_FIXED_SERVERS,
-            prefs->GetInteger(prefs::kProxyMode));
-  EXPECT_EQ("789", prefs->GetString(prefs::kProxyServer));
-  EXPECT_EQ("123", prefs->GetString(prefs::kProxyBypassList));
+  ProxyConfigDictionary dict(prefs->GetDictionary(prefs::kProxy));
+  assertProxyMode(dict, ProxyPrefs::MODE_FIXED_SERVERS);
+  assertProxyServer(dict, "789");
+  assertPacUrl(dict, "");
+  assertBypassList(dict, "123");
 
   // Try a second time time with the managed PrefStore in place, the
   // no proxy policy should have removed all traces of the command
@@ -217,11 +287,8 @@ TEST(PrefServiceTest, ProxyPolicyOverridesUnrelatedCommandLineOptions) {
   builder.WithManagedPlatformProvider(provider.get());
   scoped_ptr<PrefService> prefs2(builder.Create());
   browser::RegisterUserPrefs(prefs2.get());
-  EXPECT_EQ(ProxyPrefs::MODE_AUTO_DETECT,
-      prefs2->GetInteger(prefs::kProxyMode));
-  EXPECT_EQ(std::string(), prefs2->GetString(prefs::kProxyServer));
-  EXPECT_EQ(std::string(), prefs2->GetString(prefs::kProxyPacUrl));
-  EXPECT_EQ(std::string(), prefs2->GetString(prefs::kProxyBypassList));
+  ProxyConfigDictionary dict2(prefs2->GetDictionary(prefs::kProxy));
+  assertProxyModeWithoutParams(dict2, ProxyPrefs::MODE_AUTO_DETECT);
 }
 
 TEST(PrefServiceTest, ProxyPolicyOverridesCommandLineNoProxy) {
@@ -229,9 +296,9 @@ TEST(PrefServiceTest, ProxyPolicyOverridesCommandLineNoProxy) {
   command_line.AppendSwitch(switches::kNoProxyServer);
   scoped_ptr<policy::MockConfigurationPolicyProvider> provider(
       new policy::MockConfigurationPolicyProvider());
-  Value* mode_value = Value::CreateIntegerValue(
-      policy::kPolicyAutoDetectProxyMode);
-  provider->AddPolicy(policy::kPolicyProxyMode, mode_value);
+  Value* mode_name = Value::CreateStringValue(
+      ProxyPrefs::kAutoDetectProxyModeName);
+  provider->AddPolicy(policy::kPolicyProxyMode, mode_name);
 
   // First verify that command-line options are set correctly when
   // there is no policy in effect.
@@ -239,10 +306,8 @@ TEST(PrefServiceTest, ProxyPolicyOverridesCommandLineNoProxy) {
   builder.WithCommandLine(&command_line);
   scoped_ptr<PrefService> prefs(builder.Create());
   browser::RegisterUserPrefs(prefs.get());
-  EXPECT_EQ(ProxyPrefs::MODE_DIRECT, prefs->GetInteger(prefs::kProxyMode));
-  EXPECT_EQ(std::string(), prefs->GetString(prefs::kProxyServer));
-  EXPECT_EQ(std::string(), prefs->GetString(prefs::kProxyPacUrl));
-  EXPECT_EQ(std::string(), prefs->GetString(prefs::kProxyBypassList));
+  ProxyConfigDictionary dict(prefs->GetDictionary(prefs::kProxy));
+  assertProxyModeWithoutParams(dict, ProxyPrefs::MODE_DIRECT);
 
   // Try a second time time with the managed PrefStore in place, the
   // auto-detect should be overridden. The default pref store must be
@@ -251,11 +316,8 @@ TEST(PrefServiceTest, ProxyPolicyOverridesCommandLineNoProxy) {
   builder.WithManagedPlatformProvider(provider.get());
   scoped_ptr<PrefService> prefs2(builder.Create());
   browser::RegisterUserPrefs(prefs2.get());
-  EXPECT_EQ(ProxyPrefs::MODE_AUTO_DETECT,
-      prefs2->GetInteger(prefs::kProxyMode));
-  EXPECT_EQ(std::string(), prefs2->GetString(prefs::kProxyServer));
-  EXPECT_EQ(std::string(), prefs2->GetString(prefs::kProxyPacUrl));
-  EXPECT_EQ(std::string(), prefs2->GetString(prefs::kProxyBypassList));
+  ProxyConfigDictionary dict2(prefs2->GetDictionary(prefs::kProxy));
+  assertProxyModeWithoutParams(dict2, ProxyPrefs::MODE_AUTO_DETECT);
 }
 
 TEST(PrefServiceTest, ProxyPolicyOverridesCommandLineAutoDetect) {
@@ -263,9 +325,9 @@ TEST(PrefServiceTest, ProxyPolicyOverridesCommandLineAutoDetect) {
   command_line.AppendSwitch(switches::kProxyAutoDetect);
   scoped_ptr<policy::MockConfigurationPolicyProvider> provider(
       new policy::MockConfigurationPolicyProvider());
-  Value* mode_value = Value::CreateIntegerValue(
-      policy::kPolicyNoProxyServerMode);
-  provider->AddPolicy(policy::kPolicyProxyMode, mode_value);
+  Value* mode_name = Value::CreateStringValue(
+      ProxyPrefs::kDirectProxyModeName);
+  provider->AddPolicy(policy::kPolicyProxyMode, mode_name);
 
   // First verify that the auto-detect is set if there is no managed
   // PrefStore.
@@ -273,10 +335,8 @@ TEST(PrefServiceTest, ProxyPolicyOverridesCommandLineAutoDetect) {
   builder.WithCommandLine(&command_line);
   scoped_ptr<PrefService> prefs(builder.Create());
   browser::RegisterUserPrefs(prefs.get());
-  EXPECT_EQ(ProxyPrefs::MODE_AUTO_DETECT, prefs->GetInteger(prefs::kProxyMode));
-  EXPECT_EQ(std::string(), prefs->GetString(prefs::kProxyServer));
-  EXPECT_EQ(std::string(), prefs->GetString(prefs::kProxyPacUrl));
-  EXPECT_EQ(std::string(), prefs->GetString(prefs::kProxyBypassList));
+  ProxyConfigDictionary dict(prefs->GetDictionary(prefs::kProxy));
+  assertProxyModeWithoutParams(dict, ProxyPrefs::MODE_AUTO_DETECT);
 
   // Try a second time time with the managed PrefStore in place, the
   // auto-detect should be overridden. The default pref store must be
@@ -285,10 +345,8 @@ TEST(PrefServiceTest, ProxyPolicyOverridesCommandLineAutoDetect) {
   builder.WithManagedPlatformProvider(provider.get());
   scoped_ptr<PrefService> prefs2(builder.Create());
   browser::RegisterUserPrefs(prefs2.get());
-  EXPECT_EQ(ProxyPrefs::MODE_DIRECT, prefs2->GetInteger(prefs::kProxyMode));
-  EXPECT_EQ(std::string(), prefs2->GetString(prefs::kProxyServer));
-  EXPECT_EQ(std::string(), prefs2->GetString(prefs::kProxyPacUrl));
-  EXPECT_EQ(std::string(), prefs2->GetString(prefs::kProxyBypassList));
+  ProxyConfigDictionary dict2(prefs2->GetDictionary(prefs::kProxy));
+  assertProxyModeWithoutParams(dict2, ProxyPrefs::MODE_DIRECT);
 }
 
 class PrefServiceSetValueTest : public testing::Test {
@@ -296,11 +354,7 @@ class PrefServiceSetValueTest : public testing::Test {
   static const char kName[];
   static const char kValue[];
 
-  PrefServiceSetValueTest()
-      : null_value_(Value::CreateNullValue()) {}
-
   TestingPrefService prefs_;
-  scoped_ptr<Value> null_value_;
   PrefObserverMock observer_;
 };
 
@@ -337,10 +391,8 @@ TEST_F(PrefServiceSetValueTest, SetDictionaryValue) {
   registrar.Init(&prefs_);
   registrar.Add(kName, &observer_);
 
-  // Dictionary values are special: setting one to NULL is the same as clearing
-  // the user value, allowing the NULL default to take (or keep) control.
   EXPECT_CALL(observer_, Observe(_, _, _)).Times(0);
-  prefs_.Set(kName, *null_value_);
+  prefs_.RemoveUserPref(kName);
   Mock::VerifyAndClearExpectations(&observer_);
 
   DictionaryValue new_value;
@@ -353,8 +405,9 @@ TEST_F(PrefServiceSetValueTest, SetDictionaryValue) {
   prefs_.Set(kName, new_value);
   Mock::VerifyAndClearExpectations(&observer_);
 
-  observer_.Expect(&prefs_, kName, null_value_.get());
-  prefs_.Set(kName, *null_value_);
+  DictionaryValue empty;
+  observer_.Expect(&prefs_, kName, &empty);
+  prefs_.Set(kName, empty);
   Mock::VerifyAndClearExpectations(&observer_);
 }
 
@@ -364,10 +417,8 @@ TEST_F(PrefServiceSetValueTest, SetListValue) {
   registrar.Init(&prefs_);
   registrar.Add(kName, &observer_);
 
-  // List values are special: setting one to NULL is the same as clearing the
-  // user value, allowing the NULL default to take (or keep) control.
   EXPECT_CALL(observer_, Observe(_, _, _)).Times(0);
-  prefs_.Set(kName, *null_value_);
+  prefs_.RemoveUserPref(kName);
   Mock::VerifyAndClearExpectations(&observer_);
 
   ListValue new_value;
@@ -380,7 +431,8 @@ TEST_F(PrefServiceSetValueTest, SetListValue) {
   prefs_.Set(kName, new_value);
   Mock::VerifyAndClearExpectations(&observer_);
 
-  observer_.Expect(&prefs_, kName, null_value_.get());
-  prefs_.Set(kName, *null_value_);
+  ListValue empty;
+  observer_.Expect(&prefs_, kName, &empty);
+  prefs_.Set(kName, empty);
   Mock::VerifyAndClearExpectations(&observer_);
 }

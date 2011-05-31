@@ -9,12 +9,14 @@
 #include <string>
 
 #include "chrome/common/content_settings_types.h"
-#include "gfx/native_widget_types.h"
+#include "ui/gfx/native_widget_types.h"
 
 // This file contains functions for running a variety of browser dialogs and
 // popups. The dialogs here are the ones that the caller does not need to
 // access the class of the popup. It allows us to break dependencies by
 // allowing the callers to not depend on the classes implementing the dialogs.
+// TODO: Make as many of these methods as possible cross platform, and move them
+// into chrome/browser/ui/browser_dialogs.h.
 
 class Browser;
 class BrowserView;
@@ -23,7 +25,6 @@ class Extension;
 class FilePath;
 class FindBar;
 class GURL;
-class HtmlDialogUIDelegate;
 class InfoBubbleDelegate;
 class Profile;
 class TabContents;
@@ -71,10 +72,6 @@ void ShowBookmarkManagerView(Profile* profile);
 views::Window* ShowAboutChromeView(gfx::NativeWindow parent,
                                    Profile* profile);
 
-// Shows an HTML dialog. See HtmlDialogView.
-void ShowHtmlDialogView(gfx::NativeWindow parent, Profile* profile,
-                        HtmlDialogUIDelegate* delegate);
-
 // Creates and returns a find bar for the given browser window. See FindBarWin.
 FindBar* CreateFindBar(BrowserView* browser_view);
 
@@ -87,6 +84,9 @@ void ShowKeywordEditorView(Profile* profile);
 
 // Shows the Task Manager.
 void ShowTaskManager();
+
+// Shows the Task Manager, highlighting the background pages.
+void ShowBackgroundPages();
 
 #if defined(OS_CHROMEOS)
 // Shows the Login Wizard.

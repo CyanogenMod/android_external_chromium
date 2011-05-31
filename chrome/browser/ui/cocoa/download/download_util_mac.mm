@@ -10,8 +10,8 @@
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_manager.h"
 #import "chrome/browser/ui/cocoa/dock_icon.h"
-#include "gfx/native_widget_types.h"
 #include "skia/ext/skia_utils_mac.h"
+#include "ui/gfx/native_widget_types.h"
 
 namespace download_util {
 
@@ -47,7 +47,7 @@ void DragDownload(const DownloadItem* download,
   NSImage* dragImage = gfx::SkBitmapToNSImage(*icon);
 
   // Synthesize a drag event, since we don't have access to the actual event
-  // that initiated a drag (possibly consumed by the DOM UI, for example).
+  // that initiated a drag (possibly consumed by the Web UI, for example).
   NSPoint position = [[view window] mouseLocationOutsideOfEventStream];
   NSTimeInterval eventTime = [[NSApp currentEvent] timestamp];
   NSEvent* dragEvent = [NSEvent mouseEventWithType:NSLeftMouseDragged

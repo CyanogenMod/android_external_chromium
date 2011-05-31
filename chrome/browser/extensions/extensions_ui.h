@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,10 @@
 
 #include "base/scoped_ptr.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 #include "chrome/browser/extensions/extension_install_ui.h"
 #include "chrome/browser/extensions/pack_extension_job.h"
-#include "chrome/browser/shell_dialogs.h"
+#include "chrome/browser/ui/shell_dialogs.h"
 #include "chrome/common/extensions/extension_resource.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
@@ -61,7 +61,7 @@ class ExtensionsUIHTMLSource : public ChromeURLDataManager::DataSource {
 
 // The handler for JavaScript messages related to the "extensions" view.
 class ExtensionsDOMHandler
-    : public DOMMessageHandler,
+    : public WebUIMessageHandler,
       public NotificationObserver,
       public PackExtensionJob::Client,
       public SelectFileDialog::Listener,
@@ -105,7 +105,7 @@ class ExtensionsDOMHandler
   explicit ExtensionsDOMHandler(ExtensionService* extension_service);
   virtual ~ExtensionsDOMHandler();
 
-  // DOMMessageHandler implementation.
+  // WebUIMessageHandler implementation.
   virtual void RegisterMessages();
 
   // Extension Detail JSON Struct for page. (static for ease of testing).
@@ -114,7 +114,8 @@ class ExtensionsDOMHandler
       ExtensionService* service,
       const Extension* extension,
       const std::vector<ExtensionPage>& pages,
-      bool enabled);
+      bool enabled,
+      bool terminated);
 
   // ContentScript JSON Struct for page. (static for ease of testing).
   static DictionaryValue* CreateContentScriptDetailValue(
@@ -260,7 +261,7 @@ class ExtensionsDOMHandler
   DISALLOW_COPY_AND_ASSIGN(ExtensionsDOMHandler);
 };
 
-class ExtensionsUI : public DOMUI {
+class ExtensionsUI : public WebUI {
  public:
   explicit ExtensionsUI(TabContents* contents);
 

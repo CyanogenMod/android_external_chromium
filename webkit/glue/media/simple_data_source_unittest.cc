@@ -1,17 +1,17 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/callback.h"
 #include "media/base/filters.h"
+#include "media/base/mock_callback.h"
 #include "media/base/mock_filter_host.h"
 #include "media/base/mock_filters.h"
 #include "net/base/net_errors.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebFrame.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLError.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLLoader.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLRequest.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLResponse.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebFrame.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLError.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLLoader.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLRequest.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLResponse.h"
 #include "webkit/glue/media/simple_data_source.h"
 #include "webkit/mocks/mock_webframe.h"
 #include "webkit/mocks/mock_weburlloader.h"
@@ -42,6 +42,10 @@ const char kDataUrl[] =
     "data:text/plain;base64,YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoK";
 const char kDataUrlDecoded[] = "abcdefghijklmnopqrstuvwxyz";
 const char kInvalidUrl[] = "whatever://test";
+const char kHttpRedirectToSameDomainUrl1[] = "http://test/ing";
+const char kHttpRedirectToSameDomainUrl2[] = "http://test/ing2";
+const char kHttpRedirectToDifferentDomainUrl1[] = "http://test2";
+const char kHttpRedirectToDifferentDomainUrl2[] = "http://test2/ing";
 
 }  // namespace
 
@@ -56,10 +60,10 @@ class SimpleDataSourceTest : public testing::Test {
   }
 
   virtual ~SimpleDataSourceTest() {
-    ignore_result(frame_.release());
   }
 
-  void InitializeDataSource(const char* url) {
+  void InitializeDataSource(const char* url,
+                            media::MockCallback* callback) {
     gurl_ = GURL(url);
 
     frame_.reset(new NiceMock<MockWebFrame>());
@@ -72,9 +76,7 @@ class SimpleDataSourceTest : public testing::Test {
     data_source_->set_host(&host_);
     data_source_->SetURLLoaderForTest(url_loader_);
 
-    InSequence s;
-
-    data_source_->Initialize(url, callback_.NewCallback());
+    data_source_->Initialize(url, callback);
     MessageLoop::current()->RunAllPending();
   }
 
@@ -96,8 +98,6 @@ class SimpleDataSourceTest : public testing::Test {
     InSequence s;
     EXPECT_CALL(host_, SetTotalBytes(kDataSize));
     EXPECT_CALL(host_, SetBufferedBytes(kDataSize));
-    EXPECT_CALL(callback_, OnFilterCallback());
-    EXPECT_CALL(callback_, OnCallbackDestroyed());
 
     data_source_->didFinishLoading(NULL, 0);
 
@@ -108,8 +108,6 @@ class SimpleDataSourceTest : public testing::Test {
   void RequestFailed() {
     InSequence s;
     EXPECT_CALL(host_, SetError(media::PIPELINE_ERROR_NETWORK));
-    EXPECT_CALL(callback_, OnFilterCallback());
-    EXPECT_CALL(callback_, OnCallbackDestroyed());
 
     WebURLError error;
     error.reason = net::ERR_FAILED;
@@ -119,12 +117,18 @@ class SimpleDataSourceTest : public testing::Test {
     MessageLoop::current()->RunAllPending();
   }
 
-  void DestroyDataSource() {
-    StrictMock<media::MockFilterCallback> callback;
-    EXPECT_CALL(callback, OnFilterCallback());
-    EXPECT_CALL(callback, OnCallbackDestroyed());
+  void Redirect(const char* url) {
+    GURL redirectUrl(url);
+    WebKit::WebURLRequest newRequest(redirectUrl);
+    WebKit::WebURLResponse redirectResponse(gurl_);
 
-    data_source_->Stop(callback.NewCallback());
+    data_source_->willSendRequest(url_loader_, newRequest, redirectResponse);
+
+    MessageLoop::current()->RunAllPending();
+  }
+
+  void DestroyDataSource() {
+    data_source_->Stop(media::NewExpectedCallback());
     MessageLoop::current()->RunAllPending();
 
     data_source_ = NULL;
@@ -150,7 +154,6 @@ class SimpleDataSourceTest : public testing::Test {
   NiceMock<MockWebURLLoader>* url_loader_;
   scoped_refptr<SimpleDataSource> data_source_;
   StrictMock<media::MockFilterHost> host_;
-  StrictMock<media::MockFilterCallback> callback_;
   scoped_ptr<NiceMock<MockWebFrame> > frame_;
 
   char data_[kDataSize];
@@ -159,19 +162,19 @@ class SimpleDataSourceTest : public testing::Test {
 };
 
 TEST_F(SimpleDataSourceTest, InitializeHTTP) {
-  InitializeDataSource(kHttpUrl);
+  InitializeDataSource(kHttpUrl, media::NewExpectedCallback());
   RequestSucceeded(false);
   DestroyDataSource();
 }
 
 TEST_F(SimpleDataSourceTest, InitializeHTTPS) {
-  InitializeDataSource(kHttpsUrl);
+  InitializeDataSource(kHttpsUrl, media::NewExpectedCallback());
   RequestSucceeded(false);
   DestroyDataSource();
 }
 
 TEST_F(SimpleDataSourceTest, InitializeFile) {
-  InitializeDataSource(kFileUrl);
+  InitializeDataSource(kFileUrl, media::NewExpectedCallback());
   RequestSucceeded(true);
   DestroyDataSource();
 }
@@ -191,33 +194,87 @@ TEST_F(SimpleDataSourceTest, InitializeData) {
   EXPECT_CALL(host_, SetLoaded(true));
   EXPECT_CALL(host_, SetTotalBytes(sizeof(kDataUrlDecoded)));
   EXPECT_CALL(host_, SetBufferedBytes(sizeof(kDataUrlDecoded)));
-  EXPECT_CALL(callback_, OnFilterCallback());
-  EXPECT_CALL(callback_, OnCallbackDestroyed());
 
-  data_source_->Initialize(kDataUrl, callback_.NewCallback());
+  data_source_->Initialize(kDataUrl, media::NewExpectedCallback());
   MessageLoop::current()->RunAllPending();
 
   DestroyDataSource();
 }
 
 TEST_F(SimpleDataSourceTest, RequestFailed) {
-  InitializeDataSource(kHttpUrl);
+  InitializeDataSource(kHttpUrl, media::NewExpectedCallback());
   RequestFailed();
   DestroyDataSource();
 }
 
 TEST_F(SimpleDataSourceTest, StopWhenDownloading) {
-  InitializeDataSource(kHttpUrl);
+  // The callback should be deleted, but not executed.
+  // TODO(scherkus): should this really be the behaviour?  Seems strange...
+  StrictMock<media::MockCallback>* callback =
+      new StrictMock<media::MockCallback>();
+  EXPECT_CALL(*callback, Destructor());
+
+  InitializeDataSource(kHttpUrl, callback);
 
   EXPECT_CALL(*url_loader_, cancel());
-  EXPECT_CALL(callback_, OnCallbackDestroyed());
   DestroyDataSource();
 }
 
 TEST_F(SimpleDataSourceTest, AsyncRead) {
-  InitializeDataSource(kFileUrl);
+  InitializeDataSource(kFileUrl, media::NewExpectedCallback());
   RequestSucceeded(true);
   AsyncRead();
+  DestroyDataSource();
+}
+
+// NOTE: This test will need to be reworked a little once
+// http://code.google.com/p/chromium/issues/detail?id=72578
+// is fixed.
+TEST_F(SimpleDataSourceTest, HasSingleOrigin) {
+  // Make sure no redirect case works as expected.
+  InitializeDataSource(kHttpUrl, media::NewExpectedCallback());
+  RequestSucceeded(false);
+  EXPECT_TRUE(data_source_->HasSingleOrigin());
+  DestroyDataSource();
+
+  // Test redirect to the same domain.
+  InitializeDataSource(kHttpUrl, media::NewExpectedCallback());
+  Redirect(kHttpRedirectToSameDomainUrl1);
+  RequestSucceeded(false);
+  EXPECT_TRUE(data_source_->HasSingleOrigin());
+  DestroyDataSource();
+
+  // Test redirect twice to the same domain.
+  InitializeDataSource(kHttpUrl, media::NewExpectedCallback());
+  Redirect(kHttpRedirectToSameDomainUrl1);
+  Redirect(kHttpRedirectToSameDomainUrl2);
+  RequestSucceeded(false);
+  EXPECT_TRUE(data_source_->HasSingleOrigin());
+  DestroyDataSource();
+
+  // Test redirect to a different domain.
+  InitializeDataSource(kHttpUrl, media::NewExpectedCallback());
+  Redirect(kHttpRedirectToDifferentDomainUrl1);
+  RequestSucceeded(false);
+  EXPECT_FALSE(data_source_->HasSingleOrigin());
+  DestroyDataSource();
+
+  // Test redirect twice to a different domain.
+  InitializeDataSource(kHttpUrl, media::NewExpectedCallback());
+  Redirect(kHttpRedirectToDifferentDomainUrl1);
+  Redirect(kHttpRedirectToDifferentDomainUrl2);
+  RequestSucceeded(false);
+  EXPECT_FALSE(data_source_->HasSingleOrigin());
+  DestroyDataSource();
+
+  // Test to a different domain and then back to the same domain.
+  // NOTE: A different origin was encountered at least once so that
+  //       makes HasSingleOrigin() become false.
+  InitializeDataSource(kHttpUrl, media::NewExpectedCallback());
+  Redirect(kHttpRedirectToDifferentDomainUrl1);
+  Redirect(kHttpRedirectToSameDomainUrl1);
+  RequestSucceeded(false);
+  EXPECT_FALSE(data_source_->HasSingleOrigin());
   DestroyDataSource();
 }
 

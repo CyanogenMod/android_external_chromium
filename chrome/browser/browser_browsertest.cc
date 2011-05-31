@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <string>
 
-#include "app/l10n_util.h"
 #include "base/compiler_specific.h"
 #include "base/file_path.h"
 #include "base/sys_info.h"
@@ -39,6 +38,7 @@
 #include "grit/generated_resources.h"
 #include "net/base/mock_host_resolver.h"
 #include "net/test/test_server.h"
+#include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_WIN)
 #include "base/i18n/rtl.h"
@@ -47,13 +47,13 @@
 
 namespace {
 
-const std::string BEFORE_UNLOAD_HTML =
+const char* kBeforeUnloadHTML =
     "<html><head><title>beforeunload</title></head><body>"
     "<script>window.onbeforeunload=function(e){return 'foo'}</script>"
     "</body></html>";
 
-const std::wstring OPEN_NEW_BEFOREUNLOAD_PAGE =
-    L"w=window.open(); w.onbeforeunload=function(e){return 'foo'};";
+const char* kOpenNewBeforeUnloadPage =
+    "w=window.open(); w.onbeforeunload=function(e){return 'foo'};";
 
 const FilePath::CharType* kTitle1File = FILE_PATH_LITERAL("title1.html");
 const FilePath::CharType* kTitle2File = FILE_PATH_LITERAL("title2.html");
@@ -211,8 +211,9 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, JavascriptAlertActivatesTab) {
   EXPECT_EQ(0, browser()->selected_index());
   TabContents* second_tab = browser()->GetTabContentsAt(1);
   ASSERT_TRUE(second_tab);
-  second_tab->render_view_host()->ExecuteJavascriptInWebFrame(L"",
-      L"alert('Activate!');");
+  second_tab->render_view_host()->ExecuteJavascriptInWebFrame(
+      string16(),
+      ASCIIToUTF16("alert('Activate!');"));
   AppModalDialog* alert = ui_test_utils::WaitForAppModalDialog();
   alert->CloseModalDialog();
   EXPECT_EQ(2, browser()->tab_count());
@@ -246,7 +247,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, ThirtyFourTabs) {
 // Test for crbug.com/22004.  Reloading a page with a before unload handler and
 // then canceling the dialog should not leave the throbber spinning.
 IN_PROC_BROWSER_TEST_F(BrowserTest, ReloadThenCancelBeforeUnload) {
-  GURL url("data:text/html," + BEFORE_UNLOAD_HTML);
+  GURL url(std::string("data:text/html,") + kBeforeUnloadHTML);
   ui_test_utils::NavigateToURL(browser(), url);
 
   // Navigate to another page, but click cancel in the dialog.  Make sure that
@@ -258,7 +259,8 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, ReloadThenCancelBeforeUnload) {
 
   // Clear the beforeunload handler so the test can easily exit.
   browser()->GetSelectedTabContents()->render_view_host()->
-      ExecuteJavascriptInWebFrame(L"", L"onbeforeunload=null;");
+      ExecuteJavascriptInWebFrame(string16(),
+                                  ASCIIToUTF16("onbeforeunload=null;"));
 }
 
 // Crashy on mac.  http://crbug.com/38522
@@ -274,13 +276,15 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, ReloadThenCancelBeforeUnload) {
 // two beforeunload dialogs shown.
 IN_PROC_BROWSER_TEST_F(BrowserTest, MAYBE_SingleBeforeUnloadAfterWindowClose) {
   browser()->GetSelectedTabContents()->render_view_host()->
-      ExecuteJavascriptInWebFrame(L"", OPEN_NEW_BEFOREUNLOAD_PAGE);
+      ExecuteJavascriptInWebFrame(string16(),
+                                  ASCIIToUTF16(kOpenNewBeforeUnloadPage));
 
   // Close the new window with JavaScript, which should show a single
   // beforeunload dialog.  Then show another alert, to make it easy to verify
   // that a second beforeunload dialog isn't shown.
   browser()->GetTabContentsAt(0)->render_view_host()->
-      ExecuteJavascriptInWebFrame(L"", L"w.close(); alert('bar');");
+      ExecuteJavascriptInWebFrame(string16(),
+                                  ASCIIToUTF16("w.close(); alert('bar');"));
   AppModalDialog* alert = ui_test_utils::WaitForAppModalDialog();
   alert->native_dialog()->AcceptAppModalDialog();
 
@@ -376,7 +380,8 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, CommandCreateAppShortcutInvalid) {
 }
 
 // Change a tab into an application window.
-IN_PROC_BROWSER_TEST_F(BrowserTest, ConvertTabToAppShortcut) {
+// DISABLED: http://crbug.com/72310
+IN_PROC_BROWSER_TEST_F(BrowserTest, DISABLED_ConvertTabToAppShortcut) {
   ASSERT_TRUE(test_server()->Start());
   GURL http_url(test_server()->GetURL(""));
   ASSERT_TRUE(http_url.SchemeIs(chrome::kHttpScheme));
@@ -419,7 +424,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, ConvertTabToAppShortcut) {
   // Normal tabs should accept load drops.
   EXPECT_TRUE(initial_tab->GetMutableRendererPrefs()->can_accept_load_drops);
 
-  // The tab in an aopp window should not.
+  // The tab in an app window should not.
   EXPECT_FALSE(app_tab->GetMutableRendererPrefs()->can_accept_load_drops);
 }
 
@@ -494,6 +499,44 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, TabClosingWhenRemovingExtension) {
   // There should only be one tab now.
   ASSERT_EQ(1, browser()->tab_count());
 }
+
+#if !defined(OS_MACOSX)
+// Open with --app-id=<id>, and see that an app window opens.
+IN_PROC_BROWSER_TEST_F(BrowserTest, AppIdSwitch) {
+  ASSERT_TRUE(test_server()->Start());
+
+  // Load an app.
+  host_resolver()->AddRule("www.example.com", "127.0.0.1");
+  ASSERT_TRUE(LoadExtension(test_data_dir_.AppendASCII("app/")));
+  const Extension* extension_app = GetExtension();
+
+  CommandLine command_line(CommandLine::NO_PROGRAM);
+  command_line.AppendSwitchASCII(switches::kAppId, extension_app->id());
+
+  BrowserInit::LaunchWithProfile launch(FilePath(), command_line);
+  ASSERT_TRUE(launch.OpenApplicationWindow(browser()->profile()));
+
+  // Check that the new browser has an app name.
+  // The launch should have created a new browser.
+  ASSERT_EQ(2u, BrowserList::GetBrowserCount(browser()->profile()));
+
+  // Find the new browser.
+  Browser* new_browser = NULL;
+  for (BrowserList::const_iterator i = BrowserList::begin();
+       i != BrowserList::end() && !new_browser; ++i) {
+    if (*i != browser())
+      new_browser = *i;
+  }
+  ASSERT_TRUE(new_browser);
+  ASSERT_TRUE(new_browser != browser());
+
+  // The browser's app_name should include the app's ID.
+  ASSERT_NE(
+      new_browser->app_name_.find(extension_app->id()),
+      std::string::npos) << new_browser->app_name_;
+
+}
+#endif
 
 #if defined(OS_WIN)
 // http://crbug.com/46198. On XP/Vista, the failure rate is 5 ~ 6%.
@@ -654,6 +697,11 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, OpenAppWindowLikeNtp) {
   ASSERT_TRUE(new_browser != browser());
 
   EXPECT_EQ(Browser::TYPE_APP, new_browser->type());
+
+  // The browser's app name should include the extension's id.
+  std::string app_name = new_browser->app_name_;
+  EXPECT_NE(app_name.find(extension_app->id()), std::string::npos)
+      << "Name " << app_name << " should contain id "<< extension_app->id();
 }
 #endif  // !defined(OS_MACOSX)
 

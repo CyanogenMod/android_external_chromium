@@ -4,11 +4,11 @@
 
 #include "chrome/browser/remoting/setup_flow_get_status_step.h"
 
-#include "app/l10n_util.h"
 #include "chrome/browser/remoting/setup_flow_register_step.h"
 #include "chrome/browser/service/service_process_control.h"
 #include "chrome/browser/service/service_process_control_manager.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace remoting {
 
@@ -41,6 +41,8 @@ void SetupFlowGetStatusStep::OnRemotingHostInfo(
 }
 
 void SetupFlowGetStatusStep::DoStart() {
+  flow()->web_ui()->CallJavascriptFunction(L"showSettingUp");
+
   process_control_ =
       ServiceProcessControlManager::GetInstance()->GetProcessControl(
           flow()->profile());

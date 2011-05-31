@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,11 +50,11 @@
 #include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
+
 #include <cstring>
 #include <set>
 #include <string>
 
-#include "app/l10n_util.h"
 #include "base/base_paths.h"
 #include "base/basictypes.h"
 #include "base/command_line.h"
@@ -78,7 +78,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #if defined(TOOLKIT_GTK)
-#include "chrome/browser/gtk/process_singleton_dialog.h"
+#include "chrome/browser/ui/gtk/process_singleton_dialog.h"
 #endif
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/profiles/profile.h"
@@ -90,6 +90,7 @@
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "net/base/net_util.h"
+#include "ui/base/l10n/l10n_util.h"
 
 const int ProcessSingleton::kTimeoutInSeconds;
 
@@ -951,7 +952,8 @@ bool ProcessSingleton::Create() {
     // We've already locked things, so we can't have lost the startup race,
     // but something doesn't like us.
     LOG(ERROR) << "Failed to create symlinks.";
-    socket_dir_.Delete();
+    if (!socket_dir_.Delete())
+      LOG(ERROR) << "Encountered a problem when deleting socket directory.";
     return false;
   }
 

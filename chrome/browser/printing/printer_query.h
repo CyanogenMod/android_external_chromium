@@ -8,7 +8,7 @@
 
 #include "base/scoped_ptr.h"
 #include "chrome/browser/printing/print_job_worker_owner.h"
-#include "gfx/native_widget_types.h"
+#include "ui/gfx/native_widget_types.h"
 
 class CancelableTask;
 class MessageLoop;
@@ -53,9 +53,6 @@ class PrinterQuery : public PrintJobWorkerOwner {
 
   // Stops the worker thread since the client is done with this object.
   void StopWorker();
-
-  // Returns true if the Print... dialog box is currently displayed.
-  bool is_print_dialog_box_shown() const;
 
   // Returns true if a GetSettings() call is pending completion.
   bool is_callback_pending() const;

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "base/scoped_ptr.h"
 #include "chrome/browser/chromeos/login/login_status_consumer.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 
 class Profile;
 
@@ -41,22 +41,23 @@ class LoginUIHTMLSource : public ChromeURLDataManager::DataSource {
   DISALLOW_COPY_AND_ASSIGN(LoginUIHTMLSource);
 };
 
-// Main LoginUI handling function. It handles the DOMui hooks that are supplied
+// Main LoginUI handling function. It handles the WebUI hooks that are supplied
 // for the login page to use for authentication. It passes the key pair form the
 // login page to the AuthenticatorFacade. The facade then will call back into
 // this class with the result, which will then be used to determine the browser
 // behaviour.
-class LoginUIHandler : public DOMMessageHandler,
+class LoginUIHandler : public WebUIMessageHandler,
                        public chromeos::LoginStatusConsumer {
  public:
   LoginUIHandler();
 
-  // DOMMessageHandler implementation.
-  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+  // WebUIMessageHandler implementation.
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
   virtual void RegisterMessages();
 
   void HandleAuthenticateUser(const ListValue* args);
   void HandleLaunchIncognito(const ListValue* args);
+  void HandleShutdownSystem(const ListValue* args);
 
   // Overridden from LoginStatusConsumer.
   virtual void OnLoginFailure(const chromeos::LoginFailure& failure);
@@ -76,9 +77,9 @@ class LoginUIHandler : public DOMMessageHandler,
   DISALLOW_COPY_AND_ASSIGN(LoginUIHandler);
 };
 
-// Boilerplate class that is used to associate the LoginUI code with the DOMui
+// Boilerplate class that is used to associate the LoginUI code with the WebUI
 // code.
-class LoginUI : public DOMUI {
+class LoginUI : public WebUI {
  public:
   explicit LoginUI(TabContents* contents);
 

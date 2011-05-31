@@ -84,7 +84,7 @@ class HistoryBackendMock : public HistoryBackend {
                                history::VisitSource visit_source));
   MOCK_METHOD1(RemoveVisits, bool(const history::VisitVector& visits));
   MOCK_METHOD2(GetURL, bool(const GURL& url_id, history::URLRow* url_row));
-  MOCK_METHOD2(SetPageTitle, void(const GURL& url, const std::wstring& title));
+  MOCK_METHOD2(SetPageTitle, void(const GURL& url, const string16& title));
   MOCK_METHOD1(DeleteURL, void(const GURL& url));
 };
 
@@ -192,8 +192,7 @@ class ProfileSyncServiceTypedUrlTest : public AbstractProfileSyncServiceTest {
 
   void AddTypedUrlSyncNode(const history::URLRow& url,
                            const history::VisitVector& visits) {
-    sync_api::WriteTransaction trans(
-        service_->backend()->GetUserShareHandle());
+    sync_api::WriteTransaction trans(service_->GetUserShare());
     sync_api::ReadNode typed_url_root(&trans);
     ASSERT_TRUE(typed_url_root.InitByTagLookup(browser_sync::kTypedUrlTag));
 
@@ -206,7 +205,7 @@ class ProfileSyncServiceTypedUrlTest : public AbstractProfileSyncServiceTest {
   }
 
   void GetTypedUrlsFromSyncDB(std::vector<history::URLRow>* urls) {
-    sync_api::ReadTransaction trans(service_->backend()->GetUserShareHandle());
+    sync_api::ReadTransaction trans(service_->GetUserShare());
     sync_api::ReadNode typed_url_root(&trans);
     if (!typed_url_root.InitByTagLookup(browser_sync::kTypedUrlTag))
       return;
@@ -279,8 +278,6 @@ class ProfileSyncServiceTypedUrlTest : public AbstractProfileSyncServiceTest {
   ProfileSyncFactoryMock factory_;
   scoped_refptr<HistoryBackendMock> history_backend_;
   scoped_refptr<HistoryServiceMock> history_service_;
-
-  TestIdFactory ids_;
 };
 
 class AddTypedUrlEntriesTask : public Task {

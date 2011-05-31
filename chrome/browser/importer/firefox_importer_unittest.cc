@@ -33,10 +33,9 @@ TEST(FirefoxImporterTest, Firefox2NSS3Decryptor) {
   db_path = db_path.AppendASCII("firefox2_profile");
 
   FFUnitTestDecryptorProxy decryptor_proxy;
-  ASSERT_TRUE(decryptor_proxy.Setup(nss_path.ToWStringHack()));
+  ASSERT_TRUE(decryptor_proxy.Setup(nss_path));
 
-  EXPECT_TRUE(decryptor_proxy.DecryptorInit(nss_path.ToWStringHack(),
-                                            db_path.ToWStringHack()));
+  EXPECT_TRUE(decryptor_proxy.DecryptorInit(nss_path, db_path));
   EXPECT_EQ(ASCIIToUTF16("hello"),
       decryptor_proxy.Decrypt("MDIEEPgAAAAAAAAAAAAAAAAAAAEwFAYIKoZIhvcNAwcECBJ"
                               "M63MpT9rtBAjMCm7qo/EhlA=="));
@@ -59,10 +58,9 @@ TEST(FirefoxImporterTest, Firefox3NSS3Decryptor) {
   db_path = db_path.AppendASCII("firefox3_profile");
 
   FFUnitTestDecryptorProxy decryptor_proxy;
-  ASSERT_TRUE(decryptor_proxy.Setup(nss_path.ToWStringHack()));
+  ASSERT_TRUE(decryptor_proxy.Setup(nss_path));
 
-  EXPECT_TRUE(decryptor_proxy.DecryptorInit(nss_path.ToWStringHack(),
-                                            db_path.ToWStringHack()));
+  EXPECT_TRUE(decryptor_proxy.DecryptorInit(nss_path, db_path));
   EXPECT_EQ(ASCIIToUTF16("hello"),
       decryptor_proxy.Decrypt("MDIEEPgAAAAAAAAAAAAAAAAAAAEwFAYIKoZIhvcNAwcECKa"
                               "jtRg4qFSHBAhv9luFkXgDJA=="));
@@ -87,18 +85,20 @@ TEST(FirefoxImporterTest, Firefox2BookmarkParse) {
   // Escaped characters in name.
   std::wstring folder_name;
   bool is_toolbar_folder;
+  Time folder_add_date;
   result = Firefox2Importer::ParseFolderNameFromLine(
       "<DT><H3 ADD_DATE=\"1207558707\" >&lt; &gt;"
       " &amp; &quot; &#39; \\ /</H3>",
-      charset, &folder_name, &is_toolbar_folder);
+      charset, &folder_name, &is_toolbar_folder, &folder_add_date);
   EXPECT_TRUE(result);
   EXPECT_EQ(L"< > & \" ' \\ /", folder_name);
   EXPECT_FALSE(is_toolbar_folder);
+  EXPECT_TRUE(Time::FromTimeT(1207558707) == folder_add_date);
 
   // Empty name and toolbar folder attribute.
   result = Firefox2Importer::ParseFolderNameFromLine(
       "<DT><H3 PERSONAL_TOOLBAR_FOLDER=\"true\"></H3>",
-      charset, &folder_name, &is_toolbar_folder);
+      charset, &folder_name, &is_toolbar_folder, &folder_add_date);
   EXPECT_TRUE(result);
   EXPECT_EQ(L"", folder_name);
   EXPECT_TRUE(is_toolbar_folder);
@@ -176,4 +176,125 @@ TEST(FirefoxImporterTest, Firefox2BookmarkParse) {
   EXPECT_EQ(L"", shortcut);
   EXPECT_EQ(L"", post_data);
   EXPECT_TRUE(Time() == add_date);
+
+  // Epiphany format.
+  result = Firefox2Importer::ParseMinimumBookmarkFromLine(
+      "<dt><a href=\"http://www.google.com/\">Google</a></dt>",
+      charset, &title, &url);
+  EXPECT_TRUE(result);
+  EXPECT_EQ(L"Google", title);
+  EXPECT_EQ("http://www.google.com/", url.spec());
+}
+
+TEST(FirefoxImporterTest, Firefox2BookmarkFileImport) {
+  FilePath path;
+  ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &path));
+  path = path.AppendASCII("firefox2_importer");
+
+  // Import all bookmarks from a file which include an empty folder entry.
+  FilePath empty_folder_path = path.AppendASCII("empty_folder.html");
+  std::set<GURL> default_urls;
+  std::wstring first_folder_name;
+  Firefox2Importer* importer = new Firefox2Importer();
+  importer->AddRef();
+  std::vector<ProfileWriter::BookmarkEntry> bookmarks;
+  importer->ImportBookmarksFile(empty_folder_path, default_urls, false,
+                                first_folder_name, importer, &bookmarks,
+                                NULL, NULL);
+  EXPECT_EQ(3, static_cast<int>(bookmarks.size()));
+  std::vector<ProfileWriter::BookmarkEntry>::iterator it;
+  ProfileWriter::BookmarkEntry entry;
+  std::vector<std::wstring>::iterator path_it;
+  if (bookmarks.size() == 3) {
+    it = bookmarks.begin();
+    entry = *it++;
+    EXPECT_EQ(L"Empty", entry.title);
+    EXPECT_TRUE(entry.is_folder);
+    EXPECT_EQ(Time::FromTimeT(1295938143), entry.creation_time);
+    EXPECT_EQ(2, static_cast<int>(entry.path.size()));
+    if (entry.path.size() == 2) {
+      path_it = entry.path.begin();
+      EXPECT_EQ(L"", *path_it++);
+      EXPECT_EQ(L"Empty's Parent", *path_it);
+    }
+
+    entry = *it++;
+    EXPECT_EQ(L"[Tamura Yukari.com]", entry.title);
+    EXPECT_FALSE(entry.is_folder);
+    EXPECT_EQ(Time::FromTimeT(1234567890), entry.creation_time);
+    EXPECT_EQ(2, static_cast<int>(entry.path.size()));
+    if (entry.path.size() == 2) {
+      path_it = entry.path.begin();
+      EXPECT_EQ(L"", *path_it++);
+      EXPECT_EQ(L"Not Empty", *path_it);
+    }
+    EXPECT_EQ("http://www.tamurayukari.com/", entry.url.spec());
+
+    entry = *it++;
+    EXPECT_EQ(L"Google", entry.title);
+    EXPECT_FALSE(entry.is_folder);
+    EXPECT_EQ(Time::FromTimeT(0000000000), entry.creation_time);
+    EXPECT_EQ(2, static_cast<int>(entry.path.size()));
+    if (entry.path.size() == 2) {
+      path_it = entry.path.begin();
+      EXPECT_EQ(L"", *path_it++);
+      EXPECT_EQ(L"Not Empty But Default", *path_it);
+    }
+    EXPECT_EQ("http://www.google.com/", entry.url.spec());
+  }
+
+  // Import non-default bookmarks from a file.
+  bookmarks.clear();
+  default_urls.insert(GURL("http://www.google.com/"));
+  importer->ImportBookmarksFile(empty_folder_path, default_urls, false,
+                                first_folder_name, importer, &bookmarks,
+                                NULL, NULL);
+  EXPECT_EQ(2, static_cast<int>(bookmarks.size()));
+  if (bookmarks.size() == 2) {
+    it = bookmarks.begin();
+    entry = *it++;
+    EXPECT_EQ(L"Empty", entry.title);
+    EXPECT_TRUE(entry.is_folder);
+    EXPECT_EQ(Time::FromTimeT(1295938143), entry.creation_time);
+    EXPECT_EQ(2, static_cast<int>(entry.path.size()));
+    if (entry.path.size() == 2) {
+      path_it = entry.path.begin();
+      EXPECT_EQ(L"", *path_it++);
+      EXPECT_EQ(L"Empty's Parent", *path_it);
+    }
+
+    entry = *it++;
+    EXPECT_EQ(L"[Tamura Yukari.com]", entry.title);
+    EXPECT_FALSE(entry.is_folder);
+    EXPECT_EQ(Time::FromTimeT(1234567890), entry.creation_time);
+    EXPECT_EQ(2, static_cast<int>(entry.path.size()));
+    if (entry.path.size() == 2) {
+      path_it = entry.path.begin();
+      EXPECT_EQ(L"", *path_it++);
+      EXPECT_EQ(L"Not Empty", *path_it);
+    }
+    EXPECT_EQ("http://www.tamurayukari.com/", entry.url.spec());
+  }
+
+  // Import Epiphany bookmarks from a file
+  FilePath epiphany_path = path.AppendASCII("epiphany.html");
+  bookmarks.clear();
+  default_urls.clear();
+  importer->ImportBookmarksFile(epiphany_path, default_urls, false,
+                                first_folder_name, importer, &bookmarks,
+                                NULL, NULL);
+  EXPECT_EQ(2, static_cast<int>(bookmarks.size()));
+  if (bookmarks.size() == 2) {
+    it = bookmarks.begin();
+    entry = *it++;
+    EXPECT_EQ(L"[Tamura Yukari.com]", entry.title);
+    EXPECT_EQ("http://www.tamurayukari.com/", entry.url.spec());
+    EXPECT_EQ(0, static_cast<int>(entry.path.size()));
+    entry = *it++;
+    EXPECT_EQ(L"Google", entry.title);
+    EXPECT_EQ("http://www.google.com/", entry.url.spec());
+    EXPECT_EQ(0, static_cast<int>(entry.path.size()));
+  }
+
+  importer->Release();
 }

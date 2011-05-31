@@ -56,12 +56,6 @@ class HttpProxyClientSocket : public ProxyClientSocket {
   // RestartWithAuth.
   int RestartWithAuth(CompletionCallback* callback);
 
-  const HttpResponseInfo* GetConnectResponseInfo() const {
-    return response_.headers ? &response_ : NULL;
-  }
-
-  virtual HttpStream* CreateConnectResponseStream();
-
   const scoped_refptr<HttpAuthController>& auth_controller() {
     return auth_;
   }
@@ -70,14 +64,21 @@ class HttpProxyClientSocket : public ProxyClientSocket {
     return using_spdy_;
   }
 
-  // ClientSocket methods:
+  // ProxyClientSocket methods:
+  virtual const HttpResponseInfo* GetConnectResponseInfo() const;
+  virtual HttpStream* CreateConnectResponseStream();
 
+<<<<<<< HEAD
   // Authenticates to the Http Proxy and then passes data freely.
   virtual int Connect(CompletionCallback* callback
 #ifdef ANDROID
                       , bool wait_for_connect
 #endif
                      );
+=======
+  // ClientSocket methods:
+  virtual int Connect(CompletionCallback* callback);
+>>>>>>> chromium.org at r11.0.672.0
   virtual void Disconnect();
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;
@@ -90,10 +91,8 @@ class HttpProxyClientSocket : public ProxyClientSocket {
   // Socket methods:
   virtual int Read(IOBuffer* buf, int buf_len, CompletionCallback* callback);
   virtual int Write(IOBuffer* buf, int buf_len, CompletionCallback* callback);
-
   virtual bool SetReceiveBufferSize(int32 size);
   virtual bool SetSendBufferSize(int32 size);
-
   virtual int GetPeerAddress(AddressList* address) const;
 
  private:

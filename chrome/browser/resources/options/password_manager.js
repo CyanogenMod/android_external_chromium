@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,7 @@ cr.define('options', function() {
     this.activeNavTab = null;
     OptionsPage.call(this,
                      'passwordManager',
-                     templateData.passwordsTitle,
+                     templateData.passwordsPageTabTitle,
                      'password-manager');
   }
 
@@ -41,12 +41,23 @@ cr.define('options', function() {
      */
     passwordExceptionsList_: null,
 
+    /** @inheritDoc */
     initializePage: function() {
       OptionsPage.prototype.initializePage.call(this);
 
       this.createSavedPasswordsList_();
       this.createPasswordExceptionsList_();
+    },
 
+    /** @inheritDoc */
+    canShowPage: function() {
+      return !PersonalOptions.disablePasswordManagement();
+    },
+
+    /** @inheritDoc */
+    didShowPage: function() {
+      // Updating the password lists may cause a blocking platform dialog pop up
+      // (Mac, Linux), so we delay this operation until the page is shown.
       chrome.send('updatePasswordLists');
     },
 

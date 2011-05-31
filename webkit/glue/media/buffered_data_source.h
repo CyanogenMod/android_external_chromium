@@ -8,8 +8,8 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/lock.h"
 #include "base/scoped_ptr.h"
+#include "base/synchronization/lock.h"
 #include "webkit/glue/media/buffered_resource_loader.h"
 
 namespace webkit_glue {
@@ -62,8 +62,7 @@ class BufferedDataSource : public WebDataSource {
   void InitializeTask();
 
   // Task posted to perform actual reading on the render thread.
-  void ReadTask(int64 position, int read_size, uint8* read_buffer,
-                media::DataSource::ReadCallback* read_callback);
+  void ReadTask(int64 position, int read_size, uint8* read_buffer);
 
   // Task posted when Stop() is called. Stops |watch_dog_timer_| and
   // |loader_|, reset Read() variables, and set |stopped_on_render_loop_|
@@ -138,9 +137,6 @@ class BufferedDataSource : public WebDataSource {
   // A webframe for loading.
   WebKit::WebFrame* frame_;
 
-  // True if the media resource has a single origin.
-  bool single_origin_;
-
   // A resource loader for the media resource.
   scoped_refptr<BufferedResourceLoader> loader_;
 
@@ -175,7 +171,7 @@ class BufferedDataSource : public WebDataSource {
   MessageLoop* render_loop_;
 
   // Protects |stopped_|.
-  Lock lock_;
+  base::Lock lock_;
 
   // Stop signal to suppressing activities. This variable is set on the pipeline
   // thread and read from the render thread.

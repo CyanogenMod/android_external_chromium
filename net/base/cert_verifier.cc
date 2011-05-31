@@ -5,9 +5,9 @@
 #include "net/base/cert_verifier.h"
 
 #include "base/compiler_specific.h"
-#include "base/lock.h"
 #include "base/message_loop.h"
 #include "base/stl_util-inl.h"
+#include "base/synchronization/lock.h"
 #include "base/threading/worker_pool.h"
 #include "net/base/net_errors.h"
 #include "net/base/x509_certificate.h"
@@ -109,6 +109,8 @@ class CertVerifierRequest {
     delete this;
   }
 
+  bool canceled() const { return !callback_; }
+
  private:
   CompletionCallback* callback_;
   CertVerifyResult* verify_result_;
@@ -145,7 +147,7 @@ class CertVerifierWorker {
   // deleted.
   void Cancel() {
     DCHECK_EQ(MessageLoop::current(), origin_loop_);
-    AutoLock locked(lock_);
+    base::AutoLock locked(lock_);
     canceled_ = true;
   }
 
@@ -174,7 +176,7 @@ class CertVerifierWorker {
       // after the PostTask, but before unlocking |lock_|. If we do not lock in
       // this case, we will end up deleting a locked Lock, which can lead to
       // memory leaks or worse errors.
-      AutoLock locked(lock_);
+      base::AutoLock locked(lock_);
       if (!canceled_) {
         cert_verifier_->HandleResult(cert_, hostname_, flags_,
                                      error_, verify_result_);
@@ -196,7 +198,7 @@ class CertVerifierWorker {
 
     bool canceled;
     {
-      AutoLock locked(lock_);
+      base::AutoLock locked(lock_);
       canceled = canceled_;
       if (!canceled) {
         origin_loop_->PostTask(
@@ -215,7 +217,7 @@ class CertVerifierWorker {
   CertVerifier* const cert_verifier_;
 
   // lock_ protects canceled_.
-  Lock lock_;
+  base::Lock lock_;
 
   // If canceled_ is true,
   // * origin_loop_ cannot be accessed by the worker thread,
@@ -236,8 +238,10 @@ class CertVerifierJob {
   }
 
   ~CertVerifierJob() {
-    if (worker_)
+    if (worker_) {
       worker_->Cancel();
+      DeleteAllCanceled();
+    }
   }
 
   void AddRequest(CertVerifierRequest* request) {
@@ -258,6 +262,17 @@ class CertVerifierJob {
          i = requests.begin(); i != requests.end(); i++) {
       (*i)->Post(verify_result);
       // Post() causes the CertVerifierRequest to delete itself.
+    }
+  }
+
+  void DeleteAllCanceled() {
+    for (std::vector<CertVerifierRequest*>::iterator
+         i = requests_.begin(); i != requests_.end(); i++) {
+      if ((*i)->canceled()) {
+        delete *i;
+      } else {
+        LOG(DFATAL) << "CertVerifierRequest leaked!";
+      }
     }
   }
 
@@ -328,14 +343,15 @@ int CertVerifier::Verify(X509Certificate* cert,
     CertVerifierWorker* worker = new CertVerifierWorker(cert, hostname, flags,
                                                         this);
     job = new CertVerifierJob(worker);
-    inflight_.insert(std::make_pair(key, job));
     if (!worker->Start()) {
-      inflight_.erase(key);
       delete job;
       delete worker;
       *out_req = NULL;
-      return ERR_FAILED;  // TODO(wtc): Log an error message.
+      // TODO(wtc): log to the NetLog.
+      LOG(ERROR) << "CertVerifierWorker couldn't be started.";
+      return ERR_INSUFFICIENT_RESOURCES;  // Just a guess.
     }
+    inflight_.insert(std::make_pair(key, job));
   }
 
   CertVerifierRequest* request =

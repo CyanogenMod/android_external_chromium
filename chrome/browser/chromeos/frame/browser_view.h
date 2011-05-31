@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,23 +9,22 @@
 #include <vector>
 
 #include "chrome/browser/chromeos/status/status_area_host.h"
-#include "chrome/browser/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
 #include "views/controls/menu/menu_wrapper.h"
 
 class AccessibleToolbarView;
+class Profile;
 class TabStripModel;
 
-namespace menus {
+namespace ui {
 class SimpleMenuModel;
-}  // namespace menus
+}  // namespace ui
 
 namespace views {
 class ImageButton;
 class ImageView;
 class Menu2;
 }  // namespace views
-
-class Profile;
 
 namespace chromeos {
 
@@ -73,8 +72,7 @@ class BrowserView : public ::BrowserView,
       const views::View* button_view) const;
   virtual void ExecuteBrowserCommand(int id) const;
   virtual void OpenButtonOptions(const views::View* button_view);
-  virtual bool IsBrowserMode() const;
-  virtual bool IsScreenLockerMode() const;
+  virtual ScreenMode GetScreenMode() const;
 
   gfx::NativeView saved_focused_widget() const {
     return saved_focused_widget_;
@@ -91,7 +89,7 @@ class BrowserView : public ::BrowserView,
   StatusAreaView* status_area_;
 
   // System menus.
-  scoped_ptr<menus::SimpleMenuModel> system_menu_contents_;
+  scoped_ptr<ui::SimpleMenuModel> system_menu_contents_;
   scoped_ptr<views::Menu2> system_menu_menu_;
 
   // Focused native widget before wench menu shows up. We need this to properly

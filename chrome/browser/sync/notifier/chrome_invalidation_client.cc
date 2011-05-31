@@ -38,9 +38,9 @@ ChromeInvalidationClient::~ChromeInvalidationClient() {
 }
 
 void ChromeInvalidationClient::Start(
-    const std::string& client_id, const std::string& state,
-    Listener* listener, StateWriter* state_writer,
-    base::WeakPtr<talk_base::Task> base_task) {
+    const std::string& client_id, const std::string& client_info,
+    const std::string& state, Listener* listener,
+    StateWriter* state_writer, base::WeakPtr<talk_base::Task> base_task) {
   DCHECK(non_thread_safe_.CalledOnValidThread());
   Stop();
 
@@ -64,8 +64,8 @@ void ChromeInvalidationClient::Start(
   client_config.max_ops_per_message = 40;
   invalidation_client_.reset(
       new invalidation::InvalidationClientImpl(
-          &chrome_system_resources_, client_type, client_id, client_config,
-          this));
+          &chrome_system_resources_, client_type, client_id, client_info,
+          client_config, this));
   invalidation_client_->Start(state);
   invalidation::NetworkEndpoint* network_endpoint =
       invalidation_client_->network_endpoint();
@@ -112,10 +112,6 @@ void ChromeInvalidationClient::RegisterTypes() {
        i < syncable::MODEL_TYPE_COUNT; ++i) {
     registration_manager_->RegisterType(syncable::ModelTypeFromInt(i));
   }
-  // TODO(akalin): This is a hack to make new sync data types work
-  // with server-issued notifications.  Remove this when it's not
-  // needed anymore.
-  registration_manager_->RegisterType(syncable::UNSPECIFIED);
 }
 
 void ChromeInvalidationClient::Invalidate(
@@ -126,7 +122,12 @@ void ChromeInvalidationClient::Invalidate(
   VLOG(1) << "Invalidate: " << InvalidationToString(invalidation);
   syncable::ModelType model_type;
   if (ObjectIdToRealModelType(invalidation.object_id(), &model_type)) {
-    listener_->OnInvalidate(model_type);
+    std::string payload;
+    // payload() CHECK()'s has_payload(), so we must check it ourselves first.
+    if (invalidation.has_payload())
+      payload = invalidation.payload();
+
+    listener_->OnInvalidate(model_type, payload);
   } else {
     LOG(WARNING) << "Could not get invalidation model type; "
                  << "invalidating everything";

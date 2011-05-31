@@ -1,29 +1,29 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/cookie_info_view.h"
+#include "chrome/browser/ui/views/cookie_info_view.h"
 
 #include <algorithm>
 
-#include "app/l10n_util.h"
 #include "base/i18n/time_formatting.h"
 #include "base/message_loop.h"
 #include "base/string16.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/cookies_tree_model.h"
-#include "gfx/canvas.h"
-#include "gfx/color_utils.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/color_utils.h"
 #include "views/border.h"
-#include "views/grid_layout.h"
 #include "views/controls/label.h"
 #include "views/controls/button/native_button.h"
 #include "views/controls/tree/tree_view.h"
 #include "views/controls/textfield/textfield.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 
 static const int kCookieInfoViewBorderSize = 1;
 static const int kCookieInfoViewInsetSize = 3;
@@ -163,7 +163,7 @@ void CookieInfoView::AddLabelRow(int layout_id, views::GridLayout* layout,
   layout->AddView(label);
   layout->AddView(value, 2, 1, views::GridLayout::FILL,
                   views::GridLayout::CENTER);
-  layout->AddPaddingRow(0, kRelatedControlSmallVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlSmallVerticalSpacing);
 }
 
 void CookieInfoView::AddControlRow(int layout_id, views::GridLayout* layout,
@@ -171,7 +171,7 @@ void CookieInfoView::AddControlRow(int layout_id, views::GridLayout* layout,
   layout->StartRow(0, layout_id);
   layout->AddView(label);
   layout->AddView(control, 1, 1);
-  layout->AddPaddingRow(0, kRelatedControlSmallVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlSmallVerticalSpacing);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -225,7 +225,7 @@ void CookieInfoView::Init() {
   ColumnSet* column_set = layout->AddColumnSet(three_column_layout_id);
   column_set->AddColumn(GridLayout::TRAILING, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::TRAILING, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 1,

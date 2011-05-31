@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <string>
 
-#include "app/l10n_util.h"
 #include "base/message_loop.h"
 #include "base/process_util.h"
 #include "base/utf_string_conversions.h"
@@ -14,6 +13,7 @@
 #include "grit/generated_resources.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
@@ -30,7 +30,9 @@ class TestResource : public TaskManager::Resource {
  public:
   TestResource() : refresh_called_(false) {}
 
-  virtual std::wstring GetTitle() const { return L"test title"; }
+  virtual string16 GetTitle() const OVERRIDE {
+    return ASCIIToUTF16("test title");
+  }
   virtual SkBitmap GetIcon() const { return SkBitmap(); }
   virtual base::ProcessHandle GetProcess() const {
     return base::GetCurrentProcessHandle();

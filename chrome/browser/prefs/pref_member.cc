@@ -18,7 +18,7 @@ PrefMemberBase::PrefMemberBase()
 }
 
 PrefMemberBase::~PrefMemberBase() {
-  if (!pref_name_.empty())
+  if (prefs_ && !pref_name_.empty())
     prefs_->RemovePrefObserver(pref_name_.c_str(), this);
 }
 
@@ -35,6 +35,13 @@ void PrefMemberBase::Init(const char* pref_name, PrefService* prefs,
 
   // Add ourself as a pref observer so we can keep our local value in sync.
   prefs_->AddPrefObserver(pref_name, this);
+}
+
+void PrefMemberBase::Destroy() {
+  if (prefs_) {
+    prefs_->RemovePrefObserver(pref_name_.c_str(), this);
+    prefs_ = NULL;
+  }
 }
 
 bool PrefMemberBase::IsManaged() const {
@@ -89,18 +96,18 @@ void IntegerPrefMember::UpdatePref(const int& value) {
   prefs()->SetInteger(pref_name().c_str(), value);
 }
 
-RealPrefMember::RealPrefMember() : PrefMember<double>() {
+DoublePrefMember::DoublePrefMember() : PrefMember<double>() {
 }
 
-RealPrefMember::~RealPrefMember() {
+DoublePrefMember::~DoublePrefMember() {
 }
 
-void RealPrefMember::UpdateValueFromPref() const {
-  value_ = prefs()->GetReal(pref_name().c_str());
+void DoublePrefMember::UpdateValueFromPref() const {
+  value_ = prefs()->GetDouble(pref_name().c_str());
 }
 
-void RealPrefMember::UpdatePref(const double& value) {
-  prefs()->SetReal(pref_name().c_str(), value);
+void DoublePrefMember::UpdatePref(const double& value) {
+  prefs()->SetDouble(pref_name().c_str(), value);
 }
 
 StringPrefMember::StringPrefMember() : PrefMember<std::string>() {

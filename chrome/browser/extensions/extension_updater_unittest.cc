@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,6 +23,7 @@
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/net/test_url_fetcher_factory.h"
+#include "chrome/test/testing_profile.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
 #include "net/url_request/url_request_status.h"
@@ -86,12 +87,16 @@ class MockService : public ExtensionUpdateService {
 
   virtual ExtensionPrefs* extension_prefs() { return prefs_.prefs(); }
 
+  virtual Profile* profile() { return &profile_; }
+
   PrefService* pref_service() { return prefs_.pref_service(); }
 
   // Creates test extensions and inserts them into list. The name and
   // version are all based on their index. If |update_url| is non-null, it
   // will be used as the update_url for each extension.
-  void CreateTestExtensions(int count, ExtensionList *list,
+  // The |id| is used to distinguish extension names and make sure that
+  // no two extensions share the same name.
+  void CreateTestExtensions(int id, int count, ExtensionList *list,
                             const std::string* update_url,
                             Extension::Location location) {
     for (int i = 1; i <= count; i++) {
@@ -99,7 +104,7 @@ class MockService : public ExtensionUpdateService {
       manifest.SetString(extension_manifest_keys::kVersion,
                          base::StringPrintf("%d.0.0.0", i));
       manifest.SetString(extension_manifest_keys::kName,
-                         base::StringPrintf("Extension %d", i));
+                         base::StringPrintf("Extension %d.%d", id, i));
       if (update_url)
         manifest.SetString(extension_manifest_keys::kUpdateURL, *update_url);
       scoped_refptr<Extension> e =
@@ -112,6 +117,7 @@ class MockService : public ExtensionUpdateService {
  protected:
   PendingExtensionMap pending_extensions_;
   TestExtensionPrefs prefs_;
+  TestingProfile profile_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockService);
@@ -316,7 +322,7 @@ class ExtensionUpdaterTest : public testing::Test {
       CreateTestPendingExtensions(1, GURL(update_url), &pending_extensions);
       service.set_pending_extensions(pending_extensions);
     } else {
-      service.CreateTestExtensions(1, &extensions, &update_url,
+      service.CreateTestExtensions(1, 1, &extensions, &update_url,
                                    Extension::INTERNAL);
       service.set_extensions(extensions);
     }
@@ -468,7 +474,7 @@ class ExtensionUpdaterTest : public testing::Test {
     ExtensionList extensions;
     std::string url(gallery_url);
 
-    service.CreateTestExtensions(1, &extensions, &url, Extension::INTERNAL);
+    service.CreateTestExtensions(1, 1, &extensions, &url, Extension::INTERNAL);
     builder.AddExtension(*extensions[0]);
     std::vector<ManifestFetchData*> fetches = builder.GetFetches();
     EXPECT_EQ(1u, fetches.size());
@@ -488,7 +494,7 @@ class ExtensionUpdaterTest : public testing::Test {
     // Create a set of test extensions
     ServiceForManifestTests service;
     ExtensionList tmp;
-    service.CreateTestExtensions(3, &tmp, NULL, Extension::INTERNAL);
+    service.CreateTestExtensions(1, 3, &tmp, NULL, Extension::INTERNAL);
     service.set_extensions(tmp);
 
     MessageLoop message_loop;
@@ -591,7 +597,7 @@ class ExtensionUpdaterTest : public testing::Test {
     EXPECT_TRUE(fetcher != NULL && fetcher->delegate() != NULL);
     EXPECT_TRUE(fetcher->load_flags() == expected_load_flags);
     fetcher->delegate()->OnURLFetchComplete(
-        fetcher, url1, URLRequestStatus(), 200, ResponseCookies(),
+        fetcher, url1, net::URLRequestStatus(), 200, ResponseCookies(),
         invalid_xml);
 
     // Now that the first request is complete, make sure the second one has
@@ -609,7 +615,7 @@ class ExtensionUpdaterTest : public testing::Test {
     EXPECT_TRUE(fetcher != NULL && fetcher->delegate() != NULL);
     EXPECT_TRUE(fetcher->load_flags() == expected_load_flags);
     fetcher->delegate()->OnURLFetchComplete(
-        fetcher, url2, URLRequestStatus(), 200, ResponseCookies(),
+        fetcher, url2, net::URLRequestStatus(), 200, ResponseCookies(),
         kValidXml);
 
     // This should run the manifest parsing, then we want to make sure that our
@@ -666,7 +672,7 @@ class ExtensionUpdaterTest : public testing::Test {
     EXPECT_TRUE(fetcher != NULL && fetcher->delegate() != NULL);
     EXPECT_TRUE(fetcher->load_flags() == expected_load_flags);
     fetcher->delegate()->OnURLFetchComplete(
-        fetcher, test_url, URLRequestStatus(), 200, ResponseCookies(),
+        fetcher, test_url, net::URLRequestStatus(), 200, ResponseCookies(),
         extension_data);
 
     file_thread.Stop();
@@ -716,7 +722,7 @@ class ExtensionUpdaterTest : public testing::Test {
     EXPECT_TRUE(fetcher != NULL && fetcher->delegate() != NULL);
     EXPECT_TRUE(fetcher->load_flags() == expected_load_flags);
     fetcher->delegate()->OnURLFetchComplete(
-        fetcher, test_url, URLRequestStatus(), 200, ResponseCookies(),
+        fetcher, test_url, net::URLRequestStatus(), 200, ResponseCookies(),
         extension_data);
 
     message_loop.RunAllPending();
@@ -768,7 +774,7 @@ class ExtensionUpdaterTest : public testing::Test {
     EXPECT_TRUE(fetcher != NULL && fetcher->delegate() != NULL);
     EXPECT_TRUE(fetcher->load_flags() == expected_load_flags);
     fetcher->delegate()->OnURLFetchComplete(
-        fetcher, url1, URLRequestStatus(), 200, ResponseCookies(),
+        fetcher, url1, net::URLRequestStatus(), 200, ResponseCookies(),
         extension_data1);
     message_loop.RunAllPending();
 
@@ -787,7 +793,7 @@ class ExtensionUpdaterTest : public testing::Test {
     EXPECT_TRUE(fetcher != NULL && fetcher->delegate() != NULL);
     EXPECT_TRUE(fetcher->load_flags() == expected_load_flags);
     fetcher->delegate()->OnURLFetchComplete(
-        fetcher, url2, URLRequestStatus(), 200, ResponseCookies(),
+        fetcher, url2, net::URLRequestStatus(), 200, ResponseCookies(),
         extension_data2);
     message_loop.RunAllPending();
     EXPECT_EQ(id2, service.extension_id());
@@ -812,9 +818,9 @@ class ExtensionUpdaterTest : public testing::Test {
     ExtensionList tmp;
     GURL url1("http://clients2.google.com/service/update2/crx");
     GURL url2("http://www.somewebsite.com");
-    service.CreateTestExtensions(1, &tmp, &url1.possibly_invalid_spec(),
+    service.CreateTestExtensions(1, 1, &tmp, &url1.possibly_invalid_spec(),
                                  Extension::INTERNAL);
-    service.CreateTestExtensions(1, &tmp, &url2.possibly_invalid_spec(),
+    service.CreateTestExtensions(2, 1, &tmp, &url2.possibly_invalid_spec(),
                                  Extension::INTERNAL);
     EXPECT_EQ(2u, tmp.size());
     service.set_extensions(tmp);
@@ -845,7 +851,8 @@ class ExtensionUpdaterTest : public testing::Test {
     EXPECT_TRUE(fetcher != NULL && fetcher->delegate() != NULL);
     fetched_urls.push_back(fetcher->original_url());
     fetcher->delegate()->OnURLFetchComplete(
-      fetcher, fetched_urls[0], URLRequestStatus(), 500, ResponseCookies(), "");
+      fetcher, fetched_urls[0], net::URLRequestStatus(), 500,
+      ResponseCookies(), "");
     fetcher =
       factory.GetFetcherByID(ExtensionUpdater::kManifestFetcherId);
     fetched_urls.push_back(fetcher->original_url());
@@ -891,7 +898,7 @@ class ExtensionUpdaterTest : public testing::Test {
 
     GURL update_url("http://www.google.com/manifest");
     ExtensionList tmp;
-    service.CreateTestExtensions(1, &tmp, &update_url.spec(),
+    service.CreateTestExtensions(1, 1, &tmp, &update_url.spec(),
                                  Extension::INTERNAL);
     service.set_extensions(tmp);
 
@@ -986,7 +993,7 @@ TEST(ExtensionUpdaterTest, TestManifestFetchesBuilderAddExtension) {
   // Non-internal non-external extensions should be rejected.
   {
     ExtensionList extensions;
-    service.CreateTestExtensions(1, &extensions, NULL, Extension::INVALID);
+    service.CreateTestExtensions(1, 1, &extensions, NULL, Extension::INVALID);
     ASSERT_FALSE(extensions.empty());
     builder.AddExtension(*extensions[0]);
     EXPECT_TRUE(builder.GetFetches().empty());
@@ -1063,8 +1070,6 @@ TEST(ExtensionUpdaterTest, TestAfterStopBehavior) {
 // TODO(asargent) - (http://crbug.com/12780) add tests for:
 // -prodversionmin (shouldn't update if browser version too old)
 // -manifests & updates arriving out of order / interleaved
-// -Profile::GetDefaultRequestContext() returning null
-//  (should not crash, but just do check later)
 // -malformed update url (empty, file://, has query, has a # fragment, etc.)
 // -An extension gets uninstalled while updates are in progress (so it doesn't
 //  "come back from the dead")

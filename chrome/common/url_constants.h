@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,11 +15,12 @@ extern const char kAboutScheme[];
 extern const char kBlobScheme[];
 extern const char kChromeDevToolsScheme[];
 extern const char kChromeInternalScheme[];
-extern const char kChromeUIScheme[];  // The scheme used for DOMUIs.
+extern const char kChromeUIScheme[];  // The scheme used for WebUIs.
 extern const char kCrosScheme[];      // The scheme used for ChromeOS.
 extern const char kDataScheme[];
 extern const char kExtensionScheme[];
 extern const char kFileScheme[];
+extern const char kFileSystemScheme[];
 extern const char kFtpScheme[];
 extern const char kGearsScheme[];
 extern const char kHttpScheme[];
@@ -44,6 +45,7 @@ extern const char kAboutBrowserCrash[];
 extern const char kAboutConflicts[];
 extern const char kAboutCacheURL[];
 extern const char kAboutCrashURL[];
+extern const char kAboutKillURL[];
 extern const char kAboutCreditsURL[];
 extern const char kAboutDNSURL[];
 extern const char kAboutFlagsURL[];
@@ -56,6 +58,8 @@ extern const char kAboutMemoryURL[];
 extern const char kAboutNetInternalsURL[];
 extern const char kAboutPluginsURL[];
 extern const char kAboutShorthangURL[];
+extern const char kAboutSyncURL[];
+extern const char kAboutSyncInternalsURL[];
 extern const char kAboutTermsURL[];
 extern const char kAboutVaporwareURL[];
 extern const char kAboutVersionURL[];
@@ -87,6 +91,7 @@ extern const char kChromeUITextfieldsURL[];
 
 #if defined(OS_CHROMEOS)
 extern const char kChromeUIAboutOSCreditsURL[];
+extern const char kChromeUIActivationMessage[];
 extern const char kChromeUIFileBrowseURL[];
 extern const char kChromeUIImageBurnerURL[];
 extern const char kChromeUIKeyboardOverlayURL[];
@@ -122,12 +127,14 @@ extern const char kChromeUIRemotingResourcesHost[];
 extern const char kChromeUIResourcesHost[];
 extern const char kChromeUIScreenshotPath[];
 extern const char kChromeUISettingsHost[];
+extern const char kChromeUISyncInternalsHost[];
 extern const char kChromeUISyncResourcesHost[];
 extern const char kChromeUITextfieldsHost[];
 extern const char kChromeUIThemePath[];
 extern const char kChromeUIThumbnailPath[];
 
 #if defined(OS_CHROMEOS)
+extern const char kChromeUIActivationMessageHost[];
 extern const char kChromeUIFileBrowseHost[];
 extern const char kChromeUIImageBurnerHost[];
 extern const char kChromeUIKeyboardOverlayHost[];
@@ -159,6 +166,9 @@ extern const char kCloudPrintSetupHost[];
 extern const char kNetworkViewCacheURL[];
 extern const char kNetworkViewInternalsURL[];
 
+// Sync related URLs.
+extern const char kSyncViewInternalsURL[];
+
 // GPU related URLs
 extern const char kGpuInternalsURL[];
 
@@ -168,6 +178,7 @@ extern const char kAutoFillSubPage[];
 extern const char kBrowserOptionsSubPage[];
 extern const char kClearBrowserDataSubPage[];
 extern const char kContentSettingsSubPage[];
+extern const char kContentSettingsExceptionsSubPage[];
 extern const char kDefaultOptionsSubPage[];
 extern const char kImportDataSubPage[];
 extern const char kPersonalOptionsSubPage[];
@@ -188,6 +199,9 @@ extern const char kPageInfoHelpCenterURL[];
 // "Learn more" URL for "Aw snap" page.
 extern const char kCrashReasonURL[];
 
+// "Learn more" URL for killed tab page.
+extern const char kKillReasonURL[];
+
 // "Learn more" URL for the Privacy section under Options.
 extern const char kPrivacyLearnMoreURL[];
 
@@ -197,6 +211,9 @@ extern const char kChromiumProjectURL[];
 // The URL for the "Learn more" page for the usage/crash reporting option in the
 // first run dialog.
 extern const char kLearnMoreReportingURL[];
+
+// The URL for the "Learn more" page for the blocked/outdated plugin infobar.
+extern const char kOutdatedPluginLearnMoreURL[];
 
 // Call near the beginning of startup to register Chrome's internal URLs that
 // should be parsed as "standard" with the googleurl library.

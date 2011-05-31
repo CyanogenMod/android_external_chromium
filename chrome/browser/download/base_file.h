@@ -10,9 +10,13 @@
 
 #include "base/file_path.h"
 #include "base/linked_ptr.h"
+#include "base/scoped_ptr.h"
 #include "chrome/browser/power_save_blocker.h"
 #include "googleurl/src/gurl.h"
 
+namespace base {
+class SecureHash;
+}
 namespace net {
 class FileStream;
 }
@@ -28,7 +32,8 @@ class BaseFile {
            const linked_ptr<net::FileStream>& file_stream);
   ~BaseFile();
 
-  bool Initialize();
+  // If calculate_hash is true, sha256 hash will be calculated.
+  bool Initialize(bool calculate_hash);
 
   // Write a new chunk of data to the file. Returns true on success (all bytes
   // written to the file).
@@ -53,6 +58,10 @@ class BaseFile {
   bool in_progress() const { return file_stream_ != NULL; }
   int64 bytes_so_far() const { return bytes_so_far_; }
 
+  // Set |hash| with sha256 digest for the file.
+  // Returns true if digest is successfully calculated.
+  virtual bool GetSha256Hash(std::string* hash);
+
   virtual std::string DebugString() const;
 
  protected:
@@ -66,6 +75,8 @@ class BaseFile {
   bool path_renamed_;
 
  private:
+  static const size_t kSha256HashLen = 32;
+
   // Source URL for the file being downloaded.
   GURL source_url_;
 
@@ -80,6 +91,15 @@ class BaseFile {
 
   // RAII handle to keep the system from sleeping while we're downloading.
   PowerSaveBlocker power_save_blocker_;
+
+  // Indicates if sha256 hash should be calculated for the file.
+  bool calculate_hash_;
+
+  // Used to calculate sha256 hash for the file when calculate_hash_
+  // is set.
+  scoped_ptr<base::SecureHash> secure_hash_;
+
+  unsigned char sha256_hash_[kSha256HashLen];
 
   DISALLOW_COPY_AND_ASSIGN(BaseFile);
 };

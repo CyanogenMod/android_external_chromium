@@ -6,9 +6,9 @@
 
 #include <unicode/uidna.h>
 
-#include "app/l10n_util.h"
 #include "base/utf_string_conversions.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace x509_certificate_model {
 
@@ -16,7 +16,7 @@ std::string ProcessIDN(const std::string& input) {
   // Convert the ASCII input to a string16 for ICU.
   string16 input16;
   input16.reserve(input.length());
-  std::copy(input.begin(), input.end(), std::back_inserter(input16));
+  input16.insert(input16.end(), input.begin(), input.end());
 
   string16 output16;
   output16.resize(input.length());

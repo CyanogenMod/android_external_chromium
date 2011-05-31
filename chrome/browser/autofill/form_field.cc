@@ -4,18 +4,17 @@
 
 #include "chrome/browser/autofill/form_field.h"
 
-#include "app/l10n_util.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/address_field.h"
 #include "chrome/browser/autofill/autofill_field.h"
 #include "chrome/browser/autofill/credit_card_field.h"
-#include "chrome/browser/autofill/fax_field.h"
 #include "chrome/browser/autofill/name_field.h"
 #include "chrome/browser/autofill/phone_field.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebRegularExpression.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebString.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebRegularExpression.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebString.h"
 #include "grit/autofill_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 // Field names from the ECML specification; see RFC 3106.  We've
 // made these names lowercase since we convert labels and field names to
@@ -63,19 +62,6 @@ const char kEcmlCardVerification[] = "ecom_payment_card_verification";
 const char kEcmlCardExpireDay[] = "ecom_payment_card_expdate_day";
 const char kEcmlCardExpireMonth[] = "ecom_payment_card_expdate_month";
 const char kEcmlCardExpireYear[] = "ecom_payment_card_expdate_year";
-
-namespace {
-
-// The name of the hidden form control element.
-const char* const kControlTypeHidden = "hidden";
-
-// The name of the radio form control element.
-const char* const kControlTypeRadio = "radio";
-
-// The name of the checkbox form control element.
-const char* const kControlTypeCheckBox = "checkbox";
-
-}  // namespace
 
 class EmailField : public FormField {
  public:
@@ -161,10 +147,8 @@ FormField* FormField::ParseFormField(
   field = EmailField::Parse(iter, is_ecml);
   if (field != NULL)
     return field;
+  // Parses both phone and fax.
   field = PhoneField::Parse(iter, is_ecml);
-  if (field != NULL)
-    return field;
-  field = FaxField::Parse(iter);
   if (field != NULL)
     return field;
   field = AddressField::Parse(iter, is_ecml);
@@ -213,12 +197,6 @@ bool FormField::ParseText(std::vector<AutoFillField*>::const_iterator* iter,
                           const string16& pattern,
                           AutoFillField** dest,
                           bool match_label_only) {
-  // Some forms have one or more hidden fields before each visible input; skip
-  // past these.
-  while (**iter && LowerCaseEqualsASCII((**iter)->form_control_type(),
-                                        kControlTypeHidden))
-    (*iter)++;
-
   AutoFillField* field = **iter;
   if (!field)
     return false;
@@ -289,17 +267,6 @@ FormFieldSet::FormFieldSet(FormStructure* fields) {
   // Parse fields.
   std::vector<AutoFillField*>::const_iterator field = fields->begin();
   while (field != fields->end() && *field != NULL) {
-    // Don't parse hidden fields or radio or checkbox controls.
-    if (LowerCaseEqualsASCII((*field)->form_control_type(),
-                             kControlTypeHidden) ||
-        LowerCaseEqualsASCII((*field)->form_control_type(),
-                             kControlTypeRadio) ||
-        LowerCaseEqualsASCII((*field)->form_control_type(),
-                             kControlTypeCheckBox)) {
-      field++;
-      continue;
-    }
-
     FormField* form_field = FormField::ParseFormField(&field, is_ecml);
     if (!form_field) {
       field++;

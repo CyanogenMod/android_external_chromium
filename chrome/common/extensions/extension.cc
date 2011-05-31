@@ -6,7 +6,6 @@
 
 #include <algorithm>
 
-#include "app/l10n_util.h"
 #include "base/base64.h"
 #include "base/basictypes.h"
 #include "base/command_line.h"
@@ -18,6 +17,7 @@
 #include "base/singleton.h"
 #include "base/stl_util-inl.h"
 #include "base/third_party/nss/blapi.h"
+#include "base/string16.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
@@ -30,6 +30,8 @@
 #include "chrome/common/extensions/extension_error_utils.h"
 #include "chrome/common/extensions/extension_l10n_util.h"
 #include "chrome/common/extensions/extension_resource.h"
+#include "chrome/common/extensions/extension_sidebar_defaults.h"
+#include "chrome/common/extensions/extension_sidebar_utils.h"
 #include "chrome/common/extensions/user_script.h"
 #include "chrome/common/url_constants.h"
 #include "googleurl/src/url_util.h"
@@ -37,6 +39,7 @@
 #include "grit/generated_resources.h"
 #include "net/base/registry_controlled_domain.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "webkit/glue/image_decoder.h"
 
 namespace keys = extension_manifest_keys;
@@ -194,6 +197,7 @@ const int Extension::kIconSizes[] = {
 
 const int Extension::kPageActionIconMaxSize = 19;
 const int Extension::kBrowserActionIconMaxSize = 19;
+const int Extension::kSidebarIconMaxSize = 16;
 
 // Explicit permissions -- permission declaration required.
 const char Extension::kBackgroundPermission[] = "background";
@@ -226,7 +230,7 @@ const Extension::Permission Extension::kPermissions[] = {
   { kManagementPermission, IDS_EXTENSION_PROMPT_WARNING_MANAGEMENT },
   { kNotificationPermission, 0 },
   { kProxyPermission, 0 },
-  { kTabPermission, IDS_EXTENSION_PROMPT_WARNING_BROWSING_HISTORY },
+  { kTabPermission, IDS_EXTENSION_PROMPT_WARNING_TABS },
   { kUnlimitedStoragePermission, 0 },
   { kWebstorePrivatePermission, 0 },
 };
@@ -804,6 +808,52 @@ ExtensionAction* Extension::LoadExtensionActionHelper(
   return result.release();
 }
 
+ExtensionSidebarDefaults* Extension::LoadExtensionSidebarDefaults(
+    const DictionaryValue* extension_sidebar, std::string* error) {
+  scoped_ptr<ExtensionSidebarDefaults> result(new ExtensionSidebarDefaults());
+
+  std::string default_icon;
+  // Read sidebar's |default_icon| (optional).
+  if (extension_sidebar->HasKey(keys::kSidebarDefaultIcon)) {
+    if (!extension_sidebar->GetString(keys::kSidebarDefaultIcon,
+                                      &default_icon) ||
+        default_icon.empty()) {
+      *error = errors::kInvalidSidebarDefaultIconPath;
+      return NULL;
+    }
+    result->set_default_icon_path(default_icon);
+  }
+
+  // Read sidebar's |default_title| (optional).
+  string16 default_title;
+  if (extension_sidebar->HasKey(keys::kSidebarDefaultTitle)) {
+    if (!extension_sidebar->GetString(keys::kSidebarDefaultTitle,
+                                      &default_title)) {
+      *error = errors::kInvalidSidebarDefaultTitle;
+      return NULL;
+    }
+  }
+  result->set_default_title(default_title);
+
+  // Read sidebar's |default_page| (optional).
+  std::string default_page;
+  if (extension_sidebar->HasKey(keys::kSidebarDefaultPage)) {
+    if (!extension_sidebar->GetString(keys::kSidebarDefaultPage,
+                                      &default_page) ||
+        default_page.empty()) {
+      *error = errors::kInvalidSidebarDefaultPage;
+      return NULL;
+    }
+    GURL url = extension_sidebar_utils::ResolveRelativePath(
+        default_page, this, error);
+    if (!url.is_valid())
+      return NULL;
+    result->set_default_page(url);
+  }
+
+  return result.release();
+}
+
 bool Extension::ContainsNonThemeKeys(const DictionaryValue& source) const {
   for (DictionaryValue::key_iterator key = source.begin_keys();
        key != source.end_keys(); ++key) {
@@ -1194,8 +1244,7 @@ void Extension::DecodeIconFromPath(const FilePath& icon_path,
 
   std::string file_contents;
   if (!file_util::ReadFileToString(icon_path, &file_contents)) {
-    LOG(ERROR) << "Could not read icon file: "
-               << WideToUTF8(icon_path.ToWStringHack());
+    LOG(ERROR) << "Could not read icon file: " << icon_path.LossyDisplayName();
     return;
   }
 
@@ -1207,7 +1256,7 @@ void Extension::DecodeIconFromPath(const FilePath& icon_path,
   *decoded = decoder.Decode(data, file_contents.length());
   if (decoded->empty()) {
     LOG(ERROR) << "Could not decode icon file: "
-               << WideToUTF8(icon_path.ToWStringHack());
+               << icon_path.LossyDisplayName();
     return;
   }
 
@@ -1253,8 +1302,7 @@ bool Extension::InitFromValue(const DictionaryValue& source, bool require_key,
   }
 
   // Make a copy of the manifest so we can store it in prefs.
-  manifest_value_.reset(
-      static_cast<DictionaryValue*>(source.DeepCopy()));
+  manifest_value_.reset(source.DeepCopy());
 
   // Initialize the URL.
   extension_url_ =
@@ -1426,8 +1474,7 @@ bool Extension::InitFromValue(const DictionaryValue& source, bool require_key,
           return false;
         }
       }
-      theme_images_.reset(
-          static_cast<DictionaryValue*>(images_value->DeepCopy()));
+      theme_images_.reset(images_value->DeepCopy());
     }
 
     DictionaryValue* colors_value;
@@ -1445,7 +1492,7 @@ bool Extension::InitFromValue(const DictionaryValue& source, bool require_key,
             ((color_list->GetSize() != 3) &&
              ((color_list->GetSize() != 4) ||
               // For RGBA, the fourth item must be a real or int alpha value
-              (!color_list->GetReal(3, &alpha) &&
+              (!color_list->GetDouble(3, &alpha) &&
                !color_list->GetInteger(3, &alpha_int)))) ||
             // For both RGB and RGBA, the first three items must be ints (R,G,B)
             !color_list->GetInteger(0, &color) ||
@@ -1455,8 +1502,7 @@ bool Extension::InitFromValue(const DictionaryValue& source, bool require_key,
           return false;
         }
       }
-      theme_colors_.reset(
-          static_cast<DictionaryValue*>(colors_value->DeepCopy()));
+      theme_colors_.reset(colors_value->DeepCopy());
     }
 
     DictionaryValue* tints_value;
@@ -1469,22 +1515,21 @@ bool Extension::InitFromValue(const DictionaryValue& source, bool require_key,
         int vi;
         if (!tints_value->GetListWithoutPathExpansion(*iter, &tint_list) ||
             tint_list->GetSize() != 3 ||
-            !(tint_list->GetReal(0, &v) || tint_list->GetInteger(0, &vi)) ||
-            !(tint_list->GetReal(1, &v) || tint_list->GetInteger(1, &vi)) ||
-            !(tint_list->GetReal(2, &v) || tint_list->GetInteger(2, &vi))) {
+            !(tint_list->GetDouble(0, &v) || tint_list->GetInteger(0, &vi)) ||
+            !(tint_list->GetDouble(1, &v) || tint_list->GetInteger(1, &vi)) ||
+            !(tint_list->GetDouble(2, &v) || tint_list->GetInteger(2, &vi))) {
           *error = errors::kInvalidThemeTints;
           return false;
         }
       }
-      theme_tints_.reset(
-          static_cast<DictionaryValue*>(tints_value->DeepCopy()));
+      theme_tints_.reset(tints_value->DeepCopy());
     }
 
     DictionaryValue* display_properties_value;
     if (theme_value->GetDictionary(keys::kThemeDisplayProperties,
         &display_properties_value)) {
       theme_display_properties_.reset(
-          static_cast<DictionaryValue*>(display_properties_value->DeepCopy()));
+          display_properties_value->DeepCopy());
     }
 
     return true;
@@ -1813,6 +1858,9 @@ bool Extension::InitFromValue(const DictionaryValue& source, bool require_key,
 #if defined(TOUCH_UI)
            page != chrome::kChromeUIKeyboardHost &&
 #endif
+#if defined(OS_CHROMEOS)
+           page != chrome::kChromeUIActivationMessageHost &&
+#endif
            page != chrome::kChromeUIBookmarksHost &&
            page != chrome::kChromeUIHistoryHost) ||
           !overrides->GetStringWithoutPathExpansion(*iter, &val)) {
@@ -1850,6 +1898,22 @@ bool Extension::InitFromValue(const DictionaryValue& source, bool require_key,
       return false;
     }
     devtools_url_ = GetResourceURL(devtools_str);
+  }
+
+  // Initialize sidebar action (optional).
+  if (source.HasKey(keys::kSidebar)) {
+    DictionaryValue* sidebar_value;
+    if (!source.GetDictionary(keys::kSidebar, &sidebar_value)) {
+      *error = errors::kInvalidSidebar;
+      return false;
+    }
+    if (!HasApiPermission(Extension::kExperimentalPermission)) {
+      *error = errors::kSidebarExperimental;
+      return false;
+    }
+    sidebar_defaults_.reset(LoadExtensionSidebarDefaults(sidebar_value, error));
+    if (!sidebar_defaults_.get())
+      return false;  // Failed to parse sidebar definition.
   }
 
   // Initialize text-to-speech voices (optional).
@@ -2023,7 +2087,7 @@ static std::string SizeToString(const gfx::Size& max_size) {
 
 // static
 void Extension::SetScriptingWhitelist(
-    const std::vector<std::string>& whitelist) {
+    const Extension::ScriptingWhitelist& whitelist) {
   ScriptingWhitelist* current_whitelist =
       ExtensionConfig::GetInstance()->whitelist();
   current_whitelist->clear();
@@ -2031,6 +2095,11 @@ void Extension::SetScriptingWhitelist(
        it != whitelist.end(); ++it) {
     current_whitelist->push_back(*it);
   }
+}
+
+// static
+const Extension::ScriptingWhitelist* Extension::GetScriptingWhitelist() {
+  return ExtensionConfig::GetInstance()->whitelist();
 }
 
 void Extension::SetCachedImage(const ExtensionResource& source,
@@ -2188,21 +2257,16 @@ bool Extension::HasMultipleUISurfaces() const {
   return num_surfaces > 1;
 }
 
-// static
-bool Extension::CanExecuteScriptOnPage(
-    const GURL& page_url, bool can_execute_script_everywhere,
-    const std::vector<URLPattern>* host_permissions,
-    UserScript* script,
-    std::string* error) {
-  DCHECK(!(host_permissions && script)) << "Shouldn't specify both";
-
+bool Extension::CanExecuteScriptOnPage(const GURL& page_url,
+                                       UserScript* script,
+                                       std::string* error) const {
   // The gallery is special-cased as a restricted URL for scripting to prevent
   // access to special JS bindings we expose to the gallery (and avoid things
   // like extensions removing the "report abuse" link).
   // TODO(erikkay): This seems like the wrong test.  Shouldn't we we testing
   // against the store app extent?
   if ((page_url.host() == GURL(Extension::ChromeStoreLaunchURL()).host()) &&
-      !can_execute_script_everywhere &&
+      !CanExecuteScriptEverywhere() &&
       !CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kAllowScriptingGallery)) {
     if (error)
@@ -2210,14 +2274,14 @@ bool Extension::CanExecuteScriptOnPage(
     return false;
   }
 
-  if (host_permissions) {
-    for (size_t i = 0; i < host_permissions->size(); ++i) {
-      if ((*host_permissions)[i].MatchesUrl(page_url))
-        return true;
-    }
-  }
-  if (script) {
-    if (script->MatchesUrl(page_url))
+  // If a script is specified, use its matches.
+  if (script)
+    return script->MatchesUrl(page_url);
+
+  // Otherwise, see if this extension has permission to execute script
+  // programmatically on pages.
+  for (size_t i = 0; i < host_permissions_.size(); ++i) {
+    if (host_permissions_[i].MatchesUrl(page_url))
       return true;
   }
 
@@ -2255,6 +2319,14 @@ bool Extension::HasEffectiveAccessToAllHosts() const {
 
 bool Extension::HasFullPermissions() const {
   return plugins().size() > 0;
+}
+
+bool Extension::ShowConfigureContextMenus() const {
+  // Don't show context menu for component extensions. We might want to show
+  // options for component extension button but now there is no component
+  // extension with options. All other menu items like uninstall have
+  // no sense for component extensions.
+  return location() != Extension::COMPONENT;
 }
 
 bool Extension::IsAPIPermission(const std::string& str) const {
@@ -2296,8 +2368,7 @@ ExtensionInfo::ExtensionInfo(const DictionaryValue* manifest,
       extension_path(path),
       extension_location(location) {
   if (manifest)
-    extension_manifest.reset(
-        static_cast<DictionaryValue*>(manifest->DeepCopy()));
+    extension_manifest.reset(manifest->DeepCopy());
 }
 
 ExtensionInfo::~ExtensionInfo() {}

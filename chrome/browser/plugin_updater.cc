@@ -7,7 +7,6 @@
 #include <set>
 #include <string>
 
-#include "base/command_line.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
 #include "base/scoped_ptr.h"
@@ -18,7 +17,6 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pepper_plugin_registry.h"
 #include "chrome/common/pref_names.h"
@@ -30,8 +28,7 @@
 #define kPluginUpdateDelayMs (60 * 1000)
 
 PluginUpdater::PluginUpdater()
-    : enable_internal_pdf_(true),
-      notify_pending_(false) {
+    : notify_pending_(false) {
 }
 
 DictionaryValue* PluginUpdater::CreatePluginFileSummary(
@@ -40,7 +37,7 @@ DictionaryValue* PluginUpdater::CreatePluginFileSummary(
   data->SetString("path", plugin.path.value());
   data->SetString("name", plugin.name);
   data->SetString("version", plugin.version);
-  data->SetBoolean("enabled", plugin.enabled);
+  data->SetBoolean("enabled", webkit::npapi::IsPluginEnabled(plugin));
   return data;
 }
 
@@ -58,17 +55,14 @@ ListValue* PluginUpdater::GetPluginGroupsData() {
 }
 
 void PluginUpdater::EnablePluginGroup(bool enable, const string16& group_name) {
-  if (webkit::npapi::PluginGroup::IsPluginNameDisabledByPolicy(group_name))
-    enable = false;
   webkit::npapi::PluginList::Singleton()->EnableGroup(enable, group_name);
   NotifyPluginStatusChanged();
 }
 
-void PluginUpdater::EnablePluginFile(bool enable,
-                                     const FilePath::StringType& path) {
+void PluginUpdater::EnablePlugin(bool enable,
+                                 const FilePath::StringType& path) {
   FilePath file_path(path);
-  if (enable &&
-      !webkit::npapi::PluginGroup::IsPluginPathDisabledByPolicy(file_path))
+  if (enable)
     webkit::npapi::PluginList::Singleton()->EnablePlugin(file_path);
   else
     webkit::npapi::PluginList::Singleton()->DisablePlugin(file_path);
@@ -125,24 +119,13 @@ void PluginUpdater::DisablePluginGroupsFromPrefs(Profile* profile) {
         prefs::kPluginsLastInternalDirectory, cur_internal_dir);
   }
 
-  if (!enable_internal_pdf_) {
-    // This DCHECK guards against us disabling/enabling the pdf plugin more than
-    // once without renaming the flag that tells us whether we can enable it
-    // automatically.  Each time we disable the plugin by default after it was
-    // enabled by default, we need to rename that flag.
-    DCHECK(!profile->GetPrefs()->GetBoolean(prefs::kPluginsEnabledInternalPDF));
-  }
-
-  bool found_internal_pdf = false;
   bool force_enable_internal_pdf = false;
+  bool internal_pdf_enabled = false;
   string16 pdf_group_name = ASCIIToUTF16(PepperPluginRegistry::kPDFPluginName);
-  bool force_internal_pdf_for_this_run = CommandLine::ForCurrentProcess()->
-      HasSwitch(switches::kForceInternalPDFPlugin);
   FilePath pdf_path;
   PathService::Get(chrome::FILE_PDF_PLUGIN, &pdf_path);
   FilePath::StringType pdf_path_str = pdf_path.value();
-  if (enable_internal_pdf_ &&
-      !profile->GetPrefs()->GetBoolean(prefs::kPluginsEnabledInternalPDF)) {
+  if (!profile->GetPrefs()->GetBoolean(prefs::kPluginsEnabledInternalPDF)) {
     // We switched to the internal pdf plugin being on by default, and so we
     // need to force it to be enabled.  We only want to do it this once though,
     // i.e. we don't want to enable it again if the user disables it afterwards.
@@ -182,16 +165,14 @@ void PluginUpdater::DisablePluginGroupsFromPrefs(Profile* profile) {
         }
 
         if (FilePath::CompareIgnoreCase(path, pdf_path_str) == 0) {
-          found_internal_pdf = true;
-          if (!enabled) {
-            if (force_enable_internal_pdf) {
-              enabled = true;
-              plugin->SetBoolean("enabled", true);
-            } else if (force_internal_pdf_for_this_run) {
-              enabled = true;
-            }
+          if (!enabled && force_enable_internal_pdf) {
+            enabled = true;
+            plugin->SetBoolean("enabled", true);
           }
+
+          internal_pdf_enabled = enabled;
         }
+
         if (!enabled)
           webkit::npapi::PluginList::Singleton()->DisablePlugin(plugin_path);
       } else if (!enabled && plugin->GetString("name", &group_name)) {
@@ -212,19 +193,13 @@ void PluginUpdater::DisablePluginGroupsFromPrefs(Profile* profile) {
       profile->GetPrefs()->GetList(prefs::kPluginsPluginsBlacklist);
   DisablePluginsFromPolicy(plugin_blacklist);
 
-  if ((!enable_internal_pdf_ && !found_internal_pdf) &&
-      !force_internal_pdf_for_this_run) {
-    // The internal PDF plugin is disabled by default, and the user hasn't
-    // overridden the default.
-    webkit::npapi::PluginList::Singleton()->DisablePlugin(pdf_path);
-    EnablePluginGroup(false, pdf_group_name);
-  }
-
-  if (force_enable_internal_pdf) {
+  if (force_enable_internal_pdf || internal_pdf_enabled) {
     // See http://crbug.com/50105 for background.
     EnablePluginGroup(false, ASCIIToUTF16(
         webkit::npapi::PluginGroup::kAdobeReaderGroupName));
+  }
 
+  if (force_enable_internal_pdf) {
     // We want to save this, but doing so requires loading the list of plugins,
     // so do it after a minute as to not impact startup performance.  Note that
     // plugins are loaded after 30s by the metrics service.
@@ -250,9 +225,9 @@ void PluginUpdater::GetPreferencesDataOnFileThread(void* profile) {
   BrowserThread::PostTask(
     BrowserThread::UI,
     FROM_HERE,
-    NewRunnableFunction(
-        &PluginUpdater::OnUpdatePreferences,
-        static_cast<Profile*>(profile), plugins, groups));
+    NewRunnableFunction(&PluginUpdater::OnUpdatePreferences,
+                        static_cast<Profile*>(profile),
+                        plugins, groups));
 }
 
 void PluginUpdater::OnUpdatePreferences(
@@ -269,16 +244,29 @@ void PluginUpdater::OnUpdatePreferences(
                                      internal_dir);
 
   // Add the plugin files.
-  for (std::vector<webkit::npapi::WebPluginInfo>::const_iterator it =
-           plugins.begin();
-       it != plugins.end();
-       ++it) {
-    plugins_list->Append(CreatePluginFileSummary(*it));
+  for (size_t i = 0; i < plugins.size(); ++i) {
+    DictionaryValue* summary = CreatePluginFileSummary(plugins[i]);
+    // If the plugin is disabled only by policy don't store this state in the
+    // user pref store.
+    if (plugins[i].enabled ==
+        webkit::npapi::WebPluginInfo::USER_ENABLED_POLICY_DISABLED) {
+      summary->SetBoolean("enabled", true);
+    }
+    bool enabled_val;
+    summary->GetBoolean("enabled", &enabled_val);
+    plugins_list->Append(summary);
   }
 
   // Add the groups as well.
   for (size_t i = 0; i < groups.size(); ++i) {
-    plugins_list->Append(groups[i].GetSummary());
+      DictionaryValue* summary = groups[i].GetSummary();
+      // If the plugin is disabled only by policy don't store this state in the
+      // user pref store.
+      if (!groups[i].Enabled() &&
+          webkit::npapi::PluginGroup::IsPluginNameDisabledByPolicy(
+              groups[i].GetGroupName()))
+        summary->SetBoolean("enabled", true);
+      plugins_list->Append(summary);
   }
 }
 

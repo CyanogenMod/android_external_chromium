@@ -1,20 +1,16 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/status_bubble_views.h"
+#include "chrome/browser/ui/views/status_bubble_views.h"
 
 #include <algorithm>
 
-#include "app/resource_bundle.h"
-#include "app/text_elider.h"
 #include "base/i18n/rtl.h"
 #include "base/message_loop.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/point.h"
 #include "googleurl/src/gurl.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -24,6 +20,10 @@
 #include "third_party/skia/include/core/SkRect.h"
 #include "ui/base/animation/animation_delegate.h"
 #include "ui/base/animation/linear_animation.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/text/text_elider.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/point.h"
 #include "views/controls/label.h"
 #include "views/controls/scrollbar/native_scroll_bar.h"
 #include "views/screen.h"
@@ -73,7 +73,7 @@ class StatusBubbleViews::StatusView : public views::Label,
                                       public ui::AnimationDelegate {
  public:
   StatusView(StatusBubble* status_bubble, views::Widget* popup,
-             ThemeProvider* theme_provider)
+             ui::ThemeProvider* theme_provider)
       : ALLOW_THIS_IN_INITIALIZER_LIST(ui::LinearAnimation(kFramerate, this)),
         stage_(BUBBLE_HIDDEN),
         style_(STYLE_STANDARD),
@@ -174,7 +174,7 @@ class StatusBubbleViews::StatusView : public views::Label,
   double opacity_end_;
 
   // Holds the theme provider of the frame that created us.
-  ThemeProvider* theme_provider_;
+  ui::ThemeProvider* theme_provider_;
 };
 
 void StatusBubbleViews::StatusView::SetText(const string16& text,
@@ -437,7 +437,7 @@ void StatusBubbleViews::StatusView::Paint(gfx::Canvas* canvas) {
                         kShadowThickness,
                         std::max(0, text_width),
                         std::max(0, text_height));
-  body_bounds.set_x(MirroredLeftPointForRect(body_bounds));
+  body_bounds.set_x(GetMirroredXForRect(body_bounds));
   SkColor text_color =
       theme_provider_->GetColor(BrowserThemeProvider::COLOR_TAB_TEXT);
 
@@ -447,7 +447,7 @@ void StatusBubbleViews::StatusView::Paint(gfx::Canvas* canvas) {
       (SkColorGetR(text_color) + SkColorGetR(toolbar_color)) / 2,
       (SkColorGetG(text_color) + SkColorGetR(toolbar_color)) / 2,
       (SkColorGetB(text_color) + SkColorGetR(toolbar_color)) / 2);
-  canvas->DrawStringInt(UTF16ToWide(text_),
+  canvas->DrawStringInt(text_,
                         views::Label::font(),
                         text_color,
                         body_bounds.x(),
@@ -593,7 +593,7 @@ gfx::Size StatusBubbleViews::GetPreferredSize() {
 
 void StatusBubbleViews::SetBounds(int x, int y, int w, int h) {
   original_position_.SetPoint(x, y);
-  position_.SetPoint(base_view_->MirroredXWithWidthInsideView(x, w), y);
+  position_.SetPoint(base_view_->GetMirroredXWithWidthInView(x, w), y);
   size_.SetSize(w, h);
   Reposition();
 }
@@ -648,7 +648,7 @@ void StatusBubbleViews::SetURL(const GURL& url, const string16& languages) {
   popup_->GetBounds(&popup_bounds, true);
   int text_width = static_cast<int>(popup_bounds.width() -
       (kShadowThickness * 2) - kTextPositionX - kTextHorizPadding - 1);
-  url_text_ = gfx::ElideUrl(url, view_->Label::font(),
+  url_text_ = ui::ElideUrl(url, view_->Label::font(),
       text_width, UTF16ToWideHack(languages));
 
   std::wstring original_url_text =
@@ -707,7 +707,7 @@ void StatusBubbleViews::AvoidMouse(const gfx::Point& location) {
   gfx::Point top_left;
   views::View::ConvertPointToScreen(base_view_, &top_left);
   // Border included.
-  int window_width = base_view_->GetLocalBounds(true).width();
+  int window_width = base_view_->GetLocalBounds().width();
 
   // Get the cursor position relative to the popup.
   gfx::Point relative_location = location;
@@ -803,7 +803,7 @@ void StatusBubbleViews::ExpandBubble() {
   gfx::Rect popup_bounds;
   popup_->GetBounds(&popup_bounds, true);
   int max_status_bubble_width = GetMaxStatusBubbleWidth();
-  url_text_ = gfx::ElideUrl(url_, view_->Label::font(),
+  url_text_ = ui::ElideUrl(url_, view_->Label::font(),
       max_status_bubble_width, UTF16ToWideHack(languages_));
   int expanded_bubble_width =std::max(GetStandardStatusBubbleWidth(),
       std::min(view_->Label::font().GetStringWidth(url_text_) +

@@ -27,15 +27,14 @@ class MockInputMethodLibrary : public InputMethodLibrary {
   MOCK_METHOD1(ChangeInputMethod, void(const std::string&));
   MOCK_METHOD2(SetImePropertyActivated, void(const std::string&, bool));
   MOCK_METHOD1(InputMethodIsActivated, bool(const std::string&));
-  MOCK_METHOD3(GetImeConfig, bool(const std::string&, const std::string&,
-                                  ImeConfigValue*));
   MOCK_METHOD3(SetImeConfig, bool(const std::string&, const std::string&,
                                   const ImeConfigValue&));
   MOCK_CONST_METHOD0(previous_input_method, const InputMethodDescriptor&(void));
   MOCK_CONST_METHOD0(current_input_method, const InputMethodDescriptor&(void));
   MOCK_CONST_METHOD0(current_ime_properties, const ImePropertyList&(void));
-  MOCK_METHOD0(StartInputMethodProcesses, void(void));
-  MOCK_METHOD0(StopInputMethodProcesses, void(void));
+  MOCK_METHOD1(GetKeyboardOverlayId, std::string(const std::string&));
+  MOCK_METHOD0(StartInputMethodDaemon, void(void));
+  MOCK_METHOD0(StopInputMethodDaemon, void(void));
   MOCK_METHOD1(SetDeferImeStartup, void(bool));
   MOCK_METHOD1(SetEnableAutoImeShutdown, void(bool));
 };

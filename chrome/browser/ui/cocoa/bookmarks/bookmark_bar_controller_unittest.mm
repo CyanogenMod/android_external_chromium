@@ -4,7 +4,6 @@
 
 #import <Cocoa/Cocoa.h>
 
-#include "app/theme_provider.h"
 #include "base/basictypes.h"
 #include "base/scoped_nsobject.h"
 #include "base/string16.h"
@@ -24,12 +23,12 @@
 #import "chrome/browser/ui/cocoa/cocoa_test_helper.h"
 #include "chrome/browser/ui/cocoa/test_event_utils.h"
 #import "chrome/browser/ui/cocoa/view_resizer_pong.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/test/model_test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #import "testing/gtest_mac.h"
 #include "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
+#include "ui/base/theme_provider.h"
 
 // Just like a BookmarkBarController but openURL: is stubbed out.
 @interface BookmarkBarControllerNoOpen : BookmarkBarController {
@@ -171,7 +170,7 @@
 @end
 
 
-class FakeTheme : public ThemeProvider {
+class FakeTheme : public ui::ThemeProvider {
  public:
   FakeTheme(NSColor* color) : color_(color) { }
   scoped_nsobject<NSColor> color_;

@@ -2,10 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "app/l10n_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -19,6 +17,7 @@
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "views/controls/tabbed_pane/tabbed_pane.h"
 #include "views/widget/root_view.h"
 #include "views/window/dialog_delegate.h"
@@ -197,9 +196,9 @@ void OptionsWindowView::ViewHierarchyChanged(bool is_add,
 
 void OptionsWindowView::Init() {
   tabs_ = new views::TabbedPane;
-  tabs_->SetAccessibleName(UTF16ToWide(
-      l10n_util::GetStringFUTF16(IDS_OPTIONS_DIALOG_TITLE,
-                                 l10n_util::GetStringUTF16(IDS_PRODUCT_NAME))));
+  tabs_->SetAccessibleName(l10n_util::GetStringFUTF16(
+      IDS_OPTIONS_DIALOG_TITLE,
+      l10n_util::GetStringUTF16(IDS_PRODUCT_NAME)));
   tabs_->SetListener(this);
   AddChildView(tabs_);
 
@@ -221,6 +220,10 @@ void OptionsWindowView::Init() {
       tab_index++,
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_OPTIONS_ADVANCED_TAB_LABEL)),
       advanced_page, false);
+
+  // Bind the profile to the window so that the ChromeViewsDelegate can find
+  // the user preferences to store and retrieve window placement settings.
+  window()->SetNativeWindowProperty(Profile::kProfileKey, profile_);
 
   DCHECK(tabs_->GetTabCount() == OPTIONS_PAGE_COUNT);
 }

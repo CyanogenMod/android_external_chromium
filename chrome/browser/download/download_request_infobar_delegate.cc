@@ -1,34 +1,29 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/download/download_request_infobar_delegate.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
-DownloadRequestInfoBarDelegate::DownloadRequestInfoBarDelegate(TabContents* tab,
+DownloadRequestInfoBarDelegate::DownloadRequestInfoBarDelegate(
+    TabContents* tab,
     DownloadRequestLimiter::TabDownloadState* host)
     : ConfirmInfoBarDelegate(tab),
       host_(host) {
-  if (tab)
-    tab->AddInfoBar(this);
 }
 
 DownloadRequestInfoBarDelegate::~DownloadRequestInfoBarDelegate() {
 }
 
 void DownloadRequestInfoBarDelegate::InfoBarClosed() {
-  Cancel();
-  // This will delete us.
-  ConfirmInfoBarDelegate::InfoBarClosed();
-}
-
-string16 DownloadRequestInfoBarDelegate::GetMessageText() const {
-  return l10n_util::GetStringUTF16(IDS_MULTI_DOWNLOAD_WARNING);
+  if (host_)
+    host_->Cancel();
+  delete this;
 }
 
 SkBitmap* DownloadRequestInfoBarDelegate::GetIcon() const {
@@ -36,16 +31,14 @@ SkBitmap* DownloadRequestInfoBarDelegate::GetIcon() const {
       IDR_INFOBAR_MULTIPLE_DOWNLOADS);
 }
 
-int DownloadRequestInfoBarDelegate::GetButtons() const {
-  return BUTTON_OK | BUTTON_CANCEL;
+string16 DownloadRequestInfoBarDelegate::GetMessageText() const {
+  return l10n_util::GetStringUTF16(IDS_MULTI_DOWNLOAD_WARNING);
 }
 
 string16 DownloadRequestInfoBarDelegate::GetButtonLabel(
-    ConfirmInfoBarDelegate::InfoBarButton button) const {
-  if (button == BUTTON_OK)
-    return l10n_util::GetStringUTF16(IDS_MULTI_DOWNLOAD_WARNING_ALLOW);
-  else
-    return l10n_util::GetStringUTF16(IDS_MULTI_DOWNLOAD_WARNING_DENY);
+    InfoBarButton button) const {
+  return l10n_util::GetStringUTF16((button == BUTTON_OK) ?
+      IDS_MULTI_DOWNLOAD_WARNING_ALLOW : IDS_MULTI_DOWNLOAD_WARNING_DENY);
 }
 
 bool DownloadRequestInfoBarDelegate::Accept() {
@@ -55,12 +48,4 @@ bool DownloadRequestInfoBarDelegate::Accept() {
   }
 
   return !host_;
-}
-
-bool DownloadRequestInfoBarDelegate::Cancel() {
-  if (host_) {
-    host_->Cancel();
-    host_ = NULL;
-  }
-  return true;
 }

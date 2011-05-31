@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,6 @@
 
 #include <Carbon/Carbon.h>
 
-#include "app/l10n_util.h"
-#include "app/l10n_util_mac.h"
 #include "app/mac/scoped_nsdisable_screen_updates.h"
 #include "app/mac/nsimage_cache.h"
 #include "base/mac/mac_util.h"
@@ -35,25 +33,24 @@
 #import "chrome/browser/ui/cocoa/download/download_shelf_controller.h"
 #import "chrome/browser/ui/cocoa/event_utils.h"
 #import "chrome/browser/ui/cocoa/fast_resize_view.h"
-#import "chrome/browser/ui/cocoa/find_bar_bridge.h"
-#import "chrome/browser/ui/cocoa/find_bar_cocoa_controller.h"
+#import "chrome/browser/ui/cocoa/find_bar/find_bar_bridge.h"
+#import "chrome/browser/ui/cocoa/find_bar/find_bar_cocoa_controller.h"
 #import "chrome/browser/ui/cocoa/focus_tracker.h"
 #import "chrome/browser/ui/cocoa/fullscreen_controller.h"
 #import "chrome/browser/ui/cocoa/fullscreen_window.h"
 #import "chrome/browser/ui/cocoa/image_utils.h"
-#import "chrome/browser/ui/cocoa/infobar_container_controller.h"
+#import "chrome/browser/ui/cocoa/infobars/infobar_container_controller.h"
 #import "chrome/browser/ui/cocoa/location_bar/autocomplete_text_field_editor.h"
-#import "chrome/browser/ui/cocoa/previewable_contents_controller.h"
-#import "chrome/browser/ui/cocoa/nswindow_additions.h"
-#import "chrome/browser/ui/cocoa/sad_tab_controller.h"
 #import "chrome/browser/ui/cocoa/sidebar_controller.h"
 #import "chrome/browser/ui/cocoa/status_bubble_mac.h"
-#import "chrome/browser/ui/cocoa/tab_contents_controller.h"
-#import "chrome/browser/ui/cocoa/tab_strip_controller.h"
-#import "chrome/browser/ui/cocoa/tab_strip_view.h"
-#import "chrome/browser/ui/cocoa/tab_view.h"
+#import "chrome/browser/ui/cocoa/tab_contents/previewable_contents_controller.h"
+#import "chrome/browser/ui/cocoa/tab_contents/sad_tab_controller.h"
+#import "chrome/browser/ui/cocoa/tab_contents/tab_contents_controller.h"
+#import "chrome/browser/ui/cocoa/tabs/tab_strip_controller.h"
+#import "chrome/browser/ui/cocoa/tabs/tab_strip_view.h"
+#import "chrome/browser/ui/cocoa/tabs/tab_view.h"
 #import "chrome/browser/ui/cocoa/tabpose_window.h"
-#import "chrome/browser/ui/cocoa/toolbar_controller.h"
+#import "chrome/browser/ui/cocoa/toolbar/toolbar_controller.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/browser/ui/tabs/dock_info.h"
@@ -62,6 +59,8 @@
 #include "chrome/common/url_constants.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/l10n/l10n_util_mac.h"
 
 // ORGANIZATION: This is a big file. It is (in principle) organized as follows
 // (in order):
@@ -299,12 +298,6 @@
     // managing the creation of new tabs.
     [self createTabStripController];
 
-    // Create the infobar container view, so we can pass it to the
-    // ToolbarController.
-    infoBarContainerController_.reset(
-        [[InfoBarContainerController alloc] initWithResizeDelegate:self]);
-    [[[self window] contentView] addSubview:[infoBarContainerController_ view]];
-
     // Create a controller for the toolbar, giving it the toolbar model object
     // and the toolbar view from the nib. The controller will handle
     // registering for the appropriate command state changes from the back-end.
@@ -335,6 +328,12 @@
                                  positioned:NSWindowBelow
                                  relativeTo:[toolbarController_ view]];
     [bookmarkBarController_ setBookmarkBarEnabled:[self supportsBookmarkBar]];
+
+    // Create the infobar container view, so we can pass it to the
+    // ToolbarController.
+    infoBarContainerController_.reset(
+        [[InfoBarContainerController alloc] initWithResizeDelegate:self]);
+    [[[self window] contentView] addSubview:[infoBarContainerController_ view]];
 
     // We don't want to try and show the bar before it gets placed in its parent
     // view, so this step shoudn't be inside the bookmark bar controller's
@@ -480,7 +479,8 @@
 }
 
 - (void)updateDevToolsForContents:(TabContents*)contents {
-  [devToolsController_ updateDevToolsForTabContents:contents];
+  [devToolsController_ updateDevToolsForTabContents:contents
+                                        withProfile:browser_->profile()];
   [devToolsController_ ensureContentsVisible];
 }
 
@@ -906,7 +906,7 @@
 
   // Update the checked/Unchecked state of items in the encoding menu.
   // On Windows, this logic is part of |EncodingMenuModel| in
-  // browser/views/toolbar_view.h.
+  // browser/ui/views/toolbar_view.h.
   EncodingMenuController encoding_controller;
   if (encoding_controller.DoesCommandBelongToEncodingMenu(tag)) {
     DCHECK(browser_.get());
@@ -1429,7 +1429,8 @@
   windowShim_->UpdateTitleBar();
 
   [sidebarController_ updateSidebarForTabContents:contents];
-  [devToolsController_ updateDevToolsForTabContents:contents];
+  [devToolsController_ updateDevToolsForTabContents:contents
+                                        withProfile:browser_->profile()];
 
   // Update the bookmark bar.
   // Must do it after sidebar and devtools update, otherwise bookmark bar might
@@ -1478,7 +1479,7 @@
   [[self window] setViewsNeedDisplay:YES];
 }
 
-- (ThemeProvider*)themeProvider {
+- (ui::ThemeProvider*)themeProvider {
   return browser_->profile()->GetThemeProvider();
 }
 
@@ -1902,11 +1903,6 @@ willAnimateFromState:(bookmarks::VisualState)oldState
     DCHECK(savedRegularWindow_);
     destWindow = [savedRegularWindow_ autorelease];
     savedRegularWindow_ = nil;
-
-    CGSWorkspaceID workspace;
-    if ([window cr_workspace:&workspace]) {
-      [destWindow cr_moveToWorkspace:workspace];
-    }
   }
   DCHECK(destWindow);
 
@@ -1957,7 +1953,15 @@ willAnimateFromState:(bookmarks::VisualState)oldState
   [destWindow setTitle:[window title]];
 
   // The window needs to be onscreen before we can set its first responder.
+  // Ordering the window to the front can change the active Space (either to
+  // the window's old Space or to the application's assigned Space). To prevent
+  // this by temporarily change the collectionBehavior.
+  NSWindowCollectionBehavior behavior = [window collectionBehavior];
+  [destWindow setCollectionBehavior:
+      NSWindowCollectionBehaviorMoveToActiveSpace];
   [destWindow makeKeyAndOrderFront:self];
+  [destWindow setCollectionBehavior:behavior];
+
   [focusTracker restoreFocusInWindow:destWindow];
   [window orderOut:self];
 

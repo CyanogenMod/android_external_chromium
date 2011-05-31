@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -126,7 +126,7 @@ bool FirstRun::ProcessMasterPreferences(const FilePath& user_data_dir,
     if (WriteEULAtoTempFile(&inner_html)) {
       int retcode = 0;
       if (!LaunchSetupWithParam(installer::switches::kShowEula,
-                                inner_html.ToWStringHack(), &retcode) ||
+                                inner_html.value(), &retcode) ||
           (retcode == installer::EULA_REJECTED)) {
         LOG(WARNING) << "EULA rejected. Fast exit.";
         ::ExitProcess(1);
@@ -281,9 +281,10 @@ bool FirstRun::ProcessMasterPreferences(const FilePath& user_data_dir,
   if (out_prefs->do_import_items || !import_bookmarks_path.empty()) {
     // There is something to import from the default browser. This launches
     // the importer process and blocks until done or until it fails.
-    scoped_refptr<ImporterHost> importer_host = new ImporterHost();
+    scoped_refptr<ImporterList> importer_list(new ImporterList);
+    importer_list->DetectSourceProfilesHack();
     if (!FirstRun::ImportSettings(NULL,
-          importer_host->GetSourceProfileInfoAt(0).browser_type,
+          importer_list->GetSourceProfileInfoAt(0).browser_type,
           out_prefs->do_import_items,
           FilePath::FromWStringHack(UTF8ToWide(import_bookmarks_path)),
           true, NULL)) {
@@ -301,10 +302,20 @@ bool FirstRun::ProcessMasterPreferences(const FilePath& user_data_dir,
   }
 #endif
 
-  if (prefs.GetBool(
-          installer::master_preferences::kMakeChromeDefaultForUser,
-          &value) && value) {
-    ShellIntegration::SetAsDefaultBrowser();
+  // Even on the first run we only allow for the user choice to take effect if
+  // no policy has been set by the admin.
+  if (!g_browser_process->local_state()->IsManagedPreference(
+          prefs::kDefaultBrowserSettingEnabled)) {
+    if (prefs.GetBool(
+            installer::master_preferences::kMakeChromeDefaultForUser,
+            &value) && value) {
+      ShellIntegration::SetAsDefaultBrowser();
+    }
+  } else {
+    if (g_browser_process->local_state()->GetBoolean(
+            prefs::kDefaultBrowserSettingEnabled)) {
+      ShellIntegration::SetAsDefaultBrowser();
+    }
   }
 
   return false;
@@ -412,7 +423,7 @@ int FirstRun::ImportFromFile(Profile* profile, const CommandLine& cmdline) {
     NOTREACHED();
     return false;
   }
-  scoped_refptr<ImporterHost> importer_host(new ImporterHost());
+  scoped_refptr<ImporterHost> importer_host(new ImporterHost);
   FirstRunImportObserver observer;
 
   importer_host->set_headless();
@@ -546,8 +557,12 @@ void FirstRun::AutoImport(
 #else
   importer_host = new ImporterHost;
 #endif
+
+  scoped_refptr<ImporterList> importer_list(new ImporterList);
+  importer_list->DetectSourceProfilesHack();
+
   // Do import if there is an available profile for us to import.
-  if (importer_host->GetAvailableProfileCount() > 0) {
+  if (importer_list->GetAvailableProfileCount() > 0) {
     // Don't show the warning dialog if import fails.
     importer_host->set_headless();
     int items = 0;
@@ -580,7 +595,7 @@ void FirstRun::AutoImport(
     if (import_items & importer::FAVORITES)
       items = items | importer::FAVORITES;
 
-    ImportSettings(profile, importer_host, items);
+    ImportSettings(profile, importer_host, importer_list, items);
   }
 
   UserMetrics::RecordAction(UserMetricsAction("FirstRunDef_Accept"));
@@ -656,8 +671,9 @@ class ImportEndedObserver : public ImporterHost::Observer {
 // static
 bool FirstRun::ImportSettings(Profile* profile,
                               scoped_refptr<ImporterHost> importer_host,
+                              scoped_refptr<ImporterList> importer_list,
                               int items_to_import) {
-  const ProfileInfo& source_profile = importer_host->GetSourceProfileInfoAt(0);
+  const ProfileInfo& source_profile = importer_list->GetSourceProfileInfoAt(0);
 
   // Ensure that importers aren't requested to import items that they do not
   // support.

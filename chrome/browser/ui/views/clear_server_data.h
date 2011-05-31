@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,14 @@
 #define CHROME_BROWSER_UI_VIEWS_CLEAR_SERVER_DATA_H_
 #pragma once
 
-#include "app/combobox_model.h"
 #include "chrome/browser/browsing_data_remover.h"
-#include "chrome/browser/views/clear_data_view.h"
-#include "chrome/browser/views/confirm_message_box_dialog.h"
 #include "chrome/browser/sync/profile_sync_service.h"
+#include "chrome/browser/ui/views/clear_data_view.h"
+#include "chrome/browser/ui/views/confirm_message_box_dialog.h"
 #include "views/controls/button/button.h"
 #include "views/controls/label.h"
 #include "views/controls/link.h"
-#include "views/grid_layout.h"
+#include "views/layout/grid_layout.h"
 #include "views/view.h"
 #include "views/window/dialog_delegate.h"
 

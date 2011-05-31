@@ -1,13 +1,12 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/tabs/dragged_tab_controller.h"
+#include "chrome/browser/ui/views/tabs/dragged_tab_controller.h"
 
 #include <math.h>
 #include <set>
 
-#include "app/resource_bundle.h"
 #include "base/callback.h"
 #include "base/i18n/rtl.h"
 #include "chrome/browser/browser_window.h"
@@ -15,25 +14,27 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/views/frame/browser_view.h"
-#include "chrome/browser/views/tabs/base_tab.h"
-#include "chrome/browser/views/tabs/base_tab_strip.h"
-#include "chrome/browser/views/tabs/browser_tab_strip_controller.h"
-#include "chrome/browser/views/tabs/dragged_tab_view.h"
-#include "chrome/browser/views/tabs/native_view_photobooth.h"
-#include "chrome/browser/views/tabs/side_tab.h"
-#include "chrome/browser/views/tabs/side_tab_strip.h"
-#include "chrome/browser/views/tabs/tab.h"
-#include "chrome/browser/views/tabs/tab_strip.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/tabs/base_tab.h"
+#include "chrome/browser/ui/views/tabs/base_tab_strip.h"
+#include "chrome/browser/ui/views/tabs/browser_tab_strip_controller.h"
+#include "chrome/browser/ui/views/tabs/dragged_tab_view.h"
+#include "chrome/browser/ui/views/tabs/native_view_photobooth.h"
+#include "chrome/browser/ui/views/tabs/side_tab.h"
+#include "chrome/browser/ui/views/tabs/side_tab_strip.h"
+#include "chrome/browser/ui/views/tabs/tab.h"
+#include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_source.h"
-#include "gfx/canvas_skia.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/animation/animation.h"
 #include "ui/base/animation/animation_delegate.h"
 #include "ui/base/animation/slide_animation.h"
-#include "views/event.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas_skia.h"
+#include "views/events/event.h"
+#include "views/screen.h"
 #include "views/widget/root_view.h"
 #include "views/widget/widget.h"
 #include "views/window/window.h"
@@ -459,11 +460,6 @@ void DraggedTabController::ToolbarSizeChanged(TabContents* source,
   // Dragged tabs don't care about this.
 }
 
-void DraggedTabController::URLStarredChanged(TabContents* source,
-                                             bool starred) {
-  // Ignored.
-}
-
 void DraggedTabController::UpdateTargetURL(TabContents* source,
                                            const GURL& url) {
   // Ignored.
@@ -532,10 +528,24 @@ void DraggedTabController::UpdateWindowCreatePoint() {
 
 gfx::Point DraggedTabController::GetWindowCreatePoint() const {
   gfx::Point cursor_point = GetCursorScreenPoint();
-  if (dock_info_.type() != DockInfo::NONE) {
+  if (dock_info_.type() != DockInfo::NONE && dock_info_.in_enable_area()) {
     // If we're going to dock, we need to return the exact coordinate,
     // otherwise we may attempt to maximize on the wrong monitor.
     return cursor_point;
+  }
+  // If the cursor is outside the monitor area, move it inside. For example,
+  // dropping a tab onto the task bar on Windows produces this situation.
+  gfx::Rect work_area = views::Screen::GetMonitorWorkAreaNearestPoint(
+      cursor_point);
+  if (!work_area.IsEmpty()) {
+    if (cursor_point.x() < work_area.x())
+      cursor_point.set_x(work_area.x());
+    else if (cursor_point.x() > work_area.right())
+      cursor_point.set_x(work_area.right());
+    if (cursor_point.y() < work_area.y())
+      cursor_point.set_y(work_area.y());
+    else if (cursor_point.y() > work_area.bottom())
+      cursor_point.set_y(work_area.bottom());
   }
   return gfx::Point(cursor_point.x() - window_create_point_.x(),
                     cursor_point.y() - window_create_point_.y());
@@ -586,7 +596,7 @@ void DraggedTabController::SetDraggedContents(
                       NotificationType::TAB_CONTENTS_DESTROYED,
                       Source<TabContents>(dragged_contents_->tab_contents()));
     if (original_delegate_)
-      dragged_contents_->set_delegate(original_delegate_);
+      dragged_contents_->tab_contents()->set_delegate(original_delegate_);
   }
   original_delegate_ = NULL;
   dragged_contents_ = new_contents;
@@ -599,8 +609,8 @@ void DraggedTabController::SetDraggedContents(
     // otherwise our dragged_contents() may be replaced and subsequently
     // collected/destroyed while the drag is in process, leading to
     // nasty crashes.
-    original_delegate_ = dragged_contents_->delegate();
-    dragged_contents_->set_delegate(this);
+    original_delegate_ = dragged_contents_->tab_contents()->delegate();
+    dragged_contents_->tab_contents()->set_delegate(this);
   }
 }
 
@@ -641,7 +651,7 @@ void DraggedTabController::ContinueDragging() {
   // guaranteed to be correct regardless of monitor config.
   gfx::Point screen_point = GetCursorScreenPoint();
 
-#if defined(OS_CHROMEOS)
+#if defined(OS_CHROMEOS) || defined(TOUCH_UI)
   // We don't allow detaching in chrome os.
   BaseTabStrip* target_tabstrip = source_tabstrip_;
 #else
@@ -713,7 +723,7 @@ void DraggedTabController::MoveAttachedTab(const gfx::Point& screen_point) {
   attached_tab_->SchedulePaint();
   attached_tab_->SetX(dragged_view_point.x());
   attached_tab_->SetX(
-      attached_tabstrip_->MirroredLeftPointForRect(attached_tab_->bounds()));
+      attached_tabstrip_->GetMirroredXForRect(attached_tab_->bounds()));
   attached_tab_->SetY(dragged_view_point.y());
   attached_tab_->SchedulePaint();
 }
@@ -832,7 +842,7 @@ void DraggedTabController::Attach(BaseTabStrip* attached_tabstrip,
 
     // Remove ourselves as the delegate now that the dragged TabContents is
     // being inserted back into a Browser.
-    dragged_contents_->set_delegate(NULL);
+    dragged_contents_->tab_contents()->set_delegate(NULL);
     original_delegate_ = NULL;
 
     // Return the TabContents' to normalcy.
@@ -905,7 +915,7 @@ void DraggedTabController::Detach() {
   view_->SetTabWidthAndUpdate(attached_tab_width, photobooth_.get());
 
   // Detaching resets the delegate, but we still want to be the delegate.
-  dragged_contents_->set_delegate(this);
+  dragged_contents_->tab_contents()->set_delegate(this);
 
   attached_tabstrip_ = NULL;
 }
@@ -927,7 +937,7 @@ int DraggedTabController::GetInsertionIndexForDraggedBounds(
   // it uses the same orientation used by the tabs on the tab strip.
   gfx::Rect adjusted_bounds(dragged_bounds);
   adjusted_bounds.set_x(
-      attached_tabstrip_->MirroredLeftPointForRect(adjusted_bounds));
+      attached_tabstrip_->GetMirroredXForRect(adjusted_bounds));
 
   int index = -1;
   for (int i = 0; i < attached_tabstrip_->tab_count(); ++i) {
@@ -1018,7 +1028,7 @@ gfx::Point DraggedTabController::GetAttachedTabDragPoint(
   x = tab_loc.x();
   y = tab_loc.y();
 
-  const gfx::Size& tab_size = attached_tab_->bounds().size();
+  const gfx::Size& tab_size = attached_tab_->size();
 
   if (attached_tabstrip_->type() == BaseTabStrip::HORIZONTAL_TAB_STRIP) {
     int max_x = attached_tabstrip_->width() - tab_size.width();
@@ -1072,21 +1082,24 @@ void DraggedTabController::EndDragImpl(EndDragType type) {
       else
         CompleteDrag();
     }
-    if (dragged_contents_ && dragged_contents_->delegate() == this)
-      dragged_contents_->set_delegate(original_delegate_);
+    if (dragged_contents_ &&
+        dragged_contents_->tab_contents()->delegate() == this)
+      dragged_contents_->tab_contents()->set_delegate(original_delegate_);
   } else {
     // If we get here it means the NavigationController is going down. Don't
     // attempt to do any cleanup other than resetting the delegate (if we're
     // still the delegate).
-    if (dragged_contents_ && dragged_contents_->delegate() == this)
-      dragged_contents_->set_delegate(NULL);
+    if (dragged_contents_ &&
+        dragged_contents_->tab_contents()->delegate() == this)
+      dragged_contents_->tab_contents()->set_delegate(NULL);
     dragged_contents_ = NULL;
   }
 
   // The delegate of the dragged contents should have been reset. Unset the
   // original delegate so that we don't attempt to reset the delegate when
   // deleted.
-  DCHECK(!dragged_contents_ || dragged_contents_->delegate() != this);
+  DCHECK(!dragged_contents_ ||
+         dragged_contents_->tab_contents()->delegate() != this);
   original_delegate_ = NULL;
 
   source_tabstrip_->DestroyDragController();
@@ -1255,7 +1268,7 @@ gfx::Point DraggedTabController::GetCursorScreenPoint() const {
 gfx::Rect DraggedTabController::GetViewScreenBounds(views::View* view) const {
   gfx::Point view_topleft;
   views::View::ConvertPointToScreen(view, &view_topleft);
-  gfx::Rect view_screen_bounds = view->GetLocalBounds(true);
+  gfx::Rect view_screen_bounds = view->GetLocalBounds();
   view_screen_bounds.Offset(view_topleft.x(), view_topleft.y());
   return view_screen_bounds;
 }

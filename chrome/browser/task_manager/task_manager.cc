@@ -1,11 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/task_manager/task_manager.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/compiler_specific.h"
 #include "base/i18n/number_formatting.h"
 #include "base/i18n/rtl.h"
@@ -33,6 +31,8 @@
 #include "grit/generated_resources.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_job.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "unicode/coll.h"
 
 #if defined(OS_MACOSX)
@@ -122,7 +122,7 @@ void TaskManagerModel::RemoveObserver(TaskManagerModelObserver* observer) {
 
 string16 TaskManagerModel::GetResourceTitle(int index) const {
   CHECK_LT(index, ResourceCount());
-  return WideToUTF16Hack(resources_[index]->GetTitle());
+  return resources_[index]->GetTitle();
 }
 
 int64 TaskManagerModel::GetNetworkUsage(int index) const {
@@ -149,13 +149,13 @@ double TaskManagerModel::GetCPUUsage(int index) const {
 
 string16 TaskManagerModel::GetResourceCPUUsage(int index) const {
   CHECK_LT(index, ResourceCount());
-  return WideToUTF16Hack(StringPrintf(
+  return UTF8ToUTF16(StringPrintf(
 #if defined(OS_MACOSX)
       // Activity Monitor shows %cpu with one decimal digit -- be
       // consistent with that.
-      L"%.1f",
+      "%.1f",
 #else
-      L"%.0f",
+      "%.0f",
 #endif
       GetCPUUsage(resources_[index])));
 }
@@ -839,16 +839,22 @@ void TaskManagerModel::BytesRead(BytesReadParam param) {
   TaskManager::Resource* resource = NULL;
   for (ResourceProviderList::iterator iter = providers_.begin();
        iter != providers_.end(); ++iter) {
-    resource = (*iter)->GetResource(param.origin_child_id,
+    resource = (*iter)->GetResource(param.origin_pid,
                                     param.render_process_host_child_id,
                                     param.routing_id);
     if (resource)
       break;
   }
+
   if (resource == NULL) {
-    // We may not have that resource anymore (example: close a tab while a
-    // a network resource is being retrieved), in which case we just ignore the
-    // notification.
+    // We can't match a resource to the notification.  That might mean the
+    // tab that started a download was closed, or the request may have had
+    // no originating resource associated with it in the first place.
+    // We attribute orphaned/unaccounted activity to the Browser process.
+    CHECK(param.origin_pid || (param.render_process_host_child_id != -1));
+    param.origin_pid = 0;
+    param.render_process_host_child_id = param.routing_id = -1;
+    BytesRead(param);
     return;
   }
 
@@ -877,7 +883,7 @@ void TaskManagerModel::OnJobRemoved(net::URLRequestJob* job) {
 }
 
 void TaskManagerModel::OnJobDone(net::URLRequestJob* job,
-                                 const URLRequestStatus& status) {
+                                 const net::URLRequestStatus& status) {
 }
 
 void TaskManagerModel::OnJobRedirect(net::URLRequestJob* job,
@@ -887,19 +893,28 @@ void TaskManagerModel::OnJobRedirect(net::URLRequestJob* job,
 
 void TaskManagerModel::OnBytesRead(net::URLRequestJob* job, const char* buf,
                                    int byte_count) {
+  // Only net::URLRequestJob instances created by the ResourceDispatcherHost
+  // have a render view associated.  All other jobs will have -1 returned for
+  // the render process child and routing ids - the jobs may still match a
+  // resource based on their origin id, otherwise BytesRead() will attribute
+  // the activity to the Browser resource.
   int render_process_host_child_id = -1, routing_id = -1;
   ResourceDispatcherHost::RenderViewForRequest(job->request(),
                                                &render_process_host_child_id,
                                                &routing_id);
+
+  // Get the origin PID of the request's originator.  This will only be set for
+  // plugins - for renderer or browser initiated requests it will be zero.
+  int origin_pid =
+      chrome_browser_net::GetOriginPIDForRequest(job->request());
+
   // This happens in the IO thread, post it to the UI thread.
-  int origin_child_id =
-      chrome_browser_net::GetOriginProcessUniqueIDForRequest(job->request());
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(
           this,
           &TaskManagerModel::BytesRead,
-          BytesReadParam(origin_child_id,
+          BytesReadParam(origin_pid,
           render_process_host_child_id,
           routing_id, byte_count)));
 }

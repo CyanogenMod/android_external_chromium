@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 
 #include "base/string16.h"
 #include "chrome/browser/bookmarks/recently_used_folders_combo_model.h"
-#include "chrome/browser/views/info_bubble.h"
-#include "gfx/rect.h"
+#include "chrome/browser/ui/views/info_bubble.h"
 #include "googleurl/src/gurl.h"
+#include "ui/gfx/rect.h"
 #include "views/controls/button/button.h"
 #include "views/controls/combobox/combobox.h"
 #include "views/controls/link.h"
@@ -50,10 +50,6 @@ class BookmarkBubbleView : public views::View,
   virtual ~BookmarkBubbleView();
 
   void set_info_bubble(InfoBubble* info_bubble) { info_bubble_ = info_bubble; }
-
-  // Overridden to force a layout.
-  virtual void DidChangeBounds(const gfx::Rect& previous,
-                               const gfx::Rect& current);
 
   // Invoked after the bubble has been shown.
   virtual void BubbleShown();

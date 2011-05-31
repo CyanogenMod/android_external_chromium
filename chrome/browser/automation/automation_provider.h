@@ -21,7 +21,9 @@
 #include "base/observer_list.h"
 #include "base/scoped_ptr.h"
 #include "base/string16.h"
+#include "base/weak_ptr.h"
 #include "chrome/browser/autofill/field_types.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/cancelable_request.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/common/automation_constants.h"
@@ -29,9 +31,10 @@
 #include "chrome/common/notification_observer.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_channel.h"
+
 #if defined(OS_WIN)
-#include "gfx/native_widget_types.h"
-#include "views/event.h"
+#include "ui/gfx/native_widget_types.h"
+#include "views/events/event.h"
 #endif  // defined(OS_WIN)
 
 class PopupMenuWaiter;
@@ -75,9 +78,12 @@ namespace gfx {
 class Point;
 }
 
-class AutomationProvider : public base::RefCounted<AutomationProvider>,
-                           public IPC::Channel::Listener,
-                           public IPC::Message::Sender {
+class AutomationProvider
+    : public IPC::Channel::Listener,
+      public IPC::Message::Sender,
+      public base::SupportsWeakPtr<AutomationProvider>,
+      public base::RefCountedThreadSafe<AutomationProvider,
+                                        BrowserThread::DeleteOnUIThread> {
  public:
   explicit AutomationProvider(Profile* profile);
 
@@ -99,28 +105,6 @@ class AutomationProvider : public base::RefCounted<AutomationProvider>,
   // Called when the inital set of tabs has finished loading.
   // Call SetExpectedTabCount(0) to set this to true immediately.
   void OnInitialLoadsComplete();
-
-  // Add a listener for navigation status notification. Currently only
-  // navigation completion is observed; when the |number_of_navigations|
-  // complete, the completed_response object is sent; if the server requires
-  // authentication, we instead send the auth_needed_response object.  A pointer
-  // to the added navigation observer is returned. This object should NOT be
-  // deleted and should be released by calling the corresponding
-  // RemoveNavigationStatusListener method.
-  NotificationObserver* AddNavigationStatusListener(
-      NavigationController* tab, IPC::Message* reply_message,
-      int number_of_navigations, bool include_current_navigation);
-
-  void RemoveNavigationStatusListener(NotificationObserver* obs);
-
-  // Add an observer for the TabStrip. Currently only Tab append is observed. A
-  // navigation listener is created on successful notification of tab append. A
-  // pointer to the added navigation observer is returned. This object should
-  // NOT be deleted and should be released by calling the corresponding
-  // RemoveTabStripObserver method.
-  NotificationObserver* AddTabStripObserver(Browser* parent,
-                                            IPC::Message* reply_message);
-  void RemoveTabStripObserver(NotificationObserver* obs);
 
   // Get the index of a particular NavigationController object
   // in the given parent window.  This method uses
@@ -172,7 +156,8 @@ class AutomationProvider : public base::RefCounted<AutomationProvider>,
   DictionaryValue* GetDictionaryFromDownloadItem(const DownloadItem* download);
 
  protected:
-  friend class base::RefCounted<AutomationProvider>;
+  friend class BrowserThread;
+  friend class DeleteTask<AutomationProvider>;
   virtual ~AutomationProvider();
 
   // Helper function to find the browser window that contains a given
@@ -199,9 +184,6 @@ class AutomationProvider : public base::RefCounted<AutomationProvider>,
   scoped_ptr<NavigationControllerRestoredObserver> restore_tracker_;
   scoped_ptr<AutomationTabTracker> tab_tracker_;
   scoped_ptr<AutomationWindowTracker> window_tracker_;
-
-  typedef ObserverList<NotificationObserver> NotificationObserverList;
-  NotificationObserverList notification_observer_list_;
 
   typedef std::map<NavigationController*, LoginHandler*> LoginHandlerMap;
   LoginHandlerMap login_handler_map_;
@@ -253,6 +235,12 @@ class AutomationProvider : public base::RefCounted<AutomationProvider>,
 
   // See browsing_data_remover.h for explanation of bitmap fields.
   void RemoveBrowsingData(int remove_mask);
+
+  // Notify the JavaScript engine in the render to change its parameters
+  // while performing stress testing. See
+  // |ViewHostMsg_JavaScriptStressTestControl_Commands| in render_messages.h
+  // for information on the arguments.
+  void JavaScriptStressTestControl(int handle, int cmd, int param);
 
   void InstallExtension(const FilePath& crx_path,
                         IPC::Message* reply_message);
@@ -317,14 +305,6 @@ class AutomationProvider : public base::RefCounted<AutomationProvider>,
   void ReloadAsync(int tab_handle);
   void StopAsync(int tab_handle);
   void SaveAsAsync(int tab_handle);
-
-#if defined(OS_CHROMEOS)
-  // Logs in through the Chrome OS Login Wizard with given |username| and
-  // password.  Returns true via |reply_message| on success.
-  void LoginWithUserAndPass(const std::string& username,
-                            const std::string& password,
-                            IPC::Message* reply_message);
-#endif
 
   // Returns the extension for the given handle. Returns NULL if there is
   // no extension for the handle.
@@ -405,7 +385,6 @@ class AutomationProvider : public base::RefCounted<AutomationProvider>,
   scoped_ptr<NotificationObserver> new_tab_ui_load_observer_;
   scoped_ptr<NotificationObserver> find_in_page_observer_;
   scoped_ptr<NotificationObserver> dom_operation_observer_;
-  scoped_ptr<NotificationObserver> dom_inspector_observer_;
   scoped_ptr<ExtensionTestResultNotificationObserver>
       extension_test_result_observer_;
   scoped_ptr<AutomationExtensionTracker> extension_tracker_;

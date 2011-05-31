@@ -12,12 +12,13 @@ AutocompleteMatch::AutocompleteMatch()
     : provider(NULL),
       relevance(0),
       deletable(false),
-      inline_autocomplete_offset(std::wstring::npos),
+      inline_autocomplete_offset(string16::npos),
       transition(PageTransition::GENERATED),
       is_history_what_you_typed_match(false),
       type(SEARCH_WHAT_YOU_TYPED),
       template_url(NULL),
-      starred(false) {
+      starred(false),
+      from_previous(false) {
 }
 
 AutocompleteMatch::AutocompleteMatch(AutocompleteProvider* provider,
@@ -27,12 +28,13 @@ AutocompleteMatch::AutocompleteMatch(AutocompleteProvider* provider,
     : provider(provider),
       relevance(relevance),
       deletable(deletable),
-      inline_autocomplete_offset(std::wstring::npos),
+      inline_autocomplete_offset(string16::npos),
       transition(PageTransition::TYPED),
       is_history_what_you_typed_match(false),
       type(type),
       template_url(NULL),
-      starred(false) {
+      starred(false),
+      from_previous(false) {
 }
 
 AutocompleteMatch::~AutocompleteMatch() {
@@ -51,7 +53,6 @@ std::string AutocompleteMatch::TypeToString(Type type) {
     "search-history",
     "search-suggest",
     "search-other-engine",
-    "open-history-page",
   };
   DCHECK(arraysize(strings) == NUM_TYPES);
   return strings[type];
@@ -70,7 +71,6 @@ int AutocompleteMatch::TypeToIcon(Type type) {
     IDR_OMNIBOX_SEARCH,
     IDR_OMNIBOX_SEARCH,
     IDR_OMNIBOX_SEARCH,
-    IDR_OMNIBOX_MORE,
   };
   DCHECK(arraysize(icons) == NUM_TYPES);
   return icons[type];
@@ -85,12 +85,7 @@ bool AutocompleteMatch::MoreRelevant(const AutocompleteMatch& elem1,
   if (elem1.relevance == elem2.relevance)
     return elem1.contents > elem2.contents;
 
-  // A negative relevance indicates the real relevance can be determined by
-  // negating the value. If both relevances are negative, negate the result
-  // so that we end up with positive relevances, then negative relevances with
-  // the negative relevances sorted by absolute values.
-  const bool result = elem1.relevance > elem2.relevance;
-  return (elem1.relevance < 0 && elem2.relevance < 0) ? !result : result;
+  return elem1.relevance > elem2.relevance;
 }
 
 // static
@@ -112,8 +107,8 @@ bool AutocompleteMatch::DestinationsEqual(const AutocompleteMatch& elem1,
 
 // static
 void AutocompleteMatch::ClassifyMatchInString(
-    const std::wstring& find_text,
-    const std::wstring& text,
+    const string16& find_text,
+    const string16& text,
     int style,
     ACMatchClassifications* classification) {
   ClassifyLocationInString(text.find(find_text), find_text.length(),
@@ -139,7 +134,7 @@ void AutocompleteMatch::ClassifyLocationInString(
   }
 
   // Mark matching portion of string.
-  if (match_location == std::wstring::npos) {
+  if (match_location == string16::npos) {
     // No match, above classification will suffice for whole string.
     return;
   }
@@ -163,7 +158,7 @@ void AutocompleteMatch::Validate() const {
 }
 
 void AutocompleteMatch::ValidateClassifications(
-    const std::wstring& text,
+    const string16& text,
     const ACMatchClassifications& classifications) const {
   if (text.empty()) {
     DCHECK(classifications.size() == 0);

@@ -57,7 +57,7 @@ DragDownloadFile::~DragDownloadFile() {
     download_manager_->RemoveObserver(this);
 }
 
-bool DragDownloadFile::Start(DownloadFileObserver* observer) {
+bool DragDownloadFile::Start(ui::DownloadFileObserver* observer) {
   AssertCurrentlyOnDragThread();
 
   if (is_started_)
@@ -155,7 +155,7 @@ void DragDownloadFile::ModelChanged() {
   download_manager_->GetTemporaryDownloads(file_path_.DirName(), &downloads);
   for (std::vector<DownloadItem*>::const_iterator i = downloads.begin();
        i != downloads.end(); ++i) {
-    if (!download_item_observer_added_ && (*i)->url() == url_) {
+    if (!download_item_observer_added_ && (*i)->original_url() == url_) {
       download_item_observer_added_ = true;
       (*i)->AddObserver(this);
     }

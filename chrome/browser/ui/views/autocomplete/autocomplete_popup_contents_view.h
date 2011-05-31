@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,16 +9,16 @@
 #include "chrome/browser/autocomplete/autocomplete.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_view.h"
-#include "gfx/font.h"
 #include "ui/base/animation/animation_delegate.h"
 #include "ui/base/animation/slide_animation.h"
+#include "ui/gfx/font.h"
 #include "views/view.h"
 #include "webkit/glue/window_open_disposition.h"
 
 #if defined(OS_WIN)
-#include "chrome/browser/views/autocomplete/autocomplete_popup_win.h"
+#include "chrome/browser/ui/views/autocomplete/autocomplete_popup_win.h"
 #else
-#include "chrome/browser/views/autocomplete/autocomplete_popup_gtk.h"
+#include "chrome/browser/ui/views/autocomplete/autocomplete_popup_gtk.h"
 #endif
 
 class AutocompleteEditModel;

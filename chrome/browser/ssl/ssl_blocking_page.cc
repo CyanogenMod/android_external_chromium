@@ -4,8 +4,6 @@
 
 #include "chrome/browser/ssl/ssl_blocking_page.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/i18n/rtl.h"
 #include "base/metrics/histogram.h"
 #include "base/string_piece.h"
@@ -13,7 +11,6 @@
 #include "base/values.h"
 #include "chrome/browser/cert_store.h"
 #include "chrome/browser/dom_operation_notification_details.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/ssl/ssl_cert_error_handler.h"
@@ -21,12 +18,12 @@
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/ui/browser.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/notification_service.h"
-#include "chrome/common/pref_names.h"
 #include "grit/browser_resources.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 namespace {
 

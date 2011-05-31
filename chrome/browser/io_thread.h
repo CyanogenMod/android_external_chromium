@@ -20,7 +20,6 @@ class ChromeNetLog;
 class ChromeURLRequestContextGetter;
 class ListValue;
 class PrefService;
-class PrerenderInterceptor;
 
 namespace chrome_browser_net {
 class ConnectInterceptor;
@@ -29,7 +28,6 @@ class Predictor;
 
 namespace net {
 class CertVerifier;
-class ClientSocketFactory;
 class DnsRRResolver;
 class HostResolver;
 class HttpAuthHandlerFactory;
@@ -47,7 +45,6 @@ class IOThread : public BrowserProcessSubThread {
     Globals();
     ~Globals();
 
-    net::ClientSocketFactory* client_socket_factory;
     scoped_ptr<net::HostResolver> host_resolver;
     scoped_ptr<net::CertVerifier> cert_verifier;
     scoped_ptr<net::DnsRRResolver> dnsrr_resolver;
@@ -98,9 +95,14 @@ class IOThread : public BrowserProcessSubThread {
   void UnregisterURLRequestContextGetter(
       ChromeURLRequestContextGetter* url_request_context_getter);
 
-  // Handles changing to On The Record mode.  Posts a task for this onto the
+  // Handles changing to On The Record mode.  Post a task for this onto the
   // IOThread's message loop.
   void ChangedToOnTheRecord();
+
+  // Clears the host cache.  Intended to be used to prevent exposing recently
+  // visited sites on about:net-internals/#dns and about:dns pages.  Must be
+  // called on the IO thread.
+  void ClearHostCache();
 
  protected:
   virtual void Init();
@@ -157,7 +159,6 @@ class IOThread : public BrowserProcessSubThread {
   // down.
   chrome_browser_net::ConnectInterceptor* speculative_interceptor_;
   chrome_browser_net::Predictor* predictor_;
-  scoped_ptr<PrerenderInterceptor> prerender_interceptor_;
 
   // Keeps track of all live ChromeURLRequestContextGetters, so the
   // ChromeURLRequestContexts can be released during

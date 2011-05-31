@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #pragma once
 
 #include "base/basictypes.h"
-#include "chrome/browser/views/frame/browser_frame.h"
+#include "chrome/browser/ui/views/frame/browser_frame.h"
 #include "views/window/window_win.h"
 
 class AeroGlassNonClientView;
@@ -39,10 +39,10 @@ class BrowserFrameWin : public BrowserFrame, public views::WindowWin {
   // BrowserFrame implementation.
   virtual views::Window* GetWindow();
   virtual int GetMinimizeButtonOffset() const;
-  virtual gfx::Rect GetBoundsForTabStrip(BaseTabStrip* tabstrip) const;
+  virtual gfx::Rect GetBoundsForTabStrip(views::View* tabstrip) const;
   virtual int GetHorizontalTabStripVerticalOffset(bool restored) const;
   virtual void UpdateThrobber(bool running);
-  virtual ThemeProvider* GetThemeProviderForFrame() const;
+  virtual ui::ThemeProvider* GetThemeProviderForFrame() const;
   virtual bool AlwaysUseNativeFrame() const;
   virtual views::View* GetFrameView() const;
   virtual void TabStripDisplayModeChanged();
@@ -50,7 +50,7 @@ class BrowserFrameWin : public BrowserFrame, public views::WindowWin {
  protected:
   // Overridden from views::WindowWin:
   virtual gfx::Insets GetClientAreaInsets() const;
-  virtual bool GetAccelerator(int cmd_id, menus::Accelerator* accelerator);
+  virtual bool GetAccelerator(int cmd_id, ui::Accelerator* accelerator);
   virtual void OnEndSession(BOOL ending, UINT logoff);
   virtual void OnEnterSizeMove();
   virtual void OnExitSizeMove();
@@ -63,8 +63,8 @@ class BrowserFrameWin : public BrowserFrame, public views::WindowWin {
   virtual LRESULT OnNCActivate(BOOL active);
   virtual LRESULT OnNCHitTest(const CPoint& pt);
   virtual void OnWindowPosChanged(WINDOWPOS* window_pos);
-  virtual ThemeProvider* GetThemeProvider() const;
-  virtual ThemeProvider* GetDefaultThemeProvider() const;
+  virtual ui::ThemeProvider* GetThemeProvider() const;
+  virtual ui::ThemeProvider* GetDefaultThemeProvider() const;
   virtual void OnScreenReaderDetected();
 
   // Overridden from views::Window:

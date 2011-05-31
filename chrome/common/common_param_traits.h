@@ -18,7 +18,6 @@
 #include "base/ref_counted.h"
 #include "chrome/common/content_settings.h"
 #include "chrome/common/page_zoom.h"
-#include "gfx/native_widget_types.h"
 #include "ipc/ipc_message_utils.h"
 #include "net/url_request/url_request_status.h"
 #include "printing/native_metafile.h"
@@ -30,6 +29,7 @@
 //
 // TODO(erg): The following two headers are historical and only work because
 // their definitions are inlined, which also needs to be fixed.
+#include "ui/gfx/native_widget_types.h"
 #include "webkit/glue/webcursor.h"
 #include "webkit/glue/window_open_disposition.h"
 
@@ -265,8 +265,8 @@ struct ParamTraits<TransportDIB::Id> {
 
 // Traits for URLRequestStatus
 template <>
-struct ParamTraits<URLRequestStatus> {
-  typedef URLRequestStatus param_type;
+struct ParamTraits<net::URLRequestStatus> {
+  typedef net::URLRequestStatus param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, void** iter, param_type* r);
   static void Log(const param_type& p, std::string* l);

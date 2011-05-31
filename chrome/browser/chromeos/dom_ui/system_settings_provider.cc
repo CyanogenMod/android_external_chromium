@@ -6,21 +6,21 @@
 
 #include <string>
 
-#include "app/l10n_util.h"
 #include "base/i18n/rtl.h"
-#include "base/lock.h"
 #include "base/scoped_ptr.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
+#include "base/synchronization/lock.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros_settings.h"
 #include "chrome/browser/chromeos/cros_settings_names.h"
-#include "chrome/browser/chromeos/login/ownership_service.h"
+#include "chrome/browser/chromeos/login/user_manager.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "unicode/calendar.h"
 #include "unicode/timezone.h"
 #include "unicode/ures.h"
@@ -120,7 +120,7 @@ static const char* kTimeZones[] = {
     "Pacific/Tongatapu",
 };
 
-static Lock timezone_bundle_lock;
+static base::Lock timezone_bundle_lock;
 
 struct UResClose {
   inline void operator() (UResourceBundle* b) const {
@@ -138,7 +138,7 @@ string16 GetExemplarCity(const icu::TimeZone& zone) {
 
   UErrorCode status = U_ZERO_ERROR;
   {
-    AutoLock lock(timezone_bundle_lock);
+    base::AutoLock lock(timezone_bundle_lock);
     if (zone_bundle == NULL)
       zone_bundle = ures_open(zone_bundle_name, uloc_getDefault(), &status);
 
@@ -196,7 +196,7 @@ SystemSettingsProvider::~SystemSettingsProvider() {
 
 void SystemSettingsProvider::DoSet(const std::string& path, Value* in_value) {
   // Only the owner can change the time zone.
-  if (!OwnershipService::GetSharedInstance()->CurrentUserIsOwner())
+  if (!UserManager::Get()->current_user_is_owner())
     return;
 
   if (path == kSystemTimezone) {

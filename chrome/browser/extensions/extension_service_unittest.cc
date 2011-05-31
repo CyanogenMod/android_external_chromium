@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,8 +28,9 @@
 #include "chrome/browser/extensions/extension_creator.h"
 #include "chrome/browser/extensions/extension_error_reporter.h"
 #include "chrome/browser/extensions/extension_service.h"
-#include "chrome/browser/extensions/external_extension_provider.h"
-#include "chrome/browser/extensions/external_pref_extension_provider.h"
+#include "chrome/browser/extensions/external_extension_provider_interface.h"
+#include "chrome/browser/extensions/external_extension_provider_impl.h"
+#include "chrome/browser/extensions/external_pref_extension_loader.h"
 #include "chrome/browser/extensions/pack_extension_job.cc"
 #include "chrome/browser/file_system/browser_file_system_helper.h"
 #include "chrome/browser/in_process_webkit/dom_storage_context.h"
@@ -125,10 +126,13 @@ static void AssertEqualExtents(ExtensionExtent* extent1,
 
 }  // namespace
 
-class MockExtensionProvider : public ExternalExtensionProvider {
+class MockExtensionProvider : public ExternalExtensionProviderInterface {
  public:
-  explicit MockExtensionProvider(Extension::Location location)
-    : location_(location), visit_count_(0) {}
+  explicit MockExtensionProvider(
+      VisitorInterface* visitor,
+      Extension::Location location)
+  : location_(location), visitor_(visitor), visit_count_(0) {
+  }
   virtual ~MockExtensionProvider() {}
 
   void UpdateOrAddExtension(const std::string& id,
@@ -142,16 +146,17 @@ class MockExtensionProvider : public ExternalExtensionProvider {
   }
 
   // ExternalExtensionProvider implementation:
-  virtual void VisitRegisteredExtension(Visitor* visitor) const {
+  virtual void VisitRegisteredExtension() const {
     visit_count_++;
     for (DataMap::const_iterator i = extension_map_.begin();
          i != extension_map_.end(); ++i) {
       scoped_ptr<Version> version;
       version.reset(Version::GetVersionFromString(i->second.first));
 
-      visitor->OnExternalExtensionFileFound(
+      visitor_->OnExternalExtensionFileFound(
           i->first, version.get(), i->second.second, location_);
     }
+    visitor_->OnExternalProviderReady();
   }
 
   virtual bool HasExtension(const std::string& id) const {
@@ -173,6 +178,14 @@ class MockExtensionProvider : public ExternalExtensionProvider {
 
     return true;
   }
+
+  virtual bool IsReady() {
+    return true;
+  }
+
+  virtual void ServiceShutdown() {
+  }
+
   int visit_count() const { return visit_count_; }
   void set_visit_count(int visit_count) {
     visit_count_ = visit_count;
@@ -182,6 +195,7 @@ class MockExtensionProvider : public ExternalExtensionProvider {
   typedef std::map< std::string, std::pair<std::string, FilePath> > DataMap;
   DataMap extension_map_;
   Extension::Location location_;
+  VisitorInterface* visitor_;
 
   // visit_count_ tracks the number of calls to VisitRegisteredExtension().
   // Mutable because it must be incremented on each call to
@@ -192,15 +206,25 @@ class MockExtensionProvider : public ExternalExtensionProvider {
   DISALLOW_COPY_AND_ASSIGN(MockExtensionProvider);
 };
 
-class MockProviderVisitor : public ExternalExtensionProvider::Visitor {
+class MockProviderVisitor
+    : public ExternalExtensionProviderInterface::VisitorInterface {
  public:
-  MockProviderVisitor() : ids_found_(0) {
+
+  // The provider will return |fake_base_path| from
+  // GetBaseCrxFilePath().  User can test the behavior with
+  // and without an empty path using this parameter.
+  explicit MockProviderVisitor(FilePath fake_base_path)
+      : ids_found_(0),
+        fake_base_path_(fake_base_path) {
   }
 
   int Visit(const std::string& json_data) {
     // Give the test json file to the provider for parsing.
-    provider_.reset(new ExternalPrefExtensionProvider());
-    provider_->SetPreferencesForTesting(json_data);
+    provider_.reset(new ExternalExtensionProviderImpl(
+        this,
+        new ExternalTestingExtensionLoader(json_data, fake_base_path_),
+        Extension::EXTERNAL_PREF,
+        Extension::EXTERNAL_PREF_DOWNLOAD));
 
     // We also parse the file into a dictionary to compare what we get back
     // from the provider.
@@ -219,7 +243,7 @@ class MockProviderVisitor : public ExternalExtensionProvider::Visitor {
     // Reset our counter.
     ids_found_ = 0;
     // Ask the provider to look up all extensions and return them.
-    provider_->VisitRegisteredExtension(this);
+    provider_->VisitRegisteredExtension();
 
     return ids_found_;
   }
@@ -235,6 +259,10 @@ class MockProviderVisitor : public ExternalExtensionProvider::Visitor {
     // dictionary then something is wrong.
     EXPECT_TRUE(prefs_->GetDictionary(id, &pref))
        << "Got back ID (" << id.c_str() << ") we weren't expecting";
+
+    EXPECT_TRUE(path.IsAbsolute());
+    if (!fake_base_path_.empty())
+      EXPECT_TRUE(fake_base_path_.IsParent(path));
 
     if (pref) {
       EXPECT_TRUE(provider_->HasExtension(id));
@@ -285,10 +313,14 @@ class MockProviderVisitor : public ExternalExtensionProvider::Visitor {
     }
   }
 
+  virtual void OnExternalProviderReady() {
+    EXPECT_TRUE(provider_->IsReady());
+  }
+
  private:
   int ids_found_;
-
-  scoped_ptr<ExternalPrefExtensionProvider> provider_;
+  FilePath fake_base_path_;
+  scoped_ptr<ExternalExtensionProviderImpl> provider_;
   scoped_ptr<DictionaryValue> prefs_;
 
   DISALLOW_COPY_AND_ASSIGN(MockProviderVisitor);
@@ -312,12 +344,13 @@ class ExtensionTestingProfile : public TestingProfile {
           NewRunnableMethod(appcache_service_.get(),
                             &ChromeAppCacheService::InitializeOnIOThread,
                             GetPath(), IsOffTheRecord(),
-                            make_scoped_refptr(GetHostContentSettingsMap())));
+                            make_scoped_refptr(GetHostContentSettingsMap()),
+                            false));
     }
     return appcache_service_;
   }
 
-  virtual fileapi::SandboxedFileSystemContext* GetFileSystemContext() {
+  virtual fileapi::FileSystemContext* GetFileSystemContext() {
     if (!file_system_context_)
       file_system_context_ = CreateFileSystemContext(
           GetPath(), IsOffTheRecord());
@@ -327,7 +360,7 @@ class ExtensionTestingProfile : public TestingProfile {
  private:
   ExtensionService* service_;
   scoped_refptr<ChromeAppCacheService> appcache_service_;
-  scoped_refptr<fileapi::SandboxedFileSystemContext> file_system_context_;
+  scoped_refptr<fileapi::FileSystemContext> file_system_context_;
 };
 
 // Our message loop may be used in tests which require it to be an IO loop.
@@ -470,7 +503,7 @@ class ExtensionServiceTest
     }
   }
 
-  void AddMockExternalProvider(ExternalExtensionProvider* provider) {
+  void AddMockExternalProvider(ExternalExtensionProviderInterface* provider) {
     service_->AddProviderForTesting(provider);
   }
 
@@ -1070,8 +1103,10 @@ TEST_F(ExtensionServiceTest, KilledExtensions) {
   FilePath path = extensions_path.AppendASCII("good.crx");
   set_extensions_enabled(true);
 
+  scoped_ptr<Version> version;
+  version.reset(Version::GetVersionFromString("1.0.0.0"));
   // Install an external extension.
-  service_->OnExternalExtensionFileFound(good_crx, "1.0.0.0",
+  service_->OnExternalExtensionFileFound(good_crx, version.get(),
                                          path, Extension::EXTERNAL_PREF);
   loop_.RunAllPending();
   ASSERT_TRUE(NULL != service_->GetExtensionById(good_crx, false));
@@ -1082,15 +1117,16 @@ TEST_F(ExtensionServiceTest, KilledExtensions) {
   ValidateIntegerPref(good_crx, "location", Extension::KILLBIT);
 
   // Try to re-install it externally. This should fail because of the killbit.
-  service_->OnExternalExtensionFileFound(good_crx, "1.0.0.0",
+  service_->OnExternalExtensionFileFound(good_crx, version.get(),
                                          path, Extension::EXTERNAL_PREF);
   loop_.RunAllPending();
   ASSERT_TRUE(NULL == service_->GetExtensionById(good_crx, false));
   ValidateIntegerPref(good_crx, "location", Extension::KILLBIT);
 
+  version.reset(Version::GetVersionFromString("1.0.0.1"));
   // Repeat the same thing with a newer version of the extension.
   path = extensions_path.AppendASCII("good2.crx");
-  service_->OnExternalExtensionFileFound(good_crx, "1.0.0.1",
+  service_->OnExternalExtensionFileFound(good_crx, version.get(),
                                          path, Extension::EXTERNAL_PREF);
   loop_.RunAllPending();
   ASSERT_TRUE(NULL == service_->GetExtensionById(good_crx, false));
@@ -1611,6 +1647,28 @@ TEST_F(ExtensionServiceTest, InstallApps) {
   // A third app whose extent overlaps the first. Should fail.
   PackAndInstallExtension(extensions_path.AppendASCII("app3"), false);
   ValidatePrefKeyCount(pref_count);
+}
+
+TEST_F(ExtensionServiceTest, UpdateApps) {
+  InitializeEmptyExtensionService();
+  FilePath extensions_path;
+  ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &extensions_path));
+  extensions_path =
+      extensions_path.AppendASCII("extensions").AppendASCII("app_update");
+
+  // First install v1 of a hosted app.
+  InstallExtension(extensions_path.AppendASCII("v1.crx"), true);
+  ASSERT_EQ(1u, service_->extensions()->size());
+  std::string id = service_->extensions()->at(0)->id();
+  ASSERT_EQ(std::string("1"),
+            service_->extensions()->at(0)->version()->GetString());
+
+  // Now try updating to v2.
+  UpdateExtension(id,
+                  extensions_path.AppendASCII("v2.crx"),
+                  ENABLED);
+  ASSERT_EQ(std::string("2"),
+            service_->extensions()->at(0)->version()->GetString());
 }
 
 TEST_F(ExtensionServiceTest, InstallAppsWithUnlimtedStorage) {
@@ -2861,8 +2919,7 @@ void ExtensionServiceTest::TestExternalProvider(
   provider->RemoveExtension(good_crx);
 
   loaded_.clear();
-  service_->UnloadAllExtensions();
-  service_->LoadAllExtensions();
+  service_->OnExternalProviderReady();
   loop_.RunAllPending();
   ASSERT_EQ(0u, loaded_.size());
   ValidatePrefKeyCount(0);
@@ -2908,7 +2965,7 @@ TEST_F(ExtensionServiceTest, ExternalInstallRegistry) {
 
   // Now add providers. Extension system takes ownership of the objects.
   MockExtensionProvider* reg_provider =
-      new MockExtensionProvider(Extension::EXTERNAL_REGISTRY);
+      new MockExtensionProvider(service_.get(), Extension::EXTERNAL_REGISTRY);
   AddMockExternalProvider(reg_provider);
   TestExternalProvider(reg_provider, Extension::EXTERNAL_REGISTRY);
 }
@@ -2919,7 +2976,7 @@ TEST_F(ExtensionServiceTest, ExternalInstallPref) {
 
   // Now add providers. Extension system takes ownership of the objects.
   MockExtensionProvider* pref_provider =
-      new MockExtensionProvider(Extension::EXTERNAL_PREF);
+      new MockExtensionProvider(service_.get(), Extension::EXTERNAL_PREF);
 
   AddMockExternalProvider(pref_provider);
   TestExternalProvider(pref_provider, Extension::EXTERNAL_PREF);
@@ -2938,7 +2995,8 @@ TEST_F(ExtensionServiceTest, ExternalInstallPrefUpdateUrl) {
   // what the visitor does results in an extension being downloaded and
   // installed.
   MockExtensionProvider* pref_provider =
-      new MockExtensionProvider(Extension::EXTERNAL_PREF_DOWNLOAD);
+      new MockExtensionProvider(service_.get(),
+                                Extension::EXTERNAL_PREF_DOWNLOAD);
   AddMockExternalProvider(pref_provider);
   TestExternalProvider(pref_provider, Extension::EXTERNAL_PREF_DOWNLOAD);
 }
@@ -2976,11 +3034,79 @@ TEST_F(ExtensionServiceTest, ExternalUninstall) {
   ASSERT_EQ(0u, loaded_.size());
 }
 
+// Test that running multiple update checks simultaneously does not
+// keep the update from succeeding.
+TEST_F(ExtensionServiceTest, MultipleExternalUpdateCheck) {
+  InitializeEmptyExtensionService();
+
+  MockExtensionProvider* provider =
+      new MockExtensionProvider(service_.get(), Extension::EXTERNAL_PREF);
+  AddMockExternalProvider(provider);
+
+  // Verify that starting with no providers loads no extensions.
+  service_->Init();
+  loop_.RunAllPending();
+  ASSERT_EQ(0u, loaded_.size());
+
+  // Start two checks for updates.
+  provider->set_visit_count(0);
+  service_->CheckForExternalUpdates();
+  service_->CheckForExternalUpdates();
+  loop_.RunAllPending();
+
+  // Two calls should cause two checks for external extensions.
+  EXPECT_EQ(2, provider->visit_count());
+  EXPECT_EQ(0u, GetErrors().size());
+  EXPECT_EQ(0u, loaded_.size());
+
+  // Register a test extension externally using the mock registry provider.
+  FilePath source_path;
+  ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &source_path));
+  source_path = source_path.AppendASCII("extensions").AppendASCII("good.crx");
+  provider->UpdateOrAddExtension(good_crx, "1.0.0.0", source_path);
+
+  // Two checks for external updates should find the extension, and install it
+  // once.
+  provider->set_visit_count(0);
+  service_->CheckForExternalUpdates();
+  service_->CheckForExternalUpdates();
+  loop_.RunAllPending();
+  EXPECT_EQ(2, provider->visit_count());
+  ASSERT_EQ(0u, GetErrors().size());
+  ASSERT_EQ(1u, loaded_.size());
+  ASSERT_EQ(Extension::EXTERNAL_PREF, loaded_[0]->location());
+  ASSERT_EQ("1.0.0.0", loaded_[0]->version()->GetString());
+  ValidatePrefKeyCount(1);
+  ValidateIntegerPref(good_crx, "state", Extension::ENABLED);
+  ValidateIntegerPref(good_crx, "location", Extension::EXTERNAL_PREF);
+
+  provider->RemoveExtension(good_crx);
+  provider->set_visit_count(0);
+  service_->CheckForExternalUpdates();
+  service_->CheckForExternalUpdates();
+  loop_.RunAllPending();
+
+  // Two calls should cause two checks for external extensions.
+  // Because the external source no longer includes good_crx,
+  // good_crx will be uninstalled.  So, expect that no extensions
+  // are loaded.
+  EXPECT_EQ(2, provider->visit_count());
+  EXPECT_EQ(0u, GetErrors().size());
+  EXPECT_EQ(0u, loaded_.size());
+}
+
 TEST_F(ExtensionServiceTest, ExternalPrefProvider) {
   InitializeEmptyExtensionService();
+
+  // Test some valid extension records.
+  // Set a base path to avoid erroring out on relative paths.
+  // Paths starting with // are absolute on every platform we support.
+  FilePath base_path(FILE_PATH_LITERAL("//base/path"));
+  ASSERT_TRUE(base_path.IsAbsolute());
+  MockProviderVisitor visitor(base_path);
   std::string json_data =
       "{"
-      "  \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\": {"
+      "  \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\": {"
       "    \"external_crx\": \"RandomExtension.crx\","
       "    \"external_version\": \"1.0\""
       "  },"
@@ -2992,11 +3118,10 @@ TEST_F(ExtensionServiceTest, ExternalPrefProvider) {
       "    \"external_update_url\": \"http:\\\\foo.com/update\""
       "  }"
       "}";
-
-  MockProviderVisitor visitor;
+  EXPECT_EQ(3, visitor.Visit(json_data));
 
   // Simulate an external_extensions.json file that contains seven invalid
-  // extensions:
+  // records:
   // - One that is missing the 'external_crx' key.
   // - One that is missing the 'external_version' key.
   // - One that is specifying .. in the path.
@@ -3004,6 +3129,8 @@ TEST_F(ExtensionServiceTest, ExternalPrefProvider) {
   // - One that specifies no file or update URL.
   // - One that has an update URL that is not well formed.
   // - One that contains a malformed version.
+  // - One that has an invalid id.
+  // - One that has a non-dictionary value.
   // The final extension is valid, and we check that it is read to make sure
   // failures don't stop valid records from being read.
   json_data =
@@ -3032,12 +3159,43 @@ TEST_F(ExtensionServiceTest, ExternalPrefProvider) {
       "    \"external_crx\": \"RandomExtension3.crx\","
       "    \"external_version\": \"This is not a valid version!\""
       "  },"
-      "  \"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh\": {"
+      "  \"This is not a valid id!\": {},"
+      "  \"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh\": true,"
+      "  \"pppppppppppppppppppppppppppppppp\": {"
       "    \"external_crx\": \"RandomValidExtension.crx\","
       "    \"external_version\": \"1.0\""
       "  }"
       "}";
   EXPECT_EQ(1, visitor.Visit(json_data));
+
+  // Check that if a base path is not provided, use of a relative
+  // path fails.
+  FilePath empty;
+  MockProviderVisitor visitor_no_relative_paths(empty);
+
+  // Use absolute paths.  Expect success.
+  json_data =
+      "{"
+      "  \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\": {"
+      "    \"external_crx\": \"//RandomExtension1.crx\","
+      "    \"external_version\": \"3.0\""
+      "  },"
+      "  \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\": {"
+      "    \"external_crx\": \"//path/to/RandomExtension2.crx\","
+      "    \"external_version\": \"3.0\""
+      "  }"
+      "}";
+  EXPECT_EQ(2, visitor_no_relative_paths.Visit(json_data));
+
+  // Use a relative path.  Expect that it will error out.
+  json_data =
+      "{"
+      "  \"cccccccccccccccccccccccccccccccc\": {"
+      "    \"external_crx\": \"RandomExtension2.crx\","
+      "    \"external_version\": \"3.0\""
+      "  }"
+      "}";
+  EXPECT_EQ(0, visitor_no_relative_paths.Visit(json_data));
 }
 
 // Test loading good extensions from the profile directory.
@@ -3118,7 +3276,7 @@ TEST(ExtensionServiceTestSimple, Enabledness) {
   // By default, we are enabled.
   command_line.reset(new CommandLine(CommandLine::NO_PROGRAM));
   service = profile->CreateExtensionService(command_line.get(),
-                                             install_dir);
+                                            install_dir);
   EXPECT_TRUE(service->extensions_enabled());
   service->Init();
   loop.RunAllPending();
@@ -3139,7 +3297,7 @@ TEST(ExtensionServiceTestSimple, Enabledness) {
   profile.reset(new TestingProfile());
   profile->GetPrefs()->SetBoolean(prefs::kDisableExtensions, true);
   service = profile->CreateExtensionService(command_line.get(),
-                                             install_dir);
+                                            install_dir);
   EXPECT_FALSE(service->extensions_enabled());
   service->Init();
   loop.RunAllPending();

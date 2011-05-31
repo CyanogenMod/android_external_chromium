@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/location_bar/selected_keyword_view.h"
+#include "chrome/browser/ui/views/location_bar/selected_keyword_view.h"
 
-#include "app/l10n_util.h"
 #include "base/logging.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/search_engines/template_url_model.h"
@@ -12,6 +11,7 @@
 #include "chrome/browser/ui/omnibox/location_bar_util.h"
 #include "chrome/browser/ui/views/location_bar/keyword_hint_view.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 SelectedKeywordView::SelectedKeywordView(const int background_images[],
                                          int contained_image,
@@ -50,7 +50,7 @@ void SelectedKeywordView::Layout() {
   IconLabelBubbleView::Layout();
 }
 
-void SelectedKeywordView::SetKeyword(const std::wstring& keyword) {
+void SelectedKeywordView::SetKeyword(const string16& keyword) {
   keyword_ = keyword;
   if (keyword.empty())
     return;
@@ -59,8 +59,8 @@ void SelectedKeywordView::SetKeyword(const std::wstring& keyword) {
     return;
 
   bool is_extension_keyword;
-  const string16 short_name = WideToUTF16(profile_->GetTemplateURLModel()->
-      GetKeywordShortName(keyword, &is_extension_keyword));
+  const string16 short_name = profile_->GetTemplateURLModel()->
+      GetKeywordShortName(keyword, &is_extension_keyword);
   int message_id = is_extension_keyword ?
       IDS_OMNIBOX_EXTENSION_KEYWORD_TEXT : IDS_OMNIBOX_KEYWORD_TEXT;
   full_label_.SetText(UTF16ToWide(

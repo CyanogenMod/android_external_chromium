@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,14 @@
 #include <string>
 
 #include "chrome/browser/prefs/pref_member.h"
-#include "chrome/browser/shell_dialogs.h"
-#include "chrome/browser/views/options/options_page_view.h"
+#include "chrome/browser/ui/shell_dialogs.h"
+#include "chrome/browser/ui/views/options/options_page_view.h"
 #include "views/controls/combobox/combobox.h"
 #include "views/controls/button/button.h"
 #include "views/view.h"
+
+class DefaultEncodingComboboxModel;
+class FontDisplayView;
 
 namespace views {
 class GroupboxView;
@@ -21,10 +24,6 @@ class Label;
 class NativeButton;
 class TableView;
 }
-
-class DefaultEncodingComboboxModel;
-class FontDisplayView;
-class TableModel;
 
 ///////////////////////////////////////////////////////////////////////////////
 // FontsPageView

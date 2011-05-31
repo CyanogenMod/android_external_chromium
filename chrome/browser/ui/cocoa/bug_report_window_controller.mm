@@ -1,18 +1,19 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "chrome/browser/ui/cocoa/bug_report_window_controller.h"
 
-#include "app/l10n_util_mac.h"
 #include "base/mac/mac_util.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/browser/bug_report_util.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
+#include "chrome/browser/ui/window_snapshot/window_snapshot.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "third_party/GTM/AppKit/GTMUILocalizerAndLayoutTweaker.h"
+#include "ui/base/l10n/l10n_util_mac.h"
 
 @implementation BugReportWindowController
 
@@ -41,6 +42,9 @@
         l10n_util::GetNSStringWithFixup(IDS_BUGREPORT_OTHER_PROBLEM),
         nil];
 
+    pngHeight_ = 0;
+    pngWidth_ = 0;
+
     if (currentTab_ != NULL) {
       // Get data from current tab, if one exists. This dialog could be called
       // from the main menu with no tab contents, so currentTab_ is not
@@ -62,18 +66,16 @@
       [self setPageURL:base::SysUTF8ToNSString(
           currentTab_->controller().GetActiveEntry()->url().spec())];
       [self setPageTitle:base::SysUTF16ToNSString(currentTab_->GetTitle())];
-      base::mac::GrabWindowSnapshot(
-          currentTab_->view()->GetTopLevelNativeWindow(), &pngData_,
-          &pngWidth_, &pngHeight_);
+      gfx::Rect pngRect = browser::GrabWindowSnapshot(
+          currentTab_->view()->GetTopLevelNativeWindow(), &pngData_);
+      pngWidth_ = pngRect.width();
+      pngHeight_ = pngRect.height();
     } else {
       // If no current tab exists, create a menu without the "broken page"
       // options, with page URL and title empty, and screenshot disabled.
       [self setSendScreenshot:NO];
       [self setDisableScreenshotCheckbox:YES];
     }
-
-    pngHeight_ = 0;
-    pngWidth_ = 0;
   }
   return self;
 }
@@ -110,7 +112,6 @@
   } else {
     BugReportUtil::SendReport(
         profile_,
-        base::SysNSStringToUTF8(pageTitle_),
         [self bugTypeFromIndex],
         base::SysNSStringToUTF8(pageURL_),
         base::SysNSStringToUTF8(bugDescription_),

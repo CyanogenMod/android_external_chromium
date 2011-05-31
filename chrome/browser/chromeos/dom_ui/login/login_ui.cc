@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,19 @@
 #include "base/string_piece.h"
 #include "base/values.h"
 #include "chrome/browser/browser_thread.h"
+#include "chrome/browser/chromeos/cros/cros_library.h"
+#include "chrome/browser/chromeos/cros/power_library.h"
 #include "chrome/browser/chromeos/dom_ui/login/authenticator_facade.h"
+#include "chrome/browser/chromeos/dom_ui/login/authenticator_facade_cros.h"
+#include "chrome/browser/chromeos/dom_ui/login/authenticator_facade_cros.h"
 #include "chrome/browser/chromeos/dom_ui/login/login_ui.h"
 #include "chrome/browser/chromeos/dom_ui/login/login_ui_helpers.h"
+#include "chrome/browser/dom_ui/chrome_url_data_manager.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/url_constants.h"
-
-#if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/dom_ui/login/authenticator_facade_cros.h"
-#else
-#include "chrome/browser/chromeos/dom_ui/login/authenticator_facade_stub.h"
-#endif
 
 namespace chromeos {
 
@@ -55,34 +56,29 @@ void LoginUIHTMLSource::StartDataRequest(const std::string& path,
 ////////////////////////////////////////////////////////////////////////////////
 
 LoginUIHandler::LoginUIHandler()
-    : facade_(NULL),
-      profile_operations_(NULL),
-      browser_operations_(NULL) {
-#if defined(OS_CHROMEOS)
-  facade_.reset(new chromeos::AuthenticatorFacadeCros(this));
-#else
-  facade_.reset(new chromeos::AuthenticatorFacadeStub(this,
-                                                      "chronos",
-                                                      "chronos"));
-#endif
+    : facade_(new chromeos::AuthenticatorFacadeCros(this)),
+      profile_operations_(new ProfileOperationsInterface()),
+      browser_operations_(new BrowserOperationsInterface()) {
   facade_->Setup();
-  profile_operations_.reset(new ProfileOperationsInterface());
-  browser_operations_.reset(new BrowserOperationsInterface());
 }
 
-DOMMessageHandler* LoginUIHandler::Attach(DOMUI* dom_ui) {
-  return DOMMessageHandler::Attach(dom_ui);
+WebUIMessageHandler* LoginUIHandler::Attach(WebUI* web_ui) {
+  return WebUIMessageHandler::Attach(web_ui);
 }
 
 void LoginUIHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "LaunchIncognito",
       NewCallback(this,
                   &LoginUIHandler::HandleLaunchIncognito));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "AuthenticateUser",
       NewCallback(this,
                   &LoginUIHandler::HandleAuthenticateUser));
+  web_ui_->RegisterMessageCallback(
+      "ShutdownSystem",
+      NewCallback(this,
+                  &LoginUIHandler::HandleShutdownSystem));
 }
 
 void LoginUIHandler::HandleAuthenticateUser(const ListValue* args) {
@@ -115,6 +111,19 @@ void LoginUIHandler::HandleLaunchIncognito(const ListValue* args) {
   login_browser->CloseWindow();
 }
 
+void LoginUIHandler::HandleShutdownSystem(const ListValue* args) {
+#if defined(OS_CHROMEOS)
+  DCHECK(CrosLibrary::Get()->EnsureLoaded());
+  CrosLibrary::Get()->GetPowerLibrary()->RequestShutdown();
+#else
+  // When were are not running in cros we are just shutting the browser instead
+  // of trying to shutdown the system
+  Profile* profile = profile_operations_->GetDefaultProfileByPath();
+  Browser* browser = browser_operations_->GetLoginBrowser(profile);
+  browser->CloseWindow();
+#endif
+}
+
 void LoginUIHandler::OnLoginFailure(const LoginFailure& failure) {
   Profile* profile = profile_operations_->GetDefaultProfileByPath();
   Browser* login_browser = browser_operations_->GetLoginBrowser(profile);
@@ -143,18 +152,13 @@ void LoginUIHandler::OnOffTheRecordLoginSuccess() {
 //
 ////////////////////////////////////////////////////////////////////////////////
 LoginUI::LoginUI(TabContents* contents)
-    : DOMUI(contents) {
+    : WebUI(contents) {
   LoginUIHandler* handler = new LoginUIHandler();
   AddMessageHandler(handler->Attach(this));
   LoginUIHTMLSource* html_source =
       new LoginUIHTMLSource(MessageLoop::current());
 
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(
-          ChromeURLDataManager::GetInstance(),
-          &ChromeURLDataManager::AddDataSource,
-          make_scoped_refptr(html_source)));
+  contents->profile()->GetChromeURLDataManager()->AddDataSource(html_source);
 }
 
 }  // namespace chromeos

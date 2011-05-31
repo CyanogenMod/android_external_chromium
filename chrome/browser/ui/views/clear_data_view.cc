@@ -1,31 +1,28 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/clear_data_view.h"
+#include "chrome/browser/ui/views/clear_data_view.h"
 
-#include "app/l10n_util.h"
 #include "base/string16.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_window.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_model.h"
-#include "chrome/browser/ui/browser.h"
-#include "chrome/browser/views/clear_browsing_data.h"
-#include "chrome/browser/views/clear_server_data.h"
-#include "chrome/common/pref_names.h"
-#include "gfx/insets.h"
+#include "chrome/browser/ui/views/clear_browsing_data.h"
+#include "chrome/browser/ui/views/clear_server_data.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "net/url_request/url_request_context.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/insets.h"
 #include "views/background.h"
 #include "views/controls/button/checkbox.h"
 #include "views/controls/label.h"
 #include "views/controls/separator.h"
 #include "views/controls/throbber.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/widget.h"
 #include "views/window/dialog_client_view.h"
 #include "views/window/window.h"
@@ -53,9 +50,9 @@ ClearDataView::ClearDataView(Profile* profile)
 void ClearDataView::Init() {
   tabs_ = new views::TabbedPane;
 
-  tabs_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringFUTF16(IDS_OPTIONS_DIALOG_TITLE,
-          l10n_util::GetStringUTF16(IDS_OPTIONS_DIALOG_TITLE))));
+  tabs_->SetAccessibleName(l10n_util::GetStringFUTF16(
+      IDS_OPTIONS_DIALOG_TITLE,
+      l10n_util::GetStringUTF16(IDS_OPTIONS_DIALOG_TITLE)));
   AddChildView(tabs_);
 
   int tab_index = 0;
@@ -174,4 +171,3 @@ views::View* ClearDataView::GetContentsView() {
 views::View* ClearDataView::GetInitiallyFocusedView() {
   return GetDialogClientView()->cancel_button();
 }
-

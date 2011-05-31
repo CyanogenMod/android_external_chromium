@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/automation/automation_provider.h"
 
-#include "app/keyboard_codes.h"
 #include "base/debug/trace_event.h"
 #include "base/json/json_reader.h"
 #include "base/utf_string_conversions.h"
@@ -21,9 +20,10 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/views/bookmark_bar_view.h"
+#include "chrome/browser/ui/views/bookmark_bar_view.h"
 #include "chrome/common/automation_messages.h"
 #include "chrome/common/page_zoom.h"
+#include "ui/base/keycodes/keyboard_codes.h"
 #include "views/focus/accelerator_handler.h"
 #include "views/widget/root_view.h"
 #include "views/widget/widget_win.h"
@@ -79,7 +79,7 @@ BOOL CALLBACK EnumThreadWndProc(HWND hwnd, LPARAM l_param) {
 class MouseEventTask : public Task {
  public:
   MouseEventTask(views::View* view,
-                 views::Event::EventType type,
+                 ui::EventType type,
                  const gfx::Point& point,
                  int flags)
       : view_(view), type_(type), point_(point), flags_(flags) {}
@@ -97,15 +97,15 @@ class MouseEventTask : public Task {
     view_->ConvertPointToScreen(view_, &screen_location);
     MoveMouse(screen_location.ToPOINT());
     switch (type_) {
-      case views::Event::ET_MOUSE_PRESSED:
+      case ui::ET_MOUSE_PRESSED:
         view_->OnMousePressed(event);
         break;
 
-      case views::Event::ET_MOUSE_DRAGGED:
+      case ui::ET_MOUSE_DRAGGED:
         view_->OnMouseDragged(event);
         break;
 
-      case views::Event::ET_MOUSE_RELEASED:
+      case ui::ET_MOUSE_RELEASED:
         view_->OnMouseReleased(event, false);
         break;
 
@@ -116,7 +116,7 @@ class MouseEventTask : public Task {
 
  private:
   views::View* view_;
-  views::Event::EventType type_;
+  ui::EventType type_;
   gfx::Point point_;
   int flags_;
 
@@ -159,21 +159,21 @@ void AutomationProvider::WindowSimulateDrag(int handle,
     UINT down_message = 0;
     UINT up_message = 0;
     WPARAM wparam_flags = 0;
-    if (flags & views::Event::EF_SHIFT_DOWN)
+    if (flags & ui::EF_SHIFT_DOWN)
       wparam_flags |= MK_SHIFT;
-    if (flags & views::Event::EF_CONTROL_DOWN)
+    if (flags & ui::EF_CONTROL_DOWN)
       wparam_flags |= MK_CONTROL;
-    if (flags & views::Event::EF_LEFT_BUTTON_DOWN) {
+    if (flags & ui::EF_LEFT_BUTTON_DOWN) {
       wparam_flags |= MK_LBUTTON;
       down_message = WM_LBUTTONDOWN;
       up_message = WM_LBUTTONUP;
     }
-    if (flags & views::Event::EF_MIDDLE_BUTTON_DOWN) {
+    if (flags & ui::EF_MIDDLE_BUTTON_DOWN) {
       wparam_flags |= MK_MBUTTON;
       down_message = WM_MBUTTONDOWN;
       up_message = WM_MBUTTONUP;
     }
-    if (flags & views::Event::EF_RIGHT_BUTTON_DOWN) {
+    if (flags & ui::EF_RIGHT_BUTTON_DOWN) {
       wparam_flags |= MK_RBUTTON;
       down_message = WM_LBUTTONDOWN;
       up_message = WM_LBUTTONUP;
@@ -203,12 +203,12 @@ void AutomationProvider::WindowSimulateDrag(int handle,
       // Press Escape, making sure we wait until chrome processes the escape.
       // TODO(phajdan.jr): make this use ui_test_utils::SendKeyPressSync.
       ui_controls::SendKeyPressNotifyWhenDone(
-          window, app::VKEY_ESCAPE,
-          ((flags & views::Event::EF_CONTROL_DOWN) ==
-           views::Event::EF_CONTROL_DOWN),
-          ((flags & views::Event::EF_SHIFT_DOWN) ==
-           views::Event::EF_SHIFT_DOWN),
-          ((flags & views::Event::EF_ALT_DOWN) == views::Event::EF_ALT_DOWN),
+          window, ui::VKEY_ESCAPE,
+          ((flags & ui::EF_CONTROL_DOWN) ==
+           ui::EF_CONTROL_DOWN),
+          ((flags & ui::EF_SHIFT_DOWN) ==
+           ui::EF_SHIFT_DOWN),
+          ((flags & ui::EF_ALT_DOWN) == ui::EF_ALT_DOWN),
           false,
           new MessageLoop::QuitTask());
       MessageLoopForUI* loop = MessageLoopForUI::current();

@@ -41,7 +41,8 @@ class ChromeInvalidationClient
    public:
     virtual ~Listener();
 
-    virtual void OnInvalidate(syncable::ModelType model_type) = 0;
+    virtual void OnInvalidate(syncable::ModelType model_type,
+                              const std::string& payload) = 0;
 
     virtual void OnInvalidateAll() = 0;
   };
@@ -54,9 +55,9 @@ class ChromeInvalidationClient
   // Does not take ownership of |listener| or |state_writer|.
   // |base_task| must still be non-NULL.
   void Start(
-      const std::string& client_id, const std::string& state,
-      Listener* listener, StateWriter* state_writer,
-      base::WeakPtr<talk_base::Task> base_task);
+      const std::string& client_id, const std::string& client_info,
+      const std::string& state, Listener* listener,
+      StateWriter* state_writer, base::WeakPtr<talk_base::Task> base_task);
 
   void Stop();
 

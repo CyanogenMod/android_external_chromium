@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,17 +9,17 @@
 #include <string>
 
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 
 class DictionaryValue;
 
-namespace menus {
+namespace ui{
 class MenuModel;
-}  // namespace menus
+}  // namespace ui
 
 namespace chromeos {
 
-class DOMUIMenuControl;
+class WebUIMenuControl;
 
 // MenuSourceDelegate class allows subclass to injects specific values
 // to menu javascript code.
@@ -27,7 +27,7 @@ class MenuSourceDelegate {
  public:
   virtual ~MenuSourceDelegate() {}
   // Subclass can add extra parameters or replaces default configuration.
-  virtual void AddCustomConfigValues(DictionaryValue* config) const {};
+  virtual void AddCustomConfigValues(DictionaryValue* config) const {}
 
   // Subclass can add their values to |localized_strings| and those values
   // are used by JS template builder and could be accessed via JS class
@@ -35,16 +35,16 @@ class MenuSourceDelegate {
   virtual void AddLocalizedStrings(DictionaryValue* localized_strings) const {}
 };
 
-class MenuUI : public DOMUI {
+class MenuUI : public WebUI {
  public:
   explicit MenuUI(TabContents* contents);
 
   // A callback method that is invoked when a menu model associated
-  // with the DOMUI Menu gets updated.
-  virtual void ModelUpdated(const menus::MenuModel* new_model);
+  // with the WebUI Menu gets updated.
+  virtual void ModelUpdated(const ui::MenuModel* new_model);
 
   // Creates a menu item for the menu item at index in the model.
-  virtual DictionaryValue* CreateMenuItem(const menus::MenuModel* model,
+  virtual DictionaryValue* CreateMenuItem(const ui::MenuModel* model,
                                           int index,
                                           const char* type,
                                           int* max_icon_width,
@@ -52,7 +52,7 @@ class MenuUI : public DOMUI {
 
   // A utility function which creates a concrete html file from
   // template file |menu_resource_id| and |menu_css_id| for given |menu_class|.
-  // The resource_name is the host part of DOMUI's url.
+  // The resource_name is the host part of WebUI's url.
   static ChromeURLDataManager::DataSource* CreateMenuUIHTMLSource(
       const MenuSourceDelegate* delegate,
       const std::string& source_name,
@@ -75,18 +75,18 @@ class MenuUI : public DOMUI {
   DISALLOW_COPY_AND_ASSIGN(MenuUI);
 };
 
-// Base class for MenuUI's DOMMessageHandler.
-class MenuHandlerBase : public DOMMessageHandler {
+// Base class for MenuUI's WebUIMessageHandler.
+class MenuHandlerBase : public WebUIMessageHandler {
  public:
-  MenuHandlerBase() : DOMMessageHandler() {}
+  MenuHandlerBase() : WebUIMessageHandler() {}
 
   // Returns the menu control that is associated with the
   // MenuUI. This may return null when menu is being deleted.
-  DOMUIMenuControl* GetMenuControl();
+  WebUIMenuControl* GetMenuControl();
 
   // Returns the menu model for this menu ui.
   // This may return null when menu is being deleted.
-  menus::MenuModel* GetMenuModel();
+  ui::MenuModel* GetMenuModel();
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MenuHandlerBase);

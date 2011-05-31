@@ -2,12 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/string_piece.h"
+#include "base/sys_string_conversions.h"
 #include "chrome/common/gpu_create_command_buffer_config.h"
 #include "chrome/common/gpu_info.h"
 #include "chrome/common/dx_diag_node.h"
-#include "gfx/rect.h"
-#include "gfx/size.h"
 #include "ipc/ipc_channel_handle.h"
+#include "ui/gfx/rect.h"
+#include "ui/gfx/size.h"
 
 #define IPC_MESSAGE_IMPL
 #include "chrome/common/gpu_messages.h"
@@ -126,14 +128,19 @@ void ParamTraits<GpuHostMsg_AcceleratedSurfaceBuffersSwapped_Params> ::Log(
 #endif  // if defined(OS_MACOSX)
 
 void ParamTraits<GPUInfo> ::Write(Message* m, const param_type& p) {
-  WriteParam(m, static_cast<int32>(p.progress()));
+  WriteParam(m, static_cast<int32>(p.level()));
   WriteParam(m, p.initialization_time());
   WriteParam(m, p.vendor_id());
   WriteParam(m, p.device_id());
+  WriteParam(m, p.driver_vendor());
   WriteParam(m, p.driver_version());
   WriteParam(m, p.pixel_shader_version());
   WriteParam(m, p.vertex_shader_version());
   WriteParam(m, p.gl_version());
+  WriteParam(m, p.gl_version_string());
+  WriteParam(m, p.gl_vendor());
+  WriteParam(m, p.gl_renderer());
+  WriteParam(m, p.gl_extensions());
   WriteParam(m, p.can_lose_context());
 
 #if defined(OS_WIN)
@@ -142,36 +149,48 @@ void ParamTraits<GPUInfo> ::Write(Message* m, const param_type& p) {
 }
 
 bool ParamTraits<GPUInfo> ::Read(const Message* m, void** iter, param_type* p) {
-  int32 progress;
+  int32 level;
   base::TimeDelta initialization_time;
   uint32 vendor_id;
   uint32 device_id;
-  std::wstring driver_version;
+  std::string driver_vendor;
+  std::string driver_version;
   uint32 pixel_shader_version;
   uint32 vertex_shader_version;
   uint32 gl_version;
+  std::string gl_version_string;
+  std::string gl_vendor;
+  std::string gl_renderer;
+  std::string gl_extensions;
   bool can_lose_context;
-  bool ret = ReadParam(m, iter, &progress);
+  bool ret = ReadParam(m, iter, &level);
   ret = ret && ReadParam(m, iter, &initialization_time);
   ret = ret && ReadParam(m, iter, &vendor_id);
   ret = ret && ReadParam(m, iter, &device_id);
+  ret = ret && ReadParam(m, iter, &driver_vendor);
   ret = ret && ReadParam(m, iter, &driver_version);
   ret = ret && ReadParam(m, iter, &pixel_shader_version);
   ret = ret && ReadParam(m, iter, &vertex_shader_version);
   ret = ret && ReadParam(m, iter, &gl_version);
+  ret = ret && ReadParam(m, iter, &gl_version_string);
+  ret = ret && ReadParam(m, iter, &gl_vendor);
+  ret = ret && ReadParam(m, iter, &gl_renderer);
+  ret = ret && ReadParam(m, iter, &gl_extensions);
   ret = ret && ReadParam(m, iter, &can_lose_context);
-  p->SetProgress(static_cast<GPUInfo::Progress>(progress));
+  p->SetLevel(static_cast<GPUInfo::Level>(level));
   if (!ret)
     return false;
 
   p->SetInitializationTime(initialization_time);
-  p->SetGraphicsInfo(vendor_id,
-                     device_id,
-                     driver_version,
-                     pixel_shader_version,
-                     vertex_shader_version,
-                     gl_version,
-                     can_lose_context);
+  p->SetVideoCardInfo(vendor_id, device_id);
+  p->SetDriverInfo(driver_vendor, driver_version);
+  p->SetShaderVersion(pixel_shader_version, vertex_shader_version);
+  p->SetGLVersion(gl_version);
+  p->SetGLVersionString(gl_version_string);
+  p->SetGLVendor(gl_vendor);
+  p->SetGLRenderer(gl_renderer);
+  p->SetGLExtensions(gl_extensions);
+  p->SetCanLoseContext(can_lose_context);
 
 #if defined(OS_WIN)
   DxDiagNode dx_diagnostics;
@@ -185,14 +204,36 @@ bool ParamTraits<GPUInfo> ::Read(const Message* m, void** iter, param_type* p) {
 }
 
 void ParamTraits<GPUInfo> ::Log(const param_type& p, std::string* l) {
-  l->append(base::StringPrintf("<GPUInfo> %d %d %x %x %ls %d",
-                               p.progress(),
+  l->append(base::StringPrintf("<GPUInfo> %d %d %x %x %s %s %x %x %x %d",
+                               p.level(),
                                static_cast<int32>(
                                    p.initialization_time().InMilliseconds()),
                                p.vendor_id(),
                                p.device_id(),
+                               p.driver_vendor().c_str(),
                                p.driver_version().c_str(),
+                               p.pixel_shader_version(),
+                               p.vertex_shader_version(),
+                               p.gl_version(),
                                p.can_lose_context()));
+}
+
+
+void ParamTraits<GPUInfo::Level> ::Write(Message* m, const param_type& p) {
+  WriteParam(m, static_cast<int32>(p));
+}
+
+bool ParamTraits<GPUInfo::Level> ::Read(const Message* m,
+                                    void** iter,
+                                    param_type* p) {
+  int32 level;
+  bool ret = ReadParam(m, iter, &level);
+  *p = static_cast<GPUInfo::Level>(level);
+  return ret;
+}
+
+void ParamTraits<GPUInfo::Level> ::Log(const param_type& p, std::string* l) {
+  LogParam(static_cast<int32>(p), l);
 }
 
 void ParamTraits<DxDiagNode> ::Write(Message* m, const param_type& p) {
@@ -210,36 +251,6 @@ bool ParamTraits<DxDiagNode> ::Read(const Message* m,
 
 void ParamTraits<DxDiagNode> ::Log(const param_type& p, std::string* l) {
   l->append("<DxDiagNode>");
-}
-
-void ParamTraits<gpu::CommandBuffer::State> ::Write(Message* m,
-                                                    const param_type& p) {
-  WriteParam(m, p.num_entries);
-  WriteParam(m, p.get_offset);
-  WriteParam(m, p.put_offset);
-  WriteParam(m, p.token);
-  WriteParam(m, static_cast<int32>(p.error));
-}
-
-bool ParamTraits<gpu::CommandBuffer::State> ::Read(const Message* m,
-                                                   void** iter,
-                                                   param_type* p) {
-  int32 temp;
-  if (ReadParam(m, iter, &p->num_entries) &&
-      ReadParam(m, iter, &p->get_offset) &&
-      ReadParam(m, iter, &p->put_offset) &&
-      ReadParam(m, iter, &p->token) &&
-      ReadParam(m, iter, &temp)) {
-    p->error = static_cast<gpu::error::Error>(temp);
-    return true;
-  } else {
-    return false;
-  }
-}
-
-void ParamTraits<gpu::CommandBuffer::State> ::Log(const param_type& p,
-                                                  std::string* l) {
-  l->append("<CommandBuffer::State>");
 }
 
 void ParamTraits<GPUCreateCommandBufferConfig> ::Write(

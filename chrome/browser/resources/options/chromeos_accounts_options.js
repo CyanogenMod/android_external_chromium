@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,7 @@ cr.define('options', function() {
    * @constructor
    */
   function AccountsOptions(model) {
-    OptionsPage.call(this, 'accounts', localStrings.getString('accountsPage'),
+    OptionsPage.call(this, 'accounts', templateData.accountsPageTabTitle,
                      'accountsPage');
   }
 
@@ -33,23 +33,37 @@ cr.define('options', function() {
 
       // Set up accounts page.
       var userList = $('userList');
-      options.accounts.UserList.decorate(userList);
 
       var userNameEdit = $('userNameEdit');
       options.accounts.UserNameEdit.decorate(userNameEdit);
       userNameEdit.addEventListener('add', this.handleAddUser_);
 
-      userList.disabled =
-      userNameEdit.disabled = !AccountsOptions.currentUserIsOwner();
-      // If the current user is not the owner, show some warning.
-      if (!AccountsOptions.currentUserIsOwner()) {
+      // If the current user is not the owner, show some warning,
+      // and do not show the user list.
+      if (AccountsOptions.currentUserIsOwner()) {
+        options.accounts.UserList.decorate(userList);
+      } else {
         $('ownerOnlyWarning').classList.remove('hidden');
       }
 
       this.addEventListener('visibleChange', this.handleVisibleChange_);
 
-      $('useWhitelistCheck').addEventListener('click',
-          this.handleUseWhitelistCheckClick_);
+      $('useWhitelistCheck').addEventListener('change',
+          this.handleUseWhitelistCheckChange_.bind(this));
+
+      Preferences.getInstance().addEventListener(
+          $('useWhitelistCheck').pref,
+          this.handleUseWhitelistPrefChange_.bind(this));
+    },
+
+    /**
+     * Update user list control state.
+     * @private
+     */
+    updateControls_: function() {
+      $('userList').disabled =
+      $('userNameEdit').disabled = !AccountsOptions.currentUserIsOwner() ||
+                                   !$('useWhitelistCheck').checked;
     },
 
     /**
@@ -62,18 +76,30 @@ cr.define('options', function() {
         // fetchUserPictures calls back AccountsOptions.setUserPictures and
         // triggers redraw.
         chrome.send('fetchUserPictures', []);
+
+        this.updateControls_();
       }
     },
 
     /**
-     * Handler for allow guest check click.
+     * Handler for allow guest check change.
      * @private
      */
-    handleUseWhitelistCheckClick_: function(e) {
+    handleUseWhitelistCheckChange_: function(e) {
       // Whitelist existing users when guest login is being disabled.
       if ($('useWhitelistCheck').checked) {
         chrome.send('whitelistExistingUsers', []);
       }
+
+      this.updateControls_();
+    },
+
+    /**
+     * handler for allow guest pref change.
+     * @private
+     */
+    handleUseWhitelistPrefChange_: function(e) {
+      this.updateControls_();
     },
 
     /**

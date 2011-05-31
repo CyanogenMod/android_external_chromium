@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/path_service.h"
 #include "base/singleton.h"
 #include "base/threading/thread_restrictions.h"
+#include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_thread.h"
@@ -25,7 +26,7 @@
 #include "chrome/test/ui_test_utils.h"
 #include "net/url_request/url_request_filter.h"
 #include "net/url_request/url_request_test_job.h"
-#include "net/url_request/url_request_unittest.h"
+#include "net/url_request/url_request_test_util.h"
 
 namespace {
 
@@ -59,14 +60,14 @@ class TestData {
 
 // A simple test net::URLRequestJob. We don't care what it does, only that
 // whether it starts and finishes.
-class SimpleTestJob : public URLRequestTestJob {
+class SimpleTestJob : public net::URLRequestTestJob {
  public:
   explicit SimpleTestJob(net::URLRequest* request)
-      : URLRequestTestJob(request, test_headers(),
-                          TestData::GetInstance()->GetTestData(), true) {}
+      : net::URLRequestTestJob(request, test_headers(),
+                               TestData::GetInstance()->GetTestData(), true) {}
 
   virtual void GetResponseInfo(net::HttpResponseInfo* info) {
-    URLRequestTestJob::GetResponseInfo(info);
+    net::URLRequestTestJob::GetResponseInfo(info);
     if (request_->url().SchemeIsSecure()) {
       // Make up a fake certificate for this response since we don't have
       // access to the real SSL info.
@@ -198,7 +199,10 @@ class PrintDialogCloudTest : public InProcessBrowserTest {
         test_data_directory_.AppendASCII("printing/cloud_print_uitest.pdf");
     BrowserThread::PostTask(
         BrowserThread::UI, FROM_HERE,
-        NewRunnableFunction(&PrintDialogCloud::CreateDialogImpl, path_to_pdf));
+        NewRunnableFunction(&PrintDialogCloud::CreateDialogImpl,
+                            path_to_pdf,
+                            string16(),
+                            true));
   }
 
   bool handler_added_;
@@ -246,9 +250,9 @@ IN_PROC_BROWSER_TEST_F(PrintDialogCloudTest, DISABLED_DialogGrabbed) {
   ASSERT_TRUE(browser()->GetSelectedTabContents());
   ASSERT_TRUE(browser()->GetSelectedTabContents()->render_view_host());
 
-  std::wstring window_print(L"window.print()");
+  string16 window_print = ASCIIToUTF16("window.print()");
   browser()->GetSelectedTabContents()->render_view_host()->
-      ExecuteJavascriptInWebFrame(std::wstring(), window_print);
+      ExecuteJavascriptInWebFrame(string16(), window_print);
 
   ui_test_utils::RunMessageLoop();
 

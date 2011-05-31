@@ -35,6 +35,8 @@ class AddressList;
 // that can provide various responses useful for testing.
 class TestServer {
  public:
+  typedef std::pair<std::string, std::string> StringPair;
+
   enum Type {
     TYPE_FTP,
     TYPE_HTTP,
@@ -126,7 +128,6 @@ class TestServer {
                                  const std::string& user,
                                  const std::string& password) const;
 
-  typedef std::pair<std::string, std::string> StringPair;
   static bool GetFilePathWithReplacements(
       const std::string& original_path,
       const std::vector<StringPair>& text_to_replace,
@@ -149,7 +150,7 @@ class TestServer {
   bool ParseServerData(const std::string& server_data) WARN_UNUSED_RESULT;
 
   // Returns path to the root certificate.
-  FilePath GetRootCertificatePath();
+  FilePath GetRootCertificatePath() const;
 
   // Load the test root cert, if it hasn't been loaded yet.
   bool LoadTestRootCert() WARN_UNUSED_RESULT;

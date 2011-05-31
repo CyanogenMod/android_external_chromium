@@ -46,8 +46,11 @@ class FileUtilProxy {
                     >::Type GetFileInfoCallback;
   typedef Callback2<PlatformFileError /* error code */,
                     const std::vector<Entry>&>::Type ReadDirectoryCallback;
+  typedef Callback3<PlatformFileError /* error code */,
+                    const char* /* data */,
+                    int /* bytes read/written */>::Type ReadCallback;
   typedef Callback2<PlatformFileError /* error code */,
-                    int /* bytes read/written */>::Type ReadWriteCallback;
+                    int /* bytes written */>::Type WriteCallback;
 
   // Creates or opens a file with the given flags.  It is invalid to pass NULL
   // for the callback.
@@ -100,6 +103,15 @@ class FileUtilProxy {
                             const FilePath& file_path,
                             ReadDirectoryCallback* callback);
 
+  // Creates directory at given path. It's an error to create
+  // if |exclusive| is true and dir already exists.
+  static bool CreateDirectory(
+      scoped_refptr<MessageLoopProxy> message_loop_proxy,
+      const FilePath& file_path,
+      bool exclusive,
+      bool recursive,
+      StatusCallback* callback);
+
   // Copies a file or a directory from |src_file_path| to |dest_file_path|
   // Error cases:
   // If destination file doesn't exist or destination's parent
@@ -113,13 +125,12 @@ class FileUtilProxy {
                    const FilePath& dest_file_path,
                    StatusCallback* callback);
 
-  // Creates directory at given path. It's an error to create
-  // if |exclusive| is true and dir already exists.
-  static bool CreateDirectory(
+  // Moves a file or a directory from src_file_path to dest_file_path.
+  // Error cases are similar to Copy method's error cases.
+  static bool Move(
       scoped_refptr<MessageLoopProxy> message_loop_proxy,
-      const FilePath& file_path,
-      bool exclusive,
-      bool recursive,
+      const FilePath& src_file_path,
+      const FilePath& dest_file_path,
       StatusCallback* callback);
 
   // Deletes a file or a directory.
@@ -128,14 +139,6 @@ class FileUtilProxy {
                      const FilePath& file_path,
                      bool recursive,
                      StatusCallback* callback);
-
-  // Moves a file or a directory from src_file_path to dest_file_path.
-  // Error cases are similar to Copy method's error cases.
-  static bool Move(
-      scoped_refptr<MessageLoopProxy> message_loop_proxy,
-      const FilePath& src_file_path,
-      const FilePath& dest_file_path,
-      StatusCallback* callback);
 
   // Deletes a directory and all of its contents.
   static bool RecursiveDelete(
@@ -149,9 +152,8 @@ class FileUtilProxy {
       scoped_refptr<MessageLoopProxy> message_loop_proxy,
       PlatformFile file,
       int64 offset,
-      char* buffer,
       int bytes_to_read,
-      ReadWriteCallback* callback);
+      ReadCallback* callback);
 
   // Writes to a file. If |offset| is greater than the length of the file,
   // |false| is returned. On success, the file pointer is moved to position
@@ -162,7 +164,7 @@ class FileUtilProxy {
       int64 offset,
       const char* buffer,
       int bytes_to_write,
-      ReadWriteCallback* callback);
+      WriteCallback* callback);
 
   // Touches a file. The callback can be NULL.
   static bool Touch(

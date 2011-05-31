@@ -100,6 +100,23 @@ bool TransportSecurityState::IsEnabledForHost(DomainState* result,
   return false;
 }
 
+void TransportSecurityState::DeleteSince(const base::Time& time) {
+  bool dirtied = false;
+
+  std::map<std::string, DomainState>::iterator i = enabled_hosts_.begin();
+  while (i != enabled_hosts_.end()) {
+    if (i->second.created >= time) {
+      dirtied = true;
+      enabled_hosts_.erase(i++);
+    } else {
+      i++;
+    }
+  }
+
+  if (dirtied)
+    DirtyNotify();
+}
+
 // MaxAgeToInt converts a string representation of a number of seconds into a
 // int. We use strtol in order to handle overflow correctly. The string may
 // contain an arbitary number which we should truncate correctly rather than
@@ -248,8 +265,8 @@ bool TransportSecurityState::Serialise(std::string* output) {
        i = enabled_hosts_.begin(); i != enabled_hosts_.end(); ++i) {
     DictionaryValue* state = new DictionaryValue;
     state->SetBoolean("include_subdomains", i->second.include_subdomains);
-    state->SetReal("created", i->second.created.ToDoubleT());
-    state->SetReal("expiry", i->second.expiry.ToDoubleT());
+    state->SetDouble("created", i->second.created.ToDoubleT());
+    state->SetDouble("expiry", i->second.expiry.ToDoubleT());
 
     switch (i->second.mode) {
       case DomainState::MODE_STRICT:
@@ -300,7 +317,7 @@ bool TransportSecurityState::Deserialise(const std::string& input,
 
     if (!state->GetBoolean("include_subdomains", &include_subdomains) ||
         !state->GetString("mode", &mode_string) ||
-        !state->GetReal("expiry", &expiry)) {
+        !state->GetDouble("expiry", &expiry)) {
       continue;
     }
 
@@ -319,7 +336,7 @@ bool TransportSecurityState::Deserialise(const std::string& input,
 
     base::Time expiry_time = base::Time::FromDoubleT(expiry);
     base::Time created_time;
-    if (state->GetReal("created", &created)) {
+    if (state->GetDouble("created", &created)) {
       created_time = base::Time::FromDoubleT(created);
     } else {
       // We're migrating an old entry with no creation date. Make sure we
@@ -348,23 +365,6 @@ bool TransportSecurityState::Deserialise(const std::string& input,
 
   *dirty = dirtied;
   return true;
-}
-
-void TransportSecurityState::DeleteSince(const base::Time& time) {
-  bool dirtied = false;
-
-  std::map<std::string, DomainState>::iterator i = enabled_hosts_.begin();
-  while (i != enabled_hosts_.end()) {
-    if (i->second.created >= time) {
-      dirtied = true;
-      enabled_hosts_.erase(i++);
-    } else {
-      i++;
-    }
-  }
-
-  if (dirtied)
-    DirtyNotify();
 }
 
 TransportSecurityState::~TransportSecurityState() {
@@ -436,6 +436,9 @@ bool TransportSecurityState::IsPreloadedSTS(
     {17, false, "\002id\010mayfirst\003org"},
     {20, false, "\005lists\010mayfirst\003org"},
     {19, true, "\015splendidbacon\003com"},
+    {19, false, "\006health\006google\003com"},
+    {21, false, "\010checkout\006google\003com"},
+    {19, false, "\006chrome\006google\003com"},
   };
   static const size_t kNumPreloadedSTS = ARRAYSIZE_UNSAFE(kPreloadedSTS);
 

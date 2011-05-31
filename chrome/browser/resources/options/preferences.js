@@ -44,9 +44,9 @@ cr.define('options', function() {
    * @param {string} metric User metrics identifier.
    */
   Preferences.setBooleanPref = function (name, value, metric) {
-    var arguments = [name, value ? 'true' : 'false'];
-    if (metric != undefined) arguments.push(metric);
-    chrome.send('setBooleanPref', arguments);
+    var argumentList = [name, Boolean(value)];
+    if (metric != undefined) argumentList.push(metric);
+    chrome.send('setBooleanPref', argumentList);
   };
 
   /**
@@ -57,9 +57,22 @@ cr.define('options', function() {
    * @param {string} metric User metrics identifier.
    */
   Preferences.setIntegerPref = function(name, value, metric) {
-    var arguments = [name, String(value)];
-    if (metric != undefined) arguments.push(metric);
-    chrome.send('setIntegerPref', arguments);
+    var argumentList = [name, Number(value)];
+    if (metric != undefined) argumentList.push(metric);
+    chrome.send('setIntegerPref', argumentList);
+  };
+
+  /**
+   * Sets value of a double-valued preference.
+   * and signals its changed value.
+   * @param {string} name Preference name.
+   * @param {number} value New preference value.
+   * @param {string} metric User metrics identifier.
+   */
+  Preferences.setDoublePref = function(name, value, metric) {
+    var argumentList = [name, Number(value)];
+    if (metric != undefined) argumentList.push(metric);
+    chrome.send('setDoublePref', argumentList);
   };
 
   /**
@@ -70,22 +83,22 @@ cr.define('options', function() {
    * @param {string} metric User metrics identifier.
    */
   Preferences.setStringPref = function(name, value, metric) {
-    var arguments = [name, value];
-    if (metric != undefined) arguments.push(metric);
-    chrome.send('setStringPref', arguments);
+    var argumentList = [name, String(value)];
+    if (metric != undefined) argumentList.push(metric);
+    chrome.send('setStringPref', argumentList);
   };
 
   /**
-   * Sets value of a JSON preference.
+   * Sets value of a JSON list preference.
    * and signals its changed value.
    * @param {string} name Preference name.
-   * @param {string} value New preference value.
+   * @param {Array} value New preference value.
    * @param {string} metric User metrics identifier.
    */
-  Preferences.setObjectPref = function(name, value, metric) {
-    var arguments = [name, JSON.stringify(value)];
-    if (metric != undefined) arguments.push(metric);
-    chrome.send('setObjectPref', arguments);
+  Preferences.setListPref = function(name, value, metric) {
+    var argumentList = [name, JSON.stringify(value)];
+    if (metric != undefined) argumentList.push(metric);
+    chrome.send('setListPref', argumentList);
   };
 
   /**
@@ -94,9 +107,9 @@ cr.define('options', function() {
    * @param {string} metric User metrics identifier.
    */
   Preferences.clearPref = function(name, metric) {
-    var arguments = [name];
-    if (metric != undefined) arguments.push(metric);
-    chrome.send('clearPref', arguments);
+    var argumentList = [name];
+    if (metric != undefined) argumentList.push(metric);
+    chrome.send('clearPref', argumentList);
   };
 
   Preferences.prototype = {
@@ -177,4 +190,3 @@ cr.define('options', function() {
   };
 
 });
-

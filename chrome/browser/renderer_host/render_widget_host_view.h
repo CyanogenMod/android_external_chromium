@@ -15,12 +15,12 @@
 
 #include "app/surface/transport_dib.h"
 #include "base/process_util.h"
-#include "gfx/native_widget_types.h"
-#include "gfx/rect.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebPopupType.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebTextInputType.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebPopupType.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebTextInputType.h"
+#include "ui/gfx/native_widget_types.h"
+#include "ui/gfx/rect.h"
 
 namespace gfx {
 class Rect;
@@ -82,7 +82,7 @@ class RenderWidgetHostView {
 
   // Perform all the initialization steps necessary for this object to represent
   // a full screen window.
-  virtual void InitAsFullscreen(RenderWidgetHostView* parent_host_view) = 0;
+  virtual void InitAsFullscreen() = 0;
 
   // Returns the associated RenderWidgetHost.
   virtual RenderWidgetHost* GetRenderWidgetHost() const = 0;
@@ -188,8 +188,11 @@ class RenderWidgetHostView {
   // |flag| is false, the view participates in the key-view chain as normal.
   virtual void SetTakesFocusOnlyOnMouseDown(bool flag) = 0;
 
-  // Get the view's position on the screen.
-  virtual gfx::Rect GetWindowRect() = 0;
+  // Retrieve the bounds of the view, in cocoa view coordinates.
+  // If the UI scale factor is 2, |GetViewBounds()| will return a size of e.g.
+  // (400, 300) in pixels, while this method will return (200, 150).
+  // Even though this returns an gfx::Rect, the result is NOT IN PIXELS.
+  virtual gfx::Rect GetViewCocoaBounds() const = 0;
 
   // Get the view's window's position on the screen.
   virtual gfx::Rect GetRootWindowRect() = 0;
@@ -208,8 +211,11 @@ class RenderWidgetHostView {
   // Informs the view that its containing window's frame changed.
   virtual void WindowFrameChanged() = 0;
 
-  // Start or stop plugin IME for the given plugin.
-  virtual void SetPluginImeEnabled(bool enabled, int plugin_id) = 0;
+  // Informs the view that a plugin gained or lost focus.
+  virtual void PluginFocusChanged(bool focused, int plugin_id) = 0;
+
+  // Start plugin IME.
+  virtual void StartPluginIme() = 0;
 
   // Does any event handling necessary for plugin IME; should be called after
   // the plugin has already had a chance to process the event. If plugin IME is

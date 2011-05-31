@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/bookmark_editor_view.h"
+#include "chrome/browser/ui/views/bookmark_editor_view.h"
 
-#include "app/l10n_util.h"
 #include "base/basictypes.h"
 #include "base/logging.h"
 #include "base/string_util.h"
@@ -21,13 +20,14 @@
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "net/base/net_util.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "views/background.h"
 #include "views/focus/focus_manager.h"
-#include "views/grid_layout.h"
 #include "views/controls/button/native_button.h"
 #include "views/controls/label.h"
 #include "views/controls/menu/menu_2.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/widget.h"
 #include "views/window/window.h"
 
@@ -139,10 +139,10 @@ void BookmarkEditorView::Layout() {
 
   // Manually lay out the New Folder button in the same row as the OK/Cancel
   // buttons...
-  gfx::Rect parent_bounds = GetParent()->GetLocalBounds(false);
+  gfx::Rect parent_bounds = parent()->GetContentsBounds();
   gfx::Size prefsize = new_group_button_->GetPreferredSize();
   int button_y =
-      parent_bounds.bottom() - prefsize.height() - kButtonVEdgeMargin;
+      parent_bounds.bottom() - prefsize.height() - views::kButtonVEdgeMargin;
   new_group_button_->SetBounds(kPanelHorizMargin, button_y, prefsize.width(),
                               prefsize.height());
 }
@@ -174,7 +174,7 @@ void BookmarkEditorView::OnTreeViewSelectionChanged(
 }
 
 bool BookmarkEditorView::CanEdit(views::TreeView* tree_view,
-                                 TreeModelNode* node) {
+                                 ui::TreeModelNode* node) {
   // Only allow editting of children of the bookmark bar node and other node.
   EditorNode* bb_node = tree_model_->AsNode(node);
   return (bb_node->GetParent() && bb_node->GetParent()->GetParent());
@@ -208,7 +208,7 @@ bool BookmarkEditorView::IsCommandIdEnabled(int command_id) const {
 
 bool BookmarkEditorView::GetAcceleratorForCommandId(
     int command_id,
-    menus::Accelerator* accelerator) {
+    ui::Accelerator* accelerator) {
   return GetWidget()->GetAccelerator(command_id, accelerator);
 }
 
@@ -249,7 +249,7 @@ void BookmarkEditorView::ShowContextMenu(View* source,
       (tree_model_->GetParent(tree_view_->GetSelectedNode()) ==
        tree_model_->GetRoot());
   if (!context_menu_contents_.get()) {
-    context_menu_contents_.reset(new menus::SimpleMenuModel(this));
+    context_menu_contents_.reset(new ui::SimpleMenuModel(this));
     context_menu_contents_->AddItemWithStringId(IDS_EDIT, IDS_EDIT);
     context_menu_contents_->AddItemWithStringId(
         IDS_BOOMARK_EDITOR_NEW_FOLDER_MENU_ITEM,
@@ -278,7 +278,7 @@ void BookmarkEditorView::Init() {
 
   title_label_ = new views::Label(
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_BOOMARK_EDITOR_NAME_LABEL)));
-  title_tf_.SetAccessibleName(title_label_->GetText());
+  title_tf_.SetAccessibleName(WideToUTF16Hack(title_label_->GetText()));
 
   string16 url_text;
   if (details_.type == EditDetails::EXISTING_NODE) {
@@ -297,7 +297,7 @@ void BookmarkEditorView::Init() {
 
   url_label_ = new views::Label(
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_BOOMARK_EDITOR_URL_LABEL)));
-  url_tf_.SetAccessibleName(url_label_->GetText());
+  url_tf_.SetAccessibleName(WideToUTF16Hack(url_label_->GetText()));
 
   if (show_tree_) {
     tree_view_ = new views::TreeView();
@@ -314,7 +314,7 @@ void BookmarkEditorView::Init() {
   }
 
   // Yummy layout code.
-  GridLayout* layout = CreatePanelGridLayout(this);
+  GridLayout* layout = GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
 
   const int labels_column_set_id = 0;
@@ -324,7 +324,7 @@ void BookmarkEditorView::Init() {
   ColumnSet* column_set = layout->AddColumnSet(labels_column_set_id);
   column_set->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 1,
                         GridLayout::USE_PREF, 0, 0);
 
@@ -335,10 +335,10 @@ void BookmarkEditorView::Init() {
   column_set = layout->AddColumnSet(buttons_column_set_id);
   column_set->AddColumn(GridLayout::FILL, GridLayout::LEADING, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(1, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(1, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::LEADING, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::LEADING, 0,
                         GridLayout::USE_PREF, 0, 0);
   column_set->LinkColumnSizes(0, 2, 4, -1);
@@ -349,7 +349,7 @@ void BookmarkEditorView::Init() {
   layout->AddView(&title_tf_);
 
   if (details_.type != EditDetails::NEW_FOLDER) {
-    layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+    layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
     layout->StartRow(0, labels_column_set_id);
     layout->AddView(url_label_);
@@ -357,12 +357,12 @@ void BookmarkEditorView::Init() {
   }
 
   if (show_tree_) {
-    layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+    layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
     layout->StartRow(1, single_column_view_set_id);
     layout->AddView(tree_view_);
   }
 
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   if (!show_tree_ || bb_model_->IsLoaded())
     Reset();
@@ -403,7 +403,7 @@ void BookmarkEditorView::BookmarkNodeChildrenReordered(
 
 void BookmarkEditorView::Reset() {
   if (!show_tree_) {
-    if (GetParent())
+    if (parent())
       UserInputChanged();
     return;
   }
@@ -422,7 +422,7 @@ void BookmarkEditorView::Reset() {
 
   context_menu_.reset();
 
-  if (GetParent())
+  if (parent())
     ExpandAndSelect();
 }
 GURL BookmarkEditorView::GetInputURL() const {

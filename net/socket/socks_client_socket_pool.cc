@@ -82,11 +82,6 @@ LoadState SOCKSConnectJob::GetLoadState() const {
   }
 }
 
-int SOCKSConnectJob::ConnectInternal() {
-  next_state_ = STATE_TCP_CONNECT;
-  return DoLoop(OK);
-}
-
 void SOCKSConnectJob::OnIOComplete(int result) {
   int rv = DoLoop(result);
   if (rv != ERR_IO_PENDING)
@@ -172,6 +167,11 @@ int SOCKSConnectJob::DoSOCKSConnectComplete(int result) {
 
   set_socket(socket_.release());
   return result;
+}
+
+int SOCKSConnectJob::ConnectInternal() {
+  next_state_ = STATE_TCP_CONNECT;
+  return DoLoop(OK);
 }
 
 ConnectJob* SOCKSClientSocketPool::SOCKSConnectJobFactory::NewConnectJob(

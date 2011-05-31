@@ -3,7 +3,7 @@
 <title></title>
 <style type="text/css">
 body {
-   line-height: 1.5em;
+   line-height: 1.33em;
    background: #FFFFFF;
    font-size: 11pt;
 }
@@ -67,9 +67,9 @@ form {
 .sync-config-tab-inactive {
   float: left;
   height: 22px;
-  padding-top: 3px;
+  padding: 3px 5px 0px;
   margin-left: 15px;
-  width: 100px;
+  min-width: 100px;
   text-align: center;
 }
 .sync-config-tab-active A,
@@ -145,12 +145,16 @@ form {
 }
 .sync-section {
   background: #EEE;
-  margin: 5px 0px;
+  margin: 5px 0px 5px 19px;
   padding: 6px;
 }
 
 #explicit-message {
   margin-bottom: 5px;
+}
+
+#learn-more-link {
+  float: right;
 }
 
 #change-passphrase {
@@ -385,6 +389,10 @@ html[os='mac'] input[type='submit'] {
           "sync-config-tab-contents-inactive";
     }
 
+    // Default to the 'Data Types' tab.
+    if (!newTab)
+      newTab = "data-type";
+
     document.getElementById(newTab + "-tab").className =
         "sync-config-tab-active";
     document.getElementById(newTab + "-tab-contents").className =
@@ -424,26 +432,19 @@ html[os='mac'] input[type='submit'] {
     emptyError.style.display = "none";
     mismatchError.style.display = "none";
 
-    if (getRadioCheckedValue() != "explicit") {
+    var f = document.getElementById("chooseDataTypesForm");
+    if (getRadioCheckedValue() != "explicit" || f.option[0].disabled) {
       return true;
     }
-    var f = document.getElementById("chooseDataTypesForm");
     if (f.passphrase.value.length == 0) {
       emptyError.style.display = "block";
       return false;
     }
-    if (f.confirmpassphrase.value.length > 0 &&
-        f.confirmpassphrase.value != f.passphrase.value) {
+    if (f.confirmpassphrase.value != f.passphrase.value) {
       mismatchError.style.display = "block";
       return false;
     }
     return true;
-  }
-
-  function sendValuesAndClose() {
-    var result = JSON.stringify({"option": getRadioCheckedValue(),
-                                 "passphrase": f.passphrase.value});
-    chrome.send("FirstPassphrase", [result]);
   }
 
   function goToDashboard() {
@@ -569,13 +570,17 @@ html[os='mac'] input[type='submit'] {
     <div>
       <input id="google-option" name="option" type="radio"
              value="google" onchange="onRadioChange();">
-      <span i18n-content="googleOption"></span>
+      <label for="google-option" i18n-content="googleOption"></label>
     </input>
     </div>
     <div>
-      <input id="explicit-option" name="option" type="radio"
-             value="explicit" onchange="onRadioChange();">
-      <span i18n-content="explicitOption"></span>
+      <input id="explicit-option" name="option" type="radio" value="explicit"
+             onchange="onRadioChange();">
+      <div id="learn-more-link">
+        <a i18n-values="href:encryptionhelpurl" target="_blank"
+           i18n-content="learnmore"></a>
+      </div>
+      <label for="explicit-option" i18n-content="explicitOption"></label>
     </input>
     </div>
 
@@ -587,16 +592,13 @@ html[os='mac'] input[type='submit'] {
       <div>
         <div i18n-content="passphraseLabel" id="passphraseLabel"></div>
         <input id="passphrase" name="passphrase" label="passphraseLabel"
-               type="password" onkeyup="checkPassphraseMatch();"
-               onchange="checkPassphraseMatch();"/>
+               type="password" />
       </div>
       <div>
         <div i18n-content="confirmLabel" id="confirmPassphraseLabel">
         </div>
         <input id="confirmpassphrase" name="confirmpassphrase" type="password"
-               label="confirmPassphraseLabel"
-               onkeyup="checkPassphraseMatch();"
-               onchange="checkPassphraseMatch();" />
+               label="confirmPassphraseLabel" />
       </div>
       <div class="error" style="display:none"
            id="emptyerror" i18n-content="emptyErrorMessage"></div>
@@ -606,9 +608,6 @@ html[os='mac'] input[type='submit'] {
 
     <div id="change-passphrase">
       <div id="sync-passphrase-warning" i18n-content="passphraseWarning">
-      </div>
-      <div id="sync-reset-confirmation" i18n-content="cleardataconfirmation"
-           style="display: none;">
       </div>
       <a id="clear-data-link" i18n-content="cleardatalink" href="#"
              onclick='goToDashboard(); return false;'></a>

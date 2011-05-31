@@ -12,7 +12,6 @@
 #include "base/ref_counted.h"
 #include "chrome/browser/debugger/devtools_client_host.h"
 #include "chrome/browser/debugger/devtools_toggle_action.h"
-#include "chrome/common/devtools_messages.h"
 #include "webkit/glue/resource_loader_bridge.h"
 
 namespace IPC {
@@ -24,7 +23,11 @@ class GURL;
 class IOThread;
 class PrefService;
 class RenderViewHost;
+class TabContentsWraper;
+
 using webkit_glue::ResourceLoaderBridge;
+
+typedef std::map<std::string, std::string> DevToolsRuntimeProperties;
 
 // This class is a singleton that manages DevToolsClientHost instances and
 // routes messages between developer tools clients and agents.
@@ -77,6 +80,10 @@ class DevToolsManager : public DevToolsClientHost::CloseListener,
                                   RenderViewHost* dest_rvh,
                                   const GURL& gurl);
 
+  // Invoked when a tab is replaced by another tab. This is triggered by
+  // TabStripModel::ReplaceTabContentsAt.
+  void TabReplaced(TabContentsWrapper* old_tab, TabContentsWrapper* new_tab);
+
   // Detaches client host and returns cookie that can be used in
   // AttachClientHost.
   int DetachClientHost(RenderViewHost* from_rvh);
@@ -124,10 +131,8 @@ class DevToolsManager : public DevToolsClientHost::CloseListener,
                         DevToolsClientHost* client_host);
 
   // These two maps are for tracking dependencies between inspected tabs and
-  // their DevToolsClientHosts. They are usful for routing devtools messages
-  // and allow us to have at most one devtools client host per tab. We use
-  // NavigationController* as key because it survives crosee-site navigation in
-  // cases when tab contents may change.
+  // their DevToolsClientHosts. They are useful for routing devtools messages
+  // and allow us to have at most one devtools client host per tab.
   //
   // DevToolsManager start listening to DevToolsClientHosts when they are put
   // into these maps and removes them when they are closing.

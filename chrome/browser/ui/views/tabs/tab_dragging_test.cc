@@ -7,16 +7,14 @@
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/chrome_switches.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/test/automation/tab_proxy.h"
 #include "chrome/test/automation/browser_proxy.h"
 #include "chrome/test/automation/window_proxy.h"
 #include "chrome/test/ui/ui_test.h"
-#include "gfx/rect.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/net_util.h"
-#include "views/event.h"
+#include "ui/gfx/rect.h"
+#include "views/events/event.h"
 
 #if defined(OS_LINUX)
 // This test doesn't make sense on chromeos as chromeos doesn't allow dragging
@@ -136,7 +134,7 @@ TEST_F(TabDraggingTest, MAYBE_Tab1Tab2) {
                    bounds1.y() + bounds1.height() / 2);
   gfx::Point end(start.x() + 2 * bounds1.width() / 3, start.y());
   ASSERT_TRUE(browser->SimulateDrag(start, end,
-                                    views::Event::EF_LEFT_BUTTON_DOWN,
+                                    ui::EF_LEFT_BUTTON_DOWN,
                                     false));
 
   // Now check for expected results.
@@ -236,7 +234,7 @@ TEST_F(TabDraggingTest, MAYBE_Tab1Tab3) {
                      bounds3.width() / 2,
                  start.y());
   ASSERT_TRUE(browser->SimulateDrag(start, end,
-                                    views::Event::EF_LEFT_BUTTON_DOWN,
+                                    ui::EF_LEFT_BUTTON_DOWN,
                                     false));
 
   // Now check for expected results.
@@ -346,7 +344,7 @@ TEST_F(TabDraggingTest, MAYBE_Tab1Tab3Escape) {
   // Simulate drag with 'true' as the last parameter. This will interrupt
   // in-flight with Escape.
   ASSERT_TRUE(browser->SimulateDrag(start, end,
-                                    views::Event::EF_LEFT_BUTTON_DOWN,
+                                    ui::EF_LEFT_BUTTON_DOWN,
                                     true));
 
   // Now check for expected results.
@@ -467,7 +465,7 @@ TEST_F(TabDraggingTest, MAYBE_Tab2OutOfTabStrip) {
 
   // Simulate tab drag.
   ASSERT_TRUE(browser->SimulateDrag(start, end,
-                                    views::Event::EF_LEFT_BUTTON_DOWN,
+                                    ui::EF_LEFT_BUTTON_DOWN,
                                     false));
 
   // Now, first make sure that the old window has only two tabs remaining.

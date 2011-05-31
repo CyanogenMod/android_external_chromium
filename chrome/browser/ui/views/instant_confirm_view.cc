@@ -1,25 +1,22 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/instant_confirm_view.h"
+#include "chrome/browser/ui/views/instant_confirm_view.h"
 
-#include "app/l10n_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/instant/instant_confirm_dialog.h"
 #include "chrome/browser/instant/instant_controller.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/locale_settings.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "views/controls/label.h"
-#include "views/grid_layout.h"
-#include "views/layout_manager.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/window/window.h"
 
 InstantConfirmView::InstantConfirmView(Profile* profile) : profile_(profile) {
@@ -33,7 +30,7 @@ InstantConfirmView::InstantConfirmView(Profile* profile) : profile_(profile) {
   learn_more_link->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
   learn_more_link->SetController(this);
 
-  views::GridLayout* layout = CreatePanelGridLayout(this);
+  views::GridLayout* layout = views::GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
 
   const int first_column_set = 1;

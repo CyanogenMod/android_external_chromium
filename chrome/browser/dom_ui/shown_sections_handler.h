@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,10 @@
 #define CHROME_BROWSER_DOM_UI_SHOWN_SECTIONS_HANDLER_H_
 #pragma once
 
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
 
-class DOMUI;
 class Extension;
 class Value;
 class PrefService;
@@ -24,17 +23,17 @@ enum Section {
   THUMB = 1 << 0,
   APPS = 1 << 6,
 
-  // We use the low 16 bits for sections, the high 16 bits for minimized state.
+  // We use the low 16 bits for sections, the high 16 bits for menu mode.
   ALL_SECTIONS_MASK = 0x0000FFFF,
 
-  // If one of these is set, then the corresponding section is shown minimized
+  // If one of these is set, then the corresponding section is shown in a menu
   // at the bottom of the NTP and no data is directly visible on the NTP.
-  MINIMIZED_THUMB = 1 << (0 + 16),
-  MINIMIZED_RECENT = 1 << (2 + 16),
-  MINIMIZED_APPS = 1 << (6 + 16),
+  MENU_THUMB = 1 << (0 + 16),
+  MENU_RECENT = 1 << (2 + 16),
+  MENU_APPS = 1 << (6 + 16),
 };
 
-class ShownSectionsHandler : public DOMMessageHandler,
+class ShownSectionsHandler : public WebUIMessageHandler,
                              public NotificationObserver {
  public:
   explicit ShownSectionsHandler(PrefService* pref_service);
@@ -43,7 +42,11 @@ class ShownSectionsHandler : public DOMMessageHandler,
   // Helper to get the current shown sections.
   static int GetShownSections(PrefService* pref_service);
 
-  // DOMMessageHandler implementation.
+  // Expands |section|, collapsing any previously expanded section. This is the
+  // same thing that happens if a user clicks on |section|.
+  static void SetShownSection(PrefService* prefs, Section section);
+
+  // WebUIMessageHandler implementation.
   virtual void RegisterMessages();
 
   // NotificationObserver implementation.

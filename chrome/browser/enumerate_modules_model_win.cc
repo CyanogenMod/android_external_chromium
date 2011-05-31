@@ -7,8 +7,6 @@
 #include <Tlhelp32.h>
 #include <wintrust.h>
 
-#include "app/l10n_util.h"
-#include "app/win/win_util.h"
 #include "base/command_line.h"
 #include "base/environment.h"
 #include "base/file_path.h"
@@ -28,6 +26,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 // The period of time (in milliseconds) to wait until checking to see if any
 // incompatible modules exist.
@@ -59,7 +58,7 @@ namespace {
 
 // Used to protect the LoadedModuleVector which is accessed
 // from both the UI thread and the FILE thread.
-Lock* lock = NULL;
+base::Lock* lock = NULL;
 
 // A struct to help de-duping modules before adding them to the enumerated
 // modules vector.
@@ -75,7 +74,22 @@ struct FindModule {
   const ModuleEnumerator::Module& module;
 };
 
+// Returns the long path name given a short path name. A short path name is a
+// path that follows the 8.3 convention and has ~x in it. If the path is already
+// a long path name, the function returns the current path without modification.
+bool ConvertToLongPath(const string16& short_path, string16* long_path) {
+  wchar_t long_path_buf[MAX_PATH];
+  DWORD return_value = GetLongPathName(short_path.c_str(), long_path_buf,
+                                       MAX_PATH);
+  if (return_value != 0 && return_value < MAX_PATH) {
+    *long_path = long_path_buf;
+    return true;
+  }
+
+  return false;
 }
+
+}  // namespace
 
 // The browser process module blacklist. This lists modules that are known
 // to cause compatibility issues within the browser process. When adding to this
@@ -220,7 +234,7 @@ static void GenerateHash(const std::string& input, std::string* output) {
 // static
 void ModuleEnumerator::NormalizeModule(Module* module) {
   string16 path = module->location;
-  if (!app::win::ConvertToLongPath(path, &module->location))
+  if (!ConvertToLongPath(path, &module->location))
     module->location = path;
 
   module->location = l10n_util::ToLower(module->location);
@@ -312,7 +326,8 @@ ModuleEnumerator::ModuleStatus ModuleEnumerator::Match(
 }
 
 ModuleEnumerator::ModuleEnumerator(EnumerateModulesModel* observer)
-    : observer_(observer),
+    : enumerated_modules_(NULL),
+      observer_(observer),
       limited_mode_(false),
       callback_thread_id_(BrowserThread::ID_COUNT) {
 }
@@ -423,12 +438,12 @@ void ModuleEnumerator::ReadShellExtensions(HKEY parent) {
     std::wstring key(std::wstring(L"CLSID\\") + registration.Name() +
         L"\\InProcServer32");
     base::win::RegKey clsid;
-    if (!clsid.Open(HKEY_CLASSES_ROOT, key.c_str(), KEY_READ)) {
+    if (clsid.Open(HKEY_CLASSES_ROOT, key.c_str(), KEY_READ) != ERROR_SUCCESS) {
       ++registration;
       continue;
     }
     string16 dll;
-    if (!clsid.ReadValue(L"", &dll)) {
+    if (clsid.ReadValue(L"", &dll) != ERROR_SUCCESS) {
       ++registration;
       continue;
     }
@@ -817,7 +832,7 @@ EnumerateModulesModel::EnumerateModulesModel()
         this, &EnumerateModulesModel::ScanNow);
   }
 
-  lock = new Lock();
+  lock = new base::Lock();
 }
 
 EnumerateModulesModel::~EnumerateModulesModel() {

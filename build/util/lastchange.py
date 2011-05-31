@@ -9,75 +9,99 @@ lastchange.py -- Chromium revision fetching utility.
 
 import optparse
 import os
-import re
 import subprocess
 import sys
 
+class VersionInfo(object):
+  def __init__(self, url, root, revision):
+    self.url = url
+    self.root = root
+    self.revision = revision
 
-def svn_fetch_revision():
+def FetchGitRevision(directory):
   """
-  Fetch the Subversion revision for the local tree.
+  Fetch the Git hash for the a given directory.
 
   Errors are swallowed.
+
+  Returns:
+    a VersionInfo object or None on error.
   """
+  # Force shell usage under cygwin & win32. This is a workaround for
+  # mysterious loss of cwd while invoking cygwin's git.
+  # We can't just pass shell=True to Popen, as under win32 this will
+  # cause CMD to be used, while we explicitly want a cygwin shell.
+  command = ['git', 'rev-parse', 'HEAD']
+  if sys.platform in ('cygwin', 'win32'):
+    command = ['sh', '-c', ' '.join(command)]
   try:
-    p = subprocess.Popen(['svn', 'info'],
-                         stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE,
-                         shell=(sys.platform=='win32'))
-  except OSError, e:
-    # 'svn' is apparently either not installed or not executable.
-    return None
-  revision = None
-  if p:
-    svn_re = re.compile('^Revision:\s+(\d+)', re.M)
-    m = svn_re.search(p.stdout.read())
-    if m:
-      revision = m.group(1)
-  return revision
-
-
-def git_fetch_id():
-  """
-  Fetch the GIT identifier for the local tree.
-
-  Errors are swallowed.
-  """
-  git_re = re.compile('^\s*git-svn-id:\s+(\S+)@(\d+)', re.M)
-  try:
-    proc = subprocess.Popen(['git', 'log', '-999'],
+    proc = subprocess.Popen(command,
                             stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE,
-                            shell=(sys.platform=='win32'))
-    for line in proc.stdout:
-      match = git_re.search(line)
-      if match:
-        id = match.group(2)
-        if id:
-          proc.stdout.close()  # Cut pipe.
-          return id
+                            cwd=directory)
   except OSError:
-    # 'git' is apparently either not installed or not executable.
-    pass
+    return None
+  output = proc.communicate()[0].strip()
+  if proc.returncode == 0 and output:
+    return VersionInfo('git', 'git', output[:7])
   return None
 
 
-def fetch_change(default_lastchange):
+def FetchSVNRevision(directory):
   """
-  Returns the last change, from some appropriate revision control system.
+  Fetch the Subversion branch and revision for the a given directory.
+
+  Errors are swallowed.
+
+  Returns:
+    a VersionInfo object or None on error.
   """
-  change = svn_fetch_revision()
-  if not change and sys.platform in ('linux2',):
-    change = git_fetch_id()
-  if not change:
+  try:
+    proc = subprocess.Popen(['svn', 'info'],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            cwd=directory,
+                            shell=(sys.platform=='win32'))
+  except OSError:
+    # command is apparently either not installed or not executable.
+    return None
+  if not proc:
+    return None
+
+  attrs = {}
+  for line in proc.stdout:
+    line = line.strip()
+    if not line:
+      continue
+    key, val = line.split(': ', 1)
+    attrs[key] = val
+
+  try:
+    url = attrs['URL']
+    root = attrs['Repository Root']
+    revision = attrs['Revision']
+  except KeyError:
+    return None
+
+  return VersionInfo(url, root, revision)
+
+
+def FetchVersionInfo(default_lastchange, directory=None):
+  """
+  Returns the last change (in the form of a branch, revision tuple),
+  from some appropriate revision control system.
+  """
+  version_info = FetchSVNRevision(directory) or FetchGitRevision(directory)
+  if not version_info:
     if default_lastchange and os.path.exists(default_lastchange):
-      change = open(default_lastchange, 'r').read().strip()
+      revision = open(default_lastchange, 'r').read().strip()
+      version_info = VersionInfo(None, None, revision)
     else:
-      change = '0'
-  return change
+      version_info = VersionInfo('unknown', '', '0')
+  return version_info
 
 
-def write_if_changed(file_name, contents):
+def WriteIfChanged(file_name, contents):
   """
   Writes the specified contents to the specified file_name
   iff the contents are different than the current contents.
@@ -97,11 +121,13 @@ def main(argv=None):
   if argv is None:
     argv = sys.argv
 
-  parser = optparse.OptionParser(usage="lastchange.py [-h] [[-o] FILE]")
+  parser = optparse.OptionParser(usage="lastchange.py [options]")
   parser.add_option("-d", "--default-lastchange", metavar="FILE",
                     help="default last change input FILE")
   parser.add_option("-o", "--output", metavar="FILE",
                     help="write last change to FILE")
+  parser.add_option("--revision-only", action='store_true',
+                    help="just print the SVN revision number")
   opts, args = parser.parse_args(argv[1:])
 
   out_file = opts.output
@@ -114,14 +140,16 @@ def main(argv=None):
     parser.print_help()
     sys.exit(2)
 
-  change = fetch_change(opts.default_lastchange)
+  version_info = FetchVersionInfo(opts.default_lastchange)
 
-  contents = "LASTCHANGE=%s\n" % change
-
-  if out_file:
-    write_if_changed(out_file, contents)
+  if opts.revision_only:
+    print version_info.revision
   else:
-    sys.stdout.write(contents)
+    contents = "LASTCHANGE=%s\n" % version_info.revision
+    if out_file:
+      WriteIfChanged(out_file, contents)
+    else:
+      sys.stdout.write(contents)
 
   return 0
 

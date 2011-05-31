@@ -1,9 +1,8 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 cr.define('options', function() {
-
   var OptionsPage = options.OptionsPage;
 
   /**
@@ -14,11 +13,9 @@ cr.define('options', function() {
   function ImportDataOverlay() {
     OptionsPage.call(this,
                      'importDataOverlay',
-                     templateData.import_data_title,
+                     templateData.importDataOverlayTabTitle,
                      'import-data-overlay');
   }
-
-  ImportDataOverlay.throbIntervalId = 0;
 
   cr.addSingletonGetter(ImportDataOverlay);
 
@@ -168,18 +165,6 @@ cr.define('options', function() {
     $('import-browsers').disabled = state;
     $('import-data-commit').disabled = state;
     $('import-throbber').style.visibility = state ? "visible" : "hidden";
-
-    function advanceThrobber() {
-      var throbber = $('import-throbber');
-      throbber.style.backgroundPositionX =
-          ((parseInt(getComputedStyle(throbber).backgroundPositionX, 10) - 16)
-          % 576) + 'px';
-    }
-    if (state) {
-      ImportDataOverlay.throbIntervalId = setInterval(advanceThrobber, 30);
-    } else {
-      clearInterval(ImportDataOverlay.throbIntervalId);
-    }
   };
 
   /**
@@ -187,12 +172,11 @@ cr.define('options', function() {
    */
   ImportDataOverlay.dismiss = function() {
     ImportDataOverlay.setImportingState(false);
-    OptionsPage.clearOverlays();
-  }
+    OptionsPage.closeOverlay();
+  };
 
   // Export
   return {
     ImportDataOverlay: ImportDataOverlay
   };
-
 });

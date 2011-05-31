@@ -76,11 +76,12 @@ class DevToolsClientHostImpl : public DevToolsClientHost {
   // DevToolsClientHost interface
   virtual void InspectedTabClosing();
   virtual void SendMessageToClient(const IPC::Message& msg);
+  virtual void TabReplaced(TabContentsWrapper* new_tab);
 
  private:
   // Message handling routines
   void OnDebuggerOutput(const std::string& msg);
-  void FrameNavigate(const std::string& url);
+  virtual void FrameNavigating(const std::string& url);
   void TabClosed();
 
   int32 id_;

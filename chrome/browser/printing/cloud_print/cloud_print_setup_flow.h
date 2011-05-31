@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,13 @@
 #include <string>
 #include <vector>
 
-#include "app/l10n_util.h"
 #include "base/time.h"
 #include "chrome/browser/dom_ui/html_dialog_ui.h"
 #include "chrome/common/net/gaia/gaia_auth_consumer.h"
 #include "chrome/common/net/gaia/gaia_auth_fetcher.h"
-#include "gfx/native_widget_types.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/native_widget_types.h"
 
 class GaiaAuthFetcher;
 class CloudPrintServiceProcessHelper;
@@ -31,14 +31,14 @@ class Browser;
 // 1. Showing the setup dialog.
 // 2. Providing the URL for the content of the dialog.
 // 3. Providing a data source to provide the content HTML files.
-// 4. Providing a message handler to handle user actions in the DOM UI.
+// 4. Providing a message handler to handle user actions in the Web UI.
 // 5. Responding to actions received in the message handler.
 //
-// The architecture for DOMUI is designed such that only the message handler
-// can access the DOMUI. This splits the flow control across the message
+// The architecture for WebUI is designed such that only the message handler
+// can access the WebUI. This splits the flow control across the message
 // handler and this class. In order to centralize all the flow control and
-// content in the DOMUI, the DOMUI object is given to this object by the
-// message handler through the Attach(DOMUI*) method.
+// content in the WebUI, the WebUI object is given to this object by the
+// message handler through the Attach(WebUI*) method.
 class CloudPrintSetupFlow : public HtmlDialogUIDelegate,
                             public GaiaAuthConsumer {
  public:
@@ -62,8 +62,8 @@ class CloudPrintSetupFlow : public HtmlDialogUIDelegate,
 
   // HtmlDialogUIDelegate implementation.
   virtual GURL GetDialogContentURL() const;
-  virtual void GetDOMMessageHandlers(
-      std::vector<DOMMessageHandler*>* handlers) const;
+  virtual void GetWebUIMessageHandlers(
+      std::vector<WebUIMessageHandler*>* handlers) const;
   virtual void GetDialogSize(gfx::Size* size) const;
   virtual std::string GetDialogArgs() const;
   virtual void OnDialogClosed(const std::string& json_retval);
@@ -88,8 +88,8 @@ class CloudPrintSetupFlow : public HtmlDialogUIDelegate,
 
   // Called CloudPrintSetupMessageHandler when a DOM is attached. This method
   // is called when the HTML page is fully loaded. We then operate on this
-  // DOMUI object directly.
-  void Attach(DOMUI* dom_ui);
+  // WebUI object directly.
+  void Attach(WebUI* web_ui);
 
   // Called by CloudPrintSetupMessageHandler when user authentication is
   // registered.
@@ -110,9 +110,9 @@ class CloudPrintSetupFlow : public HtmlDialogUIDelegate,
   void ExecuteJavascriptInIFrame(const std::wstring& iframe_xpath,
                                  const std::wstring& js);
 
-  // Pointer to the DOM UI. This is provided by CloudPrintSetupMessageHandler
+  // Pointer to the Web UI. This is provided by CloudPrintSetupMessageHandler
   // when attached.
-  DOMUI* dom_ui_;
+  WebUI* web_ui_;
 
   // The args to pass to the initial page.
   std::string dialog_start_args_;

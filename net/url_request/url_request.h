@@ -58,6 +58,21 @@ class X509Certificate;
 //
 class URLRequest : public base::NonThreadSafe {
  public:
+  // Callback function implemented by protocol handlers to create new jobs.
+  // The factory may return NULL to indicate an error, which will cause other
+  // factories to be queried.  If no factory handles the request, then the
+  // default job will be used.
+  typedef URLRequestJob* (ProtocolFactory)(URLRequest* request,
+                                           const std::string& scheme);
+
+  // HTTP request/response header IDs (via some preprocessor fun) for use with
+  // SetRequestHeaderById and GetResponseHeaderById.
+  enum {
+#define HTTP_ATOM(x) HTTP_ ## x,
+#include "net/http/http_atom_list.h"
+#undef HTTP_ATOM
+  };
+
   // Derive from this class and add your own data members to associate extra
   // information with a URLRequest. Use GetUserData(key) and SetUserData()
   class UserData {
@@ -65,13 +80,6 @@ class URLRequest : public base::NonThreadSafe {
     UserData() {}
     virtual ~UserData() {}
   };
-
-  // Callback function implemented by protocol handlers to create new jobs.
-  // The factory may return NULL to indicate an error, which will cause other
-  // factories to be queried.  If no factory handles the request, then the
-  // default job will be used.
-  typedef URLRequestJob* (ProtocolFactory)(URLRequest* request,
-                                           const std::string& scheme);
 
   // This class handles network interception.  Use with
   // (Un)RegisterRequestInterceptor.
@@ -312,6 +320,20 @@ class URLRequest : public base::NonThreadSafe {
     AppendFileRangeToUpload(file_path, 0, kuint64max, base::Time());
   }
 
+  // Indicates that the request body should be sent using chunked transfer
+  // encoding. This method may only be called before Start() is called.
+  void EnableChunkedUpload();
+
+  // Appends the given bytes to the request's upload data to be sent
+  // immediately via chunked transfer encoding. When all data has been sent,
+  // call MarkEndOfChunks() to indicate the end of upload data.
+  //
+  // This method may be called only after calling EnableChunkedUpload().
+  void AppendChunkToUpload(const char* bytes, int bytes_len);
+
+  // Indicates the end of a chunked transfer encoded request body.
+  void MarkEndOfChunks();
+
   // Set the upload data directly.
   void set_upload(net::UploadData* upload);
 
@@ -509,14 +531,6 @@ class URLRequest : public base::NonThreadSafe {
   // cancel the request instead, call Cancel().
   void ContinueDespiteLastError();
 
-  // HTTP request/response header IDs (via some preprocessor fun) for use with
-  // SetRequestHeaderById and GetResponseHeaderById.
-  enum {
-#define HTTP_ATOM(x) HTTP_ ## x,
-#include "net/http/http_atom_list.h"
-#undef HTTP_ATOM
-  };
-
   // Returns true if performance profiling should be enabled on the
   // URLRequestJob serving this request.
   bool enable_profiling() const { return enable_profiling_; }
@@ -568,6 +582,7 @@ class URLRequest : public base::NonThreadSafe {
 
  private:
   friend class URLRequestJob;
+  typedef std::map<const void*, linked_ptr<UserData> > UserDataMap;
 
   void StartJob(URLRequestJob* job);
 
@@ -620,7 +635,6 @@ class URLRequest : public base::NonThreadSafe {
   bool is_pending_;
 
   // Externally-defined data accessible by key
-  typedef std::map<const void*, linked_ptr<UserData> > UserDataMap;
   UserDataMap user_data_;
 
   // Whether to enable performance profiling on the job serving this request.

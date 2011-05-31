@@ -178,8 +178,8 @@ var MostVisited = (function() {
 
         // Now change the DOM.
         var removeText = localStrings.getString('thumbnailremovednotification');
-        var notifySpan = document.querySelector('#notification > span');
-        notifySpan.textContent = removeText;
+        var notifyMessageEl = document.querySelector('#notification > *');
+        notifyMessageEl.textContent = removeText;
 
         // Focus the undo link.
         var undoLink = document.querySelector(
@@ -620,7 +620,7 @@ var MostVisited = (function() {
         }
       }
       addClosedMenuFooter(
-          this.menu, 'most-visited', MINIMIZED_THUMB, Section.THUMB);
+          this.menu, 'most-visited', MENU_THUMB, Section.THUMB);
     },
 
     handleClick_: function(e) {

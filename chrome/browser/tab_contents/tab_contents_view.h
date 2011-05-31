@@ -12,9 +12,9 @@
 #include "base/basictypes.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/tab_contents/render_view_host_delegate_helper.h"
-#include "gfx/native_widget_types.h"
-#include "gfx/rect.h"
-#include "gfx/size.h"
+#include "ui/gfx/native_widget_types.h"
+#include "ui/gfx/rect.h"
+#include "ui/gfx/size.h"
 
 class RenderViewHost;
 class RenderWidgetHost;
@@ -80,7 +80,8 @@ class TabContentsView : public RenderViewHostDelegate::View {
 
   // Used to notify the view that a tab has crashed so each platform can
   // prepare the sad tab.
-  virtual void OnTabCrashed() = 0;
+  virtual void OnTabCrashed(base::TerminationStatus status,
+                            int error_code) = 0;
 
   // TODO(brettw) this is a hack. It's used in two places at the time of this
   // writing: (1) when render view hosts switch, we need to size the replaced
@@ -153,6 +154,9 @@ class TabContentsView : public RenderViewHostDelegate::View {
   virtual bool IsEventTracking() const;
   virtual void CloseTabAfterEventTracking() {}
 
+  // Get the bounds of the View, relative to the parent.
+  virtual void GetViewBounds(gfx::Rect* out) const = 0;
+
  protected:
   TabContentsView();  // Abstract interface.
 
@@ -172,9 +176,7 @@ class TabContentsView : public RenderViewHostDelegate::View {
                                          const gfx::Rect& initial_pos);
   virtual void ShowCreatedFullscreenWidgetInternal(
       RenderWidgetHostView* widget_host_view);
-  virtual RenderWidgetHostView* CreateNewFullscreenWidgetInternal(
-      int route_id,
-      WebKit::WebPopupType popup_type);
+  virtual RenderWidgetHostView* CreateNewFullscreenWidgetInternal(int route_id);
 
   // Common implementations of some RenderViewHostDelegate::View methods.
   RenderViewHostDelegateViewHelper delegate_view_helper_;
@@ -185,11 +187,9 @@ class TabContentsView : public RenderViewHostDelegate::View {
   // forwarded to *Internal which does platform-specific work.
   virtual void CreateNewWindow(
       int route_id,
-      WindowContainerType window_container_type,
-      const string16& frame_name);
+      const ViewHostMsg_CreateWindow_Params& params);
   virtual void CreateNewWidget(int route_id, WebKit::WebPopupType popup_type);
-  virtual void CreateNewFullscreenWidget(
-      int route_id, WebKit::WebPopupType popup_type);
+  virtual void CreateNewFullscreenWidget(int route_id);
   virtual void ShowCreatedWindow(int route_id,
                                  WindowOpenDisposition disposition,
                                  const gfx::Rect& initial_pos,

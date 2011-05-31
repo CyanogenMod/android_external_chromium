@@ -4,8 +4,9 @@
 
 #include "chrome/browser/bookmarks/bookmark_model.h"
 
-#include "app/l10n_util.h"
-#include "app/l10n_util_collator.h"
+#include <algorithm>
+#include <functional>
+
 #include "base/callback.h"
 #include "base/scoped_vector.h"
 #include "build/build_config.h"
@@ -14,11 +15,12 @@
 #include "chrome/browser/bookmarks/bookmark_storage.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/history/history_notifications.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/notification_service.h"
-#include "gfx/codec/png_codec.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/l10n/l10n_util_collator.h"
+#include "ui/gfx/codec/png_codec.h"
 
 using base::Time;
 
@@ -294,7 +296,7 @@ void BookmarkModel::SetURL(const BookmarkNode* node, const GURL& url) {
   CancelPendingFavIconLoadRequests(AsMutable(node));
 
   {
-    AutoLock url_lock(url_lock_);
+    base::AutoLock url_lock(url_lock_);
     NodesOrderedByURLSet::iterator i = nodes_ordered_by_url_set_.find(
         AsMutable(node));
     DCHECK(i != nodes_ordered_by_url_set_.end());
@@ -321,7 +323,7 @@ bool BookmarkModel::IsLoaded() {
 
 void BookmarkModel::GetNodesByURL(const GURL& url,
                                   std::vector<const BookmarkNode*>* nodes) {
-  AutoLock url_lock(url_lock_);
+  base::AutoLock url_lock(url_lock_);
   BookmarkNode tmp_node(url);
   NodesOrderedByURLSet::iterator i = nodes_ordered_by_url_set_.find(&tmp_node);
   while (i != nodes_ordered_by_url_set_.end() && (*i)->GetURL() == url) {
@@ -342,7 +344,7 @@ const BookmarkNode* BookmarkModel::GetMostRecentlyAddedNodeForURL(
 }
 
 void BookmarkModel::GetBookmarks(std::vector<GURL>* urls) {
-  AutoLock url_lock(url_lock_);
+  base::AutoLock url_lock(url_lock_);
   const GURL* last_url = NULL;
   for (NodesOrderedByURLSet::iterator i = nodes_ordered_by_url_set_.begin();
        i != nodes_ordered_by_url_set_.end(); ++i) {
@@ -355,12 +357,12 @@ void BookmarkModel::GetBookmarks(std::vector<GURL>* urls) {
 }
 
 bool BookmarkModel::HasBookmarks() {
-  AutoLock url_lock(url_lock_);
+  base::AutoLock url_lock(url_lock_);
   return !nodes_ordered_by_url_set_.empty();
 }
 
 bool BookmarkModel::IsBookmarked(const GURL& url) {
-  AutoLock url_lock(url_lock_);
+  base::AutoLock url_lock(url_lock_);
   return IsBookmarkedNoLock(url);
 }
 
@@ -417,7 +419,7 @@ const BookmarkNode* BookmarkModel::AddURLWithCreationTime(
 
   {
     // Only hold the lock for the duration of the insert.
-    AutoLock url_lock(url_lock_);
+    base::AutoLock url_lock(url_lock_);
     nodes_ordered_by_url_set_.insert(new_node);
   }
 
@@ -572,7 +574,7 @@ void BookmarkModel::DoneLoading(
   root_.Add(1, other_node_);
 
   {
-    AutoLock url_lock(url_lock_);
+    base::AutoLock url_lock(url_lock_);
     // Update nodes_ordered_by_url_set_ from the nodes.
     PopulateNodesByURL(&root_);
   }
@@ -600,7 +602,7 @@ void BookmarkModel::RemoveAndDeleteNode(BookmarkNode* delete_me) {
   parent->Remove(index);
   history::URLsStarredDetails details(false);
   {
-    AutoLock url_lock(url_lock_);
+    base::AutoLock url_lock(url_lock_);
     RemoveNode(node.get(), &details.changed_urls);
 
     // RemoveNode adds an entry to changed_urls for each node of type URL. As we

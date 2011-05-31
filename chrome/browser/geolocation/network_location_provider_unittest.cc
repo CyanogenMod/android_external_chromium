@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,14 +14,13 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
+
 // Constants used in multiple tests.
 const char kTestServerUrl[] = "https://www.geolocation.test/service";
 const char kTestHost[] = "myclienthost.test";
 const char kTestHostUrl[] = "http://myclienthost.test/some/path";
 // Using #define so we can easily paste this into various other strings.
 #define REFERENCE_ACCESS_TOKEN "2:k7j3G6LaL6u_lafw:4iXOeOpTh1glSXe"
-
-}  // namespace
 
 // Stops the specified (nested) message loop when the listener is called back.
 class MessageLoopQuitListener
@@ -433,7 +432,7 @@ TEST_F(GeolocationNetworkProviderTest, MultipleWifiScansComplete) {
       "  \"access_token\": \"" REFERENCE_ACCESS_TOKEN "\""
       "}";
   fetcher->delegate()->OnURLFetchComplete(
-      fetcher, test_server_url_, URLRequestStatus(), 200,  // OK
+      fetcher, test_server_url_, net::URLRequestStatus(), 200,  // OK
       ResponseCookies(), kNoFixNetworkResponse);
 
   // This should have set the access token anyhow
@@ -467,7 +466,7 @@ TEST_F(GeolocationNetworkProviderTest, MultipleWifiScansComplete) {
       "  }"
       "}";
   fetcher->delegate()->OnURLFetchComplete(
-      fetcher, test_server_url_, URLRequestStatus(), 200,  // OK
+      fetcher, test_server_url_, net::URLRequestStatus(), 200,  // OK
       ResponseCookies(), kReferenceNetworkResponse);
 
   provider->GetPosition(&position);
@@ -505,7 +504,7 @@ TEST_F(GeolocationNetworkProviderTest, MultipleWifiScansComplete) {
   // ...reply with a network error.
   fetcher->delegate()->OnURLFetchComplete(
       fetcher, test_server_url_,
-      URLRequestStatus(URLRequestStatus::FAILED, -1),
+      net::URLRequestStatus(net::URLRequestStatus::FAILED, -1),
       200,  // should be ignored
       ResponseCookies(), "");
 
@@ -541,7 +540,7 @@ TEST_F(GeolocationNetworkProviderTest, GatewayAndWifiScans) {
       "  \"access_token\": \"" REFERENCE_ACCESS_TOKEN "\""
       "}";
   fetcher->delegate()->OnURLFetchComplete(
-      fetcher, test_server_url_, URLRequestStatus(), 200,  // OK
+      fetcher, test_server_url_, net::URLRequestStatus(), 200,  // OK
       ResponseCookies(), kNoFixNetworkResponse);
 
   // This should have set the access token anyhow
@@ -576,7 +575,7 @@ TEST_F(GeolocationNetworkProviderTest, GatewayAndWifiScans) {
       "  }"
       "}";
   fetcher->delegate()->OnURLFetchComplete(
-      fetcher, test_server_url_, URLRequestStatus(), 200,  // OK
+      fetcher, test_server_url_, net::URLRequestStatus(), 200,  // OK
       ResponseCookies(), kReferenceNetworkResponse_1);
 
   provider->GetPosition(&position);
@@ -616,7 +615,7 @@ TEST_F(GeolocationNetworkProviderTest, GatewayAndWifiScans) {
       "  }"
       "}";
   fetcher->delegate()->OnURLFetchComplete(
-      fetcher, test_server_url_, URLRequestStatus(), 200,  // OK
+      fetcher, test_server_url_, net::URLRequestStatus(), 200,  // OK
       ResponseCookies(), kReferenceNetworkResponse_2);
 
   provider->GetPosition(&position);
@@ -649,7 +648,7 @@ TEST_F(GeolocationNetworkProviderTest, GatewayAndWifiScans) {
       "  }"
       "}";
   fetcher->delegate()->OnURLFetchComplete(
-      fetcher, test_server_url_, URLRequestStatus(), 200,  // OK
+      fetcher, test_server_url_, net::URLRequestStatus(), 200,  // OK
       ResponseCookies(), kReferenceNetworkResponse_3);
 
   provider->GetPosition(&position);
@@ -779,3 +778,4 @@ TEST_F(GeolocationNetworkProviderTest, NetworkPositionCache) {
   }
 }
 
+}  // namespace

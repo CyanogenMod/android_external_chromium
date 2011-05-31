@@ -11,10 +11,9 @@
 #include <set>
 #include <vector>
 
-#include "app/tree_node_model.h"
-#include "base/lock.h"
 #include "base/observer_list.h"
 #include "base/string16.h"
+#include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
 #include "chrome/browser/bookmarks/bookmark_model_observer.h"
 #include "chrome/browser/bookmarks/bookmark_service.h"
@@ -26,6 +25,7 @@
 #include "googleurl/src/gurl.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "testing/gtest/include/gtest/gtest_prod.h"
+#include "ui/base/models/tree_node_model.h"
 
 class BookmarkIndex;
 class BookmarkLoadDetails;
@@ -42,7 +42,7 @@ struct TitleMatch;
 // BookmarkNode contains information about a starred entry: title, URL, favicon,
 // star id and type. BookmarkNodes are returned from a BookmarkModel.
 //
-class BookmarkNode : public TreeNode<BookmarkNode> {
+class BookmarkNode : public ui::TreeNode<BookmarkNode> {
   friend class BookmarkModel;
 
  public:
@@ -455,7 +455,7 @@ class BookmarkModel : public NotificationObserver, public BookmarkService {
   // such, be sure and wrap all usage of it around url_lock_.
   typedef std::multiset<BookmarkNode*, NodeURLComparator> NodesOrderedByURLSet;
   NodesOrderedByURLSet nodes_ordered_by_url_set_;
-  Lock url_lock_;
+  base::Lock url_lock_;
 
   // Used for loading favicons and the empty history request.
   CancelableRequestConsumerTSimple<BookmarkNode*> load_consumer_;

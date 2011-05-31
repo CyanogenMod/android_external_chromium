@@ -4,8 +4,6 @@
 
 #include "chrome/browser/process_singleton.h"
 
-#include "app/l10n_util.h"
-#include "app/win/hwnd_util.h"
 #include "base/base_paths.h"
 #include "base/command_line.h"
 #include "base/file_path.h"
@@ -25,6 +23,8 @@
 #include "chrome/common/result_codes.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/win/hwnd_util.h"
 
 namespace {
 
@@ -42,10 +42,9 @@ BOOL CALLBACK BrowserWindowEnumeration(HWND window, LPARAM param) {
 // Look for a Chrome instance that uses the same profile directory.
 ProcessSingleton::ProcessSingleton(const FilePath& user_data_dir)
     : window_(NULL), locked_(false), foreground_window_(NULL) {
-  std::wstring user_data_dir_str(user_data_dir.ToWStringHack());
   remote_window_ = FindWindowEx(HWND_MESSAGE, NULL,
                                 chrome::kMessageWindowClass,
-                                user_data_dir_str.c_str());
+                                user_data_dir.value().c_str());
   if (!remote_window_) {
     // Make sure we will be the one and only process creating the window.
     // We use a named Mutex since we are protecting against multi-process
@@ -68,7 +67,7 @@ ProcessSingleton::ProcessSingleton(const FilePath& user_data_dir)
     // was given to us.
     remote_window_ = FindWindowEx(HWND_MESSAGE, NULL,
                                   chrome::kMessageWindowClass,
-                                  user_data_dir_str.c_str());
+                                  user_data_dir.value().c_str());
     if (!remote_window_)
       Create();
     BOOL success = ReleaseMutex(only_me);
@@ -195,7 +194,7 @@ bool ProcessSingleton::Create() {
                          0, 0, 0, 0, 0, HWND_MESSAGE, 0, hinst, 0);
   DCHECK(window_);
 
-  app::win::SetWindowUserData(window_, this);
+  ui::SetWindowUserData(window_, this);
   return true;
 }
 

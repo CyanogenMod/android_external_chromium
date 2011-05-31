@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -263,7 +263,7 @@ TEST_F(WebSocketJobTest, SimpleHandshake) {
 
   bool sent = websocket_->SendData(kHandshakeRequestMessage,
                                    strlen(kHandshakeRequestMessage));
-  EXPECT_EQ(true, sent);
+  EXPECT_TRUE(sent);
   MessageLoop::current()->RunAllPending();
   EXPECT_EQ(kHandshakeRequestMessage, socket_->sent_data());
   EXPECT_EQ(WebSocketJob::CONNECTING, GetWebSocketJobState());
@@ -308,7 +308,7 @@ TEST_F(WebSocketJobTest, SlowHandshake) {
 
   bool sent = websocket_->SendData(kHandshakeRequestMessage,
                                    strlen(kHandshakeRequestMessage));
-  EXPECT_EQ(true, sent);
+  EXPECT_TRUE(sent);
   // We assume request is sent in one data chunk (from WebKit)
   // We don't support streaming request.
   MessageLoop::current()->RunAllPending();
@@ -390,7 +390,7 @@ TEST_F(WebSocketJobTest, HandshakeWithCookie) {
 
   bool sent = websocket_->SendData(kHandshakeRequestMessage,
                                    strlen(kHandshakeRequestMessage));
-  EXPECT_EQ(true, sent);
+  EXPECT_TRUE(sent);
   MessageLoop::current()->RunAllPending();
   EXPECT_EQ(kHandshakeRequestExpected, socket_->sent_data());
   EXPECT_EQ(WebSocketJob::CONNECTING, GetWebSocketJobState());
@@ -477,7 +477,7 @@ TEST_F(WebSocketJobTest, HandshakeWithCookieButNotAllowed) {
 
   bool sent = websocket_->SendData(kHandshakeRequestMessage,
                                    strlen(kHandshakeRequestMessage));
-  EXPECT_EQ(true, sent);
+  EXPECT_TRUE(sent);
   MessageLoop::current()->RunAllPending();
   EXPECT_EQ(kHandshakeRequestExpected, socket_->sent_data());
   EXPECT_EQ(WebSocketJob::CONNECTING, GetWebSocketJobState());

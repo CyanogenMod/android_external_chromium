@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,8 +17,8 @@
 #include "chrome/browser/policy/configuration_policy_pref_store.h"
 #include "chrome/browser/policy/configuration_policy_provider_win.h"
 #include "chrome/browser/policy/mock_configuration_policy_store.h"
-#include "chrome/common/policy_constants.h"
 #include "chrome/common/pref_names.h"
+#include "policy/policy_constants.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::win::RegKey;
@@ -358,7 +358,7 @@ INSTANTIATE_TEST_CASE_P(
     ConfigurationPolicyProviderWinTest,
     testing::Values(
         PolicyTestParams::ForStringPolicy(
-            kPolicyHomePage,
+            kPolicyHomepageLocation,
             key::kHomepageLocation),
         PolicyTestParams::ForBooleanPolicy(
             kPolicyHomepageIsNewTabPage,
@@ -367,8 +367,8 @@ INSTANTIATE_TEST_CASE_P(
             kPolicyRestoreOnStartup,
             key::kRestoreOnStartup),
         PolicyTestParams::ForListPolicy(
-            kPolicyURLsToRestoreOnStartup,
-            key::kURLsToRestoreOnStartup),
+            kPolicyRestoreOnStartupURLs,
+            key::kRestoreOnStartupURLs),
         PolicyTestParams::ForBooleanPolicy(
             kPolicyDefaultSearchProviderEnabled,
             key::kDefaultSearchProviderEnabled),
@@ -385,14 +385,20 @@ INSTANTIATE_TEST_CASE_P(
             kPolicyDefaultSearchProviderSuggestURL,
             key::kDefaultSearchProviderSuggestURL),
         PolicyTestParams::ForStringPolicy(
+            kPolicyDefaultSearchProviderInstantURL,
+            key::kDefaultSearchProviderInstantURL),
+        PolicyTestParams::ForStringPolicy(
             kPolicyDefaultSearchProviderIconURL,
             key::kDefaultSearchProviderIconURL),
         PolicyTestParams::ForStringPolicy(
             kPolicyDefaultSearchProviderEncodings,
             key::kDefaultSearchProviderEncodings),
-        PolicyTestParams::ForIntegerPolicy(
+        PolicyTestParams::ForStringPolicy(
             kPolicyProxyMode,
             key::kProxyMode),
+        PolicyTestParams::ForIntegerPolicy(
+            kPolicyProxyServerMode,
+            key::kProxyServerMode),
         PolicyTestParams::ForStringPolicy(
             kPolicyProxyServer,
             key::kProxyServer),
@@ -430,19 +436,31 @@ INSTANTIATE_TEST_CASE_P(
             kPolicySyncDisabled,
             key::kSyncDisabled),
         PolicyTestParams::ForStringPolicy(
-            kPolicyApplicationLocale,
+            kPolicyApplicationLocaleValue,
             key::kApplicationLocaleValue),
         PolicyTestParams::ForListPolicy(
-            kPolicyExtensionInstallAllowList,
-            key::kExtensionInstallAllowList),
+            kPolicyExtensionInstallWhitelist,
+            key::kExtensionInstallWhitelist),
         PolicyTestParams::ForListPolicy(
-            kPolicyExtensionInstallDenyList,
-            key::kExtensionInstallDenyList),
+            kPolicyExtensionInstallBlacklist,
+            key::kExtensionInstallBlacklist),
         PolicyTestParams::ForBooleanPolicy(
             kPolicyShowHomeButton,
             key::kShowHomeButton),
         PolicyTestParams::ForBooleanPolicy(
             kPolicyPrintingEnabled,
-            key::kPrintingEnabled)));
+            key::kPrintingEnabled),
+        PolicyTestParams::ForIntegerPolicy(
+            kPolicyPolicyRefreshRate,
+            key::kPolicyRefreshRate),
+        PolicyTestParams::ForBooleanPolicy(
+            kPolicyInstantEnabled,
+            key::kInstantEnabled),
+        PolicyTestParams::ForBooleanPolicy(
+            kPolicyIncognitoEnabled,
+            key::kIncognitoEnabled),
+        PolicyTestParams::ForBooleanPolicy(
+            kPolicyCloudPrintProxyEnabled,
+            key::kCloudPrintProxyEnabled)));
 
 }  // namespace policy

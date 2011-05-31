@@ -38,7 +38,6 @@ BufferedDataSource::BufferedDataSource(
       loaded_(false),
       streaming_(false),
       frame_(frame),
-      single_origin_(true),
       loader_(NULL),
       network_activity_(false),
       initialize_callback_(NULL),
@@ -115,7 +114,7 @@ bool BufferedDataSource::IsUrlSupported(const std::string& url) {
 
 void BufferedDataSource::Stop(media::FilterCallback* callback) {
   {
-    AutoLock auto_lock(lock_);
+    base::AutoLock auto_lock(lock_);
     stop_signal_received_ = true;
   }
   if (callback) {
@@ -137,9 +136,25 @@ void BufferedDataSource::SetPlaybackRate(float playback_rate) {
 // media::DataSource implementation.
 void BufferedDataSource::Read(int64 position, size_t size, uint8* data,
                               media::DataSource::ReadCallback* read_callback) {
+  DCHECK(read_callback);
+
+  {
+    base::AutoLock auto_lock(lock_);
+    DCHECK(!read_callback_.get());
+
+    if (stop_signal_received_ || stopped_on_render_loop_) {
+      read_callback->RunWithParams(
+          Tuple1<size_t>(static_cast<size_t>(media::DataSource::kReadError)));
+      delete read_callback;
+      return;
+    }
+
+    read_callback_.reset(read_callback);
+  }
+
   render_loop_->PostTask(FROM_HERE,
       NewRunnableMethod(this, &BufferedDataSource::ReadTask,
-                        position, static_cast<int>(size), data, read_callback));
+                        position, static_cast<int>(size), data));
 }
 
 bool BufferedDataSource::GetSize(int64* size_out) {
@@ -157,16 +172,18 @@ bool BufferedDataSource::IsStreaming() {
 
 bool BufferedDataSource::HasSingleOrigin() {
   DCHECK(MessageLoop::current() == render_loop_);
-  return single_origin_;
+  return loader_.get() ? loader_->HasSingleOrigin() : true;
 }
 
 void BufferedDataSource::Abort() {
   DCHECK(MessageLoop::current() == render_loop_);
 
-  // If we are told to abort, immediately return from any pending read
-  // with an error.
-  if (read_callback_.get()) {
-      AutoLock auto_lock(lock_);
+  {
+    base::AutoLock auto_lock(lock_);
+
+    // If we are told to abort, immediately return from any pending read
+    // with an error.
+    if (read_callback_.get())
       DoneRead_Locked(net::ERR_FAILED);
   }
 
@@ -212,19 +229,21 @@ void BufferedDataSource::InitializeTask() {
 }
 
 void BufferedDataSource::ReadTask(
-     int64 position, int read_size, uint8* buffer,
-     media::DataSource::ReadCallback* read_callback) {
+    int64 position,
+    int read_size,
+    uint8* buffer) {
   DCHECK(MessageLoop::current() == render_loop_);
-  if (stopped_on_render_loop_)
-    return;
+  {
+    base::AutoLock auto_lock(lock_);
+    if (stopped_on_render_loop_)
+      return;
 
-  DCHECK(!read_callback_.get());
-  DCHECK(read_callback);
+    DCHECK(read_callback_.get());
+  }
 
   // Saves the read parameters.
   read_position_ = position;
   read_size_ = read_size;
-  read_callback_.reset(read_callback);
   read_buffer_ = buffer;
   read_submitted_time_ = base::Time::Now();
   read_attempts_ = 0;
@@ -235,8 +254,14 @@ void BufferedDataSource::ReadTask(
 
 void BufferedDataSource::CleanupTask() {
   DCHECK(MessageLoop::current() == render_loop_);
-  if (stopped_on_render_loop_)
-    return;
+
+  {
+    base::AutoLock auto_lock(lock_);
+    if (stopped_on_render_loop_)
+      return;
+
+    read_callback_.reset();
+  }
 
   // Stop the watch dog.
   watch_dog_timer_.Stop();
@@ -246,7 +271,6 @@ void BufferedDataSource::CleanupTask() {
     loader_->Stop();
 
   // Reset the parameters of the current read request.
-  read_callback_.reset();
   read_position_ = 0;
   read_size_ = 0;
   read_buffer_ = 0;
@@ -262,9 +286,12 @@ void BufferedDataSource::RestartLoadingTask() {
   if (stopped_on_render_loop_)
     return;
 
-  // If there's no outstanding read then return early.
-  if (!read_callback_.get())
-    return;
+  {
+    // If there's no outstanding read then return early.
+    base::AutoLock auto_lock(lock_);
+    if (!read_callback_.get())
+      return;
+  }
 
   loader_ = CreateResourceLoader(read_position_, kPositionNotSpecified);
   loader_->SetAllowDefer(!media_is_paused_);
@@ -280,8 +307,11 @@ void BufferedDataSource::WatchDogTask() {
     return;
 
   // We only care if there is an active read request.
-  if (!read_callback_.get())
-    return;
+  {
+    base::AutoLock auto_lock(lock_);
+    if (!read_callback_.get())
+      return;
+  }
 
   DCHECK(loader_.get());
   base::TimeDelta delta = base::Time::Now() - read_submitted_time_;
@@ -375,9 +405,6 @@ void BufferedDataSource::HttpInitialStartCallback(int error) {
   DCHECK(MessageLoop::current() == render_loop_);
   DCHECK(loader_.get());
 
-  // Check if the request ended up at a different origin via redirect.
-  single_origin_ = url_.GetOrigin() == loader_->url().GetOrigin();
-
   int64 instance_size = loader_->instance_size();
   bool partial_response = loader_->partial_response();
   bool success = error == net::OK;
@@ -414,7 +441,7 @@ void BufferedDataSource::HttpInitialStartCallback(int error) {
   // let tasks on render thread to run but make sure they don't call outside
   // this object when Stop() method is ever called. Locking this method is safe
   // because |lock_| is only acquired in tasks on render thread.
-  AutoLock auto_lock(lock_);
+  base::AutoLock auto_lock(lock_);
   if (stop_signal_received_)
     return;
 
@@ -444,9 +471,6 @@ void BufferedDataSource::NonHttpInitialStartCallback(int error) {
   DCHECK(MessageLoop::current() == render_loop_);
   DCHECK(loader_.get());
 
-  // Check if the request ended up at a different origin via redirect.
-  single_origin_ = url_.GetOrigin() == loader_->url().GetOrigin();
-
   int64 instance_size = loader_->instance_size();
   bool success = error == net::OK && instance_size != kPositionNotSpecified;
 
@@ -465,7 +489,7 @@ void BufferedDataSource::NonHttpInitialStartCallback(int error) {
   // let tasks on render thread to run but make sure they don't call outside
   // this object when Stop() method is ever called. Locking this method is safe
   // because |lock_| is only acquired in tasks on render thread.
-  AutoLock auto_lock(lock_);
+  base::AutoLock auto_lock(lock_);
   if (stop_signal_received_)
     return;
 
@@ -504,7 +528,7 @@ void BufferedDataSource::PartialReadStartCallback(int error) {
   // let tasks on render thread to run but make sure they don't call outside
   // this object when Stop() method is ever called. Locking this method is
   // safe because |lock_| is only acquired in tasks on render thread.
-  AutoLock auto_lock(lock_);
+  base::AutoLock auto_lock(lock_);
   if (stop_signal_received_)
     return;
   DoneRead_Locked(net::ERR_INVALID_RESPONSE);
@@ -534,7 +558,7 @@ void BufferedDataSource::ReadCallback(int error) {
   // let tasks on render thread to run but make sure they don't call outside
   // this object when Stop() method is ever called. Locking this method is safe
   // because |lock_| is only acquired in tasks on render thread.
-  AutoLock auto_lock(lock_);
+  base::AutoLock auto_lock(lock_);
   if (stop_signal_received_)
     return;
 
@@ -570,7 +594,7 @@ void BufferedDataSource::NetworkEventCallback() {
   // let tasks on render thread to run but make sure they don't call outside
   // this object when Stop() method is ever called. Locking this method is safe
   // because |lock_| is only acquired in tasks on render thread.
-  AutoLock auto_lock(lock_);
+  base::AutoLock auto_lock(lock_);
   if (stop_signal_received_)
     return;
 

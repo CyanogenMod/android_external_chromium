@@ -52,6 +52,10 @@ const char* kPluginsPath = "path";
 const char* kPluginsPublic = "public";
 const char* kPublicKey = "key";
 const char* kRunAt = "run_at";
+const char* kSidebar = "sidebar";
+const char* kSidebarDefaultIcon = "default_icon";
+const char* kSidebarDefaultPage = "default_page";
+const char* kSidebarDefaultTitle = "default_title";
 const char* kSignature = "signature";
 const char* kTheme = "theme";
 const char* kThemeColors = "colors";
@@ -225,6 +229,14 @@ const char* kInvalidPluginsPublic =
     "Invalid value for 'plugins[*].public'.";
 const char* kInvalidRunAt =
     "Invalid value for 'content_scripts[*].run_at'.";
+const char* kInvalidSidebar =
+    "Invalid value for 'sidebar'.";
+const char* kInvalidSidebarDefaultIconPath =
+    "Invalid value for 'sidebar.default_icon'.";
+const char* kInvalidSidebarDefaultPage =
+    "Invalid value for 'sidebar.default_page'.";
+const char* kInvalidSidebarDefaultTitle =
+    "Invalid value for 'sidebar.default_title'.";
 const char* kInvalidSignature =
     "Value 'signature' is missing or invalid.";
 const char* kInvalidTheme =
@@ -288,6 +300,9 @@ const char* kOneUISurfaceOnly =
     "Only one of 'browser_action', 'page_action', and 'app' can be specified.";
 const char* kReservedMessageFound =
     "Reserved key * found in message catalog.";
+const char* kSidebarExperimental =
+    "You must request the 'experimental' permission in order to use the"
+    " Sidebar API.";
 const char* kThemesCannotContainExtensions =
     "A theme cannot contain extensions code.";
 #if defined(OS_CHROMEOS)
@@ -317,4 +332,8 @@ namespace extension_misc {
 const char* kBookmarkManagerId = "eemcgdkfndhakfknompkggombfjjjeno";
 const char* kWebStoreAppId = "ahfgeienlihckogmohjhadlkjgocpleb";
 const char* kAppsPromoHistogram = "Extensions.AppsPromo";
+#if defined(OS_CHROMEOS)
+const char* kAccessExtensionPath =
+    "/usr/share/chromeos-assets/accessibility/extensions";
+#endif
 }

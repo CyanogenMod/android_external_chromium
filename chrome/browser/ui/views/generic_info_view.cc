@@ -1,17 +1,17 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/generic_info_view.h"
+#include "chrome/browser/ui/views/generic_info_view.h"
 
-#include "app/l10n_util.h"
 #include "base/logging.h"
 #include "base/utf_string_conversions.h"
-#include "gfx/color_utils.h"
-#include "views/grid_layout.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/color_utils.h"
 #include "views/controls/label.h"
 #include "views/controls/textfield/textfield.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 
 GenericInfoView::GenericInfoView(int number_of_rows)
     : number_of_rows_(number_of_rows), name_string_ids_(NULL) {
@@ -72,7 +72,7 @@ void GenericInfoView::InitGenericInfoView() {
   views::ColumnSet* column_set = layout->AddColumnSet(kLayoutId);
   column_set->AddColumn(GridLayout::TRAILING, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 1,
                         GridLayout::USE_PREF, 0, 0);
 
@@ -81,7 +81,7 @@ void GenericInfoView::InitGenericInfoView() {
 
   for (int i = 0; i < number_of_rows_; ++i) {
     if (i)
-      layout->AddPaddingRow(0, kRelatedControlSmallVerticalSpacing);
+      layout->AddPaddingRow(0, views::kRelatedControlSmallVerticalSpacing);
     name_views_[i] = new views::Label;
     value_views_[i] = new views::Textfield;
     AddRow(kLayoutId, layout, name_views_[i], value_views_[i]);

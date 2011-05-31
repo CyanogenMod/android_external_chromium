@@ -19,8 +19,8 @@
 #include "base/scoped_ptr.h"
 #include "base/timer.h"
 #include "googleurl/src/gurl.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLLoaderClient.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLResponse.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLLoaderClient.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLResponse.h"
 
 class GURL;
 
@@ -75,9 +75,6 @@ class ResourceFetcher : public WebKit::WebURLLoaderClient {
   // URL we're fetching
   GURL url_;
 
-  // Callback when we're done
-  scoped_ptr<Callback> callback_;
-
   // A copy of the original resource response
   WebKit::WebURLResponse response_;
 
@@ -87,6 +84,12 @@ class ResourceFetcher : public WebKit::WebURLLoaderClient {
  private:
   // Start the actual download.
   void Start(WebKit::WebFrame* frame);
+
+  void RunCallback(const WebKit::WebURLResponse& response,
+                   const std::string& data);
+
+  // Callback when we're done
+  scoped_ptr<Callback> callback_;
 
   // Buffer to hold the content from the server.
   std::string data_;

@@ -1,11 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/create_application_shortcut_view.h"
+#include "chrome/browser/ui/views/create_application_shortcut_view.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/callback.h"
 #include "base/utf_string_conversions.h"
 #include "base/win/windows_version.h"
@@ -17,19 +15,21 @@
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_resource.h"
 #include "chrome/common/pref_names.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/codec/png_codec.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "net/base/load_flags.h"
 #include "net/url_request/url_request.h"
 #include "third_party/skia/include/core/SkRect.h"
 #include "third_party/skia/include/core/SkPaint.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/codec/png_codec.h"
 #include "views/controls/button/checkbox.h"
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/window/window.h"
 
 namespace {
@@ -119,7 +119,7 @@ void AppInfoView::PrepareDescriptionLabel(const string16& description) {
 }
 
 void AppInfoView::SetupLayout() {
-  views::GridLayout* layout = CreatePanelGridLayout(this);
+  views::GridLayout* layout = views::GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
 
   static const int kColumnSetId = 0;
@@ -156,7 +156,7 @@ void AppInfoView::UpdateIcon(const SkBitmap& new_icon) {
 }
 
 void AppInfoView::Paint(gfx::Canvas* canvas) {
-  gfx::Rect bounds = GetLocalBounds(true);
+  gfx::Rect bounds = GetLocalBounds();
 
   SkRect border_rect = {
     SkIntToScalar(bounds.x()),
@@ -263,7 +263,7 @@ void CreateApplicationShortcutView::InitControls() {
 #endif
 
   // Layout controls
-  views::GridLayout* layout = CreatePanelGridLayout(this);
+  views::GridLayout* layout = views::GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
 
   static const int kHeaderColumnSetId = 0;
@@ -289,13 +289,13 @@ void CreateApplicationShortcutView::InitControls() {
   layout->AddView(desktop_check_box_);
 
   if (menu_check_box_ != NULL) {
-    layout->AddPaddingRow(0, kRelatedControlSmallVerticalSpacing);
+    layout->AddPaddingRow(0, views::kRelatedControlSmallVerticalSpacing);
     layout->StartRow(0, kTableColumnSetId);
     layout->AddView(menu_check_box_);
   }
 
   if (quick_launch_check_box_ != NULL) {
-    layout->AddPaddingRow(0, kRelatedControlSmallVerticalSpacing);
+    layout->AddPaddingRow(0, views::kRelatedControlSmallVerticalSpacing);
     layout->StartRow(0, kTableColumnSetId);
     layout->AddView(quick_launch_check_box_);
   }

@@ -6,18 +6,18 @@
 
 #include <limits>
 
-#include "app/text_elider.h"
 #include "base/compiler_specific.h"
 #include "base/message_loop.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
 #import "chrome/browser/ui/cocoa/bubble_view.h"
-#include "gfx/point.h"
 #include "net/base/net_util.h"
 #import "third_party/GTM/AppKit/GTMNSAnimation+Duration.h"
 #import "third_party/GTM/AppKit/GTMNSBezierPath+RoundRect.h"
 #import "third_party/GTM/AppKit/GTMNSColor+Luminance.h"
+#include "ui/base/text/text_elider.h"
+#include "ui/gfx/point.h"
 
 namespace {
 
@@ -148,11 +148,11 @@ void StatusBubbleMac::SetURL(const GURL& url, const string16& languages) {
   scaled_width = [[parent_ contentView] convertSize:scaled_width fromView:nil];
   text_width = static_cast<int>(scaled_width.width);
   NSFont* font = [[window_ contentView] font];
-  gfx::Font font_chr(base::SysNSStringToWide([font fontName]),
+  gfx::Font font_chr(base::SysNSStringToUTF16([font fontName]),
                      [font pointSize]);
 
   string16 original_url_text = net::FormatUrl(url, UTF16ToUTF8(languages));
-  string16 status = gfx::ElideUrl(url, font_chr, text_width,
+  string16 status = ui::ElideUrl(url, font_chr, text_width,
       UTF16ToWideHack(languages));
 
   SetText(status, true);
@@ -606,9 +606,9 @@ void StatusBubbleMac::ExpandBubble() {
 
   // Generate the URL string that fits in the expanded bubble.
   NSFont* font = [[window_ contentView] font];
-  gfx::Font font_chr(base::SysNSStringToWide([font fontName]),
+  gfx::Font font_chr(base::SysNSStringToUTF16([font fontName]),
       [font pointSize]);
-  string16 expanded_url = gfx::ElideUrl(url_, font_chr,
+  string16 expanded_url = ui::ElideUrl(url_, font_chr,
       max_bubble_width, UTF16ToWideHack(languages_));
 
   // Scale width from gfx::Font in view coordinates to window coordinates.

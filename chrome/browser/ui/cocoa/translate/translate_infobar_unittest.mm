@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 #import "chrome/browser/translate/translate_infobar_delegate.h"
 #import "chrome/browser/ui/cocoa/browser_test_helper.h"
 #import "chrome/browser/ui/cocoa/cocoa_test_helper.h"
-#import "chrome/browser/ui/cocoa/infobar.h"
+#import "chrome/browser/ui/cocoa/infobars/infobar.h"
 #import "chrome/browser/ui/cocoa/translate/translate_infobar_base.h"
 #import "chrome/browser/ui/cocoa/translate/before_translate_infobar_controller.h"
 #import "testing/gmock/include/gmock/gmock.h"
@@ -97,7 +97,8 @@ class TranslationInfoBarTest : public CocoaTest {
     infobar_delegate.reset(
         new MockTranslateInfoBarDelegate(type, error, tab_contents.get()));
     [[infobar_controller view] removeFromSuperview];
-    scoped_ptr<InfoBar> infobar(infobar_delegate->CreateInfoBar());
+    scoped_ptr<InfoBar> infobar(
+        static_cast<InfoBarDelegate*>(infobar_delegate.get())->CreateInfoBar());
     infobar_controller.reset(
         reinterpret_cast<TranslateInfoBarControllerBase*>(
             infobar->controller()));

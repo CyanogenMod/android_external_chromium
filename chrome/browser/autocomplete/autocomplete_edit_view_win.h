@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,15 +13,15 @@
 #include <atlmisc.h>
 #include <tom.h>  // For ITextDocument, a COM interface to CRichEditCtrl.
 
-#include "app/menus/simple_menu_model.h"
 #include "base/scoped_comptr_win.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/autocomplete/autocomplete.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
 #include "chrome/browser/ui/toolbar/toolbar_model.h"
-#include "chrome/browser/views/autocomplete/autocomplete_popup_contents_view.h"
+#include "chrome/browser/ui/views/autocomplete/autocomplete_popup_contents_view.h"
 #include "chrome/common/page_transition_types.h"
-#include "gfx/font.h"
+#include "ui/base/models/simple_menu_model.h"
+#include "ui/gfx/font.h"
 #include "views/controls/menu/menu_2.h"
 #include "webkit/glue/window_open_disposition.h"
 
@@ -45,7 +45,7 @@ class AutocompleteEditViewWin
                          CWinTraits<WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL |
                                     ES_NOHIDESEL> >,
       public CRichEditCommands<AutocompleteEditViewWin>,
-      public menus::SimpleMenuModel::Delegate,
+      public ui::SimpleMenuModel::Delegate,
       public AutocompleteEditView {
  public:
   struct State {
@@ -95,27 +95,27 @@ class AutocompleteEditViewWin
                        PageTransition::Type transition,
                        const GURL& alternate_nav_url,
                        size_t selected_line,
-                       const std::wstring& keyword);
+                       const string16& keyword);
 
-  virtual std::wstring GetText() const;
+  virtual string16 GetText() const;
 
   virtual bool IsEditingOrEmpty() const;
   virtual int GetIcon() const;
 
-  virtual void SetUserText(const std::wstring& text);
-  virtual void SetUserText(const std::wstring& text,
-                           const std::wstring& display_text,
+  virtual void SetUserText(const string16& text);
+  virtual void SetUserText(const string16& text,
+                           const string16& display_text,
                            bool update_popup);
 
-  virtual void SetWindowTextAndCaretPos(const std::wstring& text,
+  virtual void SetWindowTextAndCaretPos(const string16& text,
                                         size_t caret_pos);
 
   virtual void SetForcedQuery();
 
   virtual bool IsSelectAll();
   virtual bool DeleteAtEndPressed();
-  virtual void GetSelectionBounds(std::wstring::size_type* start,
-                                  std::wstring::size_type* end);
+  virtual void GetSelectionBounds(string16::size_type* start,
+                                  string16::size_type* end);
   virtual void SelectAll(bool reversed);
   virtual void RevertAll();
 
@@ -124,20 +124,21 @@ class AutocompleteEditViewWin
 
   virtual void SetFocus();
 
-  virtual void OnTemporaryTextMaybeChanged(const std::wstring& display_text,
+  virtual void OnTemporaryTextMaybeChanged(const string16& display_text,
                                            bool save_original_selection);
   virtual bool OnInlineAutocompleteTextMaybeChanged(
-      const std::wstring& display_text, size_t user_text_length);
+      const string16& display_text, size_t user_text_length);
   virtual void OnRevertTemporaryText();
   virtual void OnBeforePossibleChange();
   virtual bool OnAfterPossibleChange();
   virtual gfx::NativeView GetNativeView() const;
   virtual CommandUpdater* GetCommandUpdater();
-  virtual views::View* AddToView(views::View* parent);
-  virtual bool CommitInstantSuggestion(const std::wstring& typed_text,
-                                       const std::wstring& suggested_text);
   virtual void SetInstantSuggestion(const string16& suggestion);
+  virtual string16 GetInstantSuggestion() const;
   virtual int TextWidth() const;
+  virtual bool IsImeComposing() const;
+
+  virtual views::View* AddToView(views::View* parent);
 
   int GetPopupMaxYCoordinate();
 
@@ -154,12 +155,12 @@ class AutocompleteEditViewWin
   void MoveSelectedText(int new_position);
 
   // Inserts the text at the specified position.
-  void InsertText(int position, const std::wstring& text);
+  void InsertText(int position, const string16& text);
 
   // Invokes CanPasteAndGo with the specified text, and if successful navigates
   // to the appropriate URL. The behavior of this is the same as if the user
   // typed in the specified text and pressed enter.
-  void PasteAndGo(const std::wstring& text);
+  void PasteAndGo(const string16& text);
 
   void set_force_hidden(bool force_hidden) { force_hidden_ = force_hidden; }
 
@@ -179,7 +180,6 @@ class AutocompleteEditViewWin
     MSG_WM_CUT(OnCut)
     MESSAGE_HANDLER_EX(WM_GETOBJECT, OnGetObject)
     MESSAGE_HANDLER_EX(WM_IME_COMPOSITION, OnImeComposition)
-    MESSAGE_HANDLER_EX(WM_IME_NOTIFY, OnImeNotify)
     MSG_WM_KEYDOWN(OnKeyDown)
     MSG_WM_KEYUP(OnKeyUp)
     MSG_WM_KILLFOCUS(OnKillFocus)
@@ -206,17 +206,17 @@ class AutocompleteEditViewWin
     DEFAULT_REFLECTION_HANDLER()  // avoids black margin area
   END_MSG_MAP()
 
-  // menus::SimpleMenuModel::Delegate
+  // ui::SimpleMenuModel::Delegate
   virtual bool IsCommandIdChecked(int command_id) const;
   virtual bool IsCommandIdEnabled(int command_id) const;
   virtual bool GetAcceleratorForCommandId(int command_id,
-                                          menus::Accelerator* accelerator);
+                                          ui::Accelerator* accelerator);
   virtual bool IsItemForCommandIdDynamic(int command_id) const;
-  virtual std::wstring GetLabelForCommandId(int command_id) const;
+  virtual string16 GetLabelForCommandId(int command_id) const;
   virtual void ExecuteCommand(int command_id);
 
-  // Returns true if the user is composing something in an IME.
-  bool IsImeComposing() const;
+  // Returns true if the caret is at the end of the content.
+  bool IsCaretAtEnd() const;
 
  private:
   enum MouseButton {
@@ -275,7 +275,6 @@ class AutocompleteEditViewWin
   void OnCut();
   LRESULT OnGetObject(UINT uMsg, WPARAM wparam, LPARAM lparam);
   LRESULT OnImeComposition(UINT message, WPARAM wparam, LPARAM lparam);
-  LRESULT OnImeNotify(UINT message, WPARAM wparam, LPARAM lparam);
   void OnKeyDown(TCHAR key, UINT repeat_count, UINT flags);
   void OnKeyUp(TCHAR key, UINT repeat_count, UINT flags);
   void OnKillFocus(HWND focus_wnd);
@@ -315,7 +314,7 @@ class AutocompleteEditViewWin
   void GetSelection(CHARRANGE& sel) const;
 
   // Returns the currently selected text of the edit control.
-  std::wstring GetSelectedText() const;
+  string16 GetSelectedText() const;
 
   // Like SetSel(), but respects the selection direction implied by |start| and
   // |end|: if |end| < |start|, the effective cursor will be placed at the
@@ -373,10 +372,10 @@ class AutocompleteEditViewWin
   // Returns the current clipboard contents as a string that can be pasted in.
   // In addition to just getting CF_UNICODETEXT out, this can also extract URLs
   // from bookmarks on the clipboard.
-  std::wstring GetClipboardText() const;
+  string16 GetClipboardText() const;
 
   // Determines whether the user can "paste and go", given the specified text.
-  bool CanPasteAndGo(const std::wstring& text) const;
+  bool CanPasteAndGo(const string16& text) const;
 
   // Getter for the text_object_model_.  Note that the pointer returned here is
   // only valid as long as the AutocompleteEdit is still alive.  Also, if the
@@ -406,7 +405,12 @@ class AutocompleteEditViewWin
   int GetHorizontalMargin() const;
 
   // Returns the width in pixels needed to display |text|.
-  int WidthNeededToDisplay(const std::wstring& text) const;
+  int WidthNeededToDisplay(const string16& text) const;
+
+  // Real implementation of OnAfterPossibleChange() method.
+  // If |force_text_changed| is true, then the text_changed code will always be
+  // triggerred no matter if the text is actually changed or not.
+  bool OnAfterPossibleChangeInternal(bool force_text_changed);
 
   scoped_ptr<AutocompleteEditModel> model_;
 
@@ -470,7 +474,7 @@ class AutocompleteEditViewWin
   bool ignore_ime_messages_;
 
   // Variables for tracking state before and after a possible change.
-  std::wstring text_before_change_;
+  string16 text_before_change_;
   CHARRANGE sel_before_change_;
 
   // Set at the same time the model's original_* members are set, and valid in
@@ -485,7 +489,7 @@ class AutocompleteEditViewWin
   bool delete_at_end_pressed_;
 
   // The context menu for the edit.
-  scoped_ptr<menus::SimpleMenuModel> context_menu_contents_;
+  scoped_ptr<ui::SimpleMenuModel> context_menu_contents_;
   scoped_ptr<views::Menu2> context_menu_;
 
   // Font we're using.  We keep a reference to make sure the font supplied to

@@ -1,32 +1,32 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/options/cookies_view.h"
+#include "chrome/browser/ui/views/options/cookies_view.h"
 
 #include <algorithm>
 
-#include "app/l10n_util.h"
 #include "base/message_loop.h"
 #include "base/string_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/views/appcache_info_view.h"
-#include "chrome/browser/views/cookie_info_view.h"
-#include "chrome/browser/views/database_info_view.h"
-#include "chrome/browser/views/indexed_db_info_view.h"
-#include "chrome/browser/views/local_storage_info_view.h"
-#include "gfx/canvas.h"
-#include "gfx/color_utils.h"
+#include "chrome/browser/ui/views/appcache_info_view.h"
+#include "chrome/browser/ui/views/cookie_info_view.h"
+#include "chrome/browser/ui/views/database_info_view.h"
+#include "chrome/browser/ui/views/indexed_db_info_view.h"
+#include "chrome/browser/ui/views/local_storage_info_view.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "net/base/cookie_monster.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/color_utils.h"
 #include "views/border.h"
-#include "views/grid_layout.h"
 #include "views/controls/label.h"
 #include "views/controls/button/native_button.h"
 #include "views/controls/tree/tree_view.h"
 #include "views/controls/textfield/textfield.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 
 // static
 views::Window* CookiesView::instance_ = NULL;
@@ -55,7 +55,7 @@ CookiesTreeView::CookiesTreeView(CookiesTreeModel* cookies_model) {
 }
 
 void CookiesTreeView::RemoveSelectedItems() {
-  TreeModelNode* selected_node = GetSelectedNode();
+  ui::TreeModelNode* selected_node = GetSelectedNode();
   if (selected_node) {
     static_cast<CookiesTreeModel*>(model())->DeleteCookieNode(
         static_cast<CookieTreeNode*>(GetSelectedNode()));
@@ -73,13 +73,12 @@ void CookiesTreeView::RemoveSelectedItems() {
 class CookiesView::InfoPanelView : public views::View {
  public:
   virtual void Layout() {
-    int child_count = GetChildViewCount();
-    for (int i = 0; i < child_count; ++i)
+    for (int i = 0; i < child_count(); ++i)
       GetChildViewAt(i)->SetBounds(0, 0, width(), height());
   }
 
   virtual gfx::Size GetPreferredSize() {
-    DCHECK(GetChildViewCount() > 0);
+    DCHECK(has_children());
     return GetChildViewAt(0)->GetPreferredSize();
   }
 };
@@ -108,8 +107,8 @@ CookiesView::~CookiesView() {
 ///////////////////////////////////////////////////////////////////////////////
 // CookiesView, TreeModelObserver overrides:
 
-void CookiesView::TreeNodesAdded(TreeModel* model,
-                                 TreeModelNode* parent,
+void CookiesView::TreeNodesAdded(ui::TreeModel* model,
+                                 ui::TreeModelNode* parent,
                                  int start,
                                  int count) {
   UpdateRemoveButtonsState();
@@ -146,9 +145,9 @@ void CookiesView::ContentsChanged(views::Textfield* sender,
 
 bool CookiesView::HandleKeyEvent(views::Textfield* sender,
                                  const views::KeyEvent& key_event) {
-  if (key_event.GetKeyCode() == app::VKEY_ESCAPE) {
+  if (key_event.key_code() == ui::VKEY_ESCAPE) {
     ResetSearchQuery();
-  } else if (key_event.GetKeyCode() == app::VKEY_RETURN) {
+  } else if (key_event.key_code() == ui::VKEY_RETURN) {
     search_update_factory_.RevokeAll();
     UpdateSearchResults();
   }
@@ -177,15 +176,16 @@ views::View* CookiesView::GetContentsView() {
 void CookiesView::Layout() {
   // Lay out the Remove/Remove All buttons in the parent view.
   gfx::Size ps = remove_button_->GetPreferredSize();
-  gfx::Rect parent_bounds = GetParent()->GetLocalBounds(false);
-  int y_buttons = parent_bounds.bottom() - ps.height() - kButtonVEdgeMargin;
+  gfx::Rect parent_bounds = parent()->GetContentsBounds();
+  int y_buttons =
+      parent_bounds.bottom() - ps.height() - views::kButtonVEdgeMargin;
 
   remove_button_->SetBounds(kPanelHorizMargin, y_buttons, ps.width(),
                             ps.height());
 
   ps = remove_all_button_->GetPreferredSize();
   int remove_all_x = remove_button_->x() + remove_button_->width() +
-      kRelatedControlHorizontalSpacing;
+      views::kRelatedControlHorizontalSpacing;
   remove_all_button_->SetBounds(remove_all_x, y_buttons, ps.width(),
                                 ps.height());
 
@@ -241,8 +241,8 @@ void CookiesView::OnTreeViewSelectionChanged(views::TreeView* tree_view) {
   }
 }
 
-void CookiesView::OnTreeViewKeyDown(app::KeyboardCode keycode) {
-  if (keycode == app::VKEY_DELETE)
+void CookiesView::OnTreeViewKeyDown(ui::KeyboardCode keycode) {
+  if (keycode == ui::VKEY_DELETE)
     cookies_tree_->RemoveSelectedItems();
 }
 
@@ -295,7 +295,7 @@ void CookiesView::Init() {
       NULL,
       new BrowsingDataAppCacheHelper(profile_),
       BrowsingDataIndexedDBHelper::Create(profile_)));
-  cookies_tree_model_->AddObserver(this);
+  cookies_tree_model_->AddCookiesTreeObserver(this);
 
   info_panel_ = new InfoPanelView;
   cookie_info_view_ = new CookieInfoView(false);
@@ -320,17 +320,17 @@ void CookiesView::Init() {
   using views::GridLayout;
   using views::ColumnSet;
 
-  GridLayout* layout = CreatePanelGridLayout(this);
+  GridLayout* layout = GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
 
   const int five_column_layout_id = 0;
   ColumnSet* column_set = layout->AddColumnSet(five_column_layout_id);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 1,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 0,
                         GridLayout::USE_PREF, 0, 0);
 
@@ -343,12 +343,12 @@ void CookiesView::Init() {
   layout->AddView(search_label_);
   layout->AddView(search_field_);
   layout->AddView(clear_search_button_);
-  layout->AddPaddingRow(0, kUnrelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kUnrelatedControlVerticalSpacing);
 
   layout->StartRow(0, single_column_layout_id);
   layout->AddView(description_label_);
 
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   layout->StartRow(1, single_column_layout_id);
   cookies_tree_->set_lines_at_root(true);
   cookies_tree_->set_auto_expand_children(true);
@@ -356,14 +356,13 @@ void CookiesView::Init() {
 
   cookies_tree_->SetController(this);
 
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   layout->StartRow(0, single_column_layout_id);
   layout->AddView(info_panel_);
 
   // Add the Remove/Remove All buttons to the ClientView
-  View* parent = GetParent();
-  parent->AddChildView(remove_button_);
-  parent->AddChildView(remove_all_button_);
+  parent()->AddChildView(remove_button_);
+  parent()->AddChildView(remove_all_button_);
   if (!cookies_tree_model_.get()->GetRoot()->GetChildCount()) {
     UpdateForEmptyState();
   } else {

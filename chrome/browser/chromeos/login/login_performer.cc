@@ -6,8 +6,6 @@
 
 #include <string>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/metrics/histogram.h"
@@ -17,15 +15,20 @@
 #include "chrome/browser/chromeos/boot_times_loader.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/screen_lock_library.h"
+#include "chrome/browser/chromeos/cros_settings_names.h"
 #include "chrome/browser/chromeos/login/login_utils.h"
 #include "chrome/browser/chromeos/login/screen_locker.h"
 #include "chrome/browser/chromeos/user_cros_settings_provider.h"
 #include "chrome/browser/metrics/user_metrics.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
+#include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 namespace chromeos {
 
@@ -249,8 +252,23 @@ void LoginPerformer::Login(const std::string& username,
     StartAuthentication();
   } else {
     // Otherwise, do whitelist check first.
-    SignedSettingsHelper::Get()->StartCheckWhitelistOp(
-        username, this);
+    PrefService* local_state = g_browser_process->local_state();
+    CHECK(local_state);
+    if (local_state->IsManagedPreference(kAccountsPrefUsers)) {
+      if (UserCrosSettingsProvider::IsEmailInCachedWhitelist(username)) {
+        StartAuthentication();
+      } else {
+        if (delegate_)
+          delegate_->WhiteListCheckFailed(username);
+        else
+          NOTREACHED();
+      }
+    } else {
+      // In case of signed settings: with current implementation we do not
+      // trust whitelist returned by PrefService.  So make separate check.
+      SignedSettingsHelper::Get()->StartCheckWhitelistOp(
+          username, this);
+    }
   }
 }
 
@@ -338,6 +356,7 @@ void LoginPerformer::ResolveInitialNetworkAuthFailure() {
       // Request screen lock & show error message there.
     case GoogleServiceAuthError::CAPTCHA_REQUIRED:
       // User is requested to enter CAPTCHA challenge.
+      captcha_token_ = last_login_failure_.error().captcha().token;
       RequestScreenLock();
       return;
     default:
@@ -405,6 +424,7 @@ void LoginPerformer::ResolveLockNetworkAuthFailure() {
       break;
     case GoogleServiceAuthError::CAPTCHA_REQUIRED:
       // User is requested to enter CAPTCHA challenge.
+      captcha_token_ = last_login_failure_.error().captcha().token;
       msg = l10n_util::GetStringUTF16(IDS_LOGIN_ERROR_PASSWORD_CHANGED);
       ScreenLocker::default_screen_locker()->ShowCaptchaAndErrorMessage(
           last_login_failure_.error().captcha().image_url,

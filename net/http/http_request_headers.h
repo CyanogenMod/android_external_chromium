@@ -73,6 +73,7 @@ class HttpRequestHeaders {
   static const char kRange[];
   static const char kReferer[];
   static const char kUserAgent[];
+  static const char kTransferEncoding[];
 
   HttpRequestHeaders();
   ~HttpRequestHeaders();
@@ -94,6 +95,12 @@ class HttpRequestHeaders {
   // then the header value is modified, but the key is untouched, and the order
   // in the vector remains the same.  When comparing |key|, case is ignored.
   void SetHeader(const base::StringPiece& key, const base::StringPiece& value);
+
+  // Sets the header value pair for |key| and |value|, if |key| does not exist.
+  // If |key| already exists, the call is a no-op.
+  // When comparing |key|, case is ignored.
+  void SetHeaderIfMissing(const base::StringPiece& key,
+                          const base::StringPiece& value);
 
   // Removes the first header that matches (case insensitive) |key|.
   void RemoveHeader(const base::StringPiece& key);

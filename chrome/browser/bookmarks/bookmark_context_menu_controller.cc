@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/bookmarks/bookmark_context_menu_controller.h"
 
-#include "app/l10n_util.h"
 #include "base/compiler_specific.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/bookmarks/bookmark_editor.h"
@@ -19,6 +18,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 BookmarkContextMenuController::BookmarkContextMenuController(
     gfx::NativeWindow parent_window,
@@ -36,7 +36,7 @@ BookmarkContextMenuController::BookmarkContextMenuController(
       model_(profile->GetBookmarkModel()) {
   DCHECK(profile_);
   DCHECK(model_->IsLoaded());
-  menu_model_.reset(new menus::SimpleMenuModel(this));
+  menu_model_.reset(new ui::SimpleMenuModel(this));
   model_->AddObserver(this);
 
   BuildMenu();
@@ -244,10 +244,12 @@ bool BookmarkContextMenuController::IsCommandIdEnabled(int command_id) const {
        selection_[0]->GetParent() == model_->root_node());
   switch (command_id) {
     case IDC_BOOKMARK_BAR_OPEN_INCOGNITO:
-      return !profile_->IsOffTheRecord();
+      return !profile_->IsOffTheRecord() &&
+             profile_->GetPrefs()->GetBoolean(prefs::kIncognitoEnabled);
 
     case IDC_BOOKMARK_BAR_OPEN_ALL_INCOGNITO:
-      return HasURLs() && !profile_->IsOffTheRecord();
+      return HasURLs() && !profile_->IsOffTheRecord() &&
+             profile_->GetPrefs()->GetBoolean(prefs::kIncognitoEnabled);
 
     case IDC_BOOKMARK_BAR_OPEN_ALL:
     case IDC_BOOKMARK_BAR_OPEN_ALL_NEW_WINDOW:
@@ -280,7 +282,7 @@ bool BookmarkContextMenuController::IsCommandIdEnabled(int command_id) const {
 
 bool BookmarkContextMenuController::GetAcceleratorForCommandId(
     int command_id,
-    menus::Accelerator* accelerator) {
+    ui::Accelerator* accelerator) {
   return false;
 }
 

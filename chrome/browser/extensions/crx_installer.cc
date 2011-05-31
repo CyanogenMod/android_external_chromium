@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,6 @@
 
 #include <set>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/file_util.h"
 #include "base/lazy_instance.h"
 #include "base/path_service.h"
@@ -36,6 +34,8 @@
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 namespace {
 
@@ -117,18 +117,9 @@ CrxInstaller::~CrxInstaller() {
 void CrxInstaller::InstallCrx(const FilePath& source_file) {
   source_file_ = source_file;
 
-  FilePath user_data_temp_dir;
-  {
-    // We shouldn't be doing disk IO on the UI thread.
-    //   http://code.google.com/p/chromium/issues/detail?id=60634
-    base::ThreadRestrictions::ScopedAllowIO allow_io;
-    CHECK(PathService::Get(chrome::DIR_USER_DATA_TEMP, &user_data_temp_dir));
-  }
-
   scoped_refptr<SandboxedExtensionUnpacker> unpacker(
       new SandboxedExtensionUnpacker(
           source_file,
-          user_data_temp_dir,
           g_browser_process->resource_dispatcher_host(),
           this));
 
@@ -310,7 +301,8 @@ void CrxInstaller::ConfirmInstall() {
   GURL overlapping_url;
   const Extension* overlapping_extension =
       frontend_->GetExtensionByOverlappingWebExtent(extension_->web_extent());
-  if (overlapping_extension) {
+  if (overlapping_extension &&
+      overlapping_extension->id() != extension_->id()) {
     ReportFailureFromUIThread(l10n_util::GetStringFUTF8(
         IDS_EXTENSION_OVERLAPPING_WEB_EXTENT,
         UTF8ToUTF16(overlapping_extension->name())));

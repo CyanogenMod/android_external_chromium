@@ -1,8 +1,8 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/tabs/base_tab_strip.h"
+#include "chrome/browser/ui/views/tabs/base_tab_strip.h"
 
 #include "base/logging.h"
 #include "chrome/browser/ui/view_ids.h"
@@ -333,7 +333,7 @@ BaseTab* BaseTabStrip::GetTabAt(BaseTab* tab,
 
   // Walk up the view hierarchy until we find a tab, or the TabStrip.
   while (view && view != this && view->GetID() != VIEW_ID_TAB)
-    view = view->GetParent();
+    view = view->parent();
 
   return view && view->GetID() == VIEW_ID_TAB ?
       static_cast<BaseTab*>(view) : NULL;
@@ -355,6 +355,12 @@ bool BaseTabStrip::OnMouseDragged(const views::MouseEvent&  event) {
 void BaseTabStrip::OnMouseReleased(const views::MouseEvent& event,
                                    bool canceled) {
   EndDrag(canceled);
+}
+
+void BaseTabStrip::StartMoveTabAnimation() {
+  PrepareForAnimation();
+  GenerateIdealBounds();
+  AnimateToIdealBounds();
 }
 
 void BaseTabStrip::StartRemoveTabAnimation(int model_index) {
@@ -408,6 +414,16 @@ int BaseTabStrip::TabIndexOfTab(BaseTab* tab) const {
   return -1;
 }
 
+void BaseTabStrip::StopAnimating(bool layout) {
+  if (!IsAnimating())
+    return;
+
+  bounds_animator().Cancel();
+
+  if (layout)
+    DoLayout();
+}
+
 void BaseTabStrip::DestroyDragController() {
   if (IsDragSessionActive())
     drag_controller_.reset(NULL);
@@ -431,7 +447,7 @@ void BaseTabStrip::StartedDraggingTab(BaseTab* tab) {
   GenerateIdealBounds();
   int tab_data_index = TabIndexOfTab(tab);
   DCHECK(tab_data_index != -1);
-  tab->SetBounds(ideal_bounds(tab_data_index));
+  tab->SetBoundsRect(ideal_bounds(tab_data_index));
   SchedulePaint();
 }
 
@@ -475,7 +491,7 @@ void BaseTabStrip::DoLayout() {
   GenerateIdealBounds();
 
   for (int i = 0; i < tab_count(); ++i)
-    tab_data_[i].tab->SetBounds(tab_data_[i].ideal_bounds);
+    tab_data_[i].tab->SetBoundsRect(tab_data_[i].ideal_bounds);
 
   SchedulePaint();
 }

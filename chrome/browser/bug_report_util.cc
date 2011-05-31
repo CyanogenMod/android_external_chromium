@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <sstream>
 #include <string>
 
-#include "app/l10n_util.h"
 #include "base/command_line.h"
 #include "base/file_version_info.h"
 #include "base/file_util.h"
@@ -27,6 +26,7 @@
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
 #include "net/url_request/url_request_status.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "unicode/locid.h"
 
 #if defined(OS_CHROMEOS)
@@ -90,7 +90,7 @@ class BugReportUtil::PostCleanup : public URLFetcher::Delegate {
   // Overridden from URLFetcher::Delegate.
   virtual void OnURLFetchComplete(const URLFetcher* source,
                                   const GURL& url,
-                                  const URLRequestStatus& status,
+                                  const net::URLRequestStatus& status,
                                   int response_code,
                                   const ResponseCookies& cookies,
                                   const std::string& data);
@@ -112,7 +112,7 @@ class BugReportUtil::PostCleanup : public URLFetcher::Delegate {
 void BugReportUtil::PostCleanup::OnURLFetchComplete(
     const URLFetcher* source,
     const GURL& url,
-    const URLRequestStatus& status,
+    const net::URLRequestStatus& status,
     int response_code,
     const ResponseCookies& cookies,
     const std::string& data) {
@@ -258,7 +258,6 @@ bool BugReportUtil::ValidFeedbackSize(const std::string& content) {
 
 // static
 void BugReportUtil::SendReport(Profile* profile,
-    const std::string& page_title_text,
     int problem_type,
     const std::string& page_url_text,
     const std::string& description,
@@ -287,10 +286,6 @@ void BugReportUtil::SendReport(Profile* profile,
   // submit feedback from incognito mode and specify any mail id
   // they wish
   common_data->set_gaia_id(0);
-
-  // Add the page title.
-  AddFeedbackData(&feedback_data, std::string(kPageTitleTag),
-                  page_title_text);
 
 #if defined(OS_CHROMEOS)
   // Add the user e-mail to the feedback object

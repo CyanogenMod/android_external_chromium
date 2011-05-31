@@ -10,9 +10,9 @@
 
 #include "base/atomicops.h"
 #include "base/basictypes.h"
-#include "base/lock.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
+#include "base/synchronization/lock.h"
 #include "base/time.h"
 #include "net/base/net_log.h"
 
@@ -47,6 +47,13 @@ class CapturingNetLog : public NetLog {
   explicit CapturingNetLog(size_t max_num_entries);
   virtual ~CapturingNetLog();
 
+  // Returns the list of all entries in the log.
+  void GetEntries(EntryList* entry_list) const;
+
+  void Clear();
+
+  void SetLogLevel(NetLog::LogLevel log_level);
+
   // NetLog implementation:
   virtual void AddEntry(EventType type,
                         const base::TimeTicks& time,
@@ -56,16 +63,9 @@ class CapturingNetLog : public NetLog {
   virtual uint32 NextID();
   virtual LogLevel GetLogLevel() const;
 
-  // Returns the list of all entries in the log.
-  void GetEntries(EntryList* entry_list) const;
-
-  void Clear();
-
-  void SetLogLevel(NetLog::LogLevel log_level);
-
  private:
   // Needs to be "mutable" so can use it in GetEntries().
-  mutable Lock lock_;
+  mutable base::Lock lock_;
 
   // Last assigned source ID.  Incremented to get the next one.
   base::subtle::Atomic32 last_id_;

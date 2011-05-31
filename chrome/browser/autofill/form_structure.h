@@ -38,11 +38,10 @@ class AutoFillMetrics;
 class FormStructure {
  public:
   explicit FormStructure(const webkit_glue::FormData& form);
-  ~FormStructure();
+  virtual ~FormStructure();
 
   // Encodes the XML upload request from this FormStructure.
-  bool EncodeUploadRequest(bool auto_fill_used,
-                           std::string* encoded_xml) const;
+  bool EncodeUploadRequest(bool auto_fill_used, std::string* encoded_xml) const;
 
   // Encodes the XML query request for the set of forms.
   // All fields are returned in one XML. For example, there are three forms,
@@ -103,10 +102,20 @@ class FormStructure {
 
   const GURL& source_url() const { return source_url_; }
 
+  virtual std::string server_experiment_id() const;
+
   bool operator==(const webkit_glue::FormData& form) const;
   bool operator!=(const webkit_glue::FormData& form) const;
 
+ protected:
+  // For tests.
+  ScopedVector<AutoFillField>* fields() { return &fields_; }
+
  private:
+  friend class FormStructureTest;
+  // 64-bit hash of the string - used in FormSignature and unit-tests.
+  static std::string Hash64Bit(const std::string& str);
+
   enum EncodeRequestType {
     QUERY,
     UPLOAD,
@@ -123,6 +132,10 @@ class FormStructure {
   // it is a query or upload.
   bool EncodeFormRequest(EncodeRequestType request_type,
                          buzz::XmlElement* encompassing_xml_element) const;
+
+  // Helper for EncodeUploadRequest() that collects presense of all data in the
+  // form structure and converts it to string for uploading.
+  std::string ConvertPresenceBitsToString() const;
 
   // The name of the form.
   string16 form_name_;
@@ -148,6 +161,10 @@ class FormStructure {
   // The string starts with "&" and the names are also separated by the "&"
   // character. E.g.: "&form_input1_name&form_input2_name&...&form_inputN_name"
   std::string form_signature_field_names_;
+
+  // The server experiment corresponding to the server types returned for this
+  // form.
+  std::string server_experiment_id_;
 
   // GET or POST.
   RequestMethod method_;

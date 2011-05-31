@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 #include "chrome/browser/bookmarks/bookmark_node_data.h"
 #include "chrome/browser/bookmarks/bookmark_editor.h"
 #include "chrome/browser/history/snippet.h"
-#include "gfx/native_widget_types.h"
+#include "ui/gfx/native_widget_types.h"
 #include "webkit/glue/window_open_disposition.h"
 
 class BookmarkModel;
@@ -115,7 +115,7 @@ bool CanPasteFromClipboard(const BookmarkNode* node);
 
 // Returns a name for the given URL. Used for drags into bookmark areas when
 // the source doesn't specify a title.
-std::string GetNameForURL(const GURL& url);
+string16 GetNameForURL(const GURL& url);
 
 // Returns a vector containing up to |max_count| of the most recently modified
 // groups. This never returns an empty vector.
@@ -131,6 +131,9 @@ void GetMostRecentlyAddedEntries(BookmarkModel* model,
 // Used by GetBookmarksMatchingText to return a matching node and the location
 // of the match in the title.
 struct TitleMatch {
+  TitleMatch();
+  ~TitleMatch();
+
   const BookmarkNode* node;
 
   // Location of the matching words in the title of the node.

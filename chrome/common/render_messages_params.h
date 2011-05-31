@@ -25,12 +25,12 @@
 #include "chrome/common/renderer_preferences.h"
 #include "chrome/common/serialized_script_value.h"
 #include "chrome/common/window_container_type.h"
-#include "gfx/rect.h"
-#include "gfx/size.h"
 #include "googleurl/src/gurl.h"
 #include "ipc/ipc_param_traits.h"
 #include "media/audio/audio_parameters.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebTextDirection.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebTextDirection.h"
+#include "ui/gfx/rect.h"
+#include "ui/gfx/size.h"
 #include "webkit/glue/password_form.h"
 #include "webkit/glue/resource_type.h"
 #include "webkit/glue/webaccessibility.h"
@@ -61,6 +61,9 @@ struct ViewMsg_Navigate_Params {
     // session did not crash. If this is not set and the page was restored then
     // the page's cache policy is ignored and we load from the cache.
     RESTORE,
+
+    // Speculatively prerendering the page.
+    PRERENDER,
 
     // Navigation type not categorized by the other types.
     NORMAL
@@ -341,6 +344,9 @@ struct ViewHostMsg_UpdateRect_Params {
   // The rectangular region to scroll.
   gfx::Rect scroll_rect;
 
+  // The scroll offset of the render view.
+  gfx::Size scroll_offset;
+
   // The regions of the bitmap (in view coords) that contain updated pixels.
   // In the case of scrolling, this includes the scroll damage rect.
   std::vector<gfx::Rect> copy_rects;
@@ -450,16 +456,15 @@ struct ViewHostMsg_Resource_Request {
   // net::URLRequest load flags (0 by default).
   int load_flags;
 
-  // Unique ID of process that originated this request. For normal renderer
-  // requests, this will be the ID of the renderer. For plugin requests routed
-  // through the renderer, this will be the plugin's ID.
-  int origin_child_id;
+  // Process ID from which this request originated, or zero if it originated
+  // in the renderer itself.
+  int origin_pid;
 
   // What this resource load is for (main frame, sub-frame, sub-resource,
   // object).
   ResourceType::Type resource_type;
 
-  // Used by plugin->browser requests to get the correct URLRequestContext.
+  // Used by plugin->browser requests to get the correct net::URLRequestContext.
   uint32 request_context;
 
   // Indicates which frame (or worker context) the request is being loaded into,
@@ -520,6 +525,9 @@ struct ViewMsg_Print_Params {
   // Should only print currently selected text.
   bool selection_only;
 
+  // Does the printer support alpha blending?
+  bool supports_alpha_blend;
+
   // Warning: do not compare document_cookie.
   bool Equals(const ViewMsg_Print_Params& rhs) const;
 
@@ -552,7 +560,7 @@ struct ViewMsg_PrintPages_Params {
   std::vector<int> pages;
 };
 
-//Parameters to describe a rendered document.
+// Parameters to describe a rendered document.
 struct ViewHostMsg_DidPreviewDocument_Params {
   ViewHostMsg_DidPreviewDocument_Params();
   ~ViewHostMsg_DidPreviewDocument_Params();
@@ -778,6 +786,19 @@ struct ViewHostMsg_CreateWindow_Params {
   // The name of the resulting frame that should be created (empty if none
   // has been specified).
   string16 frame_name;
+
+  // The frame identifier of the frame initiating the open.
+  int64 opener_frame_id;
+
+  // The URL of the frame initiating the open.
+  GURL opener_url;
+
+  // The security origin of the frame initiating the open.
+  std::string opener_security_origin;
+
+  // The URL that will be loaded in the new window (empty if none has been
+  // sepcified).
+  GURL target_url;
 };
 
 struct ViewHostMsg_RunFileChooser_Params {
@@ -813,25 +834,31 @@ struct ViewHostMsg_RunFileChooser_Params {
   string16 accept_types;
 };
 
-struct ViewMsg_ExtensionRendererInfo {
-  ViewMsg_ExtensionRendererInfo();
-  ~ViewMsg_ExtensionRendererInfo();
+struct ViewMsg_ExtensionLoaded_Params {
+  ViewMsg_ExtensionLoaded_Params();
+  ~ViewMsg_ExtensionLoaded_Params();
+  explicit ViewMsg_ExtensionLoaded_Params(const Extension* extension);
 
-  std::string id;
-  ExtensionExtent web_extent;
-  std::string name;
-  GURL icon_url;
+  // A copy constructor is needed because this structure can end up getting
+  // copied inside the IPC machinery on gcc <= 4.2.
+  ViewMsg_ExtensionLoaded_Params(
+      const ViewMsg_ExtensionLoaded_Params& other);
+
+  // Creates a new extension from the data in this object.
+  scoped_refptr<Extension> ConvertToExtension() const;
+
+  // The subset of the extension manifest data we send to renderers.
+  scoped_ptr<DictionaryValue> manifest;
+
+  // The location the extension was installed from.
   Extension::Location location;
-  bool allowed_to_execute_script_everywhere;
-  std::vector<URLPattern> host_permissions;
-};
 
-struct ViewMsg_ExtensionsUpdated_Params {
-  ViewMsg_ExtensionsUpdated_Params();
-  ~ViewMsg_ExtensionsUpdated_Params();
+  // The path the extension was loaded from. This is used in the renderer only
+  // to generate the extension ID for extensions that are loaded unpacked.
+  FilePath path;
 
-  // Describes the installed extension apps and the URLs they cover.
-  std::vector<ViewMsg_ExtensionRendererInfo> extensions;
+  // We keep this separate so that it can be used in logging.
+  std::string id;
 };
 
 struct ViewMsg_DeviceOrientationUpdated_Params {
@@ -1089,16 +1116,8 @@ struct ParamTraits<ViewHostMsg_RunFileChooser_Params> {
 };
 
 template <>
-struct ParamTraits<ViewMsg_ExtensionRendererInfo> {
-  typedef ViewMsg_ExtensionRendererInfo param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, void** iter, param_type* p);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template <>
-struct ParamTraits<ViewMsg_ExtensionsUpdated_Params> {
-  typedef ViewMsg_ExtensionsUpdated_Params param_type;
+struct ParamTraits<ViewMsg_ExtensionLoaded_Params> {
+  typedef ViewMsg_ExtensionLoaded_Params param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, void** iter, param_type* p);
   static void Log(const param_type& p, std::string* l);

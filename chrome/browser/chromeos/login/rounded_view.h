@@ -5,9 +5,9 @@
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_ROUNDED_VIEW_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_ROUNDED_VIEW_H_
 
-#include "gfx/canvas.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/rect.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/rect.h"
 
 namespace chromeos {
 
@@ -35,9 +35,11 @@ class RoundedView: public C {
   // Empty constructor.
   RoundedView() {}
 
-  // One argument constructor.
+  // Constructors.
   template<typename D>
   explicit RoundedView(const D &value) : C(value) {}
+  template<typename D1, typename D2>
+  RoundedView(const D1& val1, const D2& val2) : C(val1, val2) {}
 
   // Overrides views::View.
   virtual void ProcessPaint(gfx::Canvas* canvas);

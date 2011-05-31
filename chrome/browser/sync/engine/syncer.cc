@@ -55,22 +55,22 @@ using sessions::ConflictProgress;
 
 Syncer::Syncer()
     : early_exit_requested_(false),
-      max_commit_batch_size_(kDefaultMaxCommitBatchSize),
       pre_conflict_resolution_closure_(NULL) {
 }
 
 Syncer::~Syncer() {}
 
 bool Syncer::ExitRequested() {
-  AutoLock lock(early_exit_requested_lock_);
+  base::AutoLock lock(early_exit_requested_lock_);
   return early_exit_requested_;
 }
 
 void Syncer::RequestEarlyExit() {
-  AutoLock lock(early_exit_requested_lock_);
+  base::AutoLock lock(early_exit_requested_lock_);
   early_exit_requested_ = true;
 }
 
+// TODO(tim): Deprecated.
 void Syncer::SyncShare(sessions::SyncSession* session) {
   ScopedDirLookup dir(session->context()->directory_manager(),
                       session->context()->account_name());
@@ -78,21 +78,11 @@ void Syncer::SyncShare(sessions::SyncSession* session) {
   CHECK(dir.good());
 
   const sessions::SyncSourceInfo& source(session->source());
-  if (sync_pb::GetUpdatesCallerInfo::CLEAR_PRIVATE_DATA == source.first) {
+  if (sync_pb::GetUpdatesCallerInfo::CLEAR_PRIVATE_DATA ==
+      source.updates_source) {
     SyncShare(session, CLEAR_PRIVATE_DATA, SYNCER_END);
     return;
   } else {
-    // This isn't perfect, as we can end up bundling extensions activity
-    // intended for the next session into the current one.  We could do a
-    // test-and-reset as with the source, but note that also falls short if
-    // the commit request fails (e.g. due to lost connection), as we will
-    // fall all the way back to the syncer thread main loop in that case, and
-    // wind up creating a new session when a connection is established, losing
-    // the records set here on the original attempt.  This should provide us
-    // with the right data "most of the time", and we're only using this for
-    // analysis purposes, so Law of Large Numbers FTW.
-    session->context()->extensions_monitor()->GetAndClearRecords(
-        session->mutable_extensions_activity());
     SyncShare(session, SYNCER_BEGIN, SYNCER_END);
   }
 }
@@ -100,6 +90,11 @@ void Syncer::SyncShare(sessions::SyncSession* session) {
 void Syncer::SyncShare(sessions::SyncSession* session,
                        const SyncerStep first_step,
                        const SyncerStep last_step) {
+  ScopedDirLookup dir(session->context()->directory_manager(),
+                      session->context()->account_name());
+  // The directory must be good here.
+  CHECK(dir.good());
+
   ScopedSessionContextConflictResolver scoped(session->context(),
                                               &resolver_);
   SyncerStep current_step = first_step;
@@ -109,6 +104,17 @@ void Syncer::SyncShare(sessions::SyncSession* session,
     switch (current_step) {
       case SYNCER_BEGIN:
         VLOG(1) << "Syncer Begin";
+        // This isn't perfect, as we can end up bundling extensions activity
+        // intended for the next session into the current one.  We could do a
+        // test-and-reset as with the source, but note that also falls short if
+        // the commit request fails (e.g. due to lost connection), as we will
+        // fall all the way back to the syncer thread main loop in that case,
+        // creating a new session when a connection is established, losing the
+        // records set here on the original attempt.  This should provide us
+        // with the right data "most of the time", and we're only using this
+        // for analysis purposes, so Law of Large Numbers FTW.
+        session->context()->extensions_monitor()->GetAndClearRecords(
+            session->mutable_extensions_activity());
         next_step = CLEANUP_DISABLED_TYPES;
         break;
       case CLEANUP_DISABLED_TYPES: {
@@ -182,7 +188,8 @@ void Syncer::SyncShare(sessions::SyncSession* session,
         sessions::ScopedSetSessionWriteTransaction set_trans(session, &trans);
 
         VLOG(1) << "Getting the Commit IDs";
-        GetCommitIdsCommand get_commit_ids_command(max_commit_batch_size_);
+        GetCommitIdsCommand get_commit_ids_command(
+            session->context()->max_commit_batch_size());
         get_commit_ids_command.Execute(session);
 
         if (!session->status_controller()->commit_ids().empty()) {
@@ -288,8 +295,10 @@ void Syncer::ProcessClientCommand(sessions::SyncSession* session) {
   const ClientCommand& command = response.client_command();
 
   // The server limits the number of items a client can commit in one batch.
-  if (command.has_max_commit_batch_size())
-    max_commit_batch_size_ = command.max_commit_batch_size();
+  if (command.has_max_commit_batch_size()) {
+    session->context()->set_max_commit_batch_size(
+        command.max_commit_batch_size());
+  }
   if (command.has_set_sync_long_poll_interval()) {
     session->delegate()->OnReceivedLongPollIntervalUpdate(
         TimeDelta::FromSeconds(command.set_sync_long_poll_interval()));

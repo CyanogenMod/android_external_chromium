@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,6 @@
 #include <set>
 #include <sstream>
 
-#include "app/app_switches.h"
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/environment.h"
 #include "base/file_util.h"
 #include "base/path_service.h"
@@ -32,11 +29,10 @@
 #include "chrome/browser/process_singleton.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_model.h"
-#include "chrome/browser/views/first_run_search_engine_view.h"
+#include "chrome/browser/ui/views/first_run_search_engine_view.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/common/worker_thread_ticker.h"
 #include "chrome/installer/util/browser_distribution.h"
 #include "chrome/installer/util/google_update_constants.h"
@@ -54,11 +50,14 @@
 #include "views/controls/image_view.h"
 #include "views/controls/link.h"
 #include "views/focus/accelerator_handler.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/root_view.h"
 #include "views/widget/widget_win.h"
 #include "views/window/window.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/ui_base_switches.h"
 
 namespace {
 
@@ -279,8 +278,10 @@ bool Upgrade::SwapNewChromeExeIfPresent() {
   BrowserDistribution *dist = BrowserDistribution::GetDistribution();
   base::win::RegKey key;
   std::wstring rename_cmd;
-  if (key.Open(reg_root, dist->GetVersionKey().c_str(), KEY_READ) &&
-      key.ReadValue(google_update::kRegRenameCmdField, &rename_cmd)) {
+  if ((key.Open(reg_root, dist->GetVersionKey().c_str(),
+                KEY_READ) == ERROR_SUCCESS) &&
+      (key.ReadValue(google_update::kRegRenameCmdField,
+                     &rename_cmd) == ERROR_SUCCESS)) {
     base::ProcessHandle handle;
     if (base::LaunchApp(rename_cmd, true, true, &handle)) {
       DWORD exit_code;
@@ -523,10 +524,11 @@ bool FirstRun::ImportSettings(Profile* profile, int browser_type,
 // static
 bool FirstRun::ImportSettings(Profile* profile,
                               scoped_refptr<ImporterHost> importer_host,
+                              scoped_refptr<ImporterList> importer_list,
                               int items_to_import) {
   return ImportSettings(
       profile,
-      importer_host->GetSourceProfileInfoAt(0).browser_type,
+      importer_list->GetSourceProfileInfoAt(0).browser_type,
       items_to_import,
       FilePath(), false, NULL);
 }
@@ -547,8 +549,11 @@ int FirstRun::ImportFromBrowser(Profile* profile,
     NOTREACHED();
     return false;
   }
-  scoped_refptr<ImporterHost> importer_host = new ImporterHost();
+  scoped_refptr<ImporterHost> importer_host(new ImporterHost);
   FirstRunImportObserver observer;
+
+  scoped_refptr<ImporterList> importer_list(new ImporterList);
+  importer_list->DetectSourceProfilesHack();
 
   // If |skip_first_run_ui|, we run in headless mode.  This means that if
   // there is user action required the import is automatically canceled.
@@ -559,7 +564,7 @@ int FirstRun::ImportFromBrowser(Profile* profile,
       parent_window,
       static_cast<uint16>(items_to_import),
       importer_host,
-      importer_host->GetSourceProfileInfoForBrowserType(browser_type),
+      importer_list->GetSourceProfileInfoForBrowserType(browser_type),
       profile,
       &observer,
       true);
@@ -641,7 +646,7 @@ class TryChromeDialog : public views::ButtonListener,
     root_view->set_background(
         views::Background::CreateSolidBackground(0xfc, 0xfc, 0xfc));
 
-    views::GridLayout* layout = CreatePanelGridLayout(root_view);
+    views::GridLayout* layout = views::GridLayout::CreatePanel(root_view);
     if (!layout) {
       NOTREACHED();
       return Upgrade::TD_DIALOG_ERROR;
@@ -654,7 +659,7 @@ class TryChromeDialog : public views::ButtonListener,
     columns->AddColumn(GridLayout::LEADING, GridLayout::LEADING, 0,
                        GridLayout::FIXED, icon_size.width(),
                        icon_size.height());
-    columns->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+    columns->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
     columns->AddColumn(GridLayout::FILL, GridLayout::FILL, 1,
                        GridLayout::USE_PREF, 0, 0);
     columns->AddColumn(GridLayout::TRAILING, GridLayout::FILL, 1,
@@ -662,28 +667,28 @@ class TryChromeDialog : public views::ButtonListener,
     // Second row: [pad][pad][radio 1].
     columns = layout->AddColumnSet(1);
     columns->AddPaddingColumn(0, icon_size.width());
-    columns->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+    columns->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
     columns->AddColumn(GridLayout::LEADING, GridLayout::FILL, 1,
                        GridLayout::USE_PREF, 0, 0);
     // Third row: [pad][pad][radio 2].
     columns = layout->AddColumnSet(2);
     columns->AddPaddingColumn(0, icon_size.width());
-    columns->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+    columns->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
     columns->AddColumn(GridLayout::LEADING, GridLayout::FILL, 1,
                        GridLayout::USE_PREF, 0, 0);
     // Fourth row: [pad][pad][button][pad][button].
     columns = layout->AddColumnSet(3);
     columns->AddPaddingColumn(0, icon_size.width());
-    columns->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+    columns->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
     columns->AddColumn(GridLayout::LEADING, GridLayout::FILL, 0,
                        GridLayout::USE_PREF, 0, 0);
-    columns->AddPaddingColumn(0, kRelatedButtonHSpacing);
+    columns->AddPaddingColumn(0, views::kRelatedButtonHSpacing);
     columns->AddColumn(GridLayout::LEADING, GridLayout::FILL, 0,
                        GridLayout::USE_PREF, 0, 0);
     // Fifth row: [pad][pad][link].
     columns = layout->AddColumnSet(4);
     columns->AddPaddingColumn(0, icon_size.width());
-    columns->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+    columns->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
     columns->AddColumn(GridLayout::LEADING, GridLayout::FILL, 1,
                        GridLayout::USE_PREF, 0, 0);
     // First row views.

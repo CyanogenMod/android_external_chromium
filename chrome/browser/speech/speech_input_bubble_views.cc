@@ -1,25 +1,24 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/speech/speech_input_bubble.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/message_loop.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
-#include "chrome/browser/ui/browser.h"
-#include "chrome/browser/views/info_bubble.h"
-#include "gfx/canvas.h"
+#include "chrome/browser/ui/views/info_bubble.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
 #include "views/controls/button/native_button.h"
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
-#include "views/standard_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/view.h"
 
 namespace {
@@ -130,7 +129,7 @@ gfx::Size ContentView::GetPreferredSize() {
   int width = heading_->GetPreferredSize().width();
   int control_width = cancel_->GetPreferredSize().width() +
                       try_again_->GetPreferredSize().width() +
-                      kRelatedButtonHSpacing;
+                      views::kRelatedButtonHSpacing;
   if (control_width > width)
     width = control_width;
   control_width = icon_->GetPreferredSize().width();
@@ -165,9 +164,9 @@ void ContentView::Layout() {
     int cancel_width = cancel_->GetPreferredSize().width();
     y += available_height - height;
     x += (available_width - cancel_width - try_again_width -
-          kRelatedButtonHSpacing) / 2;
+          views::kRelatedButtonHSpacing) / 2;
     try_again_->SetBounds(x, y, try_again_width, height);
-    cancel_->SetBounds(x + try_again_width + kRelatedButtonHSpacing, y,
+    cancel_->SetBounds(x + try_again_width + views::kRelatedButtonHSpacing, y,
                        cancel_width, height);
 
     height = message_->GetHeightForWidth(available_width);

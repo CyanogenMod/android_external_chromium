@@ -4,7 +4,8 @@
 
 #include "chrome/browser/content_settings/policy_content_settings_provider.h"
 
-#include "chrome/browser/content_settings/host_content_settings_map_unittest.h"
+#include "chrome/browser/browser_thread.h"
+#include "chrome/browser/content_settings/stub_settings_observer.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -13,11 +14,11 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 
-namespace {
+namespace content_settings {
 
-class PolicyContentSettingsProviderTest : public testing::Test {
+class PolicyDefaultProviderTest : public testing::Test {
  public:
-  PolicyContentSettingsProviderTest()
+  PolicyDefaultProviderTest()
       : ui_thread_(BrowserThread::UI, &message_loop_) {
   }
 
@@ -26,22 +27,18 @@ class PolicyContentSettingsProviderTest : public testing::Test {
   BrowserThread ui_thread_;
 };
 
-TEST_F(PolicyContentSettingsProviderTest, DefaultValues) {
+TEST_F(PolicyDefaultProviderTest, DefaultValues) {
   TestingProfile profile;
-  PolicyContentSettingsProvider provider(&profile);
+  PolicyDefaultProvider provider(&profile);
   TestingPrefService* prefs = profile.GetTestingPrefService();
 
   // By default, policies should be off.
-  ASSERT_FALSE(
-      provider.CanProvideDefaultSetting(CONTENT_SETTINGS_TYPE_COOKIES));
   ASSERT_FALSE(
       provider.DefaultSettingIsManaged(CONTENT_SETTINGS_TYPE_COOKIES));
 
   // Set managed-default-content-setting through the coresponding preferences.
   prefs->SetManagedPref(prefs::kManagedDefaultCookiesSetting,
                         Value::CreateIntegerValue(CONTENT_SETTING_BLOCK));
-  ASSERT_TRUE(
-      provider.CanProvideDefaultSetting(CONTENT_SETTINGS_TYPE_COOKIES));
   ASSERT_TRUE(
       provider.DefaultSettingIsManaged(CONTENT_SETTINGS_TYPE_COOKIES));
   ASSERT_EQ(CONTENT_SETTING_BLOCK,
@@ -50,15 +47,13 @@ TEST_F(PolicyContentSettingsProviderTest, DefaultValues) {
   // Remove managed-default-content-settings-preferences.
   prefs->RemoveManagedPref(prefs::kManagedDefaultCookiesSetting);
   ASSERT_FALSE(
-      provider.CanProvideDefaultSetting(CONTENT_SETTINGS_TYPE_COOKIES));
-  ASSERT_FALSE(
       provider.DefaultSettingIsManaged(CONTENT_SETTINGS_TYPE_COOKIES));
 }
 
 // When a default-content-setting is set to a managed setting a
 // CONTENT_SETTINGS_CHANGED notification should be fired. The same should happen
 // if the managed setting is removed.
-TEST_F(PolicyContentSettingsProviderTest, ObserveManagedSettingsChange) {
+TEST_F(PolicyDefaultProviderTest, ObserveManagedSettingsChange) {
   TestingProfile profile;
   StubSettingsObserver observer;
   // Make sure the content settings map exists.
@@ -85,4 +80,4 @@ TEST_F(PolicyContentSettingsProviderTest, ObserveManagedSettingsChange) {
   EXPECT_EQ(2, observer.counter);
 }
 
-}  // namespace
+}  // namespace content_settings

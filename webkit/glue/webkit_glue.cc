@@ -26,20 +26,20 @@
 #include "skia/ext/skia_utils_mac.h"
 #endif
 #include "third_party/skia/include/core/SkBitmap.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebData.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebDocument.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebElement.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebFrame.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebGlyphCache.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebHistoryItem.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebImage.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebKit.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebSize.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebString.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebVector.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebView.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebData.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebDocument.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebElement.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebFrame.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebGlyphCache.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebHistoryItem.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebImage.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebKit.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebSize.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebString.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebVector.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebView.h"
 #if defined(OS_WIN)
-#include "third_party/WebKit/WebKit/chromium/public/win/WebInputEventFactory.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/win/WebInputEventFactory.h"
 #endif
 #include "webkit/glue/glue_serialize.h"
 #include "webkit/glue/user_agent.h"
@@ -238,21 +238,6 @@ string16 DumpHistoryState(const std::string& history_state, int indent,
   return UTF8ToUTF16(
       DumpHistoryItem(HistoryItemFromString(history_state), indent,
                       is_current));
-}
-
-void ResetBeforeTestRun(WebView* view) {
-  WebFrame* web_frame = view->mainFrame();
-
-  // Reset the main frame name since tests always expect it to be empty.  It
-  // is normally not reset between page loads (even in IE and FF).
-  if (web_frame)
-    web_frame->setName(WebString());
-
-#if defined(OS_WIN)
-  // Reset the last click information so the clicks generated from previous
-  // test aren't inherited (otherwise can mistake single/double/triple clicks)
-  WebKit::WebInputEventFactory::resetLastClickState();
-#endif
 }
 
 #ifndef NDEBUG

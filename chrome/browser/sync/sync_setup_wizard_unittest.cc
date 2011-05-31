@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -60,7 +60,8 @@ class ProfileSyncServiceForWizardTest : public ProfileSyncService {
   }
 
   virtual void SetPassphrase(const std::string& passphrase,
-                             bool is_explicit) {
+                             bool is_explicit,
+                             bool is_creation) {
     passphrase_ = passphrase;
   }
 
@@ -125,11 +126,11 @@ class TestBrowserWindowForWizardTest : public TestBrowserWindow {
 
   virtual ~TestBrowserWindowForWizardTest() {
     if (flow_.get()) {
-      // In real life, the handlers are destroyed by the DOMUI infrastructure,
-      // which calls GetDOMMessageHandlers to take ownership.  This does not
+      // In real life, the handlers are destroyed by the WebUI infrastructure,
+      // which calls GetWebUIMessageHandlers to take ownership.  This does not
       // exist in our test, so we perform cleanup manually.
-      std::vector<DOMMessageHandler*> handlers;
-      flow_->GetDOMMessageHandlers(&handlers);
+      std::vector<WebUIMessageHandler*> handlers;
+      flow_->GetWebUIMessageHandlers(&handlers);
       // The handler contract is that they are valid for the lifetime of the
       // HTMLDialogUIDelegate, but are cleaned up after the dialog is closed
       // and/or deleted.
@@ -156,8 +157,8 @@ class TestBrowserWindowForWizardTest : public TestBrowserWindow {
   // Handles cleaning up the delegate and associated handlers.
   void CloseDialog() {
     if (flow_.get()) {
-      std::vector<DOMMessageHandler*> handlers;
-      flow_->GetDOMMessageHandlers(&handlers);
+      std::vector<WebUIMessageHandler*> handlers;
+      flow_->GetWebUIMessageHandlers(&handlers);
       // The flow deletes itself here.  Don't use reset().
       flow_.release()->OnDialogClosed("");
       STLDeleteElements(&handlers);

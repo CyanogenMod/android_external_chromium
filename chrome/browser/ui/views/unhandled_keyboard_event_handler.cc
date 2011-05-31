@@ -1,8 +1,8 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/unhandled_keyboard_event_handler.h"
+#include "chrome/browser/ui/views/unhandled_keyboard_event_handler.h"
 
 #include "base/logging.h"
 #include "views/focus/focus_manager.h"
@@ -34,7 +34,7 @@ void UnhandledKeyboardEventHandler::HandleKeyboardEvent(
 
   if (event.type == WebKit::WebInputEvent::RawKeyDown) {
     views::Accelerator accelerator(
-        static_cast<app::KeyboardCode>(event.windowsKeyCode),
+        static_cast<ui::KeyboardCode>(event.windowsKeyCode),
         (event.modifiers & NativeWebKeyboardEvent::ShiftKey) ==
             NativeWebKeyboardEvent::ShiftKey,
         (event.modifiers & NativeWebKeyboardEvent::ControlKey) ==

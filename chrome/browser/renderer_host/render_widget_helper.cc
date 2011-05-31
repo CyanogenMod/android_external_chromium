@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -102,7 +102,7 @@ bool RenderWidgetHelper::WaitForUpdateMsg(int render_widget_id,
   for (;;) {
     UpdateMsgProxy* proxy = NULL;
     {
-      AutoLock lock(pending_paints_lock_);
+      base::AutoLock lock(pending_paints_lock_);
 
       UpdateMsgProxyMap::iterator it = pending_paints_.find(render_widget_id);
       if (it != pending_paints_.end()) {
@@ -139,9 +139,17 @@ void RenderWidgetHelper::DidReceiveUpdateMsg(const IPC::Message& msg) {
 
   UpdateMsgProxy* proxy = NULL;
   {
-    AutoLock lock(pending_paints_lock_);
+    base::AutoLock lock(pending_paints_lock_);
 
-    UpdateMsgProxyMap::value_type new_value(render_widget_id, NULL);
+    // Visual Studio 2010 has problems converting NULL to the null pointer for
+    // std::pair.  See http://connect.microsoft.com/VisualStudio/feedback/details/520043/error-converting-from-null-to-a-pointer-type-in-std-pair
+    // It will work if we pass nullptr.
+#if defined(_MSC_VER) && _MSC_VER >= 1600
+    RenderWidgetHelper::UpdateMsgProxy* null_proxy = nullptr;
+#else
+    RenderWidgetHelper::UpdateMsgProxy* null_proxy = NULL;
+#endif
+    UpdateMsgProxyMap::value_type new_value(render_widget_id, null_proxy);
 
     // We expect only a single PaintRect message at a time.  Optimize for the
     // case that we don't already have an entry by using the 'insert' method.
@@ -169,7 +177,7 @@ void RenderWidgetHelper::OnDiscardUpdateMsg(UpdateMsgProxy* proxy) {
 
   // Remove the proxy from the map now that we are going to handle it normally.
   {
-    AutoLock lock(pending_paints_lock_);
+    base::AutoLock lock(pending_paints_lock_);
 
     UpdateMsgProxyMap::iterator it = pending_paints_.find(msg.routing_id());
     DCHECK(it != pending_paints_.end());
@@ -200,10 +208,7 @@ void RenderWidgetHelper::OnCrossSiteClosePageACK(
 }
 
 void RenderWidgetHelper::CreateNewWindow(
-    int opener_id,
-    bool user_gesture,
-    WindowContainerType window_container_type,
-    const string16& frame_name,
+    const ViewHostMsg_CreateWindow_Params& params,
     base::ProcessHandle render_process,
     int* route_id) {
   *route_id = GetNextRoutingID();
@@ -215,18 +220,16 @@ void RenderWidgetHelper::CreateNewWindow(
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(
-          this, &RenderWidgetHelper::OnCreateWindowOnUI, opener_id, *route_id,
-          window_container_type, frame_name));
+          this, &RenderWidgetHelper::OnCreateWindowOnUI, params, *route_id));
 }
 
 void RenderWidgetHelper::OnCreateWindowOnUI(
-    int opener_id,
-    int route_id,
-    WindowContainerType window_container_type,
-    string16 frame_name) {
-  RenderViewHost* host = RenderViewHost::FromID(render_process_id_, opener_id);
+    const ViewHostMsg_CreateWindow_Params& params,
+    int route_id) {
+  RenderViewHost* host =
+      RenderViewHost::FromID(render_process_id_, params.opener_id);
   if (host)
-    host->CreateNewWindow(route_id, window_container_type, frame_name);
+    host->CreateNewWindow(route_id, params);
 
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
@@ -250,14 +253,14 @@ void RenderWidgetHelper::CreateNewWidget(int opener_id,
           popup_type));
 }
 
-void RenderWidgetHelper::CreateNewFullscreenWidget(
-    int opener_id, WebKit::WebPopupType popup_type, int* route_id) {
+void RenderWidgetHelper::CreateNewFullscreenWidget(int opener_id,
+                                                   int* route_id) {
   *route_id = GetNextRoutingID();
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(
           this, &RenderWidgetHelper::OnCreateFullscreenWidgetOnUI,
-          opener_id, *route_id, popup_type));
+          opener_id, *route_id));
 }
 
 void RenderWidgetHelper::OnCreateWidgetOnUI(
@@ -267,16 +270,16 @@ void RenderWidgetHelper::OnCreateWidgetOnUI(
     host->CreateNewWidget(route_id, popup_type);
 }
 
-void RenderWidgetHelper::OnCreateFullscreenWidgetOnUI(
-    int opener_id, int route_id, WebKit::WebPopupType popup_type) {
+void RenderWidgetHelper::OnCreateFullscreenWidgetOnUI(int opener_id,
+                                                      int route_id) {
   RenderViewHost* host = RenderViewHost::FromID(render_process_id_, opener_id);
   if (host)
-    host->CreateNewFullscreenWidget(route_id, popup_type);
+    host->CreateNewFullscreenWidget(route_id);
 }
 
 #if defined(OS_MACOSX)
 TransportDIB* RenderWidgetHelper::MapTransportDIB(TransportDIB::Id dib_id) {
-  AutoLock locked(allocated_dibs_lock_);
+  base::AutoLock locked(allocated_dibs_lock_);
 
   const std::map<TransportDIB::Id, int>::iterator
       i = allocated_dibs_.find(dib_id);
@@ -300,13 +303,13 @@ void RenderWidgetHelper::AllocTransportDIB(
 
   if (cache_in_browser) {
     // Keep a copy of the file descriptor around
-    AutoLock locked(allocated_dibs_lock_);
+    base::AutoLock locked(allocated_dibs_lock_);
     allocated_dibs_[shared_memory->id()] = dup(result->fd);
   }
 }
 
 void RenderWidgetHelper::FreeTransportDIB(TransportDIB::Id dib_id) {
-  AutoLock locked(allocated_dibs_lock_);
+  base::AutoLock locked(allocated_dibs_lock_);
 
   const std::map<TransportDIB::Id, int>::iterator
     i = allocated_dibs_.find(dib_id);

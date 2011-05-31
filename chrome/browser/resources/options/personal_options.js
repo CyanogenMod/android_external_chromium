@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,8 @@ cr.define('options', function() {
    * @constructor
    */
   function PersonalOptions() {
-    OptionsPage.call(this, 'personal', templateData.personalPage,
+    OptionsPage.call(this, 'personal',
+                     templateData.personalPageTabTitle,
                      'personal-page');
   }
 
@@ -32,7 +33,7 @@ cr.define('options', function() {
 
       var self = this;
       $('sync-action-link').onclick = function(event) {
-        chrome.send('showSyncLoginDialog');
+        chrome.send('showSyncActionDialog');
       };
       $('start-stop-sync').onclick = function(event) {
         if (self.syncSetupCompleted)
@@ -40,17 +41,20 @@ cr.define('options', function() {
         else
           chrome.send('showSyncLoginDialog');
       };
+      $('customize-sync').onclick = function(event) {
+        chrome.send('showCustomizeSyncDialog');
+      };
       $('privacy-dashboard-link').onclick = function(event) {
         chrome.send('openPrivacyDashboardTabAndActivate');
       };
       $('manage-passwords').onclick = function(event) {
-        OptionsPage.showPageByName('passwordManager');
+        OptionsPage.navigateToPage('passwordManager');
         OptionsPage.showTab($('passwords-nav-tab'));
         chrome.send('coreOptionsUserMetricsAction',
             ['Options_ShowPasswordManager']);
       };
       $('autofill-settings').onclick = function(event) {
-        OptionsPage.showPageByName('autoFillOptions');
+        OptionsPage.navigateToPage('autoFillOptions');
         chrome.send('coreOptionsUserMetricsAction',
             ['Options_ShowAutoFillSettings']);
       };
@@ -58,23 +62,9 @@ cr.define('options', function() {
         chrome.send('themesReset');
       };
 
-      // Initialize sync select control.
-      $('sync-select').onchange = function(event) {
-        self.updateSyncSelection_();
-      }
-
-      var syncCheckboxes = $('sync-table').getElementsByTagName('input');
-      for (var i = 0; i < syncCheckboxes.length; i++) {
-        if (syncCheckboxes[i].type == "checkbox") {
-          syncCheckboxes[i].onclick = function(event) {
-            chrome.send('updatePreferredDataTypes');
-          };
-        }
-      }
-
       if (!cr.isChromeOS) {
         $('import-data').onclick = function(event) {
-          OptionsPage.showOverlay('importDataOverlay');
+          OptionsPage.navigateToPage('importDataOverlay');
           chrome.send('coreOptionsUserMetricsAction', ['Import_ShowDlg']);
         };
 
@@ -87,31 +77,17 @@ cr.define('options', function() {
         chrome.send('loadAccountPicture');
       }
 
-      // Disable the screen lock checkbox for the guest mode.
-      if (cr.commandLine.options['--bwsi'])
+      if (cr.commandLine.options['--bwsi']) {
+        // Disable the screen lock checkbox for the guest mode.
         $('enable-screen-lock').disabled = true;
-    },
+      }
 
-    /**
-     * Updates the sync datatype checkboxes based on the selected sync option.
-     * @private
-     */
-    updateSyncSelection_: function() {
-      var idx = $('sync-select').selectedIndex;
-      var syncCheckboxes = $('sync-table').getElementsByTagName('input');
-      if (idx == 0) {
-        for (var i = 0; i < syncCheckboxes.length; i++) {
-          syncCheckboxes[i].disabled = false;
-        }
-      } else if (idx == 1) {
-        for (var i = 0; i < syncCheckboxes.length; i++) {
-          // Merely setting checked = true is not enough to trigger the pref
-          // being set; thus, we simulate the click.
-          if (!syncCheckboxes[i].checked)
-            syncCheckboxes[i].click();
-
-          syncCheckboxes[i].disabled = true;
-        }
+      if (PersonalOptions.disablePasswordManagement()) {
+        $('passwords-offersave').disabled = true;
+        $('passwords-neversave').disabled = true;
+        $('passwords-offersave').value = false;
+        $('passwords-neversave').value = true;
+        $('manage-passwords').disabled = true;
       }
     },
 
@@ -130,17 +106,13 @@ cr.define('options', function() {
         element.classList.add('hidden');
     },
 
-    setElementClassSyncError_: function(element, visible) {
-      visible ? element.classList.add('sync-error') :
-                element.classList.remove('sync-error');
-    },
-
     setSyncEnabled_: function(enabled) {
       this.syncEnabled = enabled;
     },
 
     setSyncSetupCompleted_: function(completed) {
       this.syncSetupCompleted = completed;
+      this.setElementVisible_($('customize-sync'), completed);
     },
 
     setAccountPicture_: function(image) {
@@ -148,15 +120,12 @@ cr.define('options', function() {
     },
 
     setSyncStatus_: function(status) {
-      $('sync-status').textContent = status;
+      $('sync-status-text').textContent = status;
     },
 
     setSyncStatusErrorVisible_: function(visible) {
-      this.setElementClassSyncError_($('sync-status'), visible);
-    },
-
-    setSyncActionLinkErrorVisible_: function(visible) {
-      this.setElementClassSyncError_($('sync-action-link'), visible);
+      visible ? $('sync-status').classList.add('sync-error') :
+                $('sync-status').classList.remove('sync-error');
     },
 
     setSyncActionLinkEnabled_: function(enabled) {
@@ -216,6 +185,15 @@ cr.define('options', function() {
     },
   };
 
+  /**
+   * Returns whether the user should be able to manage (view and edit) their
+   * stored passwords. Password management is disabled in guest mode.
+   * @return {boolean} True if password management should be disabled.
+   */
+  PersonalOptions.disablePasswordManagement = function() {
+    return cr.commandLine.options['--bwsi'];
+  };
+
   // Forward public APIs to private implementations.
   [
     'setSyncEnabled',
@@ -223,7 +201,6 @@ cr.define('options', function() {
     'setAccountPicture',
     'setSyncStatus',
     'setSyncStatusErrorVisible',
-    'setSyncActionLinkErrorVisible',
     'setSyncActionLinkEnabled',
     'setSyncActionLinkLabel',
     'setStartStopButtonVisible',

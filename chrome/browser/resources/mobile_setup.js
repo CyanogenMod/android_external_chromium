@@ -10,16 +10,22 @@ cr.define('mobile', function() {
 
   cr.addSingletonGetter(MobileSetup);
 
-  MobileSetup.PLAN_ACTIVATION_LOADING = -1;
-  MobileSetup.PLAN_ACTIVATION_START = 0;
-  MobileSetup.PLAN_ACTIVATION_INITIATING_ACTIVATION = 1;
-  MobileSetup.PLAN_ACTIVATION_RECONNECTING = 2;
-  MobileSetup.PLAN_ACTIVATION_SHOWING_PAYMENT = 3;
-  MobileSetup.PLAN_ACTIVATION_DONE = 4;
-  MobileSetup.PLAN_ACTIVATION_ERROR = 5;
+  MobileSetup.PLAN_ACTIVATION_PAGE_LOADING            = -1;
+  MobileSetup.PLAN_ACTIVATION_START                   = 0;
+  MobileSetup.PLAN_ACTIVATION_TRYING_OTASP            = 1;
+  MobileSetup.PLAN_ACTIVATION_RECONNECTING_OTASP_TRY  = 2;
+  MobileSetup.PLAN_ACTIVATION_INITIATING_ACTIVATION   = 3;
+  MobileSetup.PLAN_ACTIVATION_RECONNECTING            = 4;
+  MobileSetup.PLAN_ACTIVATION_SHOWING_PAYMENT         = 5;
+  MobileSetup.PLAN_ACTIVATION_DELAY_OTASP             = 6;
+  MobileSetup.PLAN_ACTIVATION_START_OTASP             = 7;
+  MobileSetup.PLAN_ACTIVATION_OTASP                   = 8;
+  MobileSetup.PLAN_ACTIVATION_RECONNECTING_OTASP      = 9;
+  MobileSetup.PLAN_ACTIVATION_DONE                    = 10;
+  MobileSetup.PLAN_ACTIVATION_ERROR                   = 0xFF;
 
   MobileSetup.ACTIVATION_PAGE_URL =
-    'file:///usr/share/chromeos-assets/mobile/activation.html';
+    'chrome-extension://iadeocfgjdjdmpenejdbfeaocpbikmab/activation.html';
 
   MobileSetup.localStrings_ = new LocalStrings();
 
@@ -29,6 +35,7 @@ cr.define('mobile', function() {
     frameName_ : '',
     initialized_ : false,
     faked_transaction_ : false,
+    payment_shown_ : false,
     // UI states.
     state_ : -1,
     STATE_UNKNOWN_: "unknown",
@@ -50,18 +57,15 @@ cr.define('mobile', function() {
           self.onMessageReceived_(e);
       });
       $('closeButton').addEventListener('click', function(e) {
-          $('finalMessage').classList.add('hidden');
+          $('finalStatus').classList.add('hidden');
       });
-      $('carrierPage').contentWindow.location.href =
-          carrierPage;
       $(frame_name).addEventListener('load', function(e) {
         // Flip the visibility of the payment page only after the frame is
         // fully loaded.
         if (self.state_ == MobileSetup.PLAN_ACTIVATION_SHOWING_PAYMENT) {
           $('statusHeader').textContent = '';
           $('auxHeader').textContent = '';
-          $('finalMessage').classList.add('hidden');
-          $('errorMessage').classList.add('hidden');
+          $('finalStatus').classList.add('hidden');
           $('systemStatus').classList.add('hidden');
           $('canvas').classList.add('hidden');
           $('carrierPage').classList.add('hidden');
@@ -69,7 +73,7 @@ cr.define('mobile', function() {
         }
       });
 
-      this.changeState_(MobileSetup.PLAN_ACTIVATION_LOADING);
+      this.changeState_({state: MobileSetup.PLAN_ACTIVATION_PAGE_LOADING});
       setInterval(mobile.MobileSetup.drawProgress, 100);
       // Kick off activation process.
       chrome.send('startActivation', []);
@@ -105,30 +109,32 @@ cr.define('mobile', function() {
       var main = $('mainbody');
       // Map handler state to UX.
       switch(new_state) {
-        case MobileSetup.PLAN_ACTIVATION_LOADING:
+        case MobileSetup.PLAN_ACTIVATION_PAGE_LOADING:
         case MobileSetup.PLAN_ACTIVATION_START:
+        case MobileSetup.PLAN_ACTIVATION_DELAY_OTASP:
+        case MobileSetup.PLAN_ACTIVATION_START_OTASP:
         case MobileSetup.PLAN_ACTIVATION_RECONNECTING:
+        case MobileSetup.PLAN_ACTIVATION_RECONNECTING_OTASP_TRY:
+        case MobileSetup.PLAN_ACTIVATION_RECONNECTING_OTASP:
           $('statusHeader').textContent =
               MobileSetup.localStrings_.getString('connecting_header');
           $('auxHeader').textContent =
               MobileSetup.localStrings_.getString('please_wait');
-          $('errorMessage').textContent = '';
           $('paymentForm').classList.add('hidden');
-          $('finalMessage').classList.add('hidden');
-          $('errorMessage').classList.add('hidden');
+          $('finalStatus').classList.add('hidden');
           $('systemStatus').classList.remove('hidden');
           $('canvas').classList.remove('hidden');
           $('carrierPage').classList.remove('hidden');
           break;
+        case MobileSetup.PLAN_ACTIVATION_TRYING_OTASP:
         case MobileSetup.PLAN_ACTIVATION_INITIATING_ACTIVATION:
+        case MobileSetup.PLAN_ACTIVATION_OTASP:
           $('statusHeader').textContent =
               MobileSetup.localStrings_.getString('activating_header');
           $('auxHeader').textContent =
               MobileSetup.localStrings_.getString('please_wait');
-          $('errorMessage').textContent = '';
           $('paymentForm').classList.add('hidden');
-          $('finalMessage').classList.add('hidden');
-          $('errorMessage').classList.add('hidden');
+          $('finalStatus').classList.add('hidden');
           $('systemStatus').classList.remove('hidden');
           $('canvas').classList.remove('hidden');
           $('carrierPage').classList.remove('hidden');
@@ -138,33 +144,45 @@ cr.define('mobile', function() {
               MobileSetup.localStrings_.getString('connecting_header');
           $('auxHeader').textContent = '';
           $('paymentForm').classList.add('hidden');
-          $('finalMessage').classList.add('hidden');
-          $('errorMessage').classList.add('hidden');
+          $('finalStatus').classList.add('hidden');
           $('systemStatus').classList.remove('hidden');
           $('canvas').classList.remove('hidden');
           this.loadPaymentFrame_(deviceInfo);
+          this.payment_shown_ = true;
           break;
         case MobileSetup.PLAN_ACTIVATION_DONE:
           $('statusHeader').textContent = '';
           $('auxHeader').textContent = '';
-          $('errorMessage').classList.add('hidden');
+          $('finalHeader').textContent =
+              MobileSetup.localStrings_.getString('completed_header');
+          $('finalMessage').textContent =
+              MobileSetup.localStrings_.getString('completed_text');
           $('systemStatus').classList.add('hidden');
           $('canvas').classList.add('hidden');
           $('carrierPage').classList.add('hidden');
           $('paymentForm').classList.remove('hidden');
-          $('finalMessage').classList.remove('hidden');
+          $('closeButton').classList.remove('hidden');
+          $('finalStatus').classList.remove('hidden');
+          if (this.payment_shown_)
+            $('closeButton').classList.remove('hidden');
+          else
+            $('closeButton').classList.add('hidden');
           break;
         case MobileSetup.PLAN_ACTIVATION_ERROR:
-          $('statusHeader').textContent =
-              MobileSetup.localStrings_.getString('error_header');
+          $('statusHeader').textContent = '';
           $('auxHeader').textContent = '';
-          $('errorMessage').textContent = deviceInfo.error;
-          $('paymentForm').classList.add('hidden');
-          $('finalMessage').classList.add('hidden');
-          $('carrierPage').classList.add('hidden');
+          $('finalHeader').textContent =
+              MobileSetup.localStrings_.getString('error_header');
+          $('finalMessage').textContent = deviceInfo.error;
+          $('systemStatus').classList.add('hidden');
           $('canvas').classList.add('hidden');
-          $('errorMessage').classList.remove('hidden');
-          $('systemStatus').classList.remove('hidden');
+          $('carrierPage').classList.add('hidden');
+          $('paymentForm').classList.remove('hidden');
+          if (this.payment_shown_)
+            $('closeButton').classList.remove('hidden');
+          else
+            $('closeButton').classList.add('hidden');
+          $('finalStatus').classList.remove('hidden');
           break;
       }
       this.state_ = new_state;

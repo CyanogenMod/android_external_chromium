@@ -28,7 +28,6 @@ class InputMethodLibrary {
     // Called when the current input method is changed.
     virtual void InputMethodChanged(
         InputMethodLibrary* obj,
-        const InputMethodDescriptor& previous_input_method,
         const InputMethodDescriptor& current_input_method,
         size_t num_active_input_methods) = 0;
 
@@ -43,6 +42,9 @@ class InputMethodLibrary {
         InputMethodLibrary* obj,
         const InputMethodDescriptor& previous_input_method,
         const InputMethodDescriptor& current_input_method) = 0;
+
+    // Called by AddObserver() when the first observer is added.
+    virtual void FirstObserverIsAdded(InputMethodLibrary* obj) = 0;
   };
   virtual ~InputMethodLibrary() {}
 
@@ -80,20 +82,12 @@ class InputMethodLibrary {
   // Returns true if the input method specified by |input_method_id| is active.
   virtual bool InputMethodIsActivated(const std::string& input_method_id) = 0;
 
-  // Get a configuration of ibus-daemon or IBus engines and stores it on
-  // |out_value|. Returns true if |out_value| is successfully updated.
-  // When you would like to retrieve 'panel/custom_font', |section| should
-  // be "panel", and |config_name| should be "custom_font".
-  virtual bool GetImeConfig(const std::string& section,
-                            const std::string& config_name,
-                            ImeConfigValue* out_value) = 0;
-
   // Updates a configuration of ibus-daemon or IBus engines with |value|.
   // Returns true if the configuration (and all pending configurations, if any)
   // are processed. If ibus-daemon is not running, this function just queues
   // the request and returns false.
-  // You can specify |section| and |config_name| arguments in the same way
-  // as GetImeConfig() above.
+  // When you would like to set 'panel/custom_font', |section| should
+  // be "panel", and |config_name| should be "custom_font".
   // Notice: This function might call the Observer::ActiveInputMethodsChanged()
   // callback function immediately, before returning from the SetImeConfig
   // function. See also http://crosbug.com/5217.
@@ -101,11 +95,16 @@ class InputMethodLibrary {
                             const std::string& config_name,
                             const ImeConfigValue& value) = 0;
 
-  // Sets the IME state to enabled, and launches its processes if needed.
-  virtual void StartInputMethodProcesses() = 0;
+  // Returns the keyboard overlay ID corresponding to |input_method_id|.
+  // Returns an empty string if there is no corresponding keyboard overlay ID.
+  virtual std::string GetKeyboardOverlayId(
+      const std::string& input_method_id) = 0;
 
-  // Disables the IME, and kills the processes if they are running.
-  virtual void StopInputMethodProcesses() = 0;
+  // Sets the IME state to enabled, and launches input method daemon if needed.
+  virtual void StartInputMethodDaemon() = 0;
+
+  // Disables the IME, and kills the daemon process if they are running.
+  virtual void StopInputMethodDaemon() = 0;
 
   // Controls whether the IME process is started when preload engines are
   // specificed, or defered until a non-default method is activated.

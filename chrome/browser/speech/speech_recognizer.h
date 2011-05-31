@@ -11,13 +11,12 @@
 
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
+#include "chrome/browser/speech/audio_encoder.h"
 #include "chrome/browser/speech/endpointer/endpointer.h"
 #include "chrome/browser/speech/speech_recognition_request.h"
 #include "media/audio/audio_input_controller.h"
 
 namespace speech_input {
-
-class SpeexEncoder;
 
 // Records audio, sends recorded audio to server and translates server response
 // to recognition result.
@@ -77,7 +76,8 @@ class SpeechRecognizer
                    int caller_id,
                    const std::string& language,
                    const std::string& grammar,
-                   const std::string& hardware_info);
+                   const std::string& hardware_info,
+                   const std::string& origin_url);
   ~SpeechRecognizer();
 
   // Starts audio recording and does recognition after recording ends. The same
@@ -127,14 +127,12 @@ class SpeechRecognizer
   std::string language_;
   std::string grammar_;
   std::string hardware_info_;
-
-  // Buffer holding the recorded audio. Owns the strings inside the list.
-  typedef std::list<std::string*> AudioBufferQueue;
-  AudioBufferQueue audio_buffers_;
+  std::string origin_url_;
 
   scoped_ptr<SpeechRecognitionRequest> request_;
   scoped_refptr<media::AudioInputController> audio_controller_;
-  scoped_ptr<SpeexEncoder> encoder_;
+  AudioEncoder::Codec codec_;
+  scoped_ptr<AudioEncoder> encoder_;
   Endpointer endpointer_;
   int num_samples_recorded_;
   float audio_level_;

@@ -1,13 +1,12 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/frame/popup_non_client_frame_view.h"
+#include "chrome/browser/ui/views/frame/popup_non_client_frame_view.h"
 
-#include "chrome/browser/views/tabs/base_tab_strip.h"
-#include "gfx/point.h"
-#include "gfx/rect.h"
-#include "gfx/size.h"
+#include "ui/gfx/point.h"
+#include "ui/gfx/rect.h"
+#include "ui/gfx/size.h"
 
 #if defined(OS_LINUX)
 #include "views/window/hit_test.h"
@@ -45,8 +44,8 @@ void PopupNonClientFrameView::ResetWindowControls() {
 }
 
 gfx::Rect PopupNonClientFrameView::GetBoundsForTabStrip(
-    BaseTabStrip* tabstrip) const {
-  return gfx::Rect(0, 0, width(), tabstrip->GetPreferredHeight());
+    views::View* tabstrip) const {
+  return gfx::Rect(0, 0, width(), tabstrip->GetPreferredSize().height());
 }
 
 int PopupNonClientFrameView::GetHorizontalTabStripVerticalOffset(

@@ -6,8 +6,6 @@
 
 #include "chrome/browser/autocomplete/autocomplete_popup_view_mac.h"
 
-#include "app/resource_bundle.h"
-#include "app/text_elider.h"
 #include "base/stl_util-inl.h"
 #include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
@@ -23,11 +21,13 @@
 #import "chrome/browser/ui/cocoa/location_bar/instant_opt_in_controller.h"
 #import "chrome/browser/ui/cocoa/location_bar/instant_opt_in_view.h"
 #import "chrome/browser/ui/cocoa/location_bar/omnibox_popup_view.h"
-#include "gfx/rect.h"
 #include "grit/theme_resources.h"
 #include "skia/ext/skia_utils_mac.h"
 #import "third_party/GTM/AppKit/GTMNSAnimation+Duration.h"
 #import "third_party/GTM/AppKit/GTMNSBezierPath+RoundRect.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/text/text_elider.h"
+#include "ui/gfx/rect.h"
 
 namespace {
 
@@ -102,14 +102,14 @@ static NSColor* URLTextColor() {
 // and description cases.  Returns NSMutableAttributedString as a
 // convenience for MatchText().
 NSMutableAttributedString* AutocompletePopupViewMac::DecorateMatchedString(
-    const std::wstring &matchString,
+    const string16 &matchString,
     const AutocompleteMatch::ACMatchClassifications &classifications,
     NSColor* textColor, NSColor* dimTextColor, gfx::Font& font) {
   // Cache for on-demand computation of the bold version of |font|.
   NSFont* boldFont = nil;
 
   // Start out with a string using the default style info.
-  NSString* s = base::SysWideToNSString(matchString);
+  NSString* s = base::SysUTF16ToNSString(matchString);
   NSDictionary* attributes = [NSDictionary dictionaryWithObjectsAndKeys:
                                   font.GetNativeFont(), NSFontAttributeName,
                                   textColor, NSForegroundColorAttributeName,
@@ -154,7 +154,7 @@ NSMutableAttributedString* AutocompletePopupViewMac::DecorateMatchedString(
 
 NSMutableAttributedString* AutocompletePopupViewMac::ElideString(
     NSMutableAttributedString* aString,
-    const std::wstring originalString,
+    const string16 originalString,
     const gfx::Font& font,
     const float width) {
   // If it already fits, nothing to be done.
@@ -163,8 +163,7 @@ NSMutableAttributedString* AutocompletePopupViewMac::ElideString(
   }
 
   // If ElideText() decides to do nothing, nothing to be done.
-  const std::wstring elided(UTF16ToWideHack(ElideText(
-      WideToUTF16Hack(originalString), font, width, false)));
+  const string16 elided = ui::ElideText(originalString, font, width, false);
   if (0 == elided.compare(originalString)) {
     return aString;
   }
@@ -181,7 +180,7 @@ NSMutableAttributedString* AutocompletePopupViewMac::ElideString(
   DCHECK(0 != elided.compare(0, i, originalString));
 
   // Replace the end of |aString| with the ellipses from |elided|.
-  NSString* s = base::SysWideToNSString(elided.substr(i));
+  NSString* s = base::SysUTF16ToNSString(elided.substr(i));
   [aString replaceCharactersInRange:NSMakeRange(i, [aString length] - i)
                          withString:s];
 
@@ -449,7 +448,7 @@ void AutocompletePopupViewMac::UpdatePopupAppearance() {
   // The popup's font is a slightly smaller version of the field's.
   NSFont* fieldFont = AutocompleteEditViewMac::GetFieldFont();
   const CGFloat resultFontSize = [fieldFont pointSize] + kEditFontAdjust;
-  gfx::Font resultFont(base::SysNSStringToWide([fieldFont fontName]),
+  gfx::Font resultFont(base::SysNSStringToUTF16([fieldFont fontName]),
                        static_cast<int>(resultFontSize));
 
   AutocompleteMatrix* matrix = GetAutocompleteMatrix();
@@ -519,7 +518,7 @@ gfx::Rect AutocompletePopupViewMac::GetTargetBounds() {
 }
 
 void AutocompletePopupViewMac::SetSelectedLine(size_t line) {
-  model_->SetSelectedLine(line, false);
+  model_->SetSelectedLine(line, false, false);
 }
 
 // This is only called by model in SetSelectedLine() after updating
@@ -548,10 +547,10 @@ void AutocompletePopupViewMac::OpenURLForRow(int row, bool force_background) {
   // completes.
   const AutocompleteMatch& match = model_->result().match_at(row);
   const GURL url(match.destination_url);
-  std::wstring keyword;
+  string16 keyword;
   const bool is_keyword_hint = model_->GetKeywordForMatch(match, &keyword);
   edit_view_->OpenURL(url, disposition, match.transition, GURL(), row,
-                      is_keyword_hint ? std::wstring() : keyword);
+                      is_keyword_hint ? string16() : keyword);
 }
 
 void AutocompletePopupViewMac::UserPressedOptIn(bool opt_in) {

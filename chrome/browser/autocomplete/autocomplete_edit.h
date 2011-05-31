@@ -11,8 +11,8 @@
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/page_transition_types.h"
-#include "gfx/native_widget_types.h"
 #include "googleurl/src/gurl.h"
+#include "ui/gfx/native_widget_types.h"
 #include "webkit/glue/window_open_disposition.h"
 
 class AutocompletePopupModel;
@@ -48,16 +48,15 @@ class AutocompleteEditController {
   // OnAutoCompleteAccept.
   virtual void OnAutocompleteWillAccept() = 0;
 
-  // Commits the suggested text. |typed_text| is the current text showing in the
-  // autocomplete. Returns true if the text was committed.
-  virtual bool OnCommitSuggestedText(const std::wstring& typed_text) = 0;
+  // Commits the suggested text. If |skip_inline_autocomplete| is true then the
+  // suggested text will be committed as final text as if it's inputted by the
+  // user, rather than as inline autocomplete suggest.
+  // Returns true if the text was committed.
+  virtual bool OnCommitSuggestedText(bool skip_inline_autocomplete) = 0;
 
   // Accepts the currently showing instant preview, if any, and returns true.
   // Returns false if there is no instant preview showing.
   virtual bool AcceptCurrentInstantPreview() = 0;
-
-  // Sets the suggested search text to |suggested_text|.
-  virtual void OnSetSuggestedSearchText(const string16& suggested_text) = 0;
 
   // Invoked when the popup is going to change its bounds to |bounds|.
   virtual void OnPopupBoundsChanged(const gfx::Rect& bounds) = 0;
@@ -97,7 +96,7 @@ class AutocompleteEditController {
   virtual SkBitmap GetFavIcon() const = 0;
 
   // Returns the title of the current page.
-  virtual std::wstring GetTitle() const = 0;
+  virtual string16 GetTitle() const = 0;
 
  protected:
   virtual ~AutocompleteEditController();
@@ -105,32 +104,17 @@ class AutocompleteEditController {
 
 class AutocompleteEditModel : public NotificationObserver {
  public:
-  enum KeywordUIState {
-    // The user is typing normally.
-    NORMAL,
-    // The user is editing in the middle of the input string.  Even if the
-    // input looks like a keyword, don't display the keyword UI, as to not
-    // interfere with the user's editing.
-    NO_KEYWORD,
-    // The user has triggered the keyword UI.  Until it disappears, bias
-    // autocomplete results so that input strings of the keyword alone default
-    // to the keyword provider, not a normal navigation or search.
-    KEYWORD,
-  };
-
   struct State {
     State(bool user_input_in_progress,
-          const std::wstring& user_text,
-          const std::wstring& keyword,
-          bool is_keyword_hint,
-          KeywordUIState keyword_ui_state);
+          const string16& user_text,
+          const string16& keyword,
+          bool is_keyword_hint);
     ~State();
 
     bool user_input_in_progress;
-    const std::wstring user_text;
-    const std::wstring keyword;
+    const string16 user_text;
+    const string16 keyword;
     const bool is_keyword_hint;
-    const KeywordUIState keyword_ui_state;
   };
 
   AutocompleteEditModel(AutocompleteEditView* view,
@@ -162,7 +146,7 @@ class AutocompleteEditModel : public NotificationObserver {
 
   // Called when the user wants to export the entire current text as a URL.
   // Sets the url, and if known, the title and favicon.
-  void GetDataForURLExport(GURL* url, std::wstring* title, SkBitmap* favicon);
+  void GetDataForURLExport(GURL* url, string16* title, SkBitmap* favicon);
 
   // Returns true if a verbatim query should be used for instant. A verbatim
   // query is forced in certain situations, such as pressing delete at the end
@@ -173,7 +157,7 @@ class AutocompleteEditModel : public NotificationObserver {
   // desired TLD is the TLD the user desires to add to the end of the current
   // input, if any, based on their control key state and any other actions
   // they've taken.
-  std::wstring GetDesiredTLD() const;
+  string16 GetDesiredTLD() const;
 
   // Returns true if the current edit contents will be treated as a
   // URL/navigation, as opposed to a search.
@@ -190,7 +174,7 @@ class AutocompleteEditModel : public NotificationObserver {
   // is set to true and |url| set to the url to write.
   void AdjustTextForCopy(int sel_min,
                          bool is_all_selected,
-                         std::wstring* text,
+                         string16* text,
                          GURL* url,
                          bool* write_url);
 
@@ -203,14 +187,17 @@ class AutocompleteEditModel : public NotificationObserver {
   // Updates permanent_text_ to |new_permanent_text|.  Returns true if this
   // change should be immediately user-visible, because either the user is not
   // editing or the edit does not have focus.
-  bool UpdatePermanentText(const std::wstring& new_permanent_text);
+  bool UpdatePermanentText(const string16& new_permanent_text);
 
   // Sets the user_text_ to |text|.  Only the View should call this.
-  void SetUserText(const std::wstring& text);
+  void SetUserText(const string16& text);
 
   // Calls through to SearchProvider::FinalizeInstantQuery.
-  void FinalizeInstantQuery(const std::wstring& input_text,
-                            const std::wstring& suggest_text);
+  // If |skip_inline_autocomplete| is true then the |suggest_text| will be
+  // turned into final text instead of inline autocomplete suggest.
+  void FinalizeInstantQuery(const string16& input_text,
+                            const string16& suggest_text,
+                            bool skip_inline_autocomplete);
 
   // Reverts the edit model back to its unedited state (permanent text showing,
   // no user input in progress).
@@ -224,7 +211,7 @@ class AutocompleteEditModel : public NotificationObserver {
   // This also updates the internal paste-and-go-related state variables as
   // appropriate so that the controller doesn't need to be repeatedly queried
   // for the same text in every clipboard-related function.
-  bool CanPasteAndGo(const std::wstring& text) const;
+  bool CanPasteAndGo(const string16& text) const;
 
   // Navigates to the destination last supplied to CanPasteAndGo.
   void PasteAndGo();
@@ -252,24 +239,22 @@ class AutocompleteEditModel : public NotificationObserver {
                PageTransition::Type transition,
                const GURL& alternate_nav_url,
                size_t index,
-               const std::wstring& keyword);
+               const string16& keyword);
 
   bool has_focus() const { return has_focus_; }
 
   // Accessors for keyword-related state (see comments on keyword_ and
   // is_keyword_hint_).
-  std::wstring keyword() const {
-    return (is_keyword_hint_ || (keyword_ui_state_ != NO_KEYWORD)) ?
-        keyword_ : std::wstring();
-  }
+  const string16& keyword() const { return keyword_; }
   bool is_keyword_hint() const { return is_keyword_hint_; }
 
-  // Accepts the current keyword hint as a keyword.
-  void AcceptKeyword();
+  // Accepts the current keyword hint as a keyword. It always returns true for
+  // caller convenience.
+  bool AcceptKeyword();
 
   // Clears the current keyword.  |visible_text| is the (non-keyword) text
   // currently visible in the edit.
-  void ClearKeyword(const std::wstring& visible_text);
+  void ClearKeyword(const string16& visible_text);
 
   // Returns true if a query to an autocomplete provider is currently
   // in progress.  This logic should in the future live in
@@ -297,8 +282,8 @@ class AutocompleteEditModel : public NotificationObserver {
   // necessary.
   void OnControlKeyChanged(bool pressed);
 
-  // Called when the user pastes in text that replaces the entire edit contents.
-  void on_paste_replacing_all() { paste_state_ = REPLACING_ALL; }
+  // Called when the user pastes in text.
+  void on_paste() { paste_state_ = PASTING; }
 
   // Called when the user presses up or down.  |count| is a repeat count,
   // negative for moving up, positive for moving down.
@@ -317,37 +302,38 @@ class AutocompleteEditModel : public NotificationObserver {
   //     or the currently selected keyword if |is_keyword_hint| is false (see
   //     comments on keyword_ and is_keyword_hint_).
   void OnPopupDataChanged(
-      const std::wstring& text,
+      const string16& text,
       GURL* destination_for_temporary_text_change,
-      const std::wstring& keyword,
+      const string16& keyword,
       bool is_keyword_hint);
 
   // Called by the AutocompleteEditView after something changes, with details
   // about what state changes occured.  Updates internal state, updates the
   // popup if necessary, and returns true if any significant changes occurred.
-  bool OnAfterPossibleChange(const std::wstring& new_text,
+  // If |allow_keyword_ui_change| is false then the change should not affect
+  // keyword ui state, even if the text matches a keyword exactly. This value
+  // may be false when:
+  // 1) The insert caret is not at the end of the edit box
+  // 2) The user is composing a text with an IME
+  bool OnAfterPossibleChange(const string16& new_text,
                              bool selection_differs,
                              bool text_differs,
                              bool just_deleted_text,
-                             bool at_end_of_edit);
+                             bool allow_keyword_ui_change);
 
   // Invoked when the popup is going to change its bounds to |bounds|.
   void PopupBoundsChangedTo(const gfx::Rect& bounds);
 
-  // Invoked when the autocomplete results may have changed in some way.
-  void ResultsUpdated();
-
  private:
   enum PasteState {
-    NONE,           // Most recent edit was not a paste that replaced all text.
-    REPLACED_ALL,   // Most recent edit was a paste that replaced all text.
-    REPLACING_ALL,  // In the middle of doing a paste that replaces all
-                    // text.  We need this intermediate state because OnPaste()
-                    // does the actual detection of such pastes, but
-                    // OnAfterPossibleChange() has to update the paste state
-                    // for every edit.  If OnPaste() set the state directly to
-                    // REPLACED_ALL, OnAfterPossibleChange() wouldn't know
+    NONE,           // Most recent edit was not a paste.
+    PASTING,        // In the middle of doing a paste. We need this intermediate
+                    // state because OnPaste() does the actual detection of
+                    // paste, but OnAfterPossibleChange() has to update the
+                    // paste state for every edit. If OnPaste() set the state
+                    // directly to PASTED, OnAfterPossibleChange() wouldn't know
                     // whether that represented the current edit or a past one.
+    PASTED,         // Most recent edit was a paste.
   };
 
   enum ControlKeyState {
@@ -370,7 +356,7 @@ class AutocompleteEditModel : public NotificationObserver {
                        const NotificationDetails& details);
 
   // Called whenever user_text_ should change.
-  void InternalSetUserText(const std::wstring& text);
+  void InternalSetUserText(const string16& text);
 
   // Returns true if a keyword is selected.
   bool KeywordIsSelected() const;
@@ -378,8 +364,8 @@ class AutocompleteEditModel : public NotificationObserver {
   // Conversion between user text and display text. User text is the text the
   // user has input. Display text is the text being shown in the edit. The
   // two are different if a keyword is selected.
-  std::wstring DisplayTextFromUserText(const std::wstring& text) const;
-  std::wstring UserTextFromDisplayText(const std::wstring& text) const;
+  string16 DisplayTextFromUserText(const string16& text) const;
+  string16 UserTextFromDisplayText(const string16& text) const;
 
   // Returns the default match for the current text, as well as the alternate
   // nav URL, if |alternate_nav_url| is non-NULL and there is such a URL.
@@ -392,11 +378,21 @@ class AutocompleteEditModel : public NotificationObserver {
   // and CurrentTextIsURL()).  The view needs this because it calls this
   // function during copy handling, when the control key is down to trigger the
   // copy.
-  bool GetURLForText(const std::wstring& text, GURL* url) const;
+  bool GetURLForText(const string16& text, GURL* url) const;
 
-  // Determines the suggested search text and invokes OnSetSuggestedSearchText
-  // on the controller.
-  void UpdateSuggestedSearchText();
+  // Reverts the edit box from a temporary text back to the original user text.
+  // If |revert_popup| is true then the popup will be reverted as well.
+  void RevertTemporaryText(bool revert_popup);
+
+  // Accepts current keyword if the user only typed a space at the end of
+  // |new_user_text| comparing to the |old_user_text|.
+  // Returns true if the current keyword is accepted.
+  bool MaybeAcceptKeywordBySpace(const string16& old_user_text,
+                                 const string16& new_user_text);
+
+  // Checks if a given character is a valid space character for accepting
+  // keyword.
+  static bool IsSpaceCharForAcceptingKeyword(wchar_t c);
 
   AutocompleteEditView* view_;
 
@@ -410,7 +406,7 @@ class AutocompleteEditModel : public NotificationObserver {
   bool has_focus_;
 
   // The URL of the currently displayed page.
-  std::wstring permanent_text_;
+  string16 permanent_text_;
 
   // This flag is true when the user has modified the contents of the edit, but
   // not yet accepted them.  We use this to determine when we need to save
@@ -421,7 +417,7 @@ class AutocompleteEditModel : public NotificationObserver {
 
   // The text that the user has entered.  This does not include inline
   // autocomplete text that has not yet been accepted.
-  std::wstring user_text_;
+  string16 user_text_;
 
   // When the user closes the popup, we need to remember the URL for their
   // desired choice, so that if they hit enter without reopening the popup we
@@ -438,7 +434,7 @@ class AutocompleteEditModel : public NotificationObserver {
   // simply ask the popup for the desired URL directly.  As a result, the
   // contents of this variable only need to be updated when the popup is closed
   // but user_input_in_progress_ is not being cleared.
-  std::wstring url_for_remembered_user_selection_;
+  string16 url_for_remembered_user_selection_;
 
   // Inline autocomplete is allowed if the user has not just deleted text, and
   // no temporary text is showing.  In this case, inline_autocomplete_text_ is
@@ -448,7 +444,7 @@ class AutocompleteEditModel : public NotificationObserver {
   // text (actions that close the popup should either accept the text, convert
   // it to a normal selection, or change the edit entirely).
   bool just_deleted_text_;
-  std::wstring inline_autocomplete_text_;
+  string16 inline_autocomplete_text_;
 
   // Used by OnPopupDataChanged to keep track of whether there is currently a
   // temporary text.
@@ -466,12 +462,10 @@ class AutocompleteEditModel : public NotificationObserver {
   // them and not revert all the way to the permanent_text_.
   bool has_temporary_text_;
   GURL original_url_;
-  KeywordUIState original_keyword_ui_state_;
 
-  // When the user's last action was to paste and replace all the text, we
-  // disallow inline autocomplete (on the theory that the user is trying to
-  // paste in a new URL or part of one, and in either case inline autocomplete
-  // would get in the way).
+  // When the user's last action was to paste, we disallow inline autocomplete
+  // (on the theory that the user is trying to paste in a new URL or part of
+  // one, and in either case inline autocomplete would get in the way).
   PasteState paste_state_;
 
   // Whether the control key is depressed.  We track this to avoid calling
@@ -483,15 +477,12 @@ class AutocompleteEditModel : public NotificationObserver {
   // selected keyword, or just some input text that looks like a keyword (so we
   // can show a hint to press <tab>).  This is the keyword in either case;
   // is_keyword_hint_ (below) distinguishes the two cases.
-  std::wstring keyword_;
+  string16 keyword_;
 
   // True if the keyword associated with this match is merely a hint, i.e. the
   // user hasn't actually selected a keyword yet.  When this is true, we can use
   // keyword_ to show a "Press <tab> to search" sort of hint.
   bool is_keyword_hint_;
-
-  // See KeywordUIState enum.
-  KeywordUIState keyword_ui_state_;
 
   // Paste And Go-related state.  See CanPasteAndGo().
   mutable GURL paste_and_go_url_;

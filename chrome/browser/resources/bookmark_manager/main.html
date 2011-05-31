@@ -1387,7 +1387,8 @@ function showInFolder() {
   // After the list is loaded we should select the revealed item.
   function f(e) {
     var index;
-    if (bookmarkNode && (index = list.dataModel.indexOf(bookmarkNode))) {
+    if (bookmarkNode &&
+        (index = list.dataModel.findIndexById(bookmarkNode.id)) != -1) {
       var sm = list.selectionModel;
       sm.anchorIndex = sm.leadIndex = sm.selectedIndex = index;
       list.scrollIndexIntoView(index);
@@ -1519,16 +1520,29 @@ function newFolder() {
       if (isTree) {
         newItem = bmm.treeLookup[newNode.id];
         tree.selectedItem = newItem;
+        newItem.editing = true;
       } else {
         var index = list.dataModel.findIndexById(newNode.id);
         var sm = list.selectionModel;
         sm.anchorIndex = sm.leadIndex = sm.selectedIndex = index;
-        list.scrollIndexIntoView(index);
-        newItem = list.getListItemByIndex(index);
+        scrollIntoViewAndMakeEditable(index);
       }
-
-      newItem.editing = true;
     }, 50);
+  });
+}
+
+/**
+ * Scrolls the list item into view and makes it editable.
+ * @param {number} index The index of the item to make editable.
+ */
+function scrollIntoViewAndMakeEditable(index) {
+  list.scrollIndexIntoView(index);
+  // onscroll is now dispatched asynchronously so we have to postpone
+  // the rest.
+  setTimeout(function() {
+    var item = list.getListItemByIndex(index);
+    if (item)
+      item.editing = true;
   });
 }
 
@@ -1550,9 +1564,7 @@ function addPage() {
   dataModel.splice(length, 0, fakeNode);
   var sm = list.selectionModel;
   sm.anchorIndex = sm.leadIndex = sm.selectedIndex = length;
-  list.scrollIndexIntoView(length);
-  var li = list.getListItemByIndex(length);
-  li.editing = true;
+  scrollIntoViewAndMakeEditable(length);
 }
 
 /**
@@ -1634,14 +1646,17 @@ function handleCommand(e) {
       deleteBookmarks();
       break;
     case 'copy-command':
-      chrome.experimental.bookmarkManager.copy(getSelectedBookmarkIds());
+      chrome.experimental.bookmarkManager.copy(getSelectedBookmarkIds(),
+                                               updatePasteCommand);
       break;
     case 'cut-command':
-      chrome.experimental.bookmarkManager.cut(getSelectedBookmarkIds());
+      chrome.experimental.bookmarkManager.cut(getSelectedBookmarkIds(),
+                                              updatePasteCommand);
       break;
     case 'paste-command':
       selectItemsAfterUserAction(list);
-      chrome.experimental.bookmarkManager.paste(list.parentId);
+      chrome.experimental.bookmarkManager.paste(list.parentId,
+                                                getSelectedBookmarkIds());
       break;
     case 'sort-command':
       chrome.experimental.bookmarkManager.sortChildren(list.parentId);

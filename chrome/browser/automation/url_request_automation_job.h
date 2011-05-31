@@ -45,6 +45,7 @@ class URLRequestAutomationJob : public net::URLRequestJob {
   virtual void GetResponseInfo(net::HttpResponseInfo* info);
   virtual int GetResponseCode() const;
   virtual bool IsRedirectResponse(GURL* location, int* http_status_code);
+  virtual uint64 GetUploadProgress() const;
 
   // Peek and process automation messages for URL requests.
   static bool MayFilterMessage(const IPC::Message& message, int* request_id);
@@ -120,7 +121,7 @@ class URLRequestAutomationJob : public net::URLRequestJob {
 
   // Contains the request status code, which is eventually passed  to the http
   // stack when we receive a Read request for a completed job.
-  URLRequestStatus request_status_;
+  net::URLRequestStatus request_status_;
 
   ScopedRunnableMethodFactory<URLRequestAutomationJob> method_factory_;
 
