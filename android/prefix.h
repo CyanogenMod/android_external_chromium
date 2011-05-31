@@ -28,6 +28,8 @@
 
 // C++ specific changes
 #ifdef __cplusplus
+#include <unistd.h>
+#include <sys/prctl.h>
 // chromium refers to stl functions without std::
 #include <algorithm>
 using std::find;
@@ -36,7 +38,7 @@ using std::search;
 
 // Called by command_line.cc to shorten the process name. Not needed for
 // network stack.
-inline int prctl(int option, ...) { return 0; }
+#define prctl() (0)
 
 namespace std {
 // our new does not trigger oom
