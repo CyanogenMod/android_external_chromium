@@ -235,11 +235,15 @@ void SharedMemory::Close() {
 }
 
 void SharedMemory::Lock() {
+#if !defined(ANDROID)
   LockOrUnlockCommon(F_LOCK);
+#endif
 }
 
 void SharedMemory::Unlock() {
+#if !defined(ANDROID)
   LockOrUnlockCommon(F_ULOCK);
+#endif
 }
 
 bool SharedMemory::PrepareMapFile(FILE *fp) {
@@ -310,19 +314,6 @@ void SharedMemory::LockOrUnlockCommon(int function) {
 #endif
 }
 
-<<<<<<< HEAD
-void SharedMemory::Lock() {
-#if !defined(ANDROID)
-  LockOrUnlockCommon(F_LOCK);
-#endif
-}
-
-void SharedMemory::Unlock() {
-#if !defined(ANDROID)
-  LockOrUnlockCommon(F_ULOCK);
-#endif
-}
-=======
 bool SharedMemory::ShareToProcessCommon(ProcessHandle process,
                                         SharedMemoryHandle *new_handle,
                                         bool close_self) {
@@ -333,7 +324,6 @@ bool SharedMemory::ShareToProcessCommon(ProcessHandle process,
 
   if (close_self)
     Close();
->>>>>>> chromium.org at r11.0.672.0
 
   return true;
 }
