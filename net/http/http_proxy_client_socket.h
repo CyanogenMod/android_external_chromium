@@ -68,17 +68,12 @@ class HttpProxyClientSocket : public ProxyClientSocket {
   virtual const HttpResponseInfo* GetConnectResponseInfo() const;
   virtual HttpStream* CreateConnectResponseStream();
 
-<<<<<<< HEAD
-  // Authenticates to the Http Proxy and then passes data freely.
+  // ClientSocket methods:
   virtual int Connect(CompletionCallback* callback
 #ifdef ANDROID
                       , bool wait_for_connect
 #endif
                      );
-=======
-  // ClientSocket methods:
-  virtual int Connect(CompletionCallback* callback);
->>>>>>> chromium.org at r11.0.672.0
   virtual void Disconnect();
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;
