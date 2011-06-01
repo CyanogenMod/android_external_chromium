@@ -353,17 +353,13 @@ bool InitializeLogFileHandle() {
 bool BaseInitLoggingImpl(const PathChar* new_log_file,
                          LoggingDestination logging_dest,
                          LogLockingState lock_log,
-<<<<<<< HEAD
-                         OldFileDeletionState delete_old) {
-#ifdef ANDROID
-  // ifdef is here because we don't support parsing command line parameters
-  g_enable_dcheck = false;
-  g_vlog_info = NULL;
-#else
-=======
                          OldFileDeletionState delete_old,
                          DcheckState dcheck_state) {
->>>>>>> chromium.org at r11.0.672.0
+#ifdef ANDROID
+  // ifdef is here because we don't support parsing command line parameters
+  g_dcheck_state = dcheck_state;
+  g_vlog_info = NULL;
+#else
   CommandLine* command_line = CommandLine::ForCurrentProcess();
   g_dcheck_state = dcheck_state;
   delete g_vlog_info;
