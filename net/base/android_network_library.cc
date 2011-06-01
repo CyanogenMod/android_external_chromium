@@ -5,8 +5,11 @@
 #include "net/base/android_network_library.h"
 
 #include "base/lazy_instance.h"
-#include "base/lock.h"
 #include "base/logging.h"
+#include "base/synchronization/lock.h"
+
+using base::Lock;
+using base::AutoLock;
 
 namespace net {
 
