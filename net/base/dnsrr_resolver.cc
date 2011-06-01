@@ -249,6 +249,20 @@ class RRResolverWorker {
     return response_.ParseFromResponse(answer, len, rrtype_);
   }
 
+#elif defined(ANDROID)
+
+  void Run() {
+    if (HandleTestCases()) {
+      Finish();
+      return;
+    }
+
+    response_.fetch_time = base::Time::Now();
+    response_.negative = true;
+    result_ = ERR_NAME_NOT_RESOLVED;
+    Finish();
+  }
+
 #else  // OS_WIN
 
   void Run() {
