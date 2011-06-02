@@ -298,7 +298,11 @@ void URLRequestHttpJob::AddExtraHeaders() {
     // didn't have them specified.
     request_info_.extra_headers.SetHeaderIfMissing(
         HttpRequestHeaders::kAcceptLanguage,
+#ifdef ANDROID
+        context->GetAcceptLanguage());
+#else
         context->accept_language());
+#endif
     request_info_.extra_headers.SetHeaderIfMissing(
         HttpRequestHeaders::kAcceptCharset,
         context->accept_charset());
@@ -773,28 +777,6 @@ bool URLRequestHttpJob::IsSafeRedirect(const GURL& location) {
       return true;
   }
 
-<<<<<<< HEAD
-  URLRequestContext* context = request_->context();
-  if (context) {
-    // Only add default Accept-Language and Accept-Charset if the request
-    // didn't have them specified.
-    if (!request_info_.extra_headers.HasHeader(
-        HttpRequestHeaders::kAcceptLanguage)) {
-      request_info_.extra_headers.SetHeader(
-          HttpRequestHeaders::kAcceptLanguage,
-#ifdef ANDROID
-          context->GetAcceptLanguage());
-#else
-          context->accept_language());
-#endif
-    }
-    if (!request_info_.extra_headers.HasHeader(
-        HttpRequestHeaders::kAcceptCharset)) {
-      request_info_.extra_headers.SetHeader(
-          HttpRequestHeaders::kAcceptCharset,
-          context->accept_charset());
-    }
-=======
   return false;
 }
 
@@ -816,7 +798,6 @@ bool URLRequestHttpJob::NeedsAuth() {
         return false;
       server_auth_state_ = AUTH_STATE_NEED_AUTH;
       return true;
->>>>>>> chromium.org at r11.0.672.0
   }
   return false;
 }
