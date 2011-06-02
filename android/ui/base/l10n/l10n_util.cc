@@ -23,7 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "android/app/l10n_util.h"
+#include "ui/base/l10n/l10n_util.h"
 
 #include "base/logging.h"
 #include "base/string_util.h"

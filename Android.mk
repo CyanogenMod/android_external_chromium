@@ -33,11 +33,11 @@ LOCAL_SRC_FILES := \
     googleurl/src/url_util.cc \
     \
     android/execinfo.cc \
-    android/app/l10n_util.cc \
     android/jni/mime_utils.cc \
     android/jni/jni_utils.cc \
     android/jni/platform_file_jni.cc \
     android/net/android_network_library_impl.cc \
+    android/ui/base/l10n/l10n_util.cc \
     \
     app/sql/connection.cc \
     app/sql/meta_table.cc \
