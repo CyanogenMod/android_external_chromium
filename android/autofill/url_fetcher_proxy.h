@@ -108,7 +108,7 @@ public:
 
   virtual void OnURLFetchComplete(const URLFetcher* source,
                                   const GURL& url,
-                                  const URLRequestStatus& status,
+                                  const net::URLRequestStatus& status,
                                   int response_code,
                                   const ResponseCookies& cookies,
                                   const std::string& data)
@@ -160,7 +160,7 @@ private:
   std::string upload_content_;
 
   GURL url_;
-  URLRequestStatus status_;
+  net::URLRequestStatus status_;
   int response_code_;
   ResponseCookies cookies_;
   std::string data_;
