@@ -56,11 +56,11 @@ void SetTCPKeepAlive(int fd) {
   }
 #if defined(OS_LINUX)
   // Set seconds until first TCP keep alive.
-<<<<<<< HEAD
+#ifdef ANDROID
   optval = 25;
-=======
+#else
   optval = 45;
->>>>>>> chromium.org at r11.0.672.0
+#endif
   if (setsockopt(fd, SOL_TCP, TCP_KEEPIDLE, &optval, optlen)) {
     PLOG(ERROR) << "Failed to set TCP_KEEPIDLE on fd: " << fd;
     return;
