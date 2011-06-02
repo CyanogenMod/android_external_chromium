@@ -13,11 +13,8 @@
 #include "base/command_line.h"
 #include "base/string16.h"
 #include "base/utf_string_conversions.h"
-<<<<<<< HEAD
 #ifndef ANDROID
-=======
 #include "chrome/browser/autocomplete_history_manager.h"
->>>>>>> chromium.org at r11.0.672.0
 #include "chrome/browser/autofill/autofill_cc_infobar_delegate.h"
 #endif
 #include "chrome/browser/autofill/autofill_dialog.h"
@@ -31,7 +28,9 @@
 #include "chrome/browser/renderer_host/render_view_host.h"
 #endif
 #include "chrome/browser/tab_contents/tab_contents.h"
+#ifndef ANDROID
 #include "chrome/browser/ui/browser_list.h"
+#endif
 #include "chrome/common/autofill_messages.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/guid.h"
@@ -325,42 +324,20 @@ void AutoFillManager::OnFormsSeen(const std::vector<FormData>& forms) {
   ParseForms(forms);
 }
 
-<<<<<<< HEAD
-bool AutoFillManager::GetAutoFillSuggestions(const FormData& form,
-                                             const FormField& field) {
-#ifdef ANDROID
-  AutoFillHost* host = NULL;
-#else
-  RenderViewHost* host = NULL;
-#endif
-  FormStructure* form_structure = NULL;
-  AutoFillField* autofill_field = NULL;
-  if (!GetHost(personal_data_->profiles(),
-               personal_data_->credit_cards(),
-               &host) ||
-      !FindCachedFormAndField(form, field, &form_structure, &autofill_field))
-    return false;
-
-  DCHECK(host);
-  DCHECK(form_structure);
-  DCHECK(autofill_field);
-
-  // Don't send suggestions for forms that aren't auto-fillable.
-  if (!form_structure->IsAutoFillable(false))
-    return false;
-
-=======
 void AutoFillManager::OnQueryFormFieldAutoFill(
     int query_id,
     const webkit_glue::FormData& form,
     const webkit_glue::FormField& field) {
->>>>>>> chromium.org at r11.0.672.0
   std::vector<string16> values;
   std::vector<string16> labels;
   std::vector<string16> icons;
   std::vector<int> unique_ids;
 
+#ifdef ANDROID
+  AutoFillHost* host = NULL;
+#else
   RenderViewHost* host = NULL;
+#endif
   FormStructure* form_structure = NULL;
   AutoFillField* autofill_field = NULL;
   if (GetHost(
@@ -378,26 +355,7 @@ void AutoFillManager::OnQueryFormFieldAutoFill(
           form_structure, field, type, &values, &labels, &icons, &unique_ids);
     }
 
-<<<<<<< HEAD
 #ifndef ANDROID
-  // Don't provide AutoFill suggestions when AutoFill is disabled, and don't
-  // provide credit card suggestions for non-HTTPS pages. However, provide a
-  // warning to the user in these cases.
-  int warning = 0;
-  if (!form_structure->IsAutoFillable(true))
-    warning = IDS_AUTOFILL_WARNING_FORM_DISABLED;
-  else if (is_filling_credit_card && !FormIsHTTPS(form_structure))
-    warning = IDS_AUTOFILL_WARNING_INSECURE_CONNECTION;
-  if (warning) {
-    values.assign(1, l10n_util::GetStringUTF16(warning));
-    labels.assign(1, string16());
-    icons.assign(1, string16());
-    unique_ids.assign(1, -1);
-    host->AutoFillSuggestionsReturned(values, labels, icons, unique_ids);
-    return true;
-  }
-#endif
-=======
     DCHECK_EQ(values.size(), labels.size());
     DCHECK_EQ(values.size(), icons.size());
     DCHECK_EQ(values.size(), unique_ids.size());
@@ -429,10 +387,10 @@ void AutoFillManager::OnQueryFormFieldAutoFill(
           labels.assign(labels.size(), string16());
           icons.assign(icons.size(), string16());
         }
->>>>>>> chromium.org at r11.0.672.0
 
         RemoveDuplicateSuggestions(&values, &labels, &icons, &unique_ids);
       }
+#endif
     }
   }
 
@@ -585,20 +543,13 @@ void AutoFillManager::OnShowAutoFillDialog() {
                      tab_contents_->profile()->GetOriginalProfile());
 }
 
-<<<<<<< HEAD
-void AutoFillManager::ShowAutoFillDialog() {
-#ifndef ANDROID
-  ::ShowAutoFillDialog(tab_contents_->GetContentNativeView(),
-                       personal_data_,
-                       tab_contents_->profile()->GetOriginalProfile());
-#endif
-=======
 void AutoFillManager::OnDidFillAutoFillFormData() {
+#ifndef ANDROID
   NotificationService::current()->Notify(
       NotificationType::AUTOFILL_DID_FILL_FORM_DATA,
       Source<RenderViewHost>(tab_contents_->render_view_host()),
       NotificationService::NoDetails());
->>>>>>> chromium.org at r11.0.672.0
+#endif
 }
 
 void AutoFillManager::OnDidShowAutoFillSuggestions() {
@@ -748,16 +699,11 @@ void AutoFillManager::ImportFormData(const FormStructure& submitted_form) {
   if (!personal_data_->ImportFormData(import, &imported_credit_card))
     return;
 
-<<<<<<< HEAD
 #ifndef ANDROID
-  // Show an infobar to offer to save the credit card info.
-  if (tab_contents_) {
-=======
   // If credit card information was submitted, show an infobar to offer to save
   // it.
   if (imported_credit_card && tab_contents_) {
     imported_credit_card_.reset(imported_credit_card);
->>>>>>> chromium.org at r11.0.672.0
     tab_contents_->AddInfoBar(new AutoFillCCInfoBarDelegate(tab_contents_,
                                                             this));
   }
@@ -838,12 +784,8 @@ bool AutoFillManager::GetHost(const std::vector<AutoFillProfile*>& profiles,
   *host = tab_contents_->autofill_host();
 #else
   *host = tab_contents_->render_view_host();
-<<<<<<< HEAD
 #endif
-  if (!(*host))
-=======
   if (!*host)
->>>>>>> chromium.org at r11.0.672.0
     return false;
 
   return true;

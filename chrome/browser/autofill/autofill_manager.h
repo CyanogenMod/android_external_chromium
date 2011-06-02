@@ -16,13 +16,9 @@
 #include "chrome/browser/autofill/autofill_dialog.h"
 #include "chrome/browser/autofill/autofill_download.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
-<<<<<<< HEAD
 #ifndef ANDROID
-#include "chrome/browser/renderer_host/render_view_host_delegate.h"
-#endif
-=======
 #include "chrome/browser/tab_contents/tab_contents_observer.h"
->>>>>>> chromium.org at r11.0.672.0
+#endif
 
 #ifndef ANDROID
 class AutoFillCCInfoBarDelegate;
@@ -45,16 +41,11 @@ class FormField;
 
 // Manages saving and restoring the user's personal information entered into web
 // forms.
-<<<<<<< HEAD
 class AutoFillManager :
 #ifndef ANDROID
-  public RenderViewHostDelegate::AutoFill,
+                        public TabContentsObserver,
 #endif
-  public AutoFillDownloadManager::Observer {
-=======
-class AutoFillManager : public TabContentsObserver,
                         public AutoFillDownloadManager::Observer {
->>>>>>> chromium.org at r11.0.672.0
  public:
   explicit AutoFillManager(TabContents* tab_contents);
   virtual ~AutoFillManager();
@@ -238,16 +229,10 @@ class AutoFillManager : public TabContentsObserver,
   // Our copy of the form data.
   ScopedVector<FormStructure> form_structures_;
 
-<<<<<<< HEAD
-  // The form data the user has submitted.
-  scoped_ptr<FormStructure> upload_form_structure_;
-
 #ifdef ANDROID
   // To minimize merge conflicts, we keep this pointer around, but never use it.
   void* cc_infobar_;
 #else
-=======
->>>>>>> chromium.org at r11.0.672.0
   // The InfoBar that asks for permission to store credit card information.
   // Deletes itself when closed.
   AutoFillCCInfoBarDelegate* cc_infobar_;
