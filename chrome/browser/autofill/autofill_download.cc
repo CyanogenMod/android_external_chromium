@@ -23,19 +23,9 @@
     "http://toolbarqueries.clients.google.com:80/tbproxy/af/upload"
 #define AUTO_FILL_QUERY_SERVER_NAME_START_IN_HEADER "GFE/"
 
-<<<<<<< HEAD
-#if defined(GOOGLE_CHROME_BUILD) || (defined(ANDROID) && defined(HAVE_AUTOFILL_DOWNLOAD_INTERNAL_H) && HAVE_AUTOFILL_DOWNLOAD_INTERNAL_H)
-#include "chrome/browser/autofill/internal/autofill_download_internal.h"
-#else
-#define AUTO_FILL_QUERY_SERVER_REQUEST_URL DISABLED_REQUEST_URL
-#define AUTO_FILL_UPLOAD_SERVER_REQUEST_URL DISABLED_REQUEST_URL
-#define AUTO_FILL_QUERY_SERVER_NAME_START_IN_HEADER "SOMESERVER/"
-#endif
-=======
 namespace {
 const size_t kMaxFormCacheSize = 16;
 };
->>>>>>> chromium.org at r11.0.672.0
 
 struct AutoFillDownloadManager::FormRequestData {
   std::vector<std::string> form_signatures;
