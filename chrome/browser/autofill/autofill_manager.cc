@@ -30,8 +30,8 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #ifndef ANDROID
 #include "chrome/browser/ui/browser_list.h"
-#endif
 #include "chrome/common/autofill_messages.h"
+#endif
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/guid.h"
 #include "chrome/common/notification_details.h"
@@ -258,12 +258,15 @@ void AutoFillManager::RegisterUserPrefs(PrefService* prefs) {
                             kAutoFillNegativeUploadRateDefaultValue);
 }
 
+#ifndef ANDROID
 void AutoFillManager::DidNavigateMainFramePostCommit(
     const NavigationController::LoadCommittedDetails& details,
     const ViewHostMsg_FrameNavigate_Params& params) {
   Reset();
 }
+#endif
 
+#ifndef ANDROID
 bool AutoFillManager::OnMessageReceived(const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(AutoFillManager, message)
@@ -284,10 +287,13 @@ bool AutoFillManager::OnMessageReceived(const IPC::Message& message) {
 
   return handled;
 }
+#endif
 
 void AutoFillManager::OnFormSubmitted(const FormData& form) {
   // Let AutoComplete know as well.
+#ifndef ANDROID
   tab_contents_->autocomplete_history_manager()->OnFormSubmitted(form);
+#endif
 
   if (!IsAutoFillEnabled())
     return;
@@ -324,7 +330,11 @@ void AutoFillManager::OnFormsSeen(const std::vector<FormData>& forms) {
   ParseForms(forms);
 }
 
+#ifdef ANDROID
+bool AutoFillManager::OnQueryFormFieldAutoFill(
+#else
 void AutoFillManager::OnQueryFormFieldAutoFill(
+#endif
     int query_id,
     const webkit_glue::FormData& form,
     const webkit_glue::FormField& field) {
@@ -355,12 +365,12 @@ void AutoFillManager::OnQueryFormFieldAutoFill(
           form_structure, field, type, &values, &labels, &icons, &unique_ids);
     }
 
-#ifndef ANDROID
     DCHECK_EQ(values.size(), labels.size());
     DCHECK_EQ(values.size(), icons.size());
     DCHECK_EQ(values.size(), unique_ids.size());
 
     if (!values.empty()) {
+#ifndef ANDROID
       // Don't provide AutoFill suggestions when AutoFill is disabled, and don't
       // provide credit card suggestions for non-HTTPS pages. However, provide a
       // warning to the user in these cases.
@@ -392,13 +402,28 @@ void AutoFillManager::OnQueryFormFieldAutoFill(
       }
 #endif
     }
+#ifdef ANDROID
+    else {
+      return false;
+    }
+#endif
   }
+#ifdef ANDROID
+  else {
+    return false;
+  }
+#endif
 
+#ifdef ANDROID
+  host->AutoFillSuggestionsReturned(values, labels, icons, unique_ids);
+  return true;
+#else
   // Add the results from AutoComplete.  They come back asynchronously, so we
   // hand off what we generated and they will send the results back to the
   // renderer.
   tab_contents_->autocomplete_history_manager()->OnGetAutocompleteSuggestions(
       query_id, field.name(), field.value(), values, labels, icons, unique_ids);
+#endif
 }
 
 void AutoFillManager::OnFillAutoFillFormData(int query_id,
@@ -482,8 +507,12 @@ void AutoFillManager::OnFillAutoFillFormData(int query_id,
       }
     }
 
+#ifdef ANDROID
+    host->AutoFillFormDataFilled(query_id, result);
+#else
     host->Send(new AutoFillMsg_FormDataFilled(host->routing_id(), query_id,
                                               result));
+#endif
     return;
   }
 
@@ -525,11 +554,16 @@ void AutoFillManager::OnFillAutoFillFormData(int query_id,
   }
   autofilled_forms_signatures_.push_front(form_structure->FormSignature());
 
+#ifdef ANDROID
+  host->AutoFillFormDataFilled(query_id, result);
+#else
   host->Send(new AutoFillMsg_FormDataFilled(
       host->routing_id(), query_id, result));
+#endif
 }
 
 void AutoFillManager::OnShowAutoFillDialog() {
+#ifndef ANDROID
   if (!CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisableTabbedOptions)) {
     Browser* browser = BrowserList::GetLastActive();
@@ -541,6 +575,7 @@ void AutoFillManager::OnShowAutoFillDialog() {
   ShowAutoFillDialog(tab_contents_->GetContentNativeView(),
                      personal_data_,
                      tab_contents_->profile()->GetOriginalProfile());
+#endif
 }
 
 void AutoFillManager::OnDidFillAutoFillFormData() {
@@ -553,10 +588,12 @@ void AutoFillManager::OnDidFillAutoFillFormData() {
 }
 
 void AutoFillManager::OnDidShowAutoFillSuggestions() {
+#ifndef ANDROID
   NotificationService::current()->Notify(
       NotificationType::AUTOFILL_DID_SHOW_SUGGESTIONS,
       Source<RenderViewHost>(tab_contents_->render_view_host()),
       NotificationService::NoDetails());
+#endif
 }
 
 void AutoFillManager::OnLoadedAutoFillHeuristics(

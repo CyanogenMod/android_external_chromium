@@ -29,6 +29,8 @@ class CreditCard;
 class FormStructure;
 class PrefService;
 class RenderViewHost;
+class TabContents;
+class TabContentsObserver;
 
 #ifdef ANDROID
 class AutoFillHost;
@@ -59,11 +61,13 @@ class AutoFillManager :
   // Returns the TabContents hosting this AutoFillManager.
   TabContents* tab_contents() const { return tab_contents_; }
 
+#ifndef ANDROID
   // TabContentsObserver implementation.
   virtual void DidNavigateMainFramePostCommit(
       const NavigationController::LoadCommittedDetails& details,
       const ViewHostMsg_FrameNavigate_Params& params);
   virtual bool OnMessageReceived(const IPC::Message& message);
+#endif
 
   // Called by the AutoFillCCInfoBarDelegate when the user interacts with the
   // infobar.
@@ -88,6 +92,25 @@ class AutoFillManager :
 
   // Reset cache.
   void Reset();
+
+#ifdef ANDROID
+  void OnFormsSeenWrapper(const std::vector<webkit_glue::FormData>& forms) {
+    OnFormsSeen(forms);
+  }
+
+  bool OnQueryFormFieldAutoFillWrapper(int query_id,
+                                       const webkit_glue::FormData& form,
+                                       const webkit_glue::FormField& field) {
+    return OnQueryFormFieldAutoFill(query_id, form, field);
+  }
+
+  void OnFillAutoFillFormDataWrapper(int query_id,
+                                     const webkit_glue::FormData& form,
+                                     const webkit_glue::FormField& field,
+                                     int unique_id) {
+    OnFillAutoFillFormData(query_id, form, field, unique_id);
+  }
+#endif
 
  protected:
   // For tests.
@@ -119,9 +142,15 @@ class AutoFillManager :
  private:
   void OnFormSubmitted(const webkit_glue::FormData& form);
   void OnFormsSeen(const std::vector<webkit_glue::FormData>& forms);
+#ifdef ANDROID
+  bool OnQueryFormFieldAutoFill(int query_id,
+                                const webkit_glue::FormData& form,
+                                const webkit_glue::FormField& field);
+#else
   void OnQueryFormFieldAutoFill(int query_id,
                                 const webkit_glue::FormData& form,
                                 const webkit_glue::FormField& field);
+#endif
   void OnFillAutoFillFormData(int query_id,
                               const webkit_glue::FormData& form,
                               const webkit_glue::FormField& field,
