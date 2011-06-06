@@ -163,20 +163,16 @@ void PersonalDataManager::RemoveObserver(
 }
 
 bool PersonalDataManager::ImportFormData(
-<<<<<<< HEAD
-    const std::vector<FormStructure*>& form_structures) {
+    const std::vector<const FormStructure*>& form_structures,
+    const CreditCard** imported_credit_card) {
 #ifdef ANDROID
   // TODO: Is this the funcionality that tries to create a profile for the user
   // based on what they've entered into forms?
   return false;
 #else
-=======
-    const std::vector<const FormStructure*>& form_structures,
-    const CreditCard** imported_credit_card) {
   scoped_ptr<AutoFillProfile> imported_profile(new AutoFillProfile);
   scoped_ptr<CreditCard> local_imported_credit_card(new CreditCard);
 
->>>>>>> chromium.org at r11.0.672.0
   // Parse the form and construct a profile based on the information that is
   // possible to import.
   int importable_fields = 0;
@@ -302,21 +298,8 @@ bool PersonalDataManager::ImportFormData(
   }
   *imported_credit_card = local_imported_credit_card.release();
 
-<<<<<<< HEAD
-  return imported_profile_.get() || imported_credit_card_.get();
-#endif
-}
-
-void PersonalDataManager::GetImportedFormData(AutoFillProfile** profile,
-                                              CreditCard** credit_card) {
-  DCHECK(profile);
-  DCHECK(credit_card);
-
-  *profile = imported_profile_.get();
-  *credit_card = imported_credit_card_.get();
-=======
   return imported_profile.get() || *imported_credit_card;
->>>>>>> chromium.org at r11.0.672.0
+#endif
 }
 
 void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
@@ -784,20 +767,17 @@ void PersonalDataManager::SetUniqueCreditCardLabels(
   }
 }
 
-<<<<<<< HEAD
-void PersonalDataManager::SaveImportedProfile() {
+void PersonalDataManager::SaveImportedProfile(
+    const AutoFillProfile& imported_profile) {
 #ifdef ANDROID
   // TODO: This should update the profile in Java land.
   return;
 #else
-=======
-void PersonalDataManager::SaveImportedProfile(
-    const AutoFillProfile& imported_profile) {
->>>>>>> chromium.org at r11.0.672.0
   if (profile_->IsOffTheRecord())
     return;
 
   AddProfile(imported_profile);
+#endif
 }
 
 bool PersonalDataManager::MergeProfile(
@@ -829,10 +809,6 @@ bool PersonalDataManager::MergeProfile(
     merged_profiles->push_back(**iter);
   }
 
-<<<<<<< HEAD
-  AddProfile(*imported_profile_);
-#endif
-=======
   // The second preference, if not merged above, is to alter non-primary values
   // where the primary values match.
   // Again, only merge with the first match.
@@ -858,7 +834,6 @@ bool PersonalDataManager::MergeProfile(
     merged_profiles->push_back(profile);
 
   return merged;
->>>>>>> chromium.org at r11.0.672.0
 }
 
 
