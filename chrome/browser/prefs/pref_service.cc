@@ -7,11 +7,7 @@
 #include <algorithm>
 #include <string>
 
-<<<<<<< HEAD
-#include "app/l10n_util.h"
 #ifndef ANDROID
-=======
->>>>>>> chromium.org at r11.0.672.0
 #include "base/command_line.h"
 #endif
 #include "base/file_path.h"
@@ -40,11 +36,8 @@
 #include "chrome/common/notification_service.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
-<<<<<<< HEAD
 #endif
-=======
 #include "ui/base/l10n/l10n_util.h"
->>>>>>> chromium.org at r11.0.672.0
 
 namespace {
 
@@ -121,14 +114,10 @@ PrefService* PrefService::CreatePrefService(const FilePath& pref_filename,
   }
 #endif
 
-<<<<<<< HEAD
 #ifdef ANDROID
   return new PrefService(NULL, NULL, NULL, NULL, NULL, NULL);
 #else
-  ConfigurationPolicyPrefStore* managed =
-=======
   ConfigurationPolicyPrefStore* managed_platform =
->>>>>>> chromium.org at r11.0.672.0
       ConfigurationPolicyPrefStore::CreateManagedPlatformPolicyPrefStore();
   ConfigurationPolicyPrefStore* managed_cloud =
       ConfigurationPolicyPrefStore::CreateManagedCloudPolicyPrefStore(profile);
@@ -147,17 +136,12 @@ PrefService* PrefService::CreatePrefService(const FilePath& pref_filename,
   return new PrefService(managed_platform, managed_cloud, extension_prefs,
                          command_line, user, recommended_platform,
                          recommended_cloud, default_pref_store);
+#endif
 }
 
-<<<<<<< HEAD
-  return new PrefService(managed, device_management, extension_prefs,
-                         command_line, user, recommended);
-#endif
-=======
 PrefService* PrefService::CreateIncognitoPrefService(
     PrefStore* incognito_extension_prefs) {
   return new PrefService(*this, incognito_extension_prefs);
->>>>>>> chromium.org at r11.0.672.0
 }
 
 PrefService::PrefService(PrefStore* managed_platform_prefs,
@@ -165,41 +149,28 @@ PrefService::PrefService(PrefStore* managed_platform_prefs,
                          PrefStore* extension_prefs,
                          PrefStore* command_line_prefs,
                          PersistentPrefStore* user_prefs,
-<<<<<<< HEAD
-                         PrefStore* recommended_prefs)
-    : user_pref_store_(user_prefs) {
-#ifndef ANDROID
-  pref_notifier_.reset(new PrefNotifierImpl(this));
-#endif
-  default_store_ = new DefaultPrefStore();
-  pref_value_store_ =
-=======
                          PrefStore* recommended_platform_prefs,
                          PrefStore* recommended_cloud_prefs,
                          DefaultPrefStore* default_store)
     : user_pref_store_(user_prefs),
       default_store_(default_store) {
+#ifndef ANDROID
   pref_notifier_.reset(new PrefNotifierImpl(this));
+#endif
   pref_value_store_.reset(
->>>>>>> chromium.org at r11.0.672.0
       new PrefValueStore(managed_platform_prefs,
                          managed_cloud_prefs,
                          extension_prefs,
                          command_line_prefs,
                          user_pref_store_,
-<<<<<<< HEAD
-                         recommended_prefs,
-                         default_store_,
-#ifdef ANDROID
-                         NULL);
-#else
-                         pref_notifier_.get());
-#endif
-=======
                          recommended_platform_prefs,
                          recommended_cloud_prefs,
                          default_store,
+#ifdef ANDROID
+                         NULL));
+#else
                          pref_notifier_.get()));
+#endif
   InitFromStorage();
 }
 
@@ -219,7 +190,6 @@ PrefService::PrefService(const PrefService& original,
       NULL, // recommended_cloud_prefs
       default_store_.get(),
       pref_notifier_.get()));
->>>>>>> chromium.org at r11.0.672.0
   InitFromStorage();
 }
 
