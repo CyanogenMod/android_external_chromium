@@ -126,34 +126,12 @@ void PrefValueStore::NotifyPrefChanged(
     const char* path,
     PrefValueStore::PrefStoreType new_store) {
   DCHECK(new_store != INVALID_STORE);
-
-<<<<<<< HEAD
-  // If this pref is not registered, just discard the notification.
-  if (!pref_types_.count(path))
-    return;
-
-  bool changed = true;
-  // Replying that the pref has changed in case the new store is invalid may
-  // cause problems, but it's the safer choice.
-  if (new_store != INVALID_STORE) {
-    PrefStoreType controller = ControllingPrefStoreForPref(path);
-    DCHECK(controller != INVALID_STORE);
-    // If the pref is controlled by a higher-priority store, its effective value
-    // cannot have changed.
-    if (controller != INVALID_STORE &&
-        controller < new_store) {
-      changed = false;
-    }
-  }
-
 #ifndef ANDROID
-  if (changed)
-=======
+
   // If the pref is controlled by a higher-priority store, its effective value
   // cannot have changed.
   PrefStoreType controller = ControllingPrefStoreForPref(path);
   if (controller == INVALID_STORE || controller >= new_store)
->>>>>>> chromium.org at r11.0.672.0
     pref_notifier_->OnPreferenceChanged(path);
 #endif
 }
