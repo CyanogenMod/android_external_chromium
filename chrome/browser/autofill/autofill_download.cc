@@ -32,6 +32,12 @@ struct AutoFillDownloadManager::FormRequestData {
   AutoFillRequestType request_type;
 };
 
+#ifdef ANDROID
+// Taken from autofill_manager.cc
+const double kAutoFillPositiveUploadRateDefaultValue = 0.01;
+const double kAutoFillNegativeUploadRateDefaultValue = 0.01;
+#endif
+
 AutoFillDownloadManager::AutoFillDownloadManager(Profile* profile)
     : profile_(profile),
       observer_(NULL),
@@ -42,6 +48,10 @@ AutoFillDownloadManager::AutoFillDownloadManager(Profile* profile)
       fetcher_id_for_unittest_(0),
       is_testing_(false) {
   // |profile_| could be NULL in some unit-tests.
+#ifdef ANDROID
+  positive_upload_rate_ = kAutoFillPositiveUploadRateDefaultValue;
+  negative_upload_rate_ = kAutoFillNegativeUploadRateDefaultValue;
+#else
   if (profile_) {
     PrefService* preferences = profile_->GetPrefs();
     positive_upload_rate_ =
@@ -49,6 +59,7 @@ AutoFillDownloadManager::AutoFillDownloadManager(Profile* profile)
     negative_upload_rate_ =
         preferences->GetReal(prefs::kAutoFillNegativeUploadRate);
   }
+#endif
 }
 
 AutoFillDownloadManager::~AutoFillDownloadManager() {

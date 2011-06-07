@@ -608,8 +608,12 @@ bool PersonalDataManager::IsDataLoaded() const {
 
 const std::vector<AutoFillProfile*>& PersonalDataManager::profiles() {
   // |profile_| is NULL in AutoFillManagerTest.
+#ifdef ANDROID
+  bool auxiliary_profiles_enabled = false;
+#else
   bool auxiliary_profiles_enabled = profile_ ? profile_->GetPrefs()->GetBoolean(
       prefs::kAutoFillAuxiliaryProfilesEnabled) : false;
+#endif
   if (!auxiliary_profiles_enabled)
     return web_profiles();
 
