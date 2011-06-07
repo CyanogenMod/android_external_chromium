@@ -23,7 +23,9 @@
 #include "build/build_config.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extension_pref_store.h"
+#ifndef ANDROID
 #include "chrome/browser/policy/configuration_policy_pref_store.h"
+#endif
 #include "chrome/browser/prefs/command_line_pref_store.h"
 #include "chrome/browser/prefs/default_pref_store.h"
 #include "chrome/browser/prefs/overlay_persistent_pref_store.h"
@@ -99,7 +101,9 @@ void NotifyReadError(PrefService* pref, int message_id) {
 PrefService* PrefService::CreatePrefService(const FilePath& pref_filename,
                                             PrefStore* extension_prefs,
                                             Profile* profile) {
+#ifndef ANDROID
   using policy::ConfigurationPolicyPrefStore;
+#endif
 
 #if defined(OS_LINUX) && !defined(ANDROID)
   // We'd like to see what fraction of our users have the preferences
@@ -115,7 +119,7 @@ PrefService* PrefService::CreatePrefService(const FilePath& pref_filename,
 #endif
 
 #ifdef ANDROID
-  return new PrefService(NULL, NULL, NULL, NULL, NULL, NULL);
+  return new PrefService(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 #else
   ConfigurationPolicyPrefStore* managed_platform =
       ConfigurationPolicyPrefStore::CreateManagedPlatformPolicyPrefStore();
@@ -179,7 +183,9 @@ PrefService::PrefService(const PrefService& original,
       : user_pref_store_(
             new OverlayPersistentPrefStore(original.user_pref_store_.get())),
         default_store_(original.default_store_.get()){
+#ifndef ANDROID
   pref_notifier_.reset(new PrefNotifierImpl(this));
+#endif
   pref_value_store_.reset(original.pref_value_store_->CloneAndSpecialize(
       NULL, // managed_platform_prefs
       NULL, // managed_cloud_prefs
@@ -189,7 +195,11 @@ PrefService::PrefService(const PrefService& original,
       NULL, // recommended_platform_prefs
       NULL, // recommended_cloud_prefs
       default_store_.get(),
+#ifdef ANDROID
+      NULL));
+#else
       pref_notifier_.get()));
+#endif
   InitFromStorage();
 }
 
