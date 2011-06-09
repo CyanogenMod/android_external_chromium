@@ -54,6 +54,7 @@
 // Search Primary Provider (navigational suggestion)                   |  800++
 // HistoryContents (any match in title of nonstarred page)             |  700++
 // Search Primary Provider (suggestion)                                |  600++
+// Built-in                                                            |  575++
 // HistoryContents (any match in body of starred page)                 |  550++
 // HistoryContents (any match in body of nonstarred page)              |  500++
 // Keyword (inexact match)                                             |  450
@@ -76,6 +77,7 @@
 // Search Primary Provider (navigational suggestion)                   |  800++
 // HistoryContents (any match in title of nonstarred page)             |  700++
 // Search Primary Provider (suggestion)                                |  600++
+// Built-in                                                            |  575++
 // HistoryContents (any match in body of starred page)                 |  550++
 // HistoryContents (any match in body of nonstarred page)              |  500++
 // Keyword (inexact match)                                             |  450
@@ -95,6 +97,7 @@
 // Search Primary Provider (navigational suggestion)                   |  800++
 // Search Primary Provider (past query in history)                     |  750--
 // Keyword (inexact match)                                             |  700
+// Built-in                                                            |  575++
 // Search Primary Provider (suggestion)                                |  300++
 // Search Secondary Provider (what you typed)                          |  250
 // Search Secondary Provider (past query in history)                   |  200--
@@ -149,11 +152,12 @@
 // --: relevance score falls off over two days (discounted 99 points after two
 //     days).
 
+class AutocompleteController;
+class AutocompleteControllerDelegate;
 class AutocompleteInput;
 struct AutocompleteMatch;
 class AutocompleteProvider;
 class AutocompleteResult;
-class AutocompleteController;
 class HistoryContentsProvider;
 class Profile;
 class SearchProvider;
@@ -473,9 +477,10 @@ class AutocompleteResult {
   // operator=() by another name.
   void CopyFrom(const AutocompleteResult& rhs);
 
-  // If there are fewer matches in this result set than in |old_matches|, copies
-  // enough matches from |old_matches| to make the counts equal.
-  void CopyOldMatches(const AutocompleteResult& old_matches);
+  // Copies matches from |old_matches| to provide a consistant result set. See
+  // comments in code for specifics.
+  void CopyOldMatches(const AutocompleteInput& input,
+                      const AutocompleteResult& old_matches);
 
   // Adds a single match. The match is inserted at the appropriate position
   // based on relevancy and display order. This is ONLY for use after
@@ -492,10 +497,6 @@ class AutocompleteResult {
 
   // Returns true if at least one match was copied from the last result.
   bool HasCopiedMatches() const;
-
-  // Removes any matches that were copied from the previous result. Returns true
-  // if at least one entry was removed.
-  bool RemoveCopiedMatches();
 
   // Vector-style accessors/operators.
   size_t size() const;
@@ -528,23 +529,20 @@ class AutocompleteResult {
   static const size_t kMaxMatches;
 
  private:
-  typedef std::vector<const AutocompleteMatch*> ACMatchPtrs;
-  typedef std::map<AutocompleteProvider*, ACMatchPtrs> ProviderToMatchPtrs;
+  typedef std::map<AutocompleteProvider*, ACMatches> ProviderToMatches;
 
   // Populates |provider_to_matches| from |matches_|.
-  void BuildProviderToMatchPtrs(ProviderToMatchPtrs* provider_to_matches) const;
+  void BuildProviderToMatches(ProviderToMatches* provider_to_matches) const;
 
   // Returns true if |matches| contains a match with the same destination as
   // |match|.
   static bool HasMatchByDestination(const AutocompleteMatch& match,
-                                    const ACMatchPtrs& matches);
+                                    const ACMatches& matches);
 
   // Copies matches into this result. |old_matches| gives the matches from the
-  // last result, and |new_matches| the results from this result. |max_to_add|
-  // is decremented for each match copied.
-  void MergeMatchesByProvider(const ACMatchPtrs& old_matches,
-                              const ACMatchPtrs& new_matches,
-                              size_t* max_to_add);
+  // last result, and |new_matches| the results from this result.
+  void MergeMatchesByProvider(const ACMatches& old_matches,
+                              const ACMatches& new_matches);
 
   ACMatches matches_;
 
@@ -575,10 +573,12 @@ class AutocompleteController : public ACProviderListener {
   // second to set the providers to some known testing providers.  The default
   // providers will be overridden and the controller will take ownership of the
   // providers, Release()ing them on destruction.
-  explicit AutocompleteController(Profile* profile);
+  AutocompleteController(Profile* profile,
+                         AutocompleteControllerDelegate* delegate);
 #ifdef UNIT_TEST
   explicit AutocompleteController(const ACProviders& providers)
-      : providers_(providers),
+      : delegate_(NULL),
+        providers_(providers),
         search_provider_(NULL),
         done_(true),
         in_start_(false) {
@@ -615,10 +615,11 @@ class AutocompleteController : public ACProviderListener {
   // return matches which are synchronously available, which should mean that
   // all providers will be done immediately.
   //
-  // The controller will fire AUTOCOMPLETE_CONTROLLER_RESULT_UPDATED from
+  // The controller calls AutocompleteControllerDelegate::OnResultChanged() from
   // inside this call at least once. If matches are available later on that
-  // result in changing the result set AUTOCOMPLETE_CONTROLLER_RESULT_UPDATED
-  // is sent again.
+  // result in changing the result set the delegate is notified again. When the
+  // controller is done the notification AUTOCOMPLETE_CONTROLLER_RESULT_READY is
+  // sent.
   void Start(const string16& text,
              const string16& desired_tld,
              bool prevent_inline_autocomplete,
@@ -658,12 +659,8 @@ class AutocompleteController : public ACProviderListener {
   // Start() is calling this to get the synchronous result.
   void UpdateResult(bool is_synchronous_pass);
 
-  // Sends notifications that the results were updated. If
-  // |notify_default_match| is true,
-  // AUTOCOMPLETE_CONTROLLER_DEFAULT_MATCH_UPDATED is sent in addition to
-  // AUTOCOMPLETE_CONTROLLER_RESULT_UPDATED.
-  // TODO(pkasting): Don't hardcode assumptions about who listens to these
-  // notificiations.
+  // Calls AutocompleteControllerDelegate::OnResultChanged() and if done sends
+  // AUTOCOMPLETE_CONTROLLER_RESULT_READY.
   void NotifyChanged(bool notify_default_match);
 
   // Updates |done_| to be accurate with respect to current providers' statuses.
@@ -671,6 +668,8 @@ class AutocompleteController : public ACProviderListener {
 
   // Starts the expire timer.
   void StartExpireTimer();
+
+  AutocompleteControllerDelegate* delegate_;
 
   // A list of all providers.
   ACProviders providers_;

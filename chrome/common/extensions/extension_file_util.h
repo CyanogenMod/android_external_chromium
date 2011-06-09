@@ -40,6 +40,7 @@ void UninstallExtension(const FilePath& extensions_dir,
 scoped_refptr<Extension> LoadExtension(const FilePath& extension_root,
                                        Extension::Location location,
                                        bool require_key,
+                                       bool strict_error_checks,
                                        std::string* error);
 
 // Returns true if the given extension object is valid and consistent.
@@ -81,6 +82,11 @@ FilePath ExtensionURLToRelativeFilePath(const GURL& url);
 // with a histogram that allows us to understand why it is failing.
 // Return an empty file path on failure.
 FilePath GetUserDataTempDir();
+
+// Helper function to delete files. This is used to avoid ugly casts which
+// would be necessary with PostMessage since file_util::Delete is overloaded.
+// TODO(skerner): Make a version of Delete that is not overloaded in file_util.
+void DeleteFile(const FilePath& path, bool recursive);
 
 }  // namespace extension_file_util
 

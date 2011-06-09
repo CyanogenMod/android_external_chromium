@@ -4,8 +4,6 @@
 
 #include "chrome/browser/sync/syncable/model_type.h"
 
-#include <sstream>
-
 #include "base/metrics/histogram.h"
 #include "base/values.h"
 #include "chrome/browser/sync/engine/syncproto.h"
@@ -113,6 +111,9 @@ int GetExtensionFieldNumberFromModelType(ModelType model_type) {
       NOTREACHED() << "No known extension for model type.";
       return 0;
   }
+  NOTREACHED() << "Needed for linux_keep_shadow_stacks because of "
+               << "http://gcc.gnu.org/bugzilla/show_bug.cgi?id=20681";
+  return 0;
 }
 
 // Note: keep this consistent with GetModelType in syncable.cc!
@@ -214,6 +215,17 @@ std::string ModelTypeToString(ModelType model_type) {
   return "INVALID";
 }
 
+std::string ModelTypeSetToString(const ModelTypeSet& model_types) {
+  std::string result;
+  for (ModelTypeSet::const_iterator iter = model_types.begin();
+       iter != model_types.end();) {
+    result += ModelTypeToString(*iter);
+    if (++iter != model_types.end())
+      result += ", ";
+  }
+  return result;
+}
+
 ModelType ModelTypeFromString(const std::string& model_type_string) {
   if (model_type_string == "Bookmarks")
     return BOOKMARKS;
@@ -246,14 +258,22 @@ ModelType ModelTypeFromString(const std::string& model_type_string) {
 bool ModelTypeBitSetFromString(
     const std::string& model_type_bitset_string,
     ModelTypeBitSet* model_types) {
-  if (model_type_bitset_string.length() != MODEL_TYPE_COUNT) {
+  DCHECK(model_types);
+  if (model_type_bitset_string.length() != MODEL_TYPE_COUNT)
     return false;
-  }
+  if (model_type_bitset_string.find_first_not_of("01") != std::string::npos)
+    return false;
+  *model_types = ModelTypeBitSet(model_type_bitset_string);
+  return true;
+}
 
-  std::istringstream iss(model_type_bitset_string);
-  iss >> *model_types;
-  iss.peek();   // Need to peek before checking EOF.
-  return iss.eof();
+ModelTypeBitSet ModelTypeBitSetFromSet(const ModelTypeSet& set) {
+  ModelTypeBitSet bitset;
+  for (ModelTypeSet::const_iterator iter = set.begin(); iter != set.end();
+       ++iter) {
+    bitset.set(*iter);
+  }
+  return bitset;
 }
 
 ListValue* ModelTypeBitSetToValue(const ModelTypeBitSet& model_types) {
@@ -261,11 +281,52 @@ ListValue* ModelTypeBitSetToValue(const ModelTypeBitSet& model_types) {
   for (int i = FIRST_REAL_MODEL_TYPE; i < MODEL_TYPE_COUNT; ++i) {
     if (model_types[i]) {
       value->Append(
-          Value::CreateStringValue(
-              ModelTypeToString(ModelTypeFromInt(i))));
+          Value::CreateStringValue(ModelTypeToString(ModelTypeFromInt(i))));
     }
   }
   return value;
+}
+
+ListValue* ModelTypeSetToValue(const ModelTypeSet& model_types) {
+  ListValue* value = new ListValue();
+  for (ModelTypeSet::const_iterator i = model_types.begin();
+       i != model_types.end(); ++i) {
+    value->Append(Value::CreateStringValue(ModelTypeToString(*i)));
+  }
+  return value;
+}
+
+// TODO(zea): remove all hardcoded tags in model associators and have them use
+// this instead.
+std::string ModelTypeToRootTag(ModelType type) {
+  switch (type) {
+    case BOOKMARKS:
+      return "google_chrome_bookmarks";
+    case PREFERENCES:
+      return "google_chrome_preferences";
+    case PASSWORDS:
+      return "google_chrome_passwords";
+    case AUTOFILL:
+      return "google_chrome_autofill";
+    case THEMES:
+      return "google_chrome_themes";
+    case TYPED_URLS:
+      return "google_chrome_typed_urls";
+    case EXTENSIONS:
+      return "google_chrome_extensions";
+    case NIGORI:
+      return "google_chrome_nigori";
+    case SESSIONS:
+      return "google_chrome_sessions";
+    case APPS:
+      return "google_chrome_apps";
+    case AUTOFILL_PROFILE:
+      return "google_chrome_autofill_profiles";
+    default:
+      break;
+  }
+  NOTREACHED() << "No known extension for model type.";
+  return "INVALID";
 }
 
 // For now, this just implements UMA_HISTOGRAM_LONG_TIMES. This can be adjusted

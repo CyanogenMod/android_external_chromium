@@ -604,6 +604,9 @@ SSLClientSocket* MockClientSocketFactory::CreateSSLClientSocket(
   return socket;
 }
 
+void MockClientSocketFactory::ClearSSLSessionCache() {
+}
+
 MockClientSocket::MockClientSocket(net::NetLog* net_log)
     : ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)),
       connected_(false),
@@ -631,7 +634,7 @@ bool MockClientSocket::IsConnectedAndIdle() const {
 }
 
 int MockClientSocket::GetPeerAddress(AddressList* address) const {
-  return net::SystemHostResolverProc("localhost", ADDRESS_FAMILY_UNSPECIFIED,
+  return net::SystemHostResolverProc("192.0.2.33", ADDRESS_FAMILY_UNSPECIFIED,
                                      0, address, NULL);
 }
 
@@ -1302,6 +1305,9 @@ SSLClientSocket* DeterministicMockClientSocketFactory::CreateSSLClientSocket(
                               ssl_host_info, mock_ssl_data_.GetNext());
   ssl_client_sockets_.push_back(socket);
   return socket;
+}
+
+void DeterministicMockClientSocketFactory::ClearSSLSessionCache() {
 }
 
 MockSOCKSClientSocketPool::MockSOCKSClientSocketPool(

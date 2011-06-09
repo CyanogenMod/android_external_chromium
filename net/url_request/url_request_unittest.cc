@@ -27,6 +27,7 @@
 #include "net/base/cookie_monster.h"
 #include "net/base/cookie_policy.h"
 #include "net/base/load_flags.h"
+#include "net/base/mock_host_resolver.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_log.h"
 #include "net/base/net_log_unittest.h"
@@ -177,13 +178,12 @@ class URLRequestTestHTTP : public URLRequestTest {
   }
 
   void AddChunksToUpload(TestURLRequest* r) {
-    r->AppendChunkToUpload("a", 1);
-    r->AppendChunkToUpload("bcd", 3);
-    r->AppendChunkToUpload("this is a longer chunk than before.", 35);
-    r->AppendChunkToUpload("\r\n\r\n", 4);
-    r->AppendChunkToUpload("0", 1);
-    r->AppendChunkToUpload("2323", 4);
-    r->MarkEndOfChunks();
+    r->AppendChunkToUpload("a", 1, false);
+    r->AppendChunkToUpload("bcd", 3, false);
+    r->AppendChunkToUpload("this is a longer chunk than before.", 35, false);
+    r->AppendChunkToUpload("\r\n\r\n", 4, false);
+    r->AppendChunkToUpload("0", 1, false);
+    r->AppendChunkToUpload("2323", 4, true);
   }
 
   void VerifyReceivedDataMatchesChunks(TestURLRequest* r, TestDelegate* d) {
@@ -230,6 +230,37 @@ TEST_F(URLRequestTestHTTP, ProxyTunnelRedirectTest) {
   }
 }
 
+// This is the same as the previous test, but checks that the network delegate
+// registers the error.
+TEST_F(URLRequestTestHTTP, NetworkDelegateTunnelConnectionFailed) {
+  ASSERT_TRUE(test_server_.Start());
+
+  TestDelegate d;
+  {
+    net::URLRequest r(GURL("https://www.redirect.com/"), &d);
+    scoped_refptr<TestURLRequestContext> context(
+        new TestURLRequestContext(test_server_.host_port_pair().ToString()));
+    TestNetworkDelegate network_delegate;
+    context->set_network_delegate(&network_delegate);
+    r.set_context(context);
+
+    r.Start();
+    EXPECT_TRUE(r.is_pending());
+
+    MessageLoop::current()->Run();
+
+    EXPECT_EQ(net::URLRequestStatus::FAILED, r.status().status());
+    EXPECT_EQ(net::ERR_TUNNEL_CONNECTION_FAILED, r.status().os_error());
+    EXPECT_EQ(1, d.response_started_count());
+    // We should not have followed the redirect.
+    EXPECT_EQ(0, d.received_redirect_count());
+
+    EXPECT_EQ(1, network_delegate.error_count());
+    EXPECT_EQ(net::ERR_TUNNEL_CONNECTION_FAILED,
+              network_delegate.last_os_error());
+  }
+}
+
 // In this unit test, we're using the HTTPTestServer as a proxy server and
 // issuing a CONNECT request with the magic host name "www.server-auth.com".
 // The HTTPTestServer will return a 401 response, which we should balk at.
@@ -267,6 +298,10 @@ TEST_F(URLRequestTestHTTP, GetTest_NoCache) {
     EXPECT_EQ(1, d.response_started_count());
     EXPECT_FALSE(d.received_data_before_response());
     EXPECT_NE(0, d.bytes_received());
+    EXPECT_EQ(test_server_.host_port_pair().host(),
+              r.GetSocketAddress().host());
+    EXPECT_EQ(test_server_.host_port_pair().port(),
+              r.GetSocketAddress().port());
 
     // TODO(eroman): Add back the NetLog tests...
   }
@@ -287,6 +322,10 @@ TEST_F(URLRequestTestHTTP, GetTest) {
     EXPECT_EQ(1, d.response_started_count());
     EXPECT_FALSE(d.received_data_before_response());
     EXPECT_NE(0, d.bytes_received());
+    EXPECT_EQ(test_server_.host_port_pair().host(),
+              r.GetSocketAddress().host());
+    EXPECT_EQ(test_server_.host_port_pair().port(),
+              r.GetSocketAddress().port());
   }
 }
 
@@ -335,6 +374,10 @@ TEST_F(HTTPSRequestTest, HTTPSGetTest) {
     EXPECT_FALSE(d.received_data_before_response());
     EXPECT_NE(0, d.bytes_received());
     CheckSSLInfo(r.ssl_info());
+    EXPECT_EQ(test_server.host_port_pair().host(),
+              r.GetSocketAddress().host());
+    EXPECT_EQ(test_server.host_port_pair().port(),
+              r.GetSocketAddress().port());
   }
 }
 
@@ -713,6 +756,8 @@ TEST_F(URLRequestTest, AboutBlankTest) {
     EXPECT_TRUE(!r.is_pending());
     EXPECT_FALSE(d.received_data_before_response());
     EXPECT_EQ(d.bytes_received(), 0);
+    EXPECT_EQ("", r.GetSocketAddress().host());
+    EXPECT_EQ(0, r.GetSocketAddress().port());
   }
 }
 
@@ -750,6 +795,8 @@ TEST_F(URLRequestTest, DataURLImageTest) {
     EXPECT_TRUE(!r.is_pending());
     EXPECT_FALSE(d.received_data_before_response());
     EXPECT_EQ(d.bytes_received(), 911);
+    EXPECT_EQ("", r.GetSocketAddress().host());
+    EXPECT_EQ(0, r.GetSocketAddress().port());
   }
 }
 
@@ -774,6 +821,8 @@ TEST_F(URLRequestTest, FileTest) {
     EXPECT_EQ(1, d.response_started_count());
     EXPECT_FALSE(d.received_data_before_response());
     EXPECT_EQ(d.bytes_received(), static_cast<int>(file_size));
+    EXPECT_EQ("", r.GetSocketAddress().host());
+    EXPECT_EQ(0, r.GetSocketAddress().port());
   }
 }
 
@@ -2339,6 +2388,43 @@ TEST_F(URLRequestTest, InterceptRespectsCancelInRestart) {
   EXPECT_EQ(net::URLRequestStatus::CANCELED, req.status().status());
 }
 
+// Check that two different URL requests have different identifiers.
+TEST_F(URLRequestTest, Identifiers) {
+  TestDelegate d;
+  TestURLRequest req(GURL("http://example.com"), &d);
+  TestURLRequest other_req(GURL("http://example.com"), &d);
+
+  ASSERT_NE(req.identifier(), other_req.identifier());
+}
+
+// Check that a failure to connect to the proxy is reported to the network
+// delegate.
+TEST_F(URLRequestTest, NetworkDelegateProxyError) {
+  TestDelegate d;
+  TestURLRequest req(GURL("http://example.com"), &d);
+  req.set_method("GET");
+
+  scoped_ptr<net::MockHostResolverBase> host_resolver(
+      new net::MockHostResolver);
+  host_resolver->rules()->AddSimulatedFailure("*");
+  TestNetworkDelegate network_delegate;
+  scoped_refptr<TestURLRequestContext> context(
+      new TestURLRequestContext("myproxy:70", host_resolver.release()));
+  context->set_network_delegate(&network_delegate);
+  req.set_context(context);
+
+  req.Start();
+  MessageLoop::current()->Run();
+
+  // Check we see a failed request.
+  EXPECT_FALSE(req.status().is_success());
+  EXPECT_EQ(net::URLRequestStatus::FAILED, req.status().status());
+  EXPECT_EQ(net::ERR_PROXY_CONNECTION_FAILED, req.status().os_error());
+
+  EXPECT_EQ(1, network_delegate.error_count());
+  EXPECT_EQ(net::ERR_PROXY_CONNECTION_FAILED, network_delegate.last_os_error());
+}
+
 class URLRequestTestFTP : public URLRequestTest {
  public:
   URLRequestTestFTP() : test_server_(net::TestServer::TYPE_FTP, FilePath()) {
@@ -2364,6 +2450,10 @@ TEST_F(URLRequestTestFTP, FLAKY_FTPDirectoryListing) {
     EXPECT_EQ(1, d.response_started_count());
     EXPECT_FALSE(d.received_data_before_response());
     EXPECT_LT(0, d.bytes_received());
+    EXPECT_EQ(test_server_.host_port_pair().host(),
+              r.GetSocketAddress().host());
+    EXPECT_EQ(test_server_.host_port_pair().port(),
+              r.GetSocketAddress().port());
   }
 }
 
@@ -2389,6 +2479,10 @@ TEST_F(URLRequestTestFTP, FLAKY_FTPGetTestAnonymous) {
     EXPECT_EQ(1, d.response_started_count());
     EXPECT_FALSE(d.received_data_before_response());
     EXPECT_EQ(d.bytes_received(), static_cast<int>(file_size));
+    EXPECT_EQ(test_server_.host_port_pair().host(),
+              r.GetSocketAddress().host());
+    EXPECT_EQ(test_server_.host_port_pair().port(),
+              r.GetSocketAddress().port());
   }
 }
 
@@ -2413,6 +2507,10 @@ TEST_F(URLRequestTestFTP, FLAKY_FTPGetTest) {
     file_util::GetFileSize(app_path, &file_size);
 
     EXPECT_FALSE(r.is_pending());
+    EXPECT_EQ(test_server_.host_port_pair().host(),
+              r.GetSocketAddress().host());
+    EXPECT_EQ(test_server_.host_port_pair().port(),
+              r.GetSocketAddress().port());
     EXPECT_EQ(1, d.response_started_count());
     EXPECT_FALSE(d.received_data_before_response());
     EXPECT_EQ(d.bytes_received(), static_cast<int>(file_size));

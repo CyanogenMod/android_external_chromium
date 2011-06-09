@@ -10,14 +10,15 @@
 #include "base/file_util.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/theme_installed_infobar_delegate.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_icon_set.h"
@@ -25,6 +26,7 @@
 #include "chrome/common/extensions/url_pattern.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -39,23 +41,54 @@
 // static
 const int ExtensionInstallUI::kTitleIds[NUM_PROMPT_TYPES] = {
   IDS_EXTENSION_INSTALL_PROMPT_TITLE,
-  IDS_EXTENSION_UNINSTALL_PROMPT_TITLE
+  IDS_EXTENSION_UNINSTALL_PROMPT_TITLE,
+  IDS_EXTENSION_RE_ENABLE_PROMPT_TITLE
 };
 // static
 const int ExtensionInstallUI::kHeadingIds[NUM_PROMPT_TYPES] = {
   IDS_EXTENSION_INSTALL_PROMPT_HEADING,
-  IDS_EXTENSION_UNINSTALL_PROMPT_HEADING
+  IDS_EXTENSION_UNINSTALL_PROMPT_HEADING,
+  IDS_EXTENSION_RE_ENABLE_PROMPT_HEADING
 };
 // static
 const int ExtensionInstallUI::kButtonIds[NUM_PROMPT_TYPES] = {
   IDS_EXTENSION_PROMPT_INSTALL_BUTTON,
-  IDS_EXTENSION_PROMPT_UNINSTALL_BUTTON
+  IDS_EXTENSION_PROMPT_UNINSTALL_BUTTON,
+  IDS_EXTENSION_PROMPT_RE_ENABLE_BUTTON
+};
+// static
+const int ExtensionInstallUI::kWarningIds[NUM_PROMPT_TYPES] = {
+  IDS_EXTENSION_PROMPT_WILL_HAVE_ACCESS_TO,
+  0,  // No warning label when uninstalling.
+  IDS_EXTENSION_PROMPT_WILL_NOW_HAVE_ACCESS_TO
 };
 
 namespace {
 
 // Size of extension icon in top left of dialog.
 const int kIconSize = 69;
+
+// Shows the application install animation on the new tab page for the app
+// with |app_id|. If a NTP already exists on the active |browser|, this will
+// select that tab and show the animation there. Otherwise, it will create
+// a new NTP.
+void ShowAppInstalledAnimation(Browser* browser, const std::string& app_id) {
+  // Select an already open NTP, if there is one. Existing NTPs will
+  // automatically show the install animation for any new apps.
+  for (int i = 0; i < browser->tab_count(); ++i) {
+    TabContents* tab_contents = browser->GetTabContentsAt(i);
+    GURL url = tab_contents->GetURL();
+    if (StartsWithASCII(url.spec(), chrome::kChromeUINewTabURL, false)) {
+      browser->SelectTabContentsAt(i, false);
+      return;
+    }
+  }
+
+  // If there isn't an NTP, open one and pass it the ID of the installed app.
+  std::string url = base::StringPrintf(
+      "%s/#app-id=%s", chrome::kChromeUINewTabURL, app_id.c_str());
+  browser->AddSelectedTabWithURL(GURL(url), PageTransition::TYPED);
+}
 
 }  // namespace
 
@@ -112,6 +145,15 @@ void ExtensionInstallUI::ConfirmUninstall(Delegate* delegate,
   ShowConfirmation(UNINSTALL_PROMPT);
 }
 
+void ExtensionInstallUI::ConfirmReEnable(Delegate* delegate,
+                                         const Extension* extension) {
+  DCHECK(ui_loop_ == MessageLoop::current());
+  extension_ = extension;
+  delegate_ = delegate;
+
+  ShowConfirmation(RE_ENABLE_PROMPT);
+}
+
 void ExtensionInstallUI::OnInstallSuccess(const Extension* extension,
                                           SkBitmap* icon) {
   extension_ = extension;
@@ -132,14 +174,7 @@ void ExtensionInstallUI::OnInstallSuccess(const Extension* extension,
   browser->window()->Show();
 
   if (extension->GetFullLaunchURL().is_valid()) {
-    std::string hash_params = "app-id=";
-    hash_params += extension->id();
-
-    std::string url(chrome::kChromeUINewTabURL);
-    url += "/#";
-    url += hash_params;
-    browser->AddSelectedTabWithURL(GURL(url), PageTransition::TYPED);
-
+    ShowAppInstalledAnimation(browser, extension->id());
     return;
   }
 
@@ -177,6 +212,7 @@ void ExtensionInstallUI::OnImageLoaded(
   SetIcon(image);
 
   switch (prompt_type_) {
+    case RE_ENABLE_PROMPT:
     case INSTALL_PROMPT: {
       // TODO(jcivelli): http://crbug.com/44771 We should not show an install
       //                 dialog when installing an app from the gallery.
@@ -187,7 +223,7 @@ void ExtensionInstallUI::OnImageLoaded(
 
       std::vector<string16> warnings = extension_->GetPermissionMessages();
       ShowExtensionInstallUIPrompt2Impl(profile_, delegate_, extension_, &icon_,
-                                        warnings);
+                                        warnings, prompt_type_);
       break;
     }
     case UNINSTALL_PROMPT: {

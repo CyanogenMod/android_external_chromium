@@ -11,7 +11,7 @@
 #include "base/basictypes.h"
 #include "base/file_path.h"
 #include "base/ref_counted.h"
-#include "chrome/browser/browser_thread.h"
+#include "content/browser/browser_thread.h"
 
 // This class lets you register interest in changes on a FilePath.
 // The delegate will get called whenever the file or directory referenced by the
@@ -44,8 +44,6 @@ class FilePathWatcher {
       : public base::RefCountedThreadSafe<PlatformDelegate,
                                           BrowserThread::DeleteOnFileThread> {
    public:
-    virtual ~PlatformDelegate() {}
-
     // Start watching for the given |path| and notify |delegate| about changes.
     virtual bool Watch(const FilePath& path, Delegate* delegate)
         WARN_UNUSED_RESULT = 0;
@@ -53,6 +51,12 @@ class FilePathWatcher {
     // Stop watching. This is called from FilePathWatcher's dtor in order to
     // allow to shut down properly while the object is still alive.
     virtual void Cancel() {}
+
+   protected:
+    friend struct BrowserThread::DeleteOnThread<BrowserThread::FILE>;
+    friend class DeleteTask<PlatformDelegate>;
+
+    virtual ~PlatformDelegate() {}
   };
 
  private:

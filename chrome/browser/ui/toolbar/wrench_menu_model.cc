@@ -20,7 +20,6 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_ui_util.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/toolbar/encoding_menu_controller.h"
@@ -31,6 +30,7 @@
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/profiling.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -427,11 +427,7 @@ void WrenchMenuModel::Build() {
 #else
   const string16 product_name = l10n_util::GetStringUTF16(IDS_PRODUCT_NAME);
 #endif
-  // On Mac, there is no About item.
-  if (browser_defaults::kShowAboutMenuItem) {
-    AddItem(IDC_ABOUT, l10n_util::GetStringFUTF16(
-        IDS_ABOUT, product_name));
-  }
+  AddItem(IDC_ABOUT, l10n_util::GetStringFUTF16(IDS_ABOUT, product_name));
   string16 num_background_pages = base::FormatNumber(
       BackgroundPageTracker::GetInstance()->GetBackgroundPageCount());
   AddItem(IDC_VIEW_BACKGROUND_PAGES, l10n_util::GetStringFUTF16(

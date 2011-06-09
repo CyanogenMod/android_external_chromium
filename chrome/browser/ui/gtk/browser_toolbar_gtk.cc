@@ -15,12 +15,10 @@
 #include "base/path_service.h"
 #include "base/singleton.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/background_page_tracker.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/gtk/accelerators_gtk.h"
@@ -39,11 +37,12 @@
 #include "chrome/browser/ui/gtk/view_id_util.h"
 #include "chrome/browser/ui/toolbar/encoding_menu_controller.h"
 #include "chrome/browser/upgrade_detector.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -101,9 +100,6 @@ BrowserToolbarGtk::BrowserToolbarGtk(Browser* browser, BrowserWindowGtk* window)
                  NotificationService::AllSources());
   registrar_.Add(this,
                  NotificationType::UPGRADE_RECOMMENDED,
-                 NotificationService::AllSources());
-  registrar_.Add(this,
-                 NotificationType::BACKGROUND_PAGE_TRACKER_CHANGED,
                  NotificationService::AllSources());
 }
 
@@ -316,9 +312,6 @@ void BrowserToolbarGtk::StoppedShowing() {
   gtk_chrome_button_set_hover_state(
       GTK_CHROME_BUTTON(wrench_menu_button_->widget()), 0.0);
   wrench_menu_button_->UnsetPaintOverride();
-
-  // Stop showing the BG page badge when we close the wrench menu.
-  BackgroundPageTracker::GetInstance()->AcknowledgeBackgroundPages();
 }
 
 GtkIconSet* BrowserToolbarGtk::GetIconSetForId(int idr) {
@@ -328,8 +321,7 @@ GtkIconSet* BrowserToolbarGtk::GetIconSetForId(int idr) {
 // Always show images because we desire that some icons always show
 // regardless of the system setting.
 bool BrowserToolbarGtk::AlwaysShowIconForCmd(int command_id) const {
-  return command_id == IDC_UPGRADE_DIALOG ||
-         command_id == IDC_VIEW_BACKGROUND_PAGES;
+  return command_id == IDC_UPGRADE_DIALOG;
 }
 
 // ui::AcceleratorProvider
@@ -384,8 +376,7 @@ void BrowserToolbarGtk::Observe(NotificationType type,
     }
 
     UpdateRoundedness();
-  } else if (type == NotificationType::UPGRADE_RECOMMENDED ||
-             type == NotificationType::BACKGROUND_PAGE_TRACKER_CHANGED) {
+  } else if (type == NotificationType::UPGRADE_RECOMMENDED) {
     // Redraw the wrench menu to update the badge.
     gtk_widget_queue_draw(wrench_menu_button_->widget());
   } else if (type == NotificationType::ZOOM_LEVEL_CHANGED) {
@@ -639,9 +630,6 @@ gboolean BrowserToolbarGtk::OnWrenchMenuButtonExpose(GtkWidget* sender,
   const SkBitmap* badge = NULL;
   if (UpgradeDetector::GetInstance()->notify_upgrade()) {
     badge = theme_provider_->GetBitmapNamed(IDR_UPDATE_BADGE);
-  } else if (BackgroundPageTracker::GetInstance()->
-             GetUnacknowledgedBackgroundPageCount()) {
-    badge = theme_provider_->GetBitmapNamed(IDR_BACKGROUND_BADGE);
   } else {
     return FALSE;
   }

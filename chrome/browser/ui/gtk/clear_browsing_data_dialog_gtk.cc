@@ -10,7 +10,6 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/gtk/accessible_widget_helper_gtk.h"
 #include "chrome/browser/ui/gtk/browser_window_gtk.h"
 #include "chrome/browser/ui/gtk/gtk_chrome_link_button.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
@@ -48,9 +47,6 @@ ClearBrowsingDataDialogGtk::ClearBrowsingDataDialogGtk(GtkWindow* parent,
   GtkWidget* cancel_button = gtk_dialog_add_button(GTK_DIALOG(dialog_),
       GTK_STOCK_CANCEL, GTK_RESPONSE_REJECT);
   gtk_widget_grab_focus(cancel_button);
-
-  accessible_widget_helper_.reset(new AccessibleWidgetHelper(dialog_, profile));
-  accessible_widget_helper_->SendOpenWindowNotification(dialog_name);
 
   gtk_util::AddButtonToDialog(dialog_,
       l10n_util::GetStringUTF8(IDS_CLEAR_BROWSING_DATA_COMMIT).c_str(),
@@ -173,21 +169,20 @@ ClearBrowsingDataDialogGtk::ClearBrowsingDataDialogGtk(GtkWindow* parent,
   gtk_box_reorder_child(GTK_BOX(content_area), GTK_DIALOG(dialog_)->action_area,
                         -1);
 
-  g_signal_connect(dialog_, "response",
-                   G_CALLBACK(OnDialogResponseThunk), this);
+  g_signal_connect(dialog_, "response", G_CALLBACK(OnResponseThunk), this);
 
   UpdateDialogButtons();
 
-  gtk_util::ShowModalDialogWithMinLocalizedWidth(dialog_,
+  gtk_util::ShowDialogWithMinLocalizedWidth(dialog_,
       IDS_CLEARDATA_DIALOG_WIDTH_CHARS);
 }
 
 ClearBrowsingDataDialogGtk::~ClearBrowsingDataDialogGtk() {
 }
 
-void ClearBrowsingDataDialogGtk::OnDialogResponse(GtkWidget* widget,
-                                                  int response) {
-  if (response == GTK_RESPONSE_ACCEPT) {
+void ClearBrowsingDataDialogGtk::OnResponse(GtkWidget* dialog,
+                                            int response_id) {
+  if (response_id == GTK_RESPONSE_ACCEPT) {
     PrefService* prefs = profile_->GetPrefs();
     prefs->SetBoolean(prefs::kDeleteBrowsingHistory,
                       IsChecked(del_history_checkbox_));
@@ -215,7 +210,7 @@ void ClearBrowsingDataDialogGtk::OnDialogResponse(GtkWidget* widget,
   }
 
   delete this;
-  gtk_widget_destroy(GTK_WIDGET(widget));
+  gtk_widget_destroy(dialog);
 }
 
 void ClearBrowsingDataDialogGtk::OnDialogWidgetClicked(GtkWidget* widget) {

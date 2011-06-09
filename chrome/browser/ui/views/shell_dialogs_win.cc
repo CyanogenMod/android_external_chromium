@@ -20,7 +20,7 @@
 #include "base/utf_string_conversions.h"
 #include "base/win/registry.h"
 #include "base/win/windows_version.h"
-#include "chrome/browser/browser_thread.h"
+#include "content/browser/browser_thread.h"
 #include "grit/app_strings.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -271,7 +271,10 @@ bool SaveFileAsWithFilter(HWND owner,
   save_as.nMaxFileTitle = 0;
 
   // Set up the initial directory for the dialog.
-  std::wstring directory = FilePath(suggested_name).DirName().value();
+  std::wstring directory;
+  if (!suggested_name.empty())
+     directory = FilePath(suggested_name).DirName().value();
+
   save_as.lpstrInitialDir = directory.c_str();
   save_as.lpstrTitle = NULL;
   save_as.Flags = OFN_OVERWRITEPROMPT | OFN_EXPLORER | OFN_ENABLESIZING |

@@ -14,8 +14,8 @@
 #include "base/timer.h"
 #include "chrome/browser/ui/gtk/owned_widget_gtk.h"
 #include "chrome/browser/ui/status_bubble.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "googleurl/src/gurl.h"
 #include "ui/base/animation/animation_delegate.h"
 #include "ui/base/gtk/gtk_signal.h"
@@ -123,7 +123,7 @@ class StatusBubbleGtk : public StatusBubble,
   GtkWidget* padding_;
 
   // The GtkLabel holding the text.
-  GtkWidget* label_;
+  OwnedWidgetGtk label_;
 
   // The status text we want to display when there are no URLs to display.
   std::string status_text_;

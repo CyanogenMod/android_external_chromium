@@ -124,13 +124,13 @@ bool ProcessIterator::CheckForNextProcess() {
     // Find out what size buffer we need.
     size_t data_len = 0;
     if (sysctl(mib, arraysize(mib), NULL, &data_len, NULL, 0) < 0) {
-      LOG(ERROR) << "failed to figure out the buffer size for a commandline";
+      DVPLOG(1) << "failed to figure out the buffer size for a commandline";
       continue;
     }
 
     data.resize(data_len);
     if (sysctl(mib, arraysize(mib), &data[0], &data_len, NULL, 0) < 0) {
-      LOG(ERROR) << "failed to fetch a commandline";
+      DVPLOG(1) << "failed to fetch a commandline";
       continue;
     }
 
@@ -878,6 +878,19 @@ void EnableTerminationOnOutOfMemory() {
       << "Failed to get allocWithZone allocation function.";
   method_setImplementation(orig_method,
                            reinterpret_cast<IMP>(oom_killer_allocWithZone));
+}
+
+ProcessId GetParentProcessId(ProcessHandle process) {
+  struct kinfo_proc info;
+  size_t length = sizeof(struct kinfo_proc);
+  int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, process };
+  if (sysctl(mib, 4, &info, &length, NULL, 0) < 0) {
+    PLOG(ERROR) << "sysctl";
+    return -1;
+  }
+  if (length == 0)
+    return -1;
+  return info.kp_eproc.e_ppid;
 }
 
 }  // namespace base

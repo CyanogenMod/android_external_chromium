@@ -22,10 +22,8 @@
 #include "base/scoped_ptr.h"
 #include "base/utf_string_conversions.h"
 #include "base/win/windows_version.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/download/download_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_plugin_util.h"
@@ -33,6 +31,8 @@
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/web_apps.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/tab_contents/tab_contents.h"
 
 #if defined(OS_LINUX)
 #include "base/environment.h"
@@ -94,7 +94,7 @@ FilePath GetSanitizedFileName(const string16& name) {
 FilePath GetWebAppDir(const ShellIntegration::ShortcutInfo& info) {
   if (!info.extension_id.empty()) {
     std::string app_name = web_app::GenerateApplicationNameFromExtensionId(
-        UTF16ToUTF8(info.extension_id));
+        info.extension_id);
 #if defined(OS_WIN)
     return FilePath(UTF8ToWide(app_name));
 #elif defined(OS_POSIX)
@@ -391,7 +391,7 @@ bool CreateShortcutTask::CreateShortcut() {
   std::string app_name;
   if (!shortcut_info_.extension_id.empty()) {
     app_name = web_app::GenerateApplicationNameFromExtensionId(
-        UTF16ToUTF8(shortcut_info_.extension_id));
+        shortcut_info_.extension_id);
   } else {
     app_name = web_app::GenerateApplicationNameFromURL(
         shortcut_info_.url);

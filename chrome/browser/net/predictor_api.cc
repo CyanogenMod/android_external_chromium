@@ -15,7 +15,6 @@
 #include "base/values.h"
 #include "base/synchronization/waitable_event.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/net/preconnect.h"
 #include "chrome/browser/net/referrer.h"
@@ -28,6 +27,7 @@
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/browser_thread.h"
 #include "net/base/host_resolver.h"
 #include "net/base/host_resolver_impl.h"
 
@@ -96,6 +96,9 @@ class InitialObserver {
   // Persist the current first_navigations_ for storage in a list.
   void GetInitialDnsResolutionList(ListValue* startup_list);
 
+  // Discards all initial loading history.
+  void DiscardInitialNavigationHistory() { first_navigations_.clear(); }
+
  private:
   // List of the first N URL resolutions observed in this run.
   FirstNavigations first_navigations_;
@@ -132,6 +135,12 @@ void OnTheRecord(bool enable) {
   on_the_record_switch = enable;
   if (on_the_record_switch)
     g_browser_process->io_thread()->ChangedToOnTheRecord();
+}
+
+void DiscardInitialNavigationHistory() {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  if (g_initial_observer)
+    g_initial_observer->DiscardInitialNavigationHistory();
 }
 
 void RegisterUserPrefs(PrefService* user_prefs) {

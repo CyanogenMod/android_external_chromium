@@ -8,59 +8,29 @@
 
 #include "base/logging.h"
 #include "base/string_util.h"
-#include "base/synchronization/lock.h"
-#include "base/threading/platform_thread.h"
 
 namespace {
 
-// AccessLog records threads that have accessed the URLRequestThrottlerManager
-// singleton object.
-// TODO(yzshen): It is used for diagnostic purpose and should be removed once we
-// figure out crbug.com/71721
-class AccessLog {
- public:
-  static const size_t kAccessLogSize = 4;
+// TODO(joi): Remove after crbug.com/71721 is fixed.
+struct IteratorHistory {
+  // Copy of 'this' pointer at time of access; this helps both because
+  // the this pointer is often obfuscated (at least for this particular
+  // stack trace) in fully optimized builds, and possibly to detect
+  // changes in the this pointer during iteration over the map (e.g.
+  // from another thread overwriting memory).
+  net::URLRequestThrottlerManager* self;
 
-  AccessLog() {
-    for (size_t i = 0; i < kAccessLogSize; ++i) {
-      thread_ids_[i] = base::kInvalidThreadId;
-      urls_[i][0] = '\0';
-    }
-  }
+  // Copy of URL key.
+  char url[256];
 
-  AccessLog(const AccessLog& log) {
-    base::AutoLock auto_lock(log.lock_);
-    for (size_t i = 0; i < kAccessLogSize; ++i) {
-      thread_ids_[i] = log.thread_ids_[i];
-      base::strlcpy(urls_[i], log.urls_[i], kUrlBufferSize);
-    }
-  }
+  // Not a refptr, we don't want to change behavior by keeping it alive.
+  net::URLRequestThrottlerEntryInterface* entry;
 
-  void Add(base::PlatformThreadId id, const GURL& url) {
-    base::AutoLock auto_lock(lock_);
-    for (size_t i = 0; i < kAccessLogSize; ++i) {
-      if (thread_ids_[i] == id) {
-        return;
-      } else if (thread_ids_[i] == base::kInvalidThreadId) {
-        DCHECK(i == 0);
-        thread_ids_[i] = id;
-        base::strlcpy(urls_[i], url.spec().c_str(), kUrlBufferSize);
-        return;
-      }
-    }
-  }
-
- private:
-  static const size_t kUrlBufferSize = 128;
-
-  mutable base::Lock lock_;
-  base::PlatformThreadId thread_ids_[kAccessLogSize];
-  // Records the URL argument of the first RegisterRequestUrl() call on each
-  // thread.
-  char urls_[kAccessLogSize][kUrlBufferSize];
+  // Set to true if the entry gets erased. Helpful to verify that entries
+  // with 0 refcount (since we don't take a refcount above) have been
+  // erased from the map.
+  bool was_erased;
 };
-
-AccessLog access_log;
 
 }  // namespace
 
@@ -75,8 +45,7 @@ URLRequestThrottlerManager* URLRequestThrottlerManager::GetInstance() {
 
 scoped_refptr<URLRequestThrottlerEntryInterface>
     URLRequestThrottlerManager::RegisterRequestUrl(const GURL &url) {
-  if (record_access_log_)
-    access_log.Add(base::PlatformThread::CurrentId(), url);
+  CHECK(being_tested_ || thread_checker_.CalledOnValidThread());
 
   // Normalize the url.
   std::string url_id = GetIdFromUrl(url);
@@ -85,28 +54,19 @@ scoped_refptr<URLRequestThrottlerEntryInterface>
   GarbageCollectEntriesIfNecessary();
 
   // Find the entry in the map or create it.
-  UrlEntryMap::iterator i = url_entries_.find(url_id);
-  if (i == url_entries_.end()) {
-    scoped_refptr<URLRequestThrottlerEntry> entry(
-        new URLRequestThrottlerEntry());
-    // Explicitly check whether the new operation is successful or not, in order
-    // to track down crbug.com/71721
-    CHECK(entry.get());
+  scoped_refptr<URLRequestThrottlerEntry>& entry = url_entries_[url_id];
+  if (entry.get() == NULL)
+    entry = new URLRequestThrottlerEntry();
 
-    url_entries_.insert(std::make_pair(url_id, entry));
-    return entry;
-  } else {
-    CHECK(i->second.get());
-    return i->second;
-  }
+  // TODO(joi): Demote CHECKs in this file to DCHECKs (or remove them) once
+  // we fully understand crbug.com/71721
+  CHECK(entry.get());
+  return entry;
 }
 
 void URLRequestThrottlerManager::OverrideEntryForTests(
     const GURL& url,
     URLRequestThrottlerEntry* entry) {
-  if (entry == NULL)
-    return;
-
   // Normalize the url.
   std::string url_id = GetIdFromUrl(url);
 
@@ -124,16 +84,32 @@ void URLRequestThrottlerManager::EraseEntryForTests(const GURL& url) {
 
 void URLRequestThrottlerManager::InitializeOptions(bool enforce_throttling) {
   enforce_throttling_ = enforce_throttling;
-  record_access_log_ = true;
+  being_tested_ = false;
 }
 
 URLRequestThrottlerManager::URLRequestThrottlerManager()
     : requests_since_last_gc_(0),
       enforce_throttling_(true),
-      record_access_log_(false) {
+      being_tested_(true) {
+  // Construction/destruction is on main thread (because BrowserMain
+  // retrieves an instance to call InitializeOptions), but is from then on
+  // used on I/O thread.
+  thread_checker_.DetachFromThread();
+
+  url_id_replacements_.ClearPassword();
+  url_id_replacements_.ClearUsername();
+  url_id_replacements_.ClearQuery();
+  url_id_replacements_.ClearRef();
+
+  // TODO(joi): Remove after crbug.com/71721 is fixed.
+  base::strlcpy(magic_buffer_1_, "MAGICZZ", arraysize(magic_buffer_1_));
+  base::strlcpy(magic_buffer_2_, "GOOGYZZ", arraysize(magic_buffer_2_));
 }
 
 URLRequestThrottlerManager::~URLRequestThrottlerManager() {
+  // Destruction is on main thread (AtExit), but real use is on I/O thread.
+  thread_checker_.DetachFromThread();
+
   // Delete all entries.
   url_entries_.clear();
 }
@@ -142,49 +118,62 @@ std::string URLRequestThrottlerManager::GetIdFromUrl(const GURL& url) const {
   if (!url.is_valid())
     return url.possibly_invalid_spec();
 
-  if (url_id_replacements_ == NULL) {
-    url_id_replacements_.reset(new GURL::Replacements());
-
-    url_id_replacements_->ClearPassword();
-    url_id_replacements_->ClearUsername();
-    url_id_replacements_->ClearQuery();
-    url_id_replacements_->ClearRef();
-  }
-
-  GURL id = url.ReplaceComponents(*url_id_replacements_);
-  return StringToLowerASCII(id.spec());
+  GURL id = url.ReplaceComponents(url_id_replacements_);
+  // TODO(joi): Remove "GOOGY/MONSTA" stuff once crbug.com/71721 is done
+  return StringPrintf("GOOGY%sMONSTA", StringToLowerASCII(id.spec()).c_str());
 }
 
 void URLRequestThrottlerManager::GarbageCollectEntriesIfNecessary() {
   requests_since_last_gc_++;
   if (requests_since_last_gc_ < kRequestsBetweenCollecting)
     return;
-
   requests_since_last_gc_ = 0;
+
   GarbageCollectEntries();
 }
 
 void URLRequestThrottlerManager::GarbageCollectEntries() {
-  volatile AccessLog access_log_copy(access_log);
+  // TODO(joi): Remove these crash report aids once crbug.com/71721
+  // is figured out.
+  IteratorHistory history[32] = { { 0 } };
+  size_t history_ix = 0;
+  history[history_ix++].self = this;
 
-  // The more efficient way to remove outdated entries is iterating over all the
-  // elements in the map, and removing those outdated ones during the process.
-  // However, one hypothesis about the cause of crbug.com/71721 is that some
-  // kind of iterator error happens when we change the map during iteration. As
-  // a result, we write the code this way in order to track down the bug.
-  std::list<std::string> outdated_keys;
-  for (UrlEntryMap::iterator entry_iter = url_entries_.begin();
-       entry_iter != url_entries_.end(); ++entry_iter) {
-    std::string key = entry_iter->first;
-    CHECK(entry_iter->second.get());
+  int nulls_found = 0;
+  UrlEntryMap::iterator i = url_entries_.begin();
+  while (i != url_entries_.end()) {
+    if (i->second == NULL) {
+      ++nulls_found;
+    }
 
-    if ((entry_iter->second)->IsEntryOutdated())
-      outdated_keys.push_back(key);
+    // Keep a log of the first 31 items accessed after the first
+    // NULL encountered (hypothesis is there are multiple NULLs,
+    // and we may learn more about pattern of memory overwrite).
+    // We also log when we access the first entry, to get an original
+    // value for our this pointer.
+    if (nulls_found > 0 && history_ix < arraysize(history)) {
+      history[history_ix].self = this;
+      base::strlcpy(history[history_ix].url, i->first.c_str(),
+                    arraysize(history[history_ix].url));
+      history[history_ix].entry = i->second.get();
+      history[history_ix].was_erased = false;
+      ++history_ix;
+    }
+
+    // TODO(joi): Remove first i->second check when crbug.com/71721 is fixed.
+    if (i->second == NULL || (i->second)->IsEntryOutdated()) {
+      url_entries_.erase(i++);
+
+      if (nulls_found > 0 && (history_ix - 1) < arraysize(history)) {
+        history[history_ix - 1].was_erased = true;
+      }
+    } else {
+      ++i;
+    }
   }
-  for (std::list<std::string>::iterator key_iter = outdated_keys.begin();
-       key_iter != outdated_keys.end(); ++key_iter) {
-    url_entries_.erase(*key_iter);
-  }
+
+  // TODO(joi): Make this a CHECK again after M11 branch point.
+  DCHECK(nulls_found == 0);
 
   // In case something broke we want to make sure not to grow indefinitely.
   while (url_entries_.size() > kMaximumNumberOfEntries) {

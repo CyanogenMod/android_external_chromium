@@ -99,13 +99,7 @@ const char kStaticEncodings[] = "intl.static_encodings";
 const char kPopupWhitelistedHosts[] = "profile.popup_whitelisted_sites";
 
 // WebKit preferences.
-// A boolean flag to indicate whether WebKit standard font family is
-// serif or sans-serif. We don't have a UI for setting standard family.
-// Instead, we use this pref to map either serif or sans_serif to WebKit
-// standard font family. At the moment, we don't have a UI for this
-// flag, either.
-const char kWebKitStandardFontIsSerif[] =
-    "webkit.webprefs.standard_font_is_serif";
+const char kWebKitStandardFontFamily[] = "webkit.webprefs.standard_font_family";
 const char kWebKitFixedFontFamily[] = "webkit.webprefs.fixed_font_family";
 const char kWebKitSerifFontFamily[] = "webkit.webprefs.serif_font_family";
 const char kWebKitSansSerifFontFamily[] =
@@ -562,7 +556,14 @@ const char kPluginsLastInternalDirectory[] = "plugins.last_internal_directory";
 const char kPluginsPluginsList[] = "plugins.plugins_list";
 
 // List pref containing names of plugins that are disabled by policy.
-const char kPluginsPluginsBlacklist[] = "plugins.plugins_blacklist";
+const char kPluginsDisabledPlugins[] = "plugins.plugins_disabled";
+
+// List pref containing exceptions to the list of plugins disabled by policy.
+const char kPluginsDisabledPluginsExceptions[] =
+    "plugins.plugins_disabled_exceptions";
+
+// List pref containing names of plugins that are enabled by policy.
+const char kPluginsEnabledPlugins[] = "plugins.plugins_enabled";
 
 // When first shipped, the pdf plugin will be disabled by default.  When we
 // enable it by default, we'll want to do so only once.
@@ -674,10 +675,14 @@ const char kEnableTranslate[] = "translate.enabled";
 
 const char kPinnedTabs[] = "pinned_tabs";
 
-// Integer that specifies the policy refresh rate in milliseconds. Not all
-// values are meaningful, so it is clamped to a sane range by the policy
-// provider.
-const char kPolicyRefreshRate[] = "policy.refresh_rate";
+// Integer that specifies the policy refresh rate for user policy in
+// milliseconds. Not all values are meaningful, so it is clamped to a sane
+// range by the cloud policy subsystem.
+const char kPolicyUserPolicyRefreshRate[] = "policy.user_policy_refresh_rate";
+
+// Same as |kPolicyUserPolicyRefreshRate|, but for device policy.
+const char kPolicyDevicePolicyRefreshRate[] =
+    "policy.device_policy_refresh_rate";
 
 // Integer containing the default Geolocation content setting.
 const char kGeolocationDefaultContentSetting[] =
@@ -996,6 +1001,9 @@ const char kDisableVideoAndChat[] = "disable_video_chat";
 // Whether Extensions are enabled.
 const char kDisableExtensions[] = "extensions.disabled";
 
+// Whether the plugin finder in the default plugin is enabled.
+const char kDisablePluginFinder[] = "plugins.disable_plugin_finder";
+
 // Integer boolean representing the width (in pixels) of the container for
 // browser actions.
 const char kBrowserActionContainerWidth[] =
@@ -1033,15 +1041,15 @@ const char kNTPMostVisitedURLsBlacklist[] = "ntp.most_visited_blacklist";
 // Page.
 const char kNTPMostVisitedPinnedURLs[] = "ntp.pinned_urls";
 
-// Data downloaded from resource pages (JSON, RSS) to be used to dynamically
-// deliver data for the new tab page.
-const char kNTPWebResourceCache[] = "ntp.web_resource_cache";
+// Data downloaded from promo resource pages (JSON, RSS) to be used to
+// dynamically deliver data for the new tab page.
+const char kNTPPromoResourceCache[] = "ntp.promo_resource_cache";
 
-// Last time of update of web_resource_cache.
-const char kNTPWebResourceCacheUpdate[] = "ntp.web_resource_cache_update";
+// Last time of update of promo_resource_cache.
+const char kNTPPromoResourceCacheUpdate[] = "ntp.promo_resource_cache_update";
 
-// Serves resources for the NTP.
-const char kNTPWebResourceServer[] = "ntp.web_resource_server";
+// Serves promo resources for the NTP.
+const char kNTPPromoResourceServer[] = "ntp.web_resource_server";
 
 // Serves tips for the NTP.
 const char kNTPTipsResourceServer[] = "ntp.tips_resource_server";
@@ -1086,6 +1094,13 @@ const char kNTPPromoLine[] = "ntp.promo_line";
 // from the promo server.
 const char kNTPPromoStart[] = "ntp.promo_start";
 const char kNTPPromoEnd[] = "ntp.promo_end";
+
+// The most up-to-date GPU blacklist downloaded from the web, which replaces
+// the one that's installed with chrome.
+const char kGpuBlacklist[] = "gpu_blacklist";
+
+// Last time of update of gpu_blacklist.
+const char kGpuBlacklistUpdate[] = "gpu_blacklist_update";
 
 const char kDevToolsDisabled[] = "devtools.disabled";
 
@@ -1239,8 +1254,36 @@ const char kManagedDefaultPluginsSetting[] =
 const char kManagedDefaultPopupsSetting[] =
     "profile.managed_default_content_settings.popups";
 
+// Preferences that are exclusivly used to store managed
+// content settings patterns.
+const char kManagedCookiesAllowedForUrls[] =
+    "profile.managed_cookies_allowed_for_urls";
+const char kManagedCookiesBlockedForUrls[] =
+    "profile.managed_cookies_blocked_for_urls";
+const char kManagedCookiesSessionOnlyForUrls[] =
+    "profile.managed_cookies_sessiononly_for_urls";
+const char kManagedImagesAllowedForUrls[] =
+    "profile.managed_images_allowed_for_urls";
+const char kManagedImagesBlockedForUrls[] =
+    "profile.managed_images_blocked_for_urls";
+const char kManagedJavaScriptAllowedForUrls[] =
+    "profile.managed_javascript_allowed_for_urls";
+const char kManagedJavaScriptBlockedForUrls[] =
+    "profile.managed_javascript_blocked_for_urls";
+const char kManagedPluginsAllowedForUrls[] =
+    "profile.managed_plugins_allowed_for_urls";
+const char kManagedPluginsBlockedForUrls[] =
+    "profile.managed_plugins_blocked_for_urls";
+const char kManagedPopupsAllowedForUrls[] =
+    "profile.managed_popups_allowed_for_urls";
+const char kManagedPopupsBlockedForUrls[] =
+    "profile.managed_popups_blocked_for_urls";
+
 // Dictionary for storing the set of known background pages (keys are extension
 // IDs of background page owners, value is a boolean that is true if the user
 // needs to acknowledge this page.
 const char kKnownBackgroundPages[] = "background_pages.known";
+
+// Dictionary that maps URL schemes (protocols) to URL handlers.
+const char kRegisteredProtocolHandlers[] = "registered_protocol_handlers";
 }  // namespace prefs

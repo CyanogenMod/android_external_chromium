@@ -161,7 +161,7 @@ class SortHelper {
   // Use the model indices to get the new view indices of the selection, and
   // set selection to that. This assumes that no rows were added or removed
   // (in that case, the selection is cleared before -reloadData is called).
-  if (modelSelection.size() > 0)
+  if (!modelSelection.empty())
     DCHECK_EQ([tableView_ numberOfRows], model_->ResourceCount());
   NSMutableIndexSet* indexSet = [NSMutableIndexSet indexSet];
   for (size_t i = 0; i < modelSelection.size(); ++i)
@@ -390,17 +390,23 @@ class SortHelper {
   if (!highlightBackgroundResources_)
     return;
 
-  bool isBackground =
-      taskManagerObserver_->IsBackgroundRow(viewToModelMap_[row]);
   DCHECK([cell respondsToSelector:@selector(setBackgroundColor:)]);
   if ([cell respondsToSelector:@selector(setBackgroundColor:)]) {
-    if (isBackground && ![tableView isRowSelected:row]) {
-      [cell setDrawsBackground:YES];
-      [cell setBackgroundColor:backgroundResourceColor_];
-    } else {
-      [cell setBackgroundColor:nil];
-      [cell setDrawsBackground:NO];
+    NSColor* color = nil;
+    if (taskManagerObserver_->IsBackgroundRow(viewToModelMap_[row]) &&
+        ![tableView isRowSelected:row]) {
+      color = backgroundResourceColor_.get();
+      if ((row % 2) == 1 && [tableView usesAlternatingRowBackgroundColors]) {
+        color = [color blendedColorWithFraction:0.05
+                                        ofColor:[NSColor blackColor]];
+      }
     }
+    [cell setBackgroundColor:color];
+
+    // The icon at the left is an |NSButtonCell|, which does not
+    // implement this method on 10.5.
+    if ([cell respondsToSelector:@selector(setDrawsBackground:)])
+      [cell setDrawsBackground:(color != nil)];
   }
 }
 

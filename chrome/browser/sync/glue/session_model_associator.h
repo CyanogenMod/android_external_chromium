@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/format_macros.h"
 #include "base/gtest_prod_util.h"
 #include "base/observer_list.h"
 #include "base/scoped_vector.h"
@@ -26,7 +27,7 @@
 #include "chrome/browser/sync/glue/model_associator.h"
 #include "chrome/browser/sync/protocol/session_specifics.pb.h"
 #include "chrome/browser/sync/syncable/model_type.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents.h"
 
 class Profile;
 class ProfileSyncService;
@@ -53,6 +54,8 @@ class SessionModelAssociator
  public:
   // Does not take ownership of sync_service.
   explicit SessionModelAssociator(ProfileSyncService* sync_service);
+  SessionModelAssociator(ProfileSyncService* sync_service,
+                         bool setup_for_test);
   virtual ~SessionModelAssociator();
 
   // The has_nodes out parameter is set to true if the sync model has
@@ -301,8 +304,8 @@ class SessionModelAssociator
   static inline std::string TabIdToTag(
       const std::string machine_tag,
       size_t tab_node_id) {
-    return StringPrintf("%s %lu",
-        machine_tag.c_str(), static_cast<unsigned long>(tab_node_id));
+    return StringPrintf("%s %"PRIuS"",
+        machine_tag.c_str(), tab_node_id);
   }
 
   // Initializes the tag corresponding to this machine.
@@ -320,7 +323,8 @@ class SessionModelAssociator
 
   // Fills a tab sync node with data from a TabContents object.
   // (from a local navigation event)
-  bool WriteTabContentsToSyncModel(const TabContents& tab,
+  bool WriteTabContentsToSyncModel(const Browser& browser,
+                                   const TabContents& tab,
                                    const int64 sync_id,
                                    sync_api::WriteTransaction* trans);
 
@@ -398,6 +402,9 @@ class SessionModelAssociator
 
   // Consumer used to obtain the current session.
   CancelableRequestConsumer consumer_;
+
+  // To avoid certain checks not applicable to tests.
+  bool setup_for_test_;
 
   DISALLOW_COPY_AND_ASSIGN(SessionModelAssociator);
 };

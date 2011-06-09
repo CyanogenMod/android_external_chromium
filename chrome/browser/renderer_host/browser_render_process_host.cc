@@ -27,51 +27,26 @@
 #include "base/string_util.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
-#include "chrome/browser/appcache/appcache_dispatcher_host.h"
-#include "chrome/browser/browser_child_process_host.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/child_process_security_policy.h"
-#include "chrome/browser/device_orientation/message_filter.h"
 #include "chrome/browser/extensions/extension_event_router.h"
 #include "chrome/browser/extensions/extension_function_dispatcher.h"
 #include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/user_script_master.h"
-#include "chrome/browser/file_system/file_system_dispatcher_host.h"
-#include "chrome/browser/geolocation/geolocation_dispatcher_host.h"
-#include "chrome/browser/gpu_process_host.h"
+#include "chrome/browser/gpu_data_manager.h"
 #include "chrome/browser/history/history.h"
-#include "chrome/browser/in_process_webkit/dom_storage_message_filter.h"
-#include "chrome/browser/in_process_webkit/indexed_db_dispatcher_host.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/mime_registry_message_filter.h"
 #include "chrome/browser/platform_util.h"
-#include "chrome/browser/plugin_service.h"
+#include "chrome/browser/printing/printing_message_filter.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/audio_renderer_host.h"
-#include "chrome/browser/renderer_host/blob_message_filter.h"
-#include "chrome/browser/renderer_host/database_message_filter.h"
-#include "chrome/browser/renderer_host/file_utilities_message_filter.h"
-#include "chrome/browser/renderer_host/gpu_message_filter.h"
-#include "chrome/browser/renderer_host/pepper_file_message_filter.h"
-#include "chrome/browser/renderer_host/pepper_message_filter.h"
-#include "chrome/browser/renderer_host/render_message_filter.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_view_host_delegate.h"
-#include "chrome/browser/renderer_host/render_widget_helper.h"
-#include "chrome/browser/renderer_host/render_widget_host.h"
-#include "chrome/browser/renderer_host/resource_message_filter.h"
-#include "chrome/browser/renderer_host/socket_stream_dispatcher_host.h"
 #include "chrome/browser/renderer_host/web_cache_manager.h"
 #include "chrome/browser/safe_browsing/client_side_detection_service.h"
 #include "chrome/browser/search_engines/search_provider_install_state_message_filter.h"
-#include "chrome/browser/speech/speech_input_dispatcher_host.h"
-#include "chrome/browser/speech/speech_input_manager.h"
 #include "chrome/browser/spellcheck_host.h"
+#include "chrome/browser/spellcheck_message_filter.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/visitedlink/visitedlink_master.h"
-#include "chrome/browser/worker_host/worker_message_filter.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/child_process_info.h"
@@ -88,9 +63,38 @@
 #include "chrome/common/result_codes.h"
 #include "chrome/renderer/render_process_impl.h"
 #include "chrome/renderer/render_thread.h"
+#include "content/browser/appcache/appcache_dispatcher_host.h"
+#include "content/browser/browser_child_process_host.h"
+#include "content/browser/child_process_security_policy.h"
+#include "content/browser/device_orientation/message_filter.h"
+#include "content/browser/geolocation/geolocation_dispatcher_host.h"
+#include "content/browser/gpu_process_host.h"
+#include "content/browser/in_process_webkit/dom_storage_message_filter.h"
+#include "content/browser/in_process_webkit/indexed_db_dispatcher_host.h"
+#include "content/browser/file_system/file_system_dispatcher_host.h"
+#include "content/browser/mime_registry_message_filter.h"
+#include "content/browser/plugin_service.h"
+#include "content/browser/renderer_host/audio_renderer_host.h"
+#include "content/browser/renderer_host/blob_message_filter.h"
+#include "content/browser/renderer_host/database_message_filter.h"
+#include "content/browser/renderer_host/file_utilities_message_filter.h"
+#include "content/browser/renderer_host/gpu_message_filter.h"
+#include "content/browser/renderer_host/p2p_sockets_host.h"
+#include "content/browser/renderer_host/pepper_file_message_filter.h"
+#include "content/browser/renderer_host/pepper_message_filter.h"
+#include "content/browser/renderer_host/render_message_filter.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_view_host_delegate.h"
+#include "content/browser/renderer_host/render_widget_helper.h"
+#include "content/browser/renderer_host/render_widget_host.h"
+#include "content/browser/renderer_host/resource_message_filter.h"
+#include "content/browser/renderer_host/socket_stream_dispatcher_host.h"
+#include "content/browser/speech/speech_input_dispatcher_host.h"
+#include "content/browser/worker_host/worker_message_filter.h"
+#include "content/common/child_process_messages.h"
+#include "content/common/resource_messages.h"
 #include "grit/generated_resources.h"
 #include "ipc/ipc_logging.h"
-#include "ipc/ipc_message.h"
 #include "ipc/ipc_platform_file.h"
 #include "ipc/ipc_switches.h"
 #include "media/base/media_switches.h"
@@ -208,7 +212,7 @@ class VisitedLinkUpdater {
       return;
     }
 
-    if (pending_.size() == 0)
+    if (pending_.empty())
       return;
 
     sender->Send(new ViewMsg_VisitedLink_Add(pending_));
@@ -242,7 +246,7 @@ class RendererURLRequestContextOverride
   }
 
   virtual net::URLRequestContext* GetRequestContext(
-      const ViewHostMsg_Resource_Request& resource_request) {
+      const ResourceHostMsg_Request& resource_request) {
     URLRequestContextGetter* request_context = request_context_;
     // If the request has resource type of ResourceType::MEDIA, we use a request
     // context specific to media for handling it because these resources have
@@ -457,6 +461,7 @@ void BrowserRenderProcessHost::CreateMessageFilters() {
   channel_->AddFilter(new GpuMessageFilter(id()));
   channel_->AddFilter(new PepperFileMessageFilter(id(), profile()));
   channel_->AddFilter(new PepperMessageFilter(profile()));
+  channel_->AddFilter(new PrintingMessageFilter());
   channel_->AddFilter(new speech_input::SpeechInputDispatcherHost(id()));
   channel_->AddFilter(
       new SearchProviderInstallStateMessageFilter(id(), profile()));
@@ -475,12 +480,16 @@ void BrowserRenderProcessHost::CreateMessageFilters() {
       url_request_context_override);
   channel_->AddFilter(socket_stream_dispatcher_host);
 
+  channel_->AddFilter(new SpellCheckMessageFilter());
   channel_->AddFilter(new WorkerMessageFilter(
       id(),
       profile()->GetRequestContext(),
       g_browser_process->resource_dispatcher_host(),
       NewCallbackWithReturnValue(
           widget_helper_.get(), &RenderWidgetHelper::GetNextRoutingID)));
+
+  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnableP2PApi))
+    channel_->AddFilter(new P2PSocketsHost());
 }
 
 int BrowserRenderProcessHost::GetNextRoutingID() {
@@ -629,6 +638,11 @@ void BrowserRenderProcessHost::AppendRendererCommandLine(
     // Turn this policy into a command line switch.
     command_line->AppendSwitch(switches::kDisable3DAPIs);
   }
+
+  // Appending disable-gpu-feature switches due to software rendering list.
+  GpuDataManager* gpu_data_manager = GpuDataManager::GetInstance();
+  DCHECK(gpu_data_manager);
+  gpu_data_manager->AppendRendererCommandLine(command_line);
 }
 
 void BrowserRenderProcessHost::PropagateBrowserCommandLineToRenderer(
@@ -682,6 +696,7 @@ void BrowserRenderProcessHost::PropagateBrowserCommandLineToRenderer(
     switches::kEnableLogging,
     switches::kEnableNaCl,
     switches::kEnableOpenMax,
+    switches::kEnableP2PApi,
     switches::kEnablePepperTesting,
     switches::kEnablePrintPreview,
     switches::kEnableRemoting,
@@ -736,11 +751,11 @@ void BrowserRenderProcessHost::PropagateBrowserCommandLineToRenderer(
     // This flag needs to be propagated to the renderer process for
     // --in-process-webgl.
     switches::kUseGL,
-    switches::kUseLowFragHeapCrt,
     switches::kUserAgent,
     switches::kV,
     switches::kVideoThreads,
     switches::kVModule,
+    switches::kWebCoreLogChannels,
   };
   renderer_cmd->CopySwitchesFrom(browser_cmd, kSwitchNames,
                                  arraysize(kSwitchNames));
@@ -813,11 +828,6 @@ void BrowserRenderProcessHost::InitExtensions() {
           ViewMsg_ExtensionLoaded_Params(service->extensions()->at(i))));
     }
   }
-}
-
-void BrowserRenderProcessHost::InitSpeechInput() {
-  Send(new ViewMsg_SpeechInput_SetFeatureEnabled(
-      speech_input::SpeechInputManager::IsFeatureEnabled()));
 }
 
 void BrowserRenderProcessHost::SendUserScriptsUpdate(
@@ -1012,7 +1022,7 @@ bool BrowserRenderProcessHost::OnMessageReceived(const IPC::Message& msg) {
 
 void BrowserRenderProcessHost::OnChannelConnected(int32 peer_pid) {
 #if defined(IPC_MESSAGE_LOG_ENABLED)
-  Send(new ViewMsg_SetIPCLoggingEnabled(
+  Send(new ChildProcessMsg_SetIPCLoggingEnabled(
       IPC::Logging::GetInstance()->Enabled()));
 #endif
 }
@@ -1153,7 +1163,6 @@ void BrowserRenderProcessHost::OnProcessLaunched() {
 
   Send(new ViewMsg_SetIsIncognitoProcess(profile()->IsOffTheRecord()));
 
-  InitSpeechInput();
   InitVisitedLinks();
   InitUserScripts();
   InitExtensions();

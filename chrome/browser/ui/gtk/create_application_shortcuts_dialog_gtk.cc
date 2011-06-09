@@ -8,14 +8,14 @@
 
 #include "base/environment.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/shell_integration.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_delegate.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_resource.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_delegate.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
@@ -292,7 +292,7 @@ CreateChromeApplicationShortcutsDialogGtk::
         ALLOW_THIS_IN_INITIALIZER_LIST(tracker_(this))  {
 
   // Get shortcut information now, it's needed for our UI.
-  shortcut_info_.extension_id = UTF8ToUTF16(app_->id());
+  shortcut_info_.extension_id = app_->id();
   shortcut_info_.url = GURL(app_->launch_web_url());
   shortcut_info_.title = UTF8ToUTF16(app_->name());
   shortcut_info_.description = UTF8ToUTF16(app_->description());

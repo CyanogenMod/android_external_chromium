@@ -14,12 +14,12 @@
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/ui/views/notifications/balloon_view_host.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_widget_host_view.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -183,7 +183,7 @@ class NotificationControlView : public views::View,
   DISALLOW_COPY_AND_ASSIGN(NotificationControlView);
 };
 
-BalloonViewImpl::BalloonViewImpl(bool sticky, bool controls, bool dom_ui)
+BalloonViewImpl::BalloonViewImpl(bool sticky, bool controls, bool web_ui)
     : balloon_(NULL),
       html_contents_(NULL),
       method_factory_(this),
@@ -191,7 +191,7 @@ BalloonViewImpl::BalloonViewImpl(bool sticky, bool controls, bool dom_ui)
       sticky_(sticky),
       controls_(controls),
       closed_(false),
-      web_ui_(dom_ui) {
+      web_ui_(web_ui) {
   // This object is not to be deleted by the views hierarchy,
   // as it is owned by the balloon.
   set_parent_owned(false);

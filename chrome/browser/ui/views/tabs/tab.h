@@ -56,17 +56,17 @@ class Tab : public BaseTab {
   static int GetMiniWidth();
 
  protected:
-  virtual const gfx::Rect& title_bounds() const { return title_bounds_; }
-
   // BaseTab overrides:
+  virtual const gfx::Rect& GetTitleBounds() const;
+  virtual const gfx::Rect& GetIconBounds() const;
   virtual void DataChanged(const TabRendererData& old);
 
  private:
   // Overridden from views::View:
-  virtual void Paint(gfx::Canvas* canvas);
+  virtual void OnPaint(gfx::Canvas* canvas);
   virtual void Layout();
   virtual void OnThemeChanged();
-  virtual std::string GetClassName() const { return kViewClassName; }
+  virtual std::string GetClassName() const;
   virtual bool HasHitTestMask() const;
   virtual void GetHitTestMask(gfx::Path* path) const;
   virtual bool GetTooltipTextOrigin(const gfx::Point& p, gfx::Point* origin);
@@ -77,7 +77,6 @@ class Tab : public BaseTab {
   void PaintInactiveTabBackgroundWithTitleChange(gfx::Canvas* canvas);
   void PaintInactiveTabBackground(gfx::Canvas* canvas);
   void PaintActiveTabBackground(gfx::Canvas* canvas);
-  void PaintIcon(gfx::Canvas* canvas);
   SkBitmap DrawHoverGlowBitmap(int width, int height);
 
   // Returns the number of favicon-size elements that can fit in the tab's

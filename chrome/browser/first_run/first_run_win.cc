@@ -25,6 +25,7 @@
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_updater.h"
 #include "chrome/browser/importer/importer.h"
+#include "chrome/browser/importer/importer_progress_dialog.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/process_singleton.h"
 #include "chrome/browser/profiles/profile.h"
@@ -87,43 +88,6 @@ bool InvokeGoogleUpdateForRename() {
     }
   }
   return false;
-}
-
-bool LaunchSetupWithParam(const std::string& param, const std::wstring& value,
-                          int* ret_code) {
-  FilePath exe_path;
-  if (!PathService::Get(base::DIR_MODULE, &exe_path))
-    return false;
-  exe_path = exe_path.Append(installer::kInstallerDir);
-  exe_path = exe_path.Append(installer::kSetupExe);
-  base::ProcessHandle ph;
-  CommandLine cl(exe_path);
-  cl.AppendSwitchNative(param, value);
-
-  CommandLine* browser_command_line = CommandLine::ForCurrentProcess();
-  if (browser_command_line->HasSwitch(switches::kChromeFrame)) {
-    cl.AppendSwitch(switches::kChromeFrame);
-  }
-
-  if (!base::LaunchApp(cl, false, false, &ph))
-    return false;
-  DWORD wr = ::WaitForSingleObject(ph, INFINITE);
-  if (wr != WAIT_OBJECT_0)
-    return false;
-  return (TRUE == ::GetExitCodeProcess(ph, reinterpret_cast<DWORD*>(ret_code)));
-}
-
-bool WriteEULAtoTempFile(FilePath* eula_path) {
-  base::StringPiece terms =
-      ResourceBundle::GetSharedInstance().GetRawDataResource(IDR_TERMS_HTML);
-  if (terms.empty())
-    return false;
-  FILE *file = file_util::CreateAndOpenTemporaryFile(eula_path);
-  if (!file)
-    return false;
-  bool good = fwrite(terms.data(), terms.size(), 1, file) == 1;
-  fclose(file);
-  return good;
 }
 
 // Helper class that performs delayed first-run tasks that need more of the
@@ -550,7 +514,7 @@ int FirstRun::ImportFromBrowser(Profile* profile,
     return false;
   }
   scoped_refptr<ImporterHost> importer_host(new ImporterHost);
-  FirstRunImportObserver observer;
+  FirstRunImportObserver importer_observer;
 
   scoped_refptr<ImporterList> importer_list(new ImporterList);
   importer_list->DetectSourceProfilesHack();
@@ -560,16 +524,16 @@ int FirstRun::ImportFromBrowser(Profile* profile,
   if (skip_first_run_ui > 0)
     importer_host->set_headless();
 
-  StartImportingWithUI(
+  importer::ShowImportProgressDialog(
       parent_window,
       static_cast<uint16>(items_to_import),
       importer_host,
+      &importer_observer,
       importer_list->GetSourceProfileInfoForBrowserType(browser_type),
       profile,
-      &observer,
       true);
-  observer.RunLoop();
-  return observer.import_result();
+  importer_observer.RunLoop();
+  return importer_observer.import_result();
 }
 
 // static
@@ -621,7 +585,7 @@ class TryChromeDialog : public views::ButtonListener,
   // Shows the modal dialog asking the user to try chrome. Note that the dialog
   // has no parent and it will position itself in a lower corner of the screen.
   // The dialog does not steal focus and does not have an entry in the taskbar.
-  Upgrade::TryResult ShowModal() {
+  Upgrade::TryResult ShowModal(ProcessSingleton* process_singleton) {
     using views::GridLayout;
     ResourceBundle& rb = ResourceBundle::GetSharedInstance();
 
@@ -636,6 +600,7 @@ class TryChromeDialog : public views::ButtonListener,
       NOTREACHED();
       return Upgrade::TD_DIALOG_ERROR;
     }
+
     popup->set_delete_on_destroy(true);
     popup->set_window_style(WS_POPUP | WS_CLIPCHILDREN);
     popup->set_window_ex_style(WS_EX_TOOLWINDOW);
@@ -766,10 +731,14 @@ class TryChromeDialog : public views::ButtonListener,
     // Carve the toast shape into the window.
     SetToastRegion(popup->GetNativeView(),
                    preferred.width(), preferred.height());
-    // Time to show the window in a modal loop.
     popup_ = popup;
+
+    // Time to show the window in a modal loop. We don't want this chrome
+    // instance trying to serve WM_COPYDATA requests, as we'll surely crash.
+    process_singleton->Lock(popup->GetNativeView());
     popup_->Show();
     MessageLoop::current()->Run();
+    process_singleton->Unlock();
     return result_;
   }
 
@@ -858,12 +827,14 @@ class TryChromeDialog : public views::ButtonListener,
 
 }  // namespace
 
-Upgrade::TryResult Upgrade::ShowTryChromeDialog(size_t version) {
+Upgrade::TryResult Upgrade::ShowTryChromeDialog(
+    size_t version,
+    ProcessSingleton* process_singleton) {
   if (version > 10000) {
     // This is a test value. We want to make sure we exercise
     // returning this early. See EarlyReturnTest test harness.
     return Upgrade::TD_NOT_NOW;
   }
   TryChromeDialog td(version);
-  return td.ShowModal();
+  return td.ShowModal(process_singleton);
 }

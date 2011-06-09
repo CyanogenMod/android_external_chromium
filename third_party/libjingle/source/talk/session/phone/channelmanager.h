@@ -38,9 +38,6 @@
 #include "talk/session/phone/voicechannel.h"
 #include "talk/session/phone/mediaengine.h"
 #include "talk/session/phone/devicemanager.h"
-#ifdef USE_TALK_SOUND
-#include "talk/sound/soundsystemfactory.h"
-#endif
 
 namespace cricket {
 
@@ -157,7 +154,7 @@ class ChannelManager : public talk_base::MessageHandler,
   bool GetAudioOutputDevices(std::vector<std::string>* names);
   bool GetVideoCaptureDevices(std::vector<std::string>* names);
   sigslot::repeater0<> SignalDevicesChange;
-  sigslot::signal1<bool> SignalVideoCaptureResult;
+  sigslot::signal1<CaptureResult> SignalVideoCaptureResult;
 
  private:
   typedef std::vector<VoiceChannel*> VoiceChannels;
@@ -185,13 +182,10 @@ class ChannelManager : public talk_base::MessageHandler,
   CaptureResult SetVideoCapture_w(bool capture);
   void SetMediaLogging(bool video, int level, const char* filter);
   void SetMediaLogging_w(bool video, int level, const char* filter);
-  void OnVideoCaptureResult(bool result);
+  void OnVideoCaptureResult(CaptureResult result);
   void OnMessage(talk_base::Message *message);
 
   talk_base::CriticalSection crit_;
-#ifdef USE_TALK_SOUND
-  talk_base::scoped_ptr<SoundSystemFactory> sound_system_factory_;
-#endif
   talk_base::scoped_ptr<MediaEngine> media_engine_;
   talk_base::scoped_ptr<DeviceManager> device_manager_;
   bool initialized_;

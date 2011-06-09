@@ -9,7 +9,6 @@
 #include "base/nss_util.h"
 #include "base/scoped_temp_dir.h"
 #include "base/stringprintf.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/mock_library_loader.h"
 #include "chrome/browser/chromeos/cros/mock_login_library.h"
@@ -17,6 +16,7 @@
 #include "chrome/browser/chromeos/login/mock_ownership_service.h"
 #include "chrome/browser/chromeos/login/owner_manager_unittest.h"
 #include "chrome/test/thread_test_helper.h"
+#include "content/browser/browser_thread.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -126,8 +126,8 @@ class SignedSettingsTest : public ::testing::Test {
     mock_service(s.get(), &m_);
     EXPECT_CALL(m_, StartSigningAttempt(to_sign, _))
         .Times(1);
-    EXPECT_CALL(m_, IsAlreadyOwned())
-        .WillOnce(Return(true));
+    EXPECT_CALL(m_, GetStatus(_))
+        .WillOnce(Return(OwnershipService::OWNERSHIP_TAKEN));
 
     s->Execute();
     s->OnKeyOpComplete(return_code, std::vector<uint8>());
@@ -144,8 +144,8 @@ class SignedSettingsTest : public ::testing::Test {
     mock_service(s.get(), &m_);
     EXPECT_CALL(m_, StartVerifyAttempt(to_verify, _, _))
         .Times(1);
-    EXPECT_CALL(m_, IsAlreadyOwned())
-        .WillOnce(Return(true));
+    EXPECT_CALL(m_, GetStatus(_))
+        .WillOnce(Return(OwnershipService::OWNERSHIP_TAKEN));
 
     s->Execute();
     s->OnKeyOpComplete(return_code, std::vector<uint8>());
@@ -285,8 +285,8 @@ TEST_F(SignedSettingsTest, StoreProperty) {
   mock_service(s.get(), &m_);
   EXPECT_CALL(m_, StartSigningAttempt(to_sign, _))
       .Times(1);
-  EXPECT_CALL(m_, IsAlreadyOwned())
-      .WillOnce(Return(true));
+  EXPECT_CALL(m_, GetStatus(_))
+      .WillOnce(Return(OwnershipService::OWNERSHIP_TAKEN));
 
   s->Execute();
   s->OnKeyOpComplete(OwnerManager::SUCCESS, std::vector<uint8>());
@@ -312,8 +312,8 @@ TEST_F(SignedSettingsTest, RetrieveProperty) {
   mock_service(s.get(), &m_);
   EXPECT_CALL(m_, StartVerifyAttempt(to_verify, _, _))
       .Times(1);
-  EXPECT_CALL(m_, IsAlreadyOwned())
-      .WillOnce(Return(true));
+  EXPECT_CALL(m_, GetStatus(_))
+      .WillOnce(Return(OwnershipService::OWNERSHIP_TAKEN));
 
   s->Execute();
   s->OnKeyOpComplete(OwnerManager::SUCCESS, std::vector<uint8>());

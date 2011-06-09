@@ -16,7 +16,18 @@ TestURLFetcher::TestURLFetcher(int id,
                                URLFetcher::Delegate* d)
     : URLFetcher(url, request_type, d),
       id_(id),
-      original_url_(url) {
+      original_url_(url),
+      did_receive_last_chunk_(false) {
+}
+
+TestURLFetcher::~TestURLFetcher() {
+}
+
+void TestURLFetcher::AppendChunkToUpload(const std::string& data,
+                                         bool is_last_chunk) {
+  DCHECK(!did_receive_last_chunk_);
+  did_receive_last_chunk_ = is_last_chunk;
+  chunks_.push_back(data);
 }
 
 TestURLFetcherFactory::TestURLFetcherFactory() {}

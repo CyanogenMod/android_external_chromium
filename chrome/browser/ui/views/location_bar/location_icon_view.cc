@@ -8,7 +8,7 @@
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 
-LocationIconView::LocationIconView(const LocationBarView* location_bar)
+LocationIconView::LocationIconView(LocationBarView* location_bar)
     : ALLOW_THIS_IN_INITIALIZER_LIST(click_handler_(this, location_bar)) {
   SetTooltipText(UTF16ToWide(l10n_util::GetStringUTF16(
       IDS_TOOLTIP_LOCATION_ICON)));
@@ -26,4 +26,13 @@ bool LocationIconView::OnMousePressed(const views::MouseEvent& event) {
 void LocationIconView::OnMouseReleased(const views::MouseEvent& event,
                                        bool canceled) {
   click_handler_.OnMouseReleased(event, canceled);
+}
+
+void LocationIconView::ShowTooltip(bool show) {
+  if (show) {
+    SetTooltipText(UTF16ToWide(l10n_util::GetStringUTF16(
+            IDS_TOOLTIP_LOCATION_ICON)));
+  } else {
+    SetTooltipText(L"");
+  }
 }

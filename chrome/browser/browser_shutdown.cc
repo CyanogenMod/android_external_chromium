@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,24 +21,24 @@
 #include "build/build_config.h"
 #include "chrome/browser/about_flags.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_thread.h"
-#include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/jankometer.h"
 #include "chrome/browser/metrics/metrics_service.h"
-#include "chrome/browser/plugin_process_host.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_widget_host.h"
 #include "chrome/browser/service/service_process_control_manager.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/webui/chrome_url_data_manager.h"
 #include "chrome/common/chrome_paths.h"
+#include "chrome/common/chrome_plugin_lib.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
-#include "chrome/common/chrome_plugin_lib.h"
 #include "chrome/common/switch_utils.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/plugin_process_host.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_widget_host.h"
 #include "net/predictor_api.h"
 #include "ui/base/resource/resource_bundle.h"
 

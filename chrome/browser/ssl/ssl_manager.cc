@@ -5,20 +5,20 @@
 #include "chrome/browser/ssl/ssl_manager.h"
 
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/load_from_memory_cache_details.h"
 #include "chrome/browser/net/url_request_tracking.h"
-#include "chrome/browser/renderer_host/resource_request_details.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
 #include "chrome/browser/ssl/ssl_cert_error_handler.h"
 #include "chrome/browser/ssl/ssl_policy.h"
 #include "chrome/browser/ssl/ssl_request_info.h"
-#include "chrome/browser/tab_contents/navigation_controller.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
-#include "chrome/browser/tab_contents/provisional_load_details.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/notification_service.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/resource_request_details.h"
+#include "content/browser/renderer_host/resource_dispatcher_host.h"
+#include "content/browser/renderer_host/resource_dispatcher_host_request_info.h"
+#include "content/browser/tab_contents/navigation_controller.h"
+#include "content/browser/tab_contents/navigation_entry.h"
+#include "content/browser/tab_contents/provisional_load_details.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/generated_resources.h"
 #include "net/base/cert_status_flags.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -42,8 +42,6 @@ void SSLManager::OnSSLCertificateError(ResourceDispatcherHost* rdh,
       NewRunnableMethod(new SSLCertErrorHandler(rdh,
                                                 request,
                                                 info->resource_type(),
-                                                info->frame_origin(),
-                                                info->main_frame_origin(),
                                                 cert_error,
                                                 cert),
                         &SSLCertErrorHandler::Dispatch));
@@ -214,8 +212,6 @@ void SSLManager::DidLoadFromMemoryCache(LoadFromMemoryCacheDetails* details) {
   scoped_refptr<SSLRequestInfo> info(new SSLRequestInfo(
       details->url(),
       ResourceType::SUB_RESOURCE,
-      details->frame_origin(),
-      details->main_frame_origin(),
       details->pid(),
       details->ssl_cert_id(),
       details->ssl_cert_status()));
@@ -228,8 +224,6 @@ void SSLManager::DidStartResourceResponse(ResourceRequestDetails* details) {
   scoped_refptr<SSLRequestInfo> info(new SSLRequestInfo(
       details->url(),
       details->resource_type(),
-      details->frame_origin(),
-      details->main_frame_origin(),
       details->origin_child_id(),
       details->ssl_cert_id(),
       details->ssl_cert_status()));

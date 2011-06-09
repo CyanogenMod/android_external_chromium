@@ -293,6 +293,16 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
              int flags,
              CertVerifyResult* verify_result) const;
 
+  // Verifies that |hostname| matches this certificate.
+  // Does not verify that the certificate is valid, only that the certificate
+  // matches this host.
+  // Returns true if it matches.
+  //
+  // WARNING:  This function may return false negatives (for example, if
+  //           |hostname| is an IP address literal) on some platforms.  Only
+  //           use in cases where some false-positives are acceptible.
+  bool VerifyNameMatch(const std::string& hostname) const;
+
   // This method returns the DER encoded certificate.
   // If the return value is true then the DER encoded certificate is available.
   // The content of the DER encoded certificate is written to |encoded|.
@@ -351,12 +361,25 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   // (all zero) fingerprint on failure.
   static SHA1Fingerprint CalculateFingerprint(OSCertHandle cert_handle);
 
+<<<<<<< HEAD
 #if defined(USE_OPENSSL)
   // Returns the certificate in DER-encoded form, using the application DER
   // cache as appropriate. The returned string piece will be valid as long
   // as the handle is.
   static std::string GetDEREncodedBytes(OSCertHandle handle);
 #endif
+=======
+  // Verifies that |hostname| matches one of the names in |cert_names|, based on
+  // TLS name matching rules, specifically following http://tools.ietf.org/html/draft-saintandre-tls-server-id-check-09#section-4.4.3
+  // The members of |cert_names| must have been extracted from the Subject CN or
+  // SAN fields of a certificate.
+  // WARNING:  This function may return false negatives (for example, if
+  //           |hostname| is an IP address literal) on some platforms.  Only
+  //           use in cases where some false-positives are acceptible.
+  static bool VerifyHostname(const std::string& hostname,
+                             const std::vector<std::string>& cert_names);
+
+>>>>>>> chromium.org at r11.0.696.0
 
   // The subject of the certificate.
   CertPrincipal subject_;

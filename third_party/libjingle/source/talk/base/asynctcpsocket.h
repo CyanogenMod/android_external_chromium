@@ -29,6 +29,7 @@
 #define TALK_BASE_ASYNCTCPSOCKET_H_
 
 #include "talk/base/asyncpacketsocket.h"
+#include "talk/base/scoped_ptr.h"
 #include "talk/base/socketfactory.h"
 
 namespace talk_base {
@@ -38,15 +39,21 @@ namespace talk_base {
 // buffer them in user space.
 class AsyncTCPSocket : public AsyncPacketSocket {
  public:
-  static AsyncTCPSocket* Create(SocketFactory* factory);
-  explicit AsyncTCPSocket(AsyncSocket* socket);
+  static AsyncTCPSocket* Create(SocketFactory* factory, bool listen);
+  explicit AsyncTCPSocket(AsyncSocket* socket, bool listen);
   virtual ~AsyncTCPSocket();
 
-  virtual int Send(const void* pv, size_t cb);
-  virtual int SendTo(const void* pv, size_t cb, const SocketAddress& addr);
+  virtual SocketAddress GetLocalAddress(bool* allocated) const;
+  virtual SocketAddress GetRemoteAddress() const;
+  virtual int Send(const void *pv, size_t cb);
+  virtual int SendTo(const void *pv, size_t cb, const SocketAddress& addr);
+  virtual int Close();
 
-  sigslot::signal1<AsyncTCPSocket*> SignalConnect;
-  sigslot::signal2<AsyncTCPSocket*, int> SignalClose;
+  virtual Socket::ConnState GetState() const;
+  virtual int GetOption(Socket::Option opt, int* value);
+  virtual int SetOption(Socket::Option opt, int value);
+  virtual int GetError() const;
+  virtual void SetError(int error);
 
  protected:
   int SendRaw(const void* pv, size_t cb);
@@ -61,8 +68,12 @@ class AsyncTCPSocket : public AsyncPacketSocket {
   void OnWriteEvent(AsyncSocket* socket);
   void OnCloseEvent(AsyncSocket* socket, int error);
 
+  scoped_ptr<AsyncSocket> socket_;
+  bool listen_;
   char* inbuf_, * outbuf_;
   size_t insize_, inpos_, outsize_, outpos_;
+
+  DISALLOW_EVIL_CONSTRUCTORS(AsyncTCPSocket);
 };
 
 }  // namespace talk_base

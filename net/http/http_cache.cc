@@ -48,7 +48,7 @@ HttpNetworkSession* CreateNetworkSession(
     SSLHostInfoFactory* ssl_host_info_factory,
     SSLConfigService* ssl_config_service,
     HttpAuthHandlerFactory* http_auth_handler_factory,
-    HttpNetworkDelegate* network_delegate,
+    NetworkDelegate* network_delegate,
     NetLog* net_log) {
   HttpNetworkSession::Params params;
   params.host_resolver = host_resolver;
@@ -316,7 +316,7 @@ HttpCache::HttpCache(HostResolver* host_resolver,
                      ProxyService* proxy_service,
                      SSLConfigService* ssl_config_service,
                      HttpAuthHandlerFactory* http_auth_handler_factory,
-                     HttpNetworkDelegate* network_delegate,
+                     NetworkDelegate* network_delegate,
                      NetLog* net_log,
                      BackendFactory* backend_factory)
     : net_log_(net_log),
@@ -451,15 +451,12 @@ void HttpCache::WriteMetadata(const GURL& url,
   writer->Write(url, expected_response_time, buf, buf_len);
 }
 
-void HttpCache::CloseCurrentConnections() {
+void HttpCache::CloseAllConnections() {
   net::HttpNetworkLayer* network =
       static_cast<net::HttpNetworkLayer*>(network_layer_.get());
   HttpNetworkSession* session = network->GetSession();
-  if (session) {
-    session->FlushSocketPools();
-    if (session->spdy_session_pool())
-      session->spdy_session_pool()->CloseCurrentSessions();
-  }
+  if (session)
+    session->CloseAllConnections();
 }
 
 int HttpCache::CreateTransaction(scoped_ptr<HttpTransaction>* trans) {

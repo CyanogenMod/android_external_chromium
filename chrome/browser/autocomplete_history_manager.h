@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include <vector>
 
 #include "chrome/browser/prefs/pref_member.h"
-#include "chrome/browser/tab_contents/tab_contents_observer.h"
 #include "chrome/browser/webdata/web_data_service.h"
+#include "content/browser/tab_contents/tab_contents_observer.h"
 
 namespace webkit_glue {
 struct FormData;
@@ -34,7 +34,7 @@ class AutocompleteHistoryManager : public TabContentsObserver,
   virtual void OnWebDataServiceRequestDone(WebDataService::Handle h,
                                            const WDTypedResult* result);
 
-  // Pass-through functions that are called by AutoFillManager, after it has
+  // Pass-through functions that are called by AutofillManager, after it has
   // dispatched a message.
   void OnGetAutocompleteSuggestions(
       int query_id,
@@ -48,10 +48,12 @@ class AutocompleteHistoryManager : public TabContentsObserver,
 
  protected:
   friend class AutocompleteHistoryManagerTest;
-  friend class AutoFillManagerTest;
+  friend class AutofillManagerTest;
 
   // For tests.
-  AutocompleteHistoryManager(Profile* profile, WebDataService* wds);
+  AutocompleteHistoryManager(TabContents* tab_contents,
+                             Profile* profile,
+                             WebDataService* wds);
 
   void SendSuggestions(const std::vector<string16>* suggestions);
   void CancelPendingQuery();
@@ -59,7 +61,6 @@ class AutocompleteHistoryManager : public TabContentsObserver,
  private:
   void OnRemoveAutocompleteEntry(const string16& name, const string16& value);
 
-  TabContents* tab_contents_;
   Profile* profile_;
   scoped_refptr<WebDataService> web_data_service_;
 

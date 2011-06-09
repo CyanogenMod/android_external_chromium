@@ -15,7 +15,6 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas_skia.h"
 #include "views/controls/button/menu_button.h"
-#include "views/controls/image_view.h"
 #include "views/controls/label.h"
 
 // TranslateInfoBarDelegate ---------------------------------------------------
@@ -49,75 +48,32 @@ TranslateInfoBarBase::TranslateInfoBarBase(TranslateInfoBarDelegate* delegate)
     : InfoBarView(delegate),
       normal_background_(InfoBarDelegate::PAGE_ACTION_TYPE),
       error_background_(InfoBarDelegate::WARNING_TYPE) {
-  icon_ = new views::ImageView;
-  SkBitmap* image = static_cast<InfoBarDelegate*>(delegate)->GetIcon();
-  if (image)
-    icon_->SetImage(image);
-  AddChildView(icon_);
-
-  background_color_animation_.reset(new ui::SlideAnimation(this));
-  background_color_animation_->SetTweenType(ui::Tween::LINEAR);
-  background_color_animation_->SetSlideDuration(500);
-  TranslateInfoBarDelegate::BackgroundAnimationType animation =
-      GetDelegate()->background_animation_type();
-  if (animation == TranslateInfoBarDelegate::NORMAL_TO_ERROR) {
-    background_color_animation_->Show();
-  } else if (animation == TranslateInfoBarDelegate::ERROR_TO_NORMAL) {
-    // Hide() runs the animation in reverse.
-    background_color_animation_->Reset(1.0);
-    background_color_animation_->Hide();
-  }
 }
 
 TranslateInfoBarBase::~TranslateInfoBarBase() {
 }
 
-// static
-views::Label* TranslateInfoBarBase::CreateLabel(const string16& text) {
-  views::Label* label = new views::Label(UTF16ToWideHack(text),
-      ResourceBundle::GetSharedInstance().GetFont(ResourceBundle::MediumFont));
-  label->SetColor(SK_ColorBLACK);
-  label->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
-  return label;
-}
-
-// static
-views::MenuButton* TranslateInfoBarBase::CreateMenuButton(
-    const string16& text,
-    bool normal_has_border,
-    views::ViewMenuDelegate* menu_delegate) {
-  // Don't use text to instantiate MenuButton because we need to set font before
-  // setting text so that the button will resize to fit the entire text.
-  views::MenuButton* menu_button =
-      new views::MenuButton(NULL, std::wstring(), menu_delegate, true);
-  menu_button->set_border(new InfoBarButtonBorder);
-  menu_button->set_menu_marker(ResourceBundle::GetSharedInstance().
-      GetBitmapNamed(IDR_INFOBARBUTTON_MENU_DROPARROW));
-  if (normal_has_border) {
-    menu_button->SetNormalHasBorder(true);  // Normal button state has border.
-    // Disable animation during state change.
-    menu_button->SetAnimationDuration(0);
+void TranslateInfoBarBase::ViewHierarchyChanged(bool is_add,
+                                                View* parent,
+                                                View* child) {
+  if (is_add && (child == this) && (background_color_animation_ == NULL)) {
+    background_color_animation_.reset(new ui::SlideAnimation(this));
+    background_color_animation_->SetTweenType(ui::Tween::LINEAR);
+    background_color_animation_->SetSlideDuration(500);
+    TranslateInfoBarDelegate::BackgroundAnimationType animation =
+        GetDelegate()->background_animation_type();
+    if (animation == TranslateInfoBarDelegate::NORMAL_TO_ERROR) {
+      background_color_animation_->Show();
+    } else if (animation == TranslateInfoBarDelegate::ERROR_TO_NORMAL) {
+      // Hide() runs the animation in reverse.
+      background_color_animation_->Reset(1.0);
+      background_color_animation_->Hide();
+    }
   }
-  // Set font colors for different states.
-  menu_button->SetEnabledColor(SK_ColorBLACK);
-  menu_button->SetHighlightColor(SK_ColorBLACK);
-  menu_button->SetHoverColor(SK_ColorBLACK);
 
-  // Set font then text, then size button to fit text.
-  menu_button->SetFont(ResourceBundle::GetSharedInstance().GetFont(
-      ResourceBundle::MediumFont));
-  menu_button->SetText(UTF16ToWideHack(text));
-  menu_button->ClearMaxTextSize();
-  menu_button->SizeToPreferredSize();
-  return menu_button;
-}
-
-void TranslateInfoBarBase::Layout() {
-  InfoBarView::Layout();
-
-  gfx::Size icon_size = icon_->GetPreferredSize();
-  icon_->SetBounds(kHorizontalPadding, OffsetY(this, icon_size),
-                   icon_size.width(), icon_size.height());
+  // This must happen after adding all other children so InfoBarView can ensure
+  // the close button is the last child.
+  InfoBarView::ViewHierarchyChanged(is_add, parent, child);
 }
 
 void TranslateInfoBarBase::UpdateLanguageButtonText(
@@ -137,7 +93,7 @@ TranslateInfoBarDelegate* TranslateInfoBarBase::GetDelegate() {
   return delegate()->AsTranslateInfoBarDelegate();
 }
 
-void TranslateInfoBarBase::PaintBackground(gfx::Canvas* canvas) {
+void TranslateInfoBarBase::OnPaintBackground(gfx::Canvas* canvas) {
   // If we're not animating, simply paint the background for the current state.
   if (!background_color_animation_->is_animating()) {
     GetBackground().Paint(canvas, this);

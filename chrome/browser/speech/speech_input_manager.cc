@@ -2,26 +2,25 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/speech/speech_input_manager.h"
+#include "content/browser/speech/speech_input_manager.h"
 
 #include <map>
 #include <string>
 
-#include "base/command_line.h"
 #include "base/lazy_instance.h"
 #include "base/ref_counted.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/speech/speech_input_bubble_controller.h"
-#include "chrome/browser/speech/speech_recognizer.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/speech/speech_recognizer.h"
 #include "grit/generated_resources.h"
 #include "media/audio/audio_manager.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -120,7 +119,7 @@ class SpeechInputManagerImpl : public SpeechInputManager,
   virtual void OnRecognizerError(int caller_id,
                                  SpeechRecognizer::ErrorCode error);
   virtual void DidCompleteEnvironmentEstimation(int caller_id);
-  virtual void SetInputVolume(int caller_id, float volume);
+  virtual void SetInputVolume(int caller_id, float volume, float noise_volume);
 
   // SpeechInputBubbleController::Delegate methods.
   virtual void InfoBubbleButtonClicked(int caller_id,
@@ -163,24 +162,19 @@ SpeechInputManager* SpeechInputManager::Get() {
   return g_speech_input_manager_impl.Pointer();
 }
 
-bool SpeechInputManager::IsFeatureEnabled() {
-  bool enabled = true;
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
-
-  if (command_line.HasSwitch(switches::kDisableSpeechInput)) {
-    enabled = false;
-#if defined(GOOGLE_CHROME_BUILD)
-  } else if (!command_line.HasSwitch(switches::kEnableSpeechInput)) {
-    // We need to evaluate whether IO is OK here. http://crbug.com/63335.
-    base::ThreadRestrictions::ScopedAllowIO allow_io;
-    // Official Chrome builds have speech input enabled by default only in the
-    // dev channel.
-    std::string channel = platform_util::GetVersionStringModifier();
-    enabled = (channel == "dev");
-#endif
+void SpeechInputManager::ShowAudioInputSettings() {
+  // Since AudioManager::ShowAudioInputSettings can potentially launch external
+  // processes, do that in the FILE thread to not block the calling threads.
+  if (!BrowserThread::CurrentlyOn(BrowserThread::FILE)) {
+    BrowserThread::PostTask(
+        BrowserThread::FILE, FROM_HERE,
+        NewRunnableFunction(&SpeechInputManager::ShowAudioInputSettings));
+    return;
   }
 
-  return enabled;
+  DCHECK(AudioManager::GetAudioManager()->CanShowAudioInputSettings());
+  if (AudioManager::GetAudioManager()->CanShowAudioInputSettings())
+    AudioManager::GetAudioManager()->ShowAudioInputSettings();
 }
 
 SpeechInputManagerImpl::SpeechInputManagerImpl()
@@ -312,23 +306,31 @@ void SpeechInputManagerImpl::OnRecognizerError(
 
   requests_[caller_id].is_active = false;
 
-  int message_id;
-  switch (error) {
-    case SpeechRecognizer::RECOGNIZER_ERROR_CAPTURE:
-      message_id = IDS_SPEECH_INPUT_ERROR;
-      break;
-    case SpeechRecognizer::RECOGNIZER_ERROR_NO_SPEECH:
-      message_id = IDS_SPEECH_INPUT_NO_SPEECH;
-      break;
-    case SpeechRecognizer::RECOGNIZER_ERROR_NO_RESULTS:
-      message_id = IDS_SPEECH_INPUT_NO_RESULTS;
-      break;
-    default:
-      NOTREACHED() << "unknown error " << error;
+  struct ErrorMessageMapEntry {
+    SpeechRecognizer::ErrorCode error;
+    int message_id;
+  };
+  ErrorMessageMapEntry error_message_map[] = {
+    {
+      SpeechRecognizer::RECOGNIZER_ERROR_CAPTURE, IDS_SPEECH_INPUT_MIC_ERROR
+    }, {
+      SpeechRecognizer::RECOGNIZER_ERROR_NO_SPEECH, IDS_SPEECH_INPUT_NO_SPEECH
+    }, {
+      SpeechRecognizer::RECOGNIZER_ERROR_NO_RESULTS, IDS_SPEECH_INPUT_NO_RESULTS
+    }, {
+      SpeechRecognizer::RECOGNIZER_ERROR_NETWORK, IDS_SPEECH_INPUT_NET_ERROR
+    }
+  };
+  for (size_t i = 0; i < ARRAYSIZE_UNSAFE(error_message_map); ++i) {
+    if (error_message_map[i].error == error) {
+      bubble_controller_->SetBubbleMessage(
+          caller_id,
+          l10n_util::GetStringUTF16(error_message_map[i].message_id));
       return;
+    }
   }
-  bubble_controller_->SetBubbleMessage(caller_id,
-                                       l10n_util::GetStringUTF16(message_id));
+
+  NOTREACHED() << "unknown error " << error;
 }
 
 void SpeechInputManagerImpl::DidCompleteEnvironmentEstimation(int caller_id) {
@@ -340,11 +342,12 @@ void SpeechInputManagerImpl::DidCompleteEnvironmentEstimation(int caller_id) {
   bubble_controller_->SetBubbleRecordingMode(caller_id);
 }
 
-void SpeechInputManagerImpl::SetInputVolume(int caller_id, float volume) {
+void SpeechInputManagerImpl::SetInputVolume(int caller_id, float volume,
+                                            float noise_volume) {
   DCHECK(HasPendingRequest(caller_id));
   DCHECK_EQ(recording_caller_id_, caller_id);
 
-  bubble_controller_->SetBubbleInputVolume(caller_id, volume);
+  bubble_controller_->SetBubbleInputVolume(caller_id, volume, noise_volume);
 }
 
 void SpeechInputManagerImpl::CancelRecognitionAndInformDelegate(int caller_id) {

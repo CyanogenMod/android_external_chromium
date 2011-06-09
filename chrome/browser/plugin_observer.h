@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_PLUGIN_OBSERVER_H_
 #pragma once
 
-#include "chrome/browser/tab_contents/tab_contents_observer.h"
+#include "content/browser/tab_contents/tab_contents_observer.h"
 
 class FilePath;
 class GURL;
@@ -30,7 +30,6 @@ class PluginObserver : public TabContentsObserver {
   void OnCrashedPlugin(const FilePath& plugin_path);
   void OnBlockedOutdatedPlugin(const string16& name, const GURL& update_url);
 
-  TabContents* tab_contents_;  // Weak, owns us.
   scoped_ptr<InfoBarDelegate> plugin_installer_;  // Lazily created.
 
   DISALLOW_COPY_AND_ASSIGN(PluginObserver);

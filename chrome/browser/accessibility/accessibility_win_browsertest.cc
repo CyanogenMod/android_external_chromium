@@ -8,13 +8,13 @@
 #include "base/scoped_comptr_win.h"
 #include "chrome/browser/automation/ui_controls.h"
 #include "chrome/browser/browser_window.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view_win.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "ia2_api_all.h"  // Generated    NOLINT
 #include "ISimpleDOMNode.h"  // Generated   NOLINT
 
@@ -563,12 +563,10 @@ IN_PROC_BROWSER_TEST_F(AccessibilityWinBrowserTest,
       NotificationType::RENDER_VIEW_HOST_ACCESSIBILITY_TREE_UPDATED);
 
   // Check the browser's copy of the renderer accessibility tree.
-  AccessibleChecker text_field_div_checker(L"", L"div", L"");
   AccessibleChecker text_field_checker(L"", ROLE_SYSTEM_TEXT, L"old value");
   text_field_checker.SetExpectedState(STATE_SYSTEM_FOCUSABLE);
   AccessibleChecker body_checker(L"", L"body", L"");
   AccessibleChecker document_checker(L"", ROLE_SYSTEM_DOCUMENT, L"");
-  text_field_checker.AppendExpectedChild(&text_field_div_checker);
   body_checker.AppendExpectedChild(&text_field_checker);
   document_checker.AppendExpectedChild(&body_checker);
   document_checker.CheckAccessible(GetRendererAccessible());

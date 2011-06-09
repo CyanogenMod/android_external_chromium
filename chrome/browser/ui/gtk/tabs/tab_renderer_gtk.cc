@@ -10,13 +10,14 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/gtk/bookmark_utils_gtk.h"
+#include "chrome/browser/ui/gtk/bookmarks/bookmark_utils_gtk.h"
 #include "chrome/browser/ui/gtk/custom_button.h"
 #include "chrome/browser/ui/gtk/gtk_theme_provider.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_service.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -808,7 +809,7 @@ void TabRendererGtk::PaintTitle(gfx::Canvas* canvas) {
   if (title.empty()) {
     title = data_.loading ?
         l10n_util::GetStringUTF16(IDS_TAB_LOADING_TITLE) :
-        TabContents::GetDefaultTitle();
+        TabContentsWrapper::GetDefaultTitle();
   } else {
     Browser::FormatTitleForDisplay(&title);
   }
@@ -966,9 +967,14 @@ void TabRendererGtk::PaintLoadingAnimation(gfx::Canvas* canvas) {
   DCHECK(image_size == favicon_bounds_.height());
   DCHECK(image_size == favicon_bounds_.width());
 
+  // NOTE: the clipping is a work around for 69528, it shouldn't be necessary.
+  canvas->Save();
+  canvas->ClipRectInt(
+      favicon_bounds_.x(), favicon_bounds_.y(), image_size, image_size);
   canvas->DrawBitmapInt(*frames, image_offset, 0, image_size, image_size,
       favicon_bounds_.x(), favicon_bounds_.y(), image_size, image_size,
       false);
+  canvas->Restore();
 }
 
 int TabRendererGtk::IconCapacity() const {

@@ -155,11 +155,15 @@ class ExtensionPrefs {
   // the client's.
   void SetLastPingDay(const std::string& extension_id, const base::Time& time);
 
+  // Similar to the 2 above, but for the extensions blacklist.
+  base::Time BlacklistLastPingDay() const;
+  void SetBlacklistLastPingDay(const base::Time& time);
+
   // Gets the permissions (|api_permissions|, |host_extent| and |full_access|)
   // granted to the extension with |extension_id|. |full_access| will be true
   // if the extension has all effective permissions (like from an NPAPI plugin).
   // Returns false if the granted permissions haven't been initialized yet.
-  // TODO(jstritar): Refractor the permissions into a class that encapsulates
+  // TODO(jstritar): Refactor the permissions into a class that encapsulates
   // all granted permissions, can be initialized from preferences or
   // a manifest file, and can be compared to each other.
   bool GetGrantedPermissions(const std::string& extension_id,
@@ -175,10 +179,6 @@ class ExtensionPrefs {
                              const bool full_access,
                              const std::set<std::string>& api_permissions,
                              const ExtensionExtent& host_extent);
-
-  // Similar to the 2 above, but for the extensions blacklist.
-  base::Time BlacklistLastPingDay() const;
-  void SetBlacklistLastPingDay(const base::Time& time);
 
   // Returns true if the user enabled this extension to be loaded in incognito
   // mode.
@@ -260,6 +260,22 @@ class ExtensionPrefs {
   // Sets the order the apps should be displayed in the app launcher.
   void SetAppLauncherOrder(const std::vector<std::string>& extension_ids);
 
+  // Get the application page index for an extension with |extension_id|.  This
+  // determines which page an app will appear on in page-based NTPs.  If
+  // the app has no page specified, -1 is returned.
+  int GetPageIndex(const std::string& extension_id);
+
+  // Sets a specific page index for an extension with |extension_id|.
+  void SetPageIndex(const std::string& extension_id, int index);
+
+  // Returns true if the user repositioned the app on the app launcher via drag
+  // and drop.
+  bool WasAppDraggedByUser(const std::string& extension_id);
+
+  // Sets a flag indicating that the user repositioned the app on the app
+  // launcher by drag and dropping it.
+  void SetAppDraggedByUser(const std::string& extension_id);
+
   // The extension's update URL data.  If not empty, the ExtensionUpdater
   // will append a ap= parameter to the URL when checking if a new version
   // of the extension is available.
@@ -270,6 +286,7 @@ class ExtensionPrefs {
   // Sets a preference value that is controlled by the extension. In other
   // words, this is not a pref value *about* the extension but something
   // global the extension wants to override.
+  // Takes ownership of |value|.
   void SetExtensionControlledPref(const std::string& extension_id,
                                   const std::string& pref_key,
                                   bool incognito,
@@ -278,6 +295,18 @@ class ExtensionPrefs {
   void RemoveExtensionControlledPref(const std::string& extension_id,
                                      const std::string& pref_key,
                                      bool incognito);
+
+  // Returns true if currently no extension with higher precedence controls the
+  // preference.
+  bool CanExtensionControlPref(const std::string& extension_id,
+                               const std::string& pref_key,
+                               bool incognito);
+
+  // Returns true if extension |extension_id| currently controls the
+  // preference.
+  bool DoesExtensionControlPref(const std::string& extension_id,
+                                const std::string& pref_key,
+                                bool incognito);
 
   static void RegisterUserPrefs(PrefService* prefs);
 
@@ -357,8 +386,8 @@ class ExtensionPrefs {
   // Additionally fires a PREF_CHANGED notification with the top-level
   // |kExtensionsPref| path set.
   // TODO(andybons): Switch this to EXTENSION_PREF_CHANGED to be more granular.
-  // TODO(andybons): Use a ScopedPrefUpdate to update observers on changes to
-  // the mutable extension dictionary.
+  // TODO(andybons): Use a ScopedUserPrefUpdate to update observers on changes
+  // to the mutable extension dictionary.
   void SavePrefsAndNotify();
 
   // Checks if kPrefBlacklist is set to true in the DictionaryValue.

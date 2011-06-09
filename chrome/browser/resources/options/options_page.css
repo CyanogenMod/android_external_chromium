@@ -34,6 +34,11 @@ a:active {
   bottom: 0;
 }
 
+.frozen,
+.subpage-sheet-container.frozen {
+  position: fixed;
+}
+
 #search-field {
   margin: 0;
 }
@@ -41,6 +46,7 @@ a:active {
 .overlay {
   -webkit-box-align: center;
   -webkit-box-pack: center;
+  -webkit-transition: 0.25s opacity;
   background: -webkit-radial-gradient(rgba(127, 127, 127, 0.5),
                                       rgba(127, 127, 127, 0.5) 35%,
                                       rgba(0, 0, 0, 0.7));
@@ -71,7 +77,7 @@ a:active {
   height: 16px;
   min-width: 0;
   position: relative;
-  top: 12px;
+  top: 16px;
   width: 16px;
 }
 
@@ -85,15 +91,15 @@ a:active {
 
 html[dir='ltr'] .close-subpage {
   float: right;
-  right: 0;
+  right: 20px;
 }
 
 html[dir='rtl'] .close-subpage {
   float: left;
-  left: 0;
+  left: 20px;
 }
 
-html[hide-menu=true] .close-subpage {
+html.hide-menu .close-subpage {
   display: none
 }
 
@@ -123,6 +129,14 @@ html[dir='rtl'] .action-area {
   display: -webkit-box;
 }
 
+.bottom-strip {
+  padding: 12px;
+  position: absolute;
+  right: 0px;
+  bottom: 0px;
+  border-top: none;
+}
+
 html[toolkit=views] .button-strip {
   -webkit-box-direction: reverse;
 }
@@ -150,24 +164,23 @@ html[toolkit=views] .button-strip {
   -webkit-border-end: 1px solid #c6c9ce;
   background: -webkit-linear-gradient(rgba(234, 238, 243, 0.2), #eaeef3),
               -webkit-linear-gradient(left, #eaeef3, #eaeef3 97%, #d3d7db);
+  position: fixed;
   bottom: 0;
-  display: none;
+  /* We set both left and right for the sake of RTL. */
   left: 0;
+  right: 0;
   top: 0;
-  width: 266px;
-  position: absolute;
+  width: 216px;
   z-index: 2;
 }
 
 html[dir='rtl'] #navbar-container {
   background: -webkit-linear-gradient(rgba(234, 238, 243, 0), #EAEEF3),
               -webkit-linear-gradient(right, #EAEEF3, #EAEEF3 97%, #D3D7DB);
-  left: auto;
-  right: 0;
 }
 
-html[hide-menu=false] #navbar-container {
-  display: block;
+html.hide-menu #navbar-container {
+  display: none;
 }
 
 #navbar-container > ul {
@@ -191,6 +204,11 @@ html[hide-menu=false] #navbar-container {
   -webkit-padding-end: 24px;
 }
 
+.navbar-item:focus {
+  border-bottom: 1px solid #8faad9;
+  border-top: 1px solid #8faad9;
+}
+
 .navbar-item-selected {
   -webkit-box-shadow: 0px 1px 0px #f7f7f7;
   background: -webkit-linear-gradient(left, #bbcee9, #bbcee9 97%, #aabedc);
@@ -202,7 +220,7 @@ html[hide-menu=false] #navbar-container {
 
 #mainview {
   -webkit-box-align: stretch;
-  -webkit-padding-start: 267px;
+  -webkit-padding-start: 216px;
   margin: 0;
   position: absolute;
   left: 0;
@@ -212,64 +230,69 @@ html[hide-menu=false] #navbar-container {
   z-index: 1;
 }
 
-html[hide-menu=true] #mainview {
+html.hide-menu #mainview {
   -webkit-padding-start: 0;
 }
 
 #mainview-content {
-  box-sizing: border-box;
-  max-width: 888px;
   min-height: 100%;
-  min-width: 600px;
-  padding: 0 24px;
   position: relative;
 }
 
+#toplevel-page-container {
+  box-sizing: border-box;
+  max-width: 888px;
+  min-width: 600px;
+  padding: 0 24px;
+}
+
 #subpage-backdrop {
+  -webkit-transition: 0.25s opacity;
   background-color: rgba(233, 238, 242, .5);
   height: 100%;
-  left: 267px;
+  left: 216px;
+  right: 216px;
   position: fixed;
   top: 0;
   width: 100%;
-  z-index: 3;
 }
 
 .subpage-sheet-container {
-  -webkit-margin-start: 60px;
+  -webkit-transition: 0.25s opacity, 0.1s padding-left, 0.1s padding-right;
   box-sizing: border-box;
-  height: 100%;
-  padding: 8px;
-  /* Must come after padding. */
-  -webkit-padding-start: 0;
+  min-height: 100%;
   position: absolute;
   /* We set both left and right for the sake of RTL. */
   left: 0;
   right: 0;
   top: 0;
-  width: 688px;
+  width: 100%;
 }
 
 #subpage-sheet-container-1 {
+  -webkit-padding-start: 40px;
   z-index: 5;
 }
 
 #subpage-sheet-container-2 {
-  -webkit-padding-start: 60px;
-  background-color: rgba(233, 238, 242, .5);
+  -webkit-padding-start: 80px;
   z-index: 10;
 }
 
 .subpage-sheet {
   -webkit-box-shadow: #666 0px 2px 5px;
   background-color: white;
-  border: 1px solid #b8b8b8;
-  border-radius: 2px;
+  border-left: 1px solid #b8b8b8;
   box-sizing: border-box;
   min-height: 100%;
-  padding: 0px 20px;
-  position: relative;
   width: 100%;
+  min-width: 651px;
+}
+
+.subpage-sheet-contents {
+  box-sizing: border-box;
+  padding: 0px 20px 20px 20px;
+  width: 650px;
 }
 
 #managed-prefs-banner {
@@ -313,7 +336,6 @@ html[hide-menu=true] #mainview {
 }
 
 .subpage-sheet .page h1 {
-  padding-top: 4px;
   margin-bottom: 10px;
 }
 
@@ -364,20 +386,19 @@ section > div:only-of-type {
   margin-top: 0;
 }
 
-/* TODO(stuartmorgan): make this less specific once all pages
- * are converted to the non-table style.
- */
-section > div:only-of-type label {
+div.checkbox,
+div.radio {
   margin: 5px 0;
 }
 
-label.checkbox,
-label.radio {
-  display: block
+/* [hidden] does display:none, but its priority is too low in some cases. */
+.hidden,
+[hidden] {
+  display: none !important;
 }
 
-.hidden {
-  display: none !important;
+.transparent {
+  opacity: 0;
 }
 
 div.disabled {
@@ -590,14 +611,6 @@ html[enable-background-mode=false] #background-mode-section {
  display: none;
 }
 
-html[enable-cloud-print-proxy=false] #cloud-print-proxy-section {
- display: none;
-}
-
-html[enable-cloud-print-proxy=true] #cloudPrintProxyManageButton {
- display: none;
-}
-
 /* UI Controls */
 
 /* Currently we can't make custom focus outlines look right on the Mac, so
@@ -671,6 +684,8 @@ select {
   -webkit-appearance: button;
   -webkit-border-radius: 2px;
   -webkit-box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.1);
+  -webkit-padding-end: 20px;
+  -webkit-padding-start: 2px;
   -webkit-user-select: none;
   background-image: url("select.png"), -webkit-linear-gradient(#fafafa, #f4f4f4 40%, #e5e5e5);
   background-position: center right;
@@ -680,7 +695,8 @@ select {
   font-size: inherit;
   margin: 0;
   overflow: hidden;
-  padding: 2px 20px 2px 5px;
+  padding-top: 2px;
+  padding-bottom: 2px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -727,4 +743,8 @@ html[os=mac] label > input[type=radio] {
 
 .suboption {
   -webkit-margin-start: 16px;
+}
+
+.informational-text {
+  color: grey;
 }

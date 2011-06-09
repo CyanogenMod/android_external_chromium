@@ -20,8 +20,6 @@
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_options_menu_model.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/ui/gtk/custom_button.h"
 #include "chrome/browser/ui/gtk/gtk_theme_provider.h"
@@ -31,10 +29,12 @@
 #include "chrome/browser/ui/gtk/notifications/balloon_view_host_gtk.h"
 #include "chrome/browser/ui/gtk/rounded_window.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_source.h"
-#include "chrome/common/notification_type.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_widget_host_view.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_source.h"
+#include "content/common/notification_type.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "ui/base/animation/slide_animation.h"
@@ -459,9 +459,13 @@ void BalloonViewImpl::OnOptionsMenuButton(GtkWidget* widget,
 
 // Called when the menu stops showing.
 void BalloonViewImpl::StoppedShowing() {
-  if (pending_close_)
-    DelayedClose(false);
   menu_showing_ = false;
+  if (pending_close_) {
+    MessageLoop::current()->PostTask(
+        FROM_HERE,
+        method_factory_.NewRunnableMethod(
+            &BalloonViewImpl::DelayedClose, false));
+  }
 }
 
 gboolean BalloonViewImpl::OnDestroy(GtkWidget* widget) {

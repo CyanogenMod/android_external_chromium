@@ -8,7 +8,7 @@
 
 #include "base/ref_counted.h"
 #include "base/string16.h"
-#include "chrome/browser/browser_thread.h"
+#include "content/browser/browser_thread.h"
 #include "googleurl/src/gurl.h"
 
 namespace webkit_database {
@@ -31,7 +31,6 @@ class ExtensionDataDeleter
                                       BrowserThread::DeleteOnUIThread> {
  public:
   ExtensionDataDeleter(Profile* profile, const GURL& extension_url);
-  ~ExtensionDataDeleter();
 
   // Start removing data. The extension should not be running when this is
   // called. Cookies are deleted on the current thread, local storage and
@@ -40,6 +39,11 @@ class ExtensionDataDeleter
   void StartDeleting();
 
  private:
+  friend struct BrowserThread::DeleteOnThread<BrowserThread::UI>;
+  friend class DeleteTask<ExtensionDataDeleter>;
+
+  ~ExtensionDataDeleter();
+
   // Deletes the cookies for the extension. May only be called on the io
   // thread.
   void DeleteCookiesOnIOThread();

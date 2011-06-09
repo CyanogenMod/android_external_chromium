@@ -8,11 +8,10 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/extensions/extension_host.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/app_modal_dialogs/native_app_modal_dialog.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
-#include "ipc/ipc_message.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "ui/base/text/text_elider.h"
 
 namespace {
@@ -46,7 +45,7 @@ JavaScriptAppModalDialog::JavaScriptAppModalDialog(
   ui::ElideRectangleString(WideToUTF16(message_text),
       kMessageTextMaxRows, kMessageTextMaxCols, &elided_text);
   message_text_ = UTF16ToWide(elided_text);
-  ui::ElideString(default_prompt_text, kDefaultPromptTextSize,
+  ui::ElideString(WideToUTF16Hack(default_prompt_text), kDefaultPromptTextSize,
                   &default_prompt_text_);
 
   DCHECK((tab_contents_ != NULL) != (extension_host_ != NULL));

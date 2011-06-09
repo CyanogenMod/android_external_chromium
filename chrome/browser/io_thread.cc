@@ -15,9 +15,9 @@
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/threading/thread_restrictions.h"
-#include "chrome/browser/browser_thread.h"
-#include "chrome/browser/gpu_process_host.h"
-#include "chrome/browser/in_process_webkit/indexed_db_key_utility_client.h"
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/extensions/extension_event_router_forwarder.h"
+#include "chrome/browser/net/chrome_network_delegate.h"
 #include "chrome/browser/net/chrome_net_log.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/net/connect_interceptor.h"
@@ -28,7 +28,11 @@
 #include "chrome/common/net/raw_host_resolver_proc.h"
 #include "chrome/common/net/url_fetcher.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/gpu_process_host.h"
+#include "content/browser/in_process_webkit/indexed_db_key_utility_client.h"
 #include "net/base/cert_verifier.h"
+#include "net/base/cookie_monster.h"
 #include "net/base/dnsrr_resolver.h"
 #include "net/base/host_cache.h"
 #include "net/base/host_resolver.h"
@@ -149,16 +153,16 @@ net::HostResolver* CreateGlobalHostResolver(net::NetLog* net_log) {
 }
 
 class LoggingNetworkChangeObserver
-    : public net::NetworkChangeNotifier::Observer {
+    : public net::NetworkChangeNotifier::IPAddressObserver {
  public:
   // |net_log| must remain valid throughout our lifetime.
   explicit LoggingNetworkChangeObserver(net::NetLog* net_log)
       : net_log_(net_log) {
-    net::NetworkChangeNotifier::AddObserver(this);
+    net::NetworkChangeNotifier::AddIPAddressObserver(this);
   }
 
   ~LoggingNetworkChangeObserver() {
-    net::NetworkChangeNotifier::RemoveObserver(this);
+    net::NetworkChangeNotifier::RemoveIPAddressObserver(this);
   }
 
   virtual void OnIPAddressChanged() {
@@ -191,7 +195,7 @@ ConstructProxyScriptFetcherContext(IOThread::Globals* globals,
       globals->proxy_script_fetcher_http_transaction_factory.get());
   // In-memory cookie store.
   context->set_cookie_store(new net::CookieMonster(NULL, NULL));
-  // TODO(mpcomplete): give it a SystemNetworkDelegate.
+  context->set_network_delegate(globals->system_network_delegate.get());
   return context;
 }
 
@@ -207,9 +211,13 @@ IOThread::Globals::~Globals() {}
 
 // |local_state| is passed in explicitly in order to (1) reduce implicit
 // dependencies and (2) make IOThread more flexible for testing.
-IOThread::IOThread(PrefService* local_state, ChromeNetLog* net_log)
+IOThread::IOThread(
+    PrefService* local_state,
+    ChromeNetLog* net_log,
+    ExtensionEventRouterForwarder* extension_event_router_forwarder)
     : BrowserProcessSubThread(BrowserThread::IO),
       net_log_(net_log),
+      extension_event_router_forwarder_(extension_event_router_forwarder),
       globals_(NULL),
       speculative_interceptor_(NULL),
       predictor_(NULL) {
@@ -294,6 +302,15 @@ void IOThread::ChangedToOnTheRecord() {
           &IOThread::ChangedToOnTheRecordOnIOThread));
 }
 
+void IOThread::ClearNetworkingHistory() {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  ClearHostCache();
+  // Discard acrued data used to speculate in the future.
+  chrome_browser_net::DiscardInitialNavigationHistory();
+  if (predictor_)
+    predictor_->DiscardAllResults();
+}
+
 void IOThread::Init() {
   // Though this thread is called the "IO" thread, it actually just routes
   // messages around; it shouldn't be allowed to perform any blocking disk I/O.
@@ -316,6 +333,10 @@ void IOThread::Init() {
   network_change_observer_.reset(
       new LoggingNetworkChangeObserver(net_log_));
 
+  globals_->extension_event_router_forwarder =
+      extension_event_router_forwarder_;
+  globals_->system_network_delegate.reset(new ChromeNetworkDelegate(
+        extension_event_router_forwarder_, Profile::kInvalidProfileId));
   globals_->host_resolver.reset(
       CreateGlobalHostResolver(net_log_));
   globals_->cert_verifier.reset(new net::CertVerifier);
@@ -335,7 +356,7 @@ void IOThread::Init() {
       globals_->proxy_script_fetcher_proxy_service.get();
   session_params.http_auth_handler_factory =
       globals_->http_auth_handler_factory.get();
-  session_params.network_delegate = &globals_->network_delegate;
+  session_params.network_delegate = globals_->system_network_delegate.get();
   session_params.net_log = net_log_;
   session_params.ssl_config_service = globals_->ssl_config_service;
   scoped_refptr<net::HttpNetworkSession> network_session(
@@ -409,20 +430,12 @@ void IOThread::CleanUp() {
   delete globals_;
   globals_ = NULL;
 
-  BrowserProcessSubThread::CleanUp();
-}
+  // net::URLRequest instances must NOT outlive the IO thread.
+  base::debug::LeakTracker<net::URLRequest>::CheckForLeaks();
 
-void IOThread::CleanUpAfterMessageLoopDestruction() {
   // This will delete the |notification_service_|.  Make sure it's done after
   // anything else can reference it.
-  BrowserProcessSubThread::CleanUpAfterMessageLoopDestruction();
-
-  // net::URLRequest instances must NOT outlive the IO thread.
-  //
-  // To allow for URLRequests to be deleted from
-  // MessageLoop::DestructionObserver this check has to happen after CleanUp
-  // (which runs before DestructionObservers).
-  base::debug::LeakTracker<net::URLRequest>::CheckForLeaks();
+  BrowserProcessSubThread::CleanUp();
 }
 
 // static
@@ -495,6 +508,7 @@ void IOThread::ChangedToOnTheRecordOnIOThread() {
 
   if (predictor_) {
     // Destroy all evidence of our OTR session.
+    // Note: OTR mode never saves InitialNavigationHistory data.
     predictor_->Predictor::DiscardAllResults();
   }
 

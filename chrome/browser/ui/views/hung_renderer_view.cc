@@ -2,17 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/hung_renderer_dialog.h"
+#include "chrome/browser/ui/browser_dialogs.h"
 
 #include "base/i18n/rtl.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/logging_chrome.h"
 #include "chrome/common/result_codes.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -93,7 +94,7 @@ string16 HungPagesTableModel::GetText(int row, int column_id) {
   DCHECK(row >= 0 && row < RowCount());
   string16 title = tab_contentses_[row]->GetTitle();
   if (title.empty())
-    title = TabContents::GetDefaultTitle();
+    title = TabContentsWrapper::GetDefaultTitle();
   // TODO(xji): Consider adding a special case if the title text is a URL,
   // since those should always have LTR directionality. Please refer to
   // http://crbug.com/6726 for more information.
@@ -243,7 +244,7 @@ void HungRendererDialogView::ShowForTabContents(TabContents* contents) {
     volatile TabContents* this_contents = contents_;
 
     gfx::Rect bounds = GetDisplayBounds(contents);
-    window()->SetBounds(bounds, frame_hwnd);
+    window()->SetWindowBounds(bounds, frame_hwnd);
 
     // We only do this if the window isn't active (i.e. hasn't been shown yet,
     // or is currently shown but deactivated for another TabContents). This is
@@ -407,7 +408,7 @@ void HungRendererDialogView::CreateKillButtonView() {
   const int single_column_set_id = 0;
   ColumnSet* column_set = layout->AddColumnSet(single_column_set_id);
   column_set->AddPaddingColumn(0, frozen_icon_->width() +
-      kPanelHorizMargin + views::kUnrelatedControlHorizontalSpacing);
+      views::kPanelHorizMargin + views::kUnrelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::LEADING, GridLayout::LEADING, 0,
                         GridLayout::USE_PREF, 0, 0);
 
@@ -440,19 +441,15 @@ void HungRendererDialogView::InitClass() {
   }
 }
 
-///////////////////////////////////////////////////////////////////////////////
-// HungRendererDialog
-
-
 static HungRendererDialogView* CreateHungRendererDialogView() {
   HungRendererDialogView* cv = new HungRendererDialogView;
   views::Window::CreateChromeWindow(NULL, gfx::Rect(), cv);
   return cv;
 }
 
-namespace hung_renderer_dialog {
+namespace browser {
 
-void ShowForTabContents(TabContents* contents) {
+void ShowHungRendererDialog(TabContents* contents) {
   if (!logging::DialogsAreSuppressed()) {
     if (!g_instance)
       g_instance = CreateHungRendererDialogView();
@@ -460,11 +457,9 @@ void ShowForTabContents(TabContents* contents) {
   }
 }
 
-// static
-void HideForTabContents(TabContents* contents) {
+void HideHungRendererDialog(TabContents* contents) {
   if (!logging::DialogsAreSuppressed() && g_instance)
     g_instance->EndForTabContents(contents);
 }
 
-}  // namespace hung_renderer_dialog
-
+}  // namespace browser

@@ -6,8 +6,8 @@
 #define CHROME_BROWSER_UI_BROWSER_WINDOW_H_
 #pragma once
 
-#include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/common/content_settings_types.h"
+#include "content/browser/tab_contents/navigation_entry.h"
 #include "ui/gfx/native_widget_types.h"
 
 class Browser;
@@ -192,6 +192,7 @@ class BrowserWindow {
       TemplateURL* template_url,
       TemplateURLModel* template_url_model) {
     // TODO(levin): Implement this for non-Windows platforms and make it pure.
+    // http://crbug.com/38475
   }
 
   // Shows a confirmation dialog box for adding a search engine described by
@@ -203,7 +204,7 @@ class BrowserWindow {
   virtual void ToggleBookmarkBar() = 0;
 
   // Shows the About Chrome dialog box.
-  virtual views::Window* ShowAboutChromeDialog() = 0;
+  virtual void ShowAboutChromeDialog() = 0;
 
   // Shows the Update Recommended dialog box.
   virtual void ShowUpdateChromeDialog() = 0;

@@ -9,6 +9,7 @@
 #include "base/message_loop.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
+#include "base/metrics/stats_counters.h"
 #include "base/rand_util.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
@@ -165,12 +166,11 @@ bool InitExperiment(disk_cache::IndexHeader* header) {
 }
 
 // Initializes the field trial structures to allow performance measurements
-// for the current cache configuration. Returns true if we are active part of
-// the CacheThrottle field trial.
-bool SetFieldTrialInfo(int size_group) {
+// for the current cache configuration.
+void SetFieldTrialInfo(int size_group) {
   static bool first = true;
   if (!first)
-    return false;
+    return;
 
   // Field trials involve static objects so we have to do this only once.
   first = false;
@@ -179,15 +179,6 @@ bool SetFieldTrialInfo(int size_group) {
   scoped_refptr<base::FieldTrial> trial1(
       new base::FieldTrial("CacheSize", totalProbability, group1, 2011, 6, 30));
   trial1->AppendGroup(group1, totalProbability);
-
-  // After June 30, 2011 builds, it will always be in default group.
-  scoped_refptr<base::FieldTrial> trial2(
-      new base::FieldTrial(
-          "CacheThrottle", 100, "CacheThrottle_Default", 2011, 6, 30));
-  int group2a = trial2->AppendGroup("CacheThrottle_On", 10);  // 10 % in.
-  trial2->AppendGroup("CacheThrottle_Off", 10);  // 10 % control.
-
-  return trial2->group() == group2a;
 }
 
 // ------------------------------------------------------------------------
@@ -360,9 +351,9 @@ BackendImpl::BackendImpl(const FilePath& path,
       restarted_(false),
       unit_test_(false),
       read_only_(false),
+      disabled_(false),
       new_eviction_(false),
       first_timer_(true),
-      throttle_requests_(false),
       net_log_(net_log),
       done_(true, false),
       ALLOW_THIS_IN_INITIALIZER_LIST(factory_(this)),
@@ -386,9 +377,9 @@ BackendImpl::BackendImpl(const FilePath& path,
       restarted_(false),
       unit_test_(false),
       read_only_(false),
+      disabled_(false),
       new_eviction_(false),
       first_timer_(true),
-      throttle_requests_(false),
       net_log_(net_log),
       done_(true, false),
       ALLOW_THIS_IN_INITIALIZER_LIST(factory_(this)),
@@ -506,17 +497,18 @@ int BackendImpl::SyncInit() {
     read_only_ = true;
   }
 
+  // Setup load-time data only for the main cache.
+  if (cache_type() == net::DISK_CACHE)
+    SetFieldTrialInfo(GetSizeGroup());
+
+  eviction_.Init(this);
+
   // stats_ and rankings_ may end up calling back to us so we better be enabled.
   disabled_ = false;
   if (!stats_.Init(this, &data_->header.stats))
     return net::ERR_FAILED;
 
   disabled_ = !rankings_.Init(this, new_eviction_);
-  eviction_.Init(this);
-
-  // Setup load-time data only for the main cache.
-  if (!throttle_requests_ && cache_type() == net::DISK_CACHE)
-    throttle_requests_ = SetFieldTrialInfo(GetSizeGroup());
 
   return disabled_ ? net::ERR_FAILED : net::OK;
 }
@@ -698,6 +690,7 @@ EntryImpl* BackendImpl::OpenEntryImpl(const std::string& key) {
 
   CACHE_UMA(AGE_MS, "OpenTime", GetSizeGroup(), start);
   stats_.OnEvent(Stats::OPEN_HIT);
+  SIMPLE_STATS_COUNTER("disk_cache.hit");
   return cache_entry;
 }
 
@@ -783,6 +776,7 @@ EntryImpl* BackendImpl::CreateEntryImpl(const std::string& key) {
 
   CACHE_UMA(AGE_MS, "CreateTime", GetSizeGroup(), start);
   stats_.OnEvent(Stats::CREATE_HIT);
+  SIMPLE_STATS_COUNTER("disk_cache.miss");
   Trace("create entry hit ");
   return cache_entry.release();
 }
@@ -848,10 +842,14 @@ bool BackendImpl::CreateExternalFile(Addr* address) {
                 base::PLATFORM_FILE_WRITE |
                 base::PLATFORM_FILE_CREATE |
                 base::PLATFORM_FILE_EXCLUSIVE_WRITE;
+    base::PlatformFileError error;
     scoped_refptr<disk_cache::File> file(new disk_cache::File(
-        base::CreatePlatformFile(name, flags, NULL, NULL)));
-    if (!file->IsValid())
+        base::CreatePlatformFile(name, flags, NULL, &error)));
+    if (!file->IsValid()) {
+      if (error != base::PLATFORM_FILE_ERROR_EXISTS)
+        return false;
       continue;
+    }
 
     success = true;
     break;
@@ -888,8 +886,7 @@ void BackendImpl::UpdateRank(EntryImpl* entry, bool modified) {
 void BackendImpl::RecoveredEntry(CacheRankingsBlock* rankings) {
   Addr address(rankings->Data()->contents);
   EntryImpl* cache_entry = NULL;
-  bool dirty;
-  if (NewEntry(address, &cache_entry, &dirty))
+  if (NewEntry(address, &cache_entry))
     return;
 
   uint32 hash = cache_entry->GetHash();
@@ -912,8 +909,15 @@ void BackendImpl::InternalDoomEntry(EntryImpl* entry) {
 
   Trace("Doom entry 0x%p", entry);
 
-  eviction_.OnDoomEntry(entry);
-  entry->InternalDoom();
+  if (!entry->doomed()) {
+    // We may have doomed this entry from within MatchEntry.
+    eviction_.OnDoomEntry(entry);
+    entry->InternalDoom();
+    if (!new_eviction_) {
+      DecreaseNumEntries();
+    }
+    stats_.OnEvent(Stats::DOOM_ENTRY);
+  }
 
   if (parent_entry) {
     parent_entry->SetNextAddress(Addr(child));
@@ -921,12 +925,6 @@ void BackendImpl::InternalDoomEntry(EntryImpl* entry) {
   } else if (!error) {
     data_->table[hash & mask_] = child;
   }
-
-  if (!new_eviction_) {
-    DecreaseNumEntries();
-  }
-
-  stats_.OnEvent(Stats::DOOM_ENTRY);
 }
 
 // An entry may be linked on the DELETED list for a while after being doomed.
@@ -1058,6 +1056,8 @@ bool BackendImpl::ShouldReportAgain() {
 
 void BackendImpl::FirstEviction() {
   DCHECK(data_->header.create_time);
+  if (!GetEntryCount())
+    return;  // This is just for unit tests.
 
   Time create_time = Time::FromInternalValue(data_->header.create_time);
   CACHE_UMA(AGE, "FillupAge", 0, create_time);
@@ -1132,31 +1132,6 @@ void BackendImpl::OnRead(int32 bytes) {
 void BackendImpl::OnWrite(int32 bytes) {
   // We use the same implementation as OnRead... just log the number of bytes.
   OnRead(bytes);
-}
-
-void BackendImpl::OnOperationCompleted(base::TimeDelta elapsed_time) {
-  CACHE_UMA(TIMES, "TotalIOTime", 0, elapsed_time);
-
-  if (cache_type() != net::DISK_CACHE)
-    return;
-
-  UMA_HISTOGRAM_TIMES(base::FieldTrial::MakeName("DiskCache.TotalIOTime",
-                                                 "CacheThrottle").data(),
-                      elapsed_time);
-
-  if (!throttle_requests_)
-    return;
-
-  const int kMaxNormalDelayMS = 460;
-
-  bool throttling = io_delay_ > kMaxNormalDelayMS;
-
-  // We keep a simple exponential average of elapsed_time.
-  io_delay_ = (io_delay_ + static_cast<int>(elapsed_time.InMilliseconds())) / 2;
-  if (io_delay_ > kMaxNormalDelayMS && !throttling)
-    background_queue_.StartQueingOperations();
-  else if (io_delay_ <= kMaxNormalDelayMS && throttling)
-    background_queue_.StopQueingOperations();
 }
 
 void BackendImpl::OnStatsTimer() {
@@ -1234,13 +1209,6 @@ int BackendImpl::FlushQueueForTest(CompletionCallback* callback) {
 int BackendImpl::RunTaskForTest(Task* task, CompletionCallback* callback) {
   background_queue_.RunTask(task, callback);
   return net::ERR_IO_PENDING;
-}
-
-void BackendImpl::ThrottleRequestsForTest(bool throttle) {
-  if (throttle)
-    background_queue_.StartQueingOperations();
-  else
-    background_queue_.StopQueingOperations();
 }
 
 void BackendImpl::TrimForTest(bool empty) {
@@ -1515,14 +1483,13 @@ void BackendImpl::PrepareForRestart() {
   restarted_ = true;
 }
 
-int BackendImpl::NewEntry(Addr address, EntryImpl** entry, bool* dirty) {
+int BackendImpl::NewEntry(Addr address, EntryImpl** entry) {
   EntriesMap::iterator it = open_entries_.find(address.value());
   if (it != open_entries_.end()) {
     // Easy job. This entry is already in memory.
     EntryImpl* this_entry = it->second;
     this_entry->AddRef();
     *entry = this_entry;
-    *dirty = false;
     return 0;
   }
 
@@ -1553,21 +1520,18 @@ int BackendImpl::NewEntry(Addr address, EntryImpl** entry, bool* dirty) {
   if (!cache_entry->LoadNodeAddress())
     return ERR_READ_FAILURE;
 
-  *dirty = cache_entry->IsDirty(GetCurrentEntryId());
-
   // Prevent overwriting the dirty flag on the destructor.
-  cache_entry->ClearDirtyFlag();
+  cache_entry->SetDirtyFlag(GetCurrentEntryId());
 
   if (!rankings_.SanityCheck(cache_entry->rankings(), false))
     return ERR_INVALID_LINKS;
 
-  if (*dirty) {
+  if (cache_entry->dirty()) {
     Trace("Dirty entry 0x%p 0x%x", reinterpret_cast<void*>(cache_entry.get()),
           address.value());
-  } else {
-    // We only add clean entries to the map.
-    open_entries_[address.value()] = cache_entry;
   }
+
+  open_entries_[address.value()] = cache_entry;
 
   cache_entry->BeginLogging(net_log_, false);
   cache_entry.swap(entry);
@@ -1603,11 +1567,10 @@ EntryImpl* BackendImpl::MatchEntry(const std::string& key, uint32 hash,
       break;
     }
 
-    bool dirty;
-    int error = NewEntry(address, &tmp, &dirty);
+    int error = NewEntry(address, &tmp);
     cache_entry.swap(&tmp);
 
-    if (error || dirty) {
+    if (error || cache_entry->dirty()) {
       // This entry is dirty on disk (it was not properly closed): we cannot
       // trust it.
       Addr child(0);
@@ -1620,6 +1583,9 @@ EntryImpl* BackendImpl::MatchEntry(const std::string& key, uint32 hash,
       } else {
         data_->table[hash & mask_] = child.value();
       }
+
+      Trace("MatchEntry dirty %d 0x%x 0x%x", find_parent, entry_addr.value(),
+            address.value());
 
       if (!error) {
         // It is important to call DestroyInvalidEntry after removing this
@@ -1660,6 +1626,11 @@ EntryImpl* BackendImpl::MatchEntry(const std::string& key, uint32 hash,
 
   if (parent_entry && (!find_parent || !found))
     parent_entry = NULL;
+
+  if (find_parent && entry_addr.is_initialized() && !cache_entry) {
+    *match_error = true;
+    parent_entry = NULL;
+  }
 
   if (cache_entry && (find_parent || !found))
     cache_entry = NULL;
@@ -1773,13 +1744,16 @@ EntryImpl* BackendImpl::GetEnumeratedEntry(CacheRankingsBlock* next) {
     return NULL;
 
   EntryImpl* entry;
-  bool dirty;
-  if (NewEntry(Addr(next->Data()->contents), &entry, &dirty))
+  if (NewEntry(Addr(next->Data()->contents), &entry)) {
+    // TODO(rvargas) bug 73102: We should remove this node from the list, and
+    // maybe do a better cleanup.
     return NULL;
+  }
 
-  if (dirty) {
-    // We cannot trust this entry. This code also releases the reference.
-    DestroyInvalidEntryFromEnumeration(entry);
+  if (entry->dirty()) {
+    // We cannot trust this entry.
+    InternalDoomEntry(entry);
+    entry->Release();
     return NULL;
   }
 
@@ -1833,42 +1807,6 @@ void BackendImpl::DestroyInvalidEntry(EntryImpl* entry) {
   if (!new_eviction_)
     DecreaseNumEntries();
   stats_.OnEvent(Stats::INVALID_ENTRY);
-}
-
-// This is kind of ugly. The entry may or may not be part of the cache index
-// table, and it may even have corrupt fields. If we just doom it, we may end up
-// deleting it twice (if all fields are right, and when looking up the parent of
-// chained entries wee see this one... and we delete it because it is dirty). If
-// we ignore it, we may leave it here forever. So we're going to attempt to
-// delete it through the provided object, without touching the index table
-// (because we cannot jus call MatchEntry()), and also attempt to delete it from
-// the table through the key: this may find a new entry (too bad), or an entry
-// that was just deleted and consider it a very corrupt entry.
-void BackendImpl::DestroyInvalidEntryFromEnumeration(EntryImpl* entry) {
-  std::string key = entry->GetKey();
-  entry->SetPointerForInvalidEntry(GetCurrentEntryId());
-  CacheAddr next_entry = entry->GetNextAddress();
-  if (!next_entry) {
-    DestroyInvalidEntry(entry);
-    entry->Release();
-  }
-  SyncDoomEntry(key);
-
-  if (!next_entry)
-    return;
-
-  // We have a chained entry so instead of destroying first this entry and then
-  // anything with this key, we just called DoomEntry() first. If that call
-  // deleted everything, |entry| has invalid data. Let's see if there is
-  // something else to do. We started with just a rankings node (we come from
-  // an enumeration), so that one may still be there.
-  CacheRankingsBlock* rankings = entry->rankings();
-  rankings->Load();
-  if (rankings->Data()->contents) {
-    // We still have something. Clean this up.
-    DestroyInvalidEntry(entry);
-  }
-  entry->Release();
 }
 
 void BackendImpl::AddStorageSize(int32 bytes) {
@@ -2086,15 +2024,14 @@ int BackendImpl::CheckAllEntries() {
     if (!address.is_initialized())
       continue;
     for (;;) {
-      bool dirty;
       EntryImpl* tmp;
-      int ret = NewEntry(address, &tmp, &dirty);
+      int ret = NewEntry(address, &tmp);
       if (ret)
         return ret;
       scoped_refptr<EntryImpl> cache_entry;
       cache_entry.swap(&tmp);
 
-      if (dirty)
+      if (cache_entry->dirty())
         num_dirty++;
       else if (CheckEntry(cache_entry.get()))
         num_entries++;

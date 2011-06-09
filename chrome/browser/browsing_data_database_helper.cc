@@ -8,8 +8,8 @@
 #include "base/file_util.h"
 #include "base/message_loop.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/profiles/profile.h"
+#include "content/browser/browser_thread.h"
 #include "net/base/net_errors.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebCString.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebSecurityOrigin.h"
@@ -17,7 +17,9 @@
 
 using WebKit::WebSecurityOrigin;
 
-BrowsingDataDatabaseHelper::DatabaseInfo::DatabaseInfo() {}
+BrowsingDataDatabaseHelper::DatabaseInfo::DatabaseInfo()
+    : size(0) {
+}
 
 BrowsingDataDatabaseHelper::DatabaseInfo::DatabaseInfo(
     const std::string& host,
@@ -175,7 +177,7 @@ void CannedBrowsingDataDatabaseHelper::Reset() {
 
 bool CannedBrowsingDataDatabaseHelper::empty() const {
   base::AutoLock auto_lock(lock_);
- return database_info_.empty() && pending_database_info_.empty();
+  return database_info_.empty() && pending_database_info_.empty();
 }
 
 void CannedBrowsingDataDatabaseHelper::StartFetching(

@@ -18,12 +18,12 @@
 #include "base/linked_ptr.h"
 #include "base/ref_counted.h"
 #include "base/synchronization/lock.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/content_settings/content_settings_pattern.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/common/content_settings.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
+#include "content/browser/browser_thread.h"
 
 namespace content_settings {
 class DefaultProviderInterface;
@@ -45,7 +45,6 @@ class HostContentSettingsMap
   typedef std::vector<PatternSettingPair> SettingsForOneType;
 
   explicit HostContentSettingsMap(Profile* profile);
-  ~HostContentSettingsMap();
 
   static void RegisterUserPrefs(PrefService* prefs);
 
@@ -171,7 +170,10 @@ class HostContentSettingsMap
                        const NotificationDetails& details);
 
  private:
-  friend class base::RefCountedThreadSafe<HostContentSettingsMap>;
+  friend struct BrowserThread::DeleteOnThread<BrowserThread::UI>;
+  friend class DeleteTask<HostContentSettingsMap>;
+
+  ~HostContentSettingsMap();
 
   // Informs observers that content settings have changed. Make sure that
   // |lock_| is not held when calling this, as listeners will usually call one

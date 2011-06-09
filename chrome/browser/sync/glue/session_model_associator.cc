@@ -13,13 +13,13 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/syncable/syncable.h"
-#include "chrome/browser/tab_contents/navigation_controller.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/tab_contents/navigation_controller.h"
+#include "content/browser/tab_contents/navigation_entry.h"
 
 namespace browser_sync {
 
@@ -36,6 +36,16 @@ SessionModelAssociator::SessionModelAssociator(ProfileSyncService* sync_service)
     : tab_pool_(sync_service),
       local_session_syncid_(sync_api::kInvalidId),
       sync_service_(sync_service) {
+  DCHECK(CalledOnValidThread());
+  DCHECK(sync_service_);
+}
+
+SessionModelAssociator::SessionModelAssociator(ProfileSyncService* sync_service,
+                                               bool setup_for_test)
+    : tab_pool_(sync_service),
+      local_session_syncid_(sync_api::kInvalidId),
+      sync_service_(sync_service),
+      setup_for_test_(setup_for_test) {
   DCHECK(CalledOnValidThread());
   DCHECK(sync_service_);
 }
@@ -217,15 +227,20 @@ void SessionModelAssociator::ReassociateTab(const TabContents& tab) {
 void SessionModelAssociator::Associate(const TabContents* tab, int64 sync_id) {
   DCHECK(CalledOnValidThread());
   SessionID::id_type session_id = tab->controller().session_id().id();
+  Browser* browser = BrowserList::FindBrowserWithID(
+      tab->controller().window_id().id());
+  if (!browser)  // Can happen for weird things like developer console.
+    return;
 
   TabLinks t(sync_id, tab);
   tab_map_[session_id] = t;
 
   sync_api::WriteTransaction trans(sync_service_->GetUserShare());
-  WriteTabContentsToSyncModel(*tab, sync_id, &trans);
+  WriteTabContentsToSyncModel(*browser, *tab, sync_id, &trans);
 }
 
 bool SessionModelAssociator::WriteTabContentsToSyncModel(
+    const Browser& browser,
     const TabContents& tab,
     int64 sync_id,
     sync_api::WriteTransaction* trans) {
@@ -249,12 +264,9 @@ bool SessionModelAssociator::WriteTabContentsToSyncModel(
   const int max_index = std::min(current_index + max_sync_navigation_count,
                                  tab.controller().entry_count());
   const int pending_index = tab.controller().pending_entry_index();
-  Browser* browser = BrowserList::FindBrowserWithID(
-      tab.controller().window_id().id());
-  DCHECK(browser);
-  int index_in_window = browser->tabstrip_model()->GetWrapperIndex(&tab);
+  int index_in_window = browser.tabstrip_model()->GetWrapperIndex(&tab);
   DCHECK(index_in_window != TabStripModel::kNoTab);
-  tab_s->set_pinned(browser->tabstrip_model()->IsTabPinned(index_in_window));
+  tab_s->set_pinned(browser.tabstrip_model()->IsTabPinned(index_in_window));
   if (tab.extension_app())
     tab_s->set_extension_app_id(tab.extension_app()->id());
   for (int i = min_index; i < max_index; ++i) {
@@ -493,8 +505,7 @@ bool SessionModelAssociator::AssociateForeignSpecifics(
     const int64 modification_time) {
   DCHECK(CalledOnValidThread());
   std::string foreign_session_tag = specifics.session_tag();
-  DCHECK(foreign_session_tag != GetCurrentMachineTag() ||
-         sync_service_->cros_user() == "test user");  // For tests.
+  DCHECK(foreign_session_tag != GetCurrentMachineTag() || setup_for_test_);
 
   if (specifics.has_header()) {
     // Read in the header data for this foreign session.

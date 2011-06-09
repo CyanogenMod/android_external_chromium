@@ -12,12 +12,12 @@
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/browser_process_sub_thread.h"
-#include "chrome/browser/net/chrome_network_delegate.h"
 #include "chrome/common/net/predictor_common.h"
 #include "net/base/network_change_notifier.h"
 
 class ChromeNetLog;
 class ChromeURLRequestContextGetter;
+class ExtensionEventRouterForwarder;
 class ListValue;
 class PrefService;
 
@@ -32,6 +32,7 @@ class DnsRRResolver;
 class HostResolver;
 class HttpAuthHandlerFactory;
 class HttpTransactionFactory;
+class NetworkDelegate;
 class ProxyScriptFetcher;
 class ProxyService;
 class SSLConfigService;
@@ -45,6 +46,8 @@ class IOThread : public BrowserProcessSubThread {
     Globals();
     ~Globals();
 
+    // The "system" NetworkDelegate, used for Profile-agnostic network events.
+    scoped_ptr<net::NetworkDelegate> system_network_delegate;
     scoped_ptr<net::HostResolver> host_resolver;
     scoped_ptr<net::CertVerifier> cert_verifier;
     scoped_ptr<net::DnsRRResolver> dnsrr_resolver;
@@ -54,12 +57,15 @@ class IOThread : public BrowserProcessSubThread {
     scoped_ptr<net::HttpTransactionFactory>
         proxy_script_fetcher_http_transaction_factory;
     scoped_ptr<net::URLSecurityManager> url_security_manager;
-    ChromeNetworkDelegate network_delegate;
     scoped_refptr<net::URLRequestContext> proxy_script_fetcher_context;
+    scoped_refptr<ExtensionEventRouterForwarder>
+        extension_event_router_forwarder;
   };
 
   // |net_log| must either outlive the IOThread or be NULL.
-  IOThread(PrefService* local_state, ChromeNetLog* net_log);
+  IOThread(PrefService* local_state,
+           ChromeNetLog* net_log,
+           ExtensionEventRouterForwarder* extension_event_router_forwarder);
 
   virtual ~IOThread();
 
@@ -95,19 +101,17 @@ class IOThread : public BrowserProcessSubThread {
   void UnregisterURLRequestContextGetter(
       ChromeURLRequestContextGetter* url_request_context_getter);
 
-  // Handles changing to On The Record mode.  Post a task for this onto the
-  // IOThread's message loop.
+  // Handles changing to On The Record mode, discarding confidential data.
   void ChangedToOnTheRecord();
 
-  // Clears the host cache.  Intended to be used to prevent exposing recently
-  // visited sites on about:net-internals/#dns and about:dns pages.  Must be
-  // called on the IO thread.
-  void ClearHostCache();
+  // Clear all network stack history, including the host cache, as well as
+  // speculative data about subresources of visited sites, and startup-time
+  // navigations.
+  void ClearNetworkingHistory();
 
  protected:
   virtual void Init();
   virtual void CleanUp();
-  virtual void CleanUpAfterMessageLoopDestruction();
 
  private:
   static void RegisterPrefs(PrefService* local_state);
@@ -125,9 +129,18 @@ class IOThread : public BrowserProcessSubThread {
 
   void ChangedToOnTheRecordOnIOThread();
 
+  // Clears the host cache.  Intended to be used to prevent exposing recently
+  // visited sites on about:net-internals/#dns and about:dns pages.  Must be
+  // called on the IO thread.
+  void ClearHostCache();
+
   // The NetLog is owned by the browser process, to allow logging from other
   // threads during shutdown, but is used most frequently on the IOThread.
   ChromeNetLog* net_log_;
+
+  // The ExtensionEventRouterForwarder allows for sending events to extensions
+  // from the IOThread.
+  ExtensionEventRouterForwarder* extension_event_router_forwarder_;
 
   // These member variables are basically global, but their lifetimes are tied
   // to the IOThread.  IOThread owns them all, despite not using scoped_ptr.
@@ -140,7 +153,8 @@ class IOThread : public BrowserProcessSubThread {
   Globals* globals_;
 
   // Observer that logs network changes to the ChromeNetLog.
-  scoped_ptr<net::NetworkChangeNotifier::Observer> network_change_observer_;
+  scoped_ptr<net::NetworkChangeNotifier::IPAddressObserver>
+      network_change_observer_;
 
   // Store HTTP Auth-related policies in this thread.
   std::string auth_schemes_;
@@ -162,7 +176,7 @@ class IOThread : public BrowserProcessSubThread {
 
   // Keeps track of all live ChromeURLRequestContextGetters, so the
   // ChromeURLRequestContexts can be released during
-  // IOThread::CleanUpAfterMessageLoopDestruction().
+  // IOThread::CleanUp().
   std::list<ChromeURLRequestContextGetter*> url_request_context_getters_;
 
   DISALLOW_COPY_AND_ASSIGN(IOThread);

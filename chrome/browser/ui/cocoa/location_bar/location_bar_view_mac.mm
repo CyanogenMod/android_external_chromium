@@ -25,8 +25,6 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #import "chrome/browser/ui/cocoa/content_settings/content_setting_bubble_cocoa.h"
 #include "chrome/browser/ui/cocoa/event_utils.h"
 #import "chrome/browser/ui/cocoa/extensions/extension_action_context_menu.h"
@@ -46,6 +44,8 @@
 #include "chrome/common/extensions/extension_action.h"
 #include "chrome/common/extensions/extension_resource.h"
 #include "chrome/common/notification_service.h"
+#include "content/browser/tab_contents/navigation_entry.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "net/base/net_util.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -89,7 +89,6 @@ LocationBarViewMac::LocationBarViewMac(
       profile_(profile),
       browser_(browser),
       toolbar_model_(toolbar_model),
-      update_instant_(true),
       transition_(PageTransition::TYPED),
       first_run_bubble_(this) {
   for (size_t i = 0; i < CONTENT_SETTINGS_NUM_TYPES; ++i) {
@@ -139,14 +138,7 @@ std::wstring LocationBarViewMac::GetInputString() const {
 }
 
 void LocationBarViewMac::SetSuggestedText(const string16& text) {
-  // This method is internally invoked to reset suggest text, so we only do
-  // anything if the text isn't empty.
-  // TODO: if we keep autocomplete, make it so this isn't invoked with empty
-  // text.
-  if (!text.empty()) {
-    edit_view_->model()->FinalizeInstantQuery(edit_view_->GetText(), text,
-                                              false);
-  }
+  edit_view_->model()->SetSuggestedText(text);
 }
 
 WindowOpenDisposition LocationBarViewMac::GetWindowOpenDisposition() const {
@@ -220,63 +212,6 @@ void LocationBarViewMac::Update(const TabContents* contents,
   OnChanged();
 }
 
-void LocationBarViewMac::OnAutocompleteWillClosePopup() {
-  if (!update_instant_)
-    return;
-
-  InstantController* controller = browser_->instant();
-  if (controller && !controller->commit_on_mouse_up())
-    controller->DestroyPreviewContents();
-  SetSuggestedText(string16());
-}
-
-void LocationBarViewMac::OnAutocompleteLosingFocus(gfx::NativeView unused) {
-  SetSuggestedText(string16());
-
-  InstantController* instant = browser_->instant();
-  if (!instant)
-    return;
-
-  // If |IsMouseDownFromActivate()| returns false, the RenderWidgetHostView did
-  // not receive a mouseDown event.  Therefore, we should destroy the preview.
-  // Otherwise, the RWHV was clicked, so we commit the preview.
-  if (!instant->is_displayable() || !instant->GetPreviewContents() ||
-      !instant->IsMouseDownFromActivate()) {
-    instant->DestroyPreviewContents();
-  } else if (instant->IsShowingInstant()) {
-    instant->SetCommitOnMouseUp();
-  } else {
-    instant->CommitCurrentPreview(INSTANT_COMMIT_FOCUS_LOST);
-  }
-}
-
-void LocationBarViewMac::OnAutocompleteWillAccept() {
-  update_instant_ = false;
-}
-
-bool LocationBarViewMac::OnCommitSuggestedText(bool skip_inline_autocomplete) {
-  if (!browser_->instant())
-    return false;
-
-  const string16 suggestion = edit_view_->GetInstantSuggestion();
-  if (suggestion.empty())
-    return false;
-
-  edit_view_->model()->FinalizeInstantQuery(
-      edit_view_->GetText(), suggestion, skip_inline_autocomplete);
-  return true;
-}
-
-bool LocationBarViewMac::AcceptCurrentInstantPreview() {
-  return InstantController::CommitIfCurrent(browser_->instant());
-}
-
-void LocationBarViewMac::OnPopupBoundsChanged(const gfx::Rect& bounds) {
-  InstantController* instant = browser_->instant();
-  if (instant)
-    instant->SetOmniboxBounds(bounds);
-}
-
 void LocationBarViewMac::OnAutocompleteAccept(const GURL& url,
                                               WindowOpenDisposition disposition,
                                               PageTransition::Type transition,
@@ -309,11 +244,6 @@ void LocationBarViewMac::OnAutocompleteAccept(const GURL& url,
       }
     }
   }
-
-  if (browser_->instant() && !edit_view_->model()->popup_model()->IsOpen())
-    browser_->instant()->DestroyPreviewContents();
-
-  update_instant_ = true;
 }
 
 void LocationBarViewMac::OnChanged() {
@@ -323,30 +253,6 @@ void LocationBarViewMac::OnChanged() {
   location_icon_decoration_->SetImage(image);
   ev_bubble_decoration_->SetImage(image);
   Layout();
-
-  InstantController* instant = browser_->instant();
-  string16 suggested_text;
-  if (update_instant_ && instant && GetTabContents()) {
-    if (edit_view_->model()->user_input_in_progress() &&
-        edit_view_->model()->popup_model()->IsOpen()) {
-      instant->Update
-          (browser_->GetSelectedTabContentsWrapper(),
-           edit_view_->model()->CurrentMatch(),
-           edit_view_->GetText(),
-           edit_view_->model()->UseVerbatimInstant(),
-           &suggested_text);
-      if (!instant->MightSupportInstant()) {
-        edit_view_->model()->FinalizeInstantQuery(
-            string16(), string16(), false);
-      }
-    } else {
-      instant->DestroyPreviewContents();
-      edit_view_->model()->FinalizeInstantQuery(
-          string16(), string16(), false);
-    }
-  }
-
-  SetSuggestedText(suggested_text);
 }
 
 void LocationBarViewMac::OnSelectionBoundsChanged() {
@@ -377,8 +283,28 @@ string16 LocationBarViewMac::GetTitle() const {
   return string16();
 }
 
+InstantController* LocationBarViewMac::GetInstant() {
+  return browser_->instant();
+}
+
+TabContentsWrapper* LocationBarViewMac::GetTabContentsWrapper() {
+  return browser_->GetSelectedTabContentsWrapper();
+}
+
 void LocationBarViewMac::Revert() {
   edit_view_->RevertAll();
+}
+
+const AutocompleteEditView* LocationBarViewMac::location_entry() const {
+    return edit_view_.get();
+  }
+
+AutocompleteEditView* LocationBarViewMac::location_entry() {
+    return edit_view_.get();
+  }
+
+LocationBarTesting* LocationBarViewMac::GetLocationBarForTesting() {
+  return this;
 }
 
 // TODO(pamg): Change all these, here and for other platforms, to size_t.

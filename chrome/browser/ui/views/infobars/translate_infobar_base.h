@@ -15,7 +15,6 @@ class TranslateInfoBarDelegate;
 
 namespace views {
 class MenuButton;
-class ViewMenuDelegate;
 }
 
 // This class contains some of the base functionality that translate infobars
@@ -29,18 +28,8 @@ class TranslateInfoBarBase : public TranslateInfoBarView,
  protected:
   static const int kButtonInLabelSpacing;
 
-  // Creates a label with the appropriate font and color for the translate
-  // infobars.
-  static views::Label* CreateLabel(const string16& text);
-
-  // Creates a menu-button with a custom appearance for the translate infobars.
-  static views::MenuButton* CreateMenuButton(
-      const string16& text,
-      bool normal_has_border,
-      views::ViewMenuDelegate* menu_delegate);
-
   // InfoBarView:
-  virtual void Layout();
+  virtual void ViewHierarchyChanged(bool is_add, View* parent, View* child);
 
   // Sets the text of the provided language menu button to reflect the current
   // value from the delegate.
@@ -50,12 +39,9 @@ class TranslateInfoBarBase : public TranslateInfoBarView,
   // Convenience to retrieve the TranslateInfoBarDelegate for this infobar.
   TranslateInfoBarDelegate* GetDelegate();
 
-  // The translate icon.
-  views::ImageView* icon_;
-
  private:
   // InfoBarView:
-  virtual void PaintBackground(gfx::Canvas* canvas);
+  virtual void OnPaintBackground(gfx::Canvas* canvas);
   virtual void AnimationProgressed(const ui::Animation* animation);
 
   // Returns the background that should be displayed when not animating.

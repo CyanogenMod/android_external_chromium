@@ -66,7 +66,7 @@ class UsernameField : public chromeos::TextfieldWithMargin {
       : controller_(controller) {}
 
   // views::Textfield overrides:
-  virtual void WillLoseFocus() {
+  virtual void OnBlur() OVERRIDE {
     string16 user_input;
     bool was_trim = TrimWhitespace(text(), TRIM_ALL, &user_input) != TRIM_NONE;
     if (!user_input.empty()) {
@@ -84,7 +84,7 @@ class UsernameField : public chromeos::TextfieldWithMargin {
   }
 
   // Overridden from views::View:
-  virtual bool OnKeyPressed(const views::KeyEvent& e) {
+  virtual bool OnKeyPressed(const views::KeyEvent& e) OVERRIDE {
     if (e.key_code() == ui::VKEY_LEFT) {
       return controller_->NavigateAway();
     }
@@ -287,6 +287,7 @@ void NewUserView::AddChildView(View* view) {
 void NewUserView::UpdateLocalizedStrings() {
   title_label_->SetText(UTF16ToWide(
       l10n_util::GetStringUTF16(IDS_LOGIN_TITLE)));
+  this->SetAccessibleName(l10n_util::GetStringUTF16(IDS_LOGIN_TITLE));
   title_hint_label_->SetText(UTF16ToWide(
       l10n_util::GetStringUTF16(IDS_LOGIN_TITLE_HINT)));
   username_field_->set_text_to_display_when_empty(
@@ -531,8 +532,9 @@ void NewUserView::ContentsChanged(views::Textfield* sender,
 }
 
 void NewUserView::EnableInputControls(bool enabled) {
-  languages_menubutton_->SetEnabled(g_browser_process->local_state()->
-      IsManagedPreference(prefs::kApplicationLocale) ? false : enabled);
+  languages_menubutton_->SetEnabled(enabled &&
+      !g_browser_process->local_state()->IsManagedPreference(
+          prefs::kApplicationLocale));
   username_field_->SetEnabled(enabled);
   password_field_->SetEnabled(enabled);
   sign_in_button_->SetEnabled(enabled);

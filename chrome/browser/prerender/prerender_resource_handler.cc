@@ -5,22 +5,40 @@
 #include "chrome/browser/prerender/prerender_resource_handler.h"
 
 #include "chrome/browser/net/chrome_url_request_context.h"
-#include "chrome/common/resource_response.h"
+#include "content/common/resource_response.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_request.h"
 
+namespace prerender {
+
 namespace {
 
-bool ShouldPrerender(const GURL& url, const ResourceResponse* response) {
+bool ShouldPrerenderURL(const GURL& url) {
+  if (!url.is_valid())
+    return false;
+  if (!url.SchemeIs("http")) {
+    RecordFinalStatus(FINAL_STATUS_HTTPS);
+    return false;
+  }
+  return true;
+}
+
+bool ValidateAliasURLs(const std::vector<GURL>& urls) {
+  for (std::vector<GURL>::const_iterator it = urls.begin();
+       it != urls.end();
+       ++it) {
+    if (!ShouldPrerenderURL(*it))
+      return false;
+  }
+  return true;
+}
+
+bool ShouldPrerender(const ResourceResponse* response) {
   if (!response)
     return false;
   const ResourceResponseHead& rrh = response->response_head;
-  if (!url.is_valid())
-    return false;
   if (!rrh.headers)
-    return false;
-  if (!(url.SchemeIs("http") || url.SchemeIs("https")))
     return false;
   if (rrh.mime_type != "text/html")
     return false;
@@ -39,30 +57,36 @@ PrerenderResourceHandler* PrerenderResourceHandler::MaybeCreate(
     return NULL;
   if (!(request.load_flags() & net::LOAD_PREFETCH))
     return NULL;
+  if (!ShouldPrerenderURL(request.url()))
+    return NULL;
   if (request.method() != "GET")
     return NULL;
-  return new PrerenderResourceHandler(next_handler,
+  return new PrerenderResourceHandler(request,
+                                      next_handler,
                                       context->prerender_manager());
 }
 
 PrerenderResourceHandler::PrerenderResourceHandler(
+    const net::URLRequest& request,
     ResourceHandler* next_handler,
     PrerenderManager* prerender_manager)
     : next_handler_(next_handler),
       prerender_manager_(prerender_manager),
       ALLOW_THIS_IN_INITIALIZER_LIST(
           prerender_callback_(NewCallback(
-              this, &PrerenderResourceHandler::StartPrerender))) {
+              this, &PrerenderResourceHandler::StartPrerender))),
+      request_(request) {
   DCHECK(next_handler);
   DCHECK(prerender_manager);
 }
 
-// This constructor is only used from unit tests.
 PrerenderResourceHandler::PrerenderResourceHandler(
+    const net::URLRequest& request,
     ResourceHandler* next_handler,
     PrerenderCallback* callback)
     : next_handler_(next_handler),
-      prerender_callback_(callback) {
+      prerender_callback_(callback),
+      request_(request) {
   DCHECK(next_handler);
   DCHECK(callback);
 }
@@ -83,6 +107,8 @@ bool PrerenderResourceHandler::OnRequestRedirected(int request_id,
   bool will_redirect = next_handler_->OnRequestRedirected(
       request_id, url, response, defer);
   if (will_redirect) {
+    if (!ShouldPrerenderURL(url))
+      return false;
     alias_urls_.push_back(url);
     url_ = url;
   }
@@ -91,7 +117,8 @@ bool PrerenderResourceHandler::OnRequestRedirected(int request_id,
 
 bool PrerenderResourceHandler::OnResponseStarted(int request_id,
                                                  ResourceResponse* response) {
-  if (ShouldPrerender(url_, response)) {
+  if (ShouldPrerender(response)) {
+    DCHECK(ValidateAliasURLs(alias_urls_));
     BrowserThread::PostTask(
         BrowserThread::UI,
         FROM_HERE,
@@ -99,7 +126,8 @@ bool PrerenderResourceHandler::OnResponseStarted(int request_id,
             this,
             &PrerenderResourceHandler::RunCallbackFromUIThread,
             url_,
-            alias_urls_));
+            alias_urls_,
+            GURL(request_.referrer())));
   }
   return next_handler_->OnResponseStarted(request_id, response);
 }
@@ -109,6 +137,8 @@ bool PrerenderResourceHandler::OnWillStart(int request_id,
                                            bool* defer) {
   bool will_start = next_handler_->OnWillStart(request_id, url, defer);
   if (will_start) {
+    if (!ShouldPrerenderURL(url))
+      return false;
     alias_urls_.push_back(url);
     url_ = url;
   }
@@ -138,16 +168,20 @@ void PrerenderResourceHandler::OnRequestClosed() {
   next_handler_->OnRequestClosed();
 }
 
-void PrerenderResourceHandler::RunCallbackFromUIThread(const GURL& url,
-                                                       const std::vector<GURL>&
-                                                       alias_urls) {
+void PrerenderResourceHandler::RunCallbackFromUIThread(
+    const GURL& url,
+    const std::vector<GURL>& alias_urls,
+    const GURL& referrer) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  prerender_callback_->Run(url, alias_urls);
+  prerender_callback_->Run(url, alias_urls, referrer);
 }
 
-void PrerenderResourceHandler::StartPrerender(const GURL& url,
-                                              const std::vector<GURL>&
-                                              alias_urls) {
+void PrerenderResourceHandler::StartPrerender(
+    const GURL& url,
+    const std::vector<GURL>& alias_urls,
+    const GURL& referrer) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  prerender_manager_->AddPreload(url, alias_urls);
+  prerender_manager_->AddPreload(url, alias_urls, referrer);
 }
+
+}  // namespace prerender

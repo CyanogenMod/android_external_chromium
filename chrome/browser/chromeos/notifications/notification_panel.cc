@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 
 #include "chrome/browser/chromeos/notifications/balloon_collection_impl.h"
 #include "chrome/browser/chromeos/notifications/balloon_view.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_source.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_source.h"
 #include "grit/generated_resources.h"
 #include "third_party/cros/chromeos_wm_ipc_enums.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -70,7 +70,7 @@ chromeos::BalloonViewImpl* GetBalloonViewOf(const Balloon* balloon) {
 // with gtk 2.18.6. See http://crbug.com/42235 for more details.
 class PanelWidget : public views::WidgetGtk {
  public:
-  PanelWidget() : WidgetGtk(TYPE_WINDOW), painting_(false) {
+  PanelWidget() : WidgetGtk(TYPE_WINDOW) {
   }
 
   virtual ~PanelWidget() {
@@ -79,19 +79,7 @@ class PanelWidget : public views::WidgetGtk {
     EnableDoubleBuffer(true);
   }
 
-  // views::WidgetGtk overrides.
-  virtual void PaintNow(const gfx::Rect& update_rect) {
-    if (!painting_) {
-      painting_ = true;
-      WidgetGtk::PaintNow(update_rect);
-      painting_ = false;
-    }
-  }
-
  private:
-  // True if the painting is in progress.
-  bool painting_;
-
   DISALLOW_COPY_AND_ASSIGN(PanelWidget);
 };
 
@@ -139,8 +127,7 @@ class ViewportWidget : public views::WidgetGtk {
     // Leave notify can happen if the mouse moves into the child gdk window.
     // Make sure the mouse is outside of the panel.
     gfx::Point p(event->x_root, event->y_root);
-    gfx::Rect bounds;
-    GetBounds(&bounds, true);
+    gfx::Rect bounds = GetWindowScreenBounds();
     if (!bounds.Contains(p)) {
       panel_->OnMouseLeave();
       last_point_.reset();
@@ -711,8 +698,7 @@ void NotificationPanel::UpdatePanel(bool update_container_size) {
   switch (state_) {
     case KEEP_SIZE: {
       gfx::Rect min_bounds = GetPreferredBounds();
-      gfx::Rect panel_bounds;
-      panel_widget_->GetBounds(&panel_bounds, true);
+      gfx::Rect panel_bounds = panel_widget_->GetWindowScreenBounds();
       if (min_bounds.height() < panel_bounds.height())
         panel_widget_->SetBounds(min_bounds);
       else if (min_bounds.height() > panel_bounds.height()) {

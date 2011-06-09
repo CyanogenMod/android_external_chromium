@@ -25,11 +25,13 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <stdio.h>
 #include <string>
 #include "talk/p2p/base/sessionmessages.h"
 
 #include "talk/base/logging.h"
 #include "talk/base/scoped_ptr.h"
+#include "talk/base/stringutils.h"
 #include "talk/xmllite/xmlconstants.h"
 #include "talk/xmpp/constants.h"
 #include "talk/p2p/base/constants.h"
@@ -38,6 +40,7 @@
 #include "talk/p2p/base/sessionclient.h"
 #include "talk/p2p/base/sessiondescription.h"
 #include "talk/p2p/base/transport.h"
+#include "talk/xmllite/xmlconstants.h"
 
 namespace cricket {
 
@@ -70,6 +73,10 @@ ActionType ToActionType(const std::string& type) {
     return ACTION_TRANSPORT_INFO;
   if (type == JINGLE_ACTION_TRANSPORT_ACCEPT)
     return ACTION_TRANSPORT_ACCEPT;
+  if (type == GINGLE_ACTION_NOTIFY)
+    return ACTION_NOTIFY;
+  if (type == GINGLE_ACTION_UPDATE)
+    return ACTION_UPDATE;
 
   return ACTION_UNKNOWN;
 }
@@ -108,6 +115,8 @@ std::string ToGingleString(ActionType type) {
       return GINGLE_ACTION_REJECT;
     case ACTION_SESSION_TERMINATE:
       return GINGLE_ACTION_TERMINATE;
+    case ACTION_VIEW:
+      return GINGLE_ACTION_VIEW;
     case ACTION_TRANSPORT_INFO:
       return GINGLE_ACTION_CANDIDATES;
     default:
@@ -122,7 +131,12 @@ bool IsJingleMessage(const buzz::XmlElement* stanza) {
     return false;
 
   return (jingle->HasAttr(buzz::QN_ACTION) &&
-          jingle->HasAttr(buzz::QN_ID));
+          (jingle->HasAttr(QN_SID)
+           // TODO: This works around a bug in old jingle
+           // clients that set QN_ID instead of QN_SID.  Once we know
+           // there are no clients which have this bug, we can remove
+           // this code.
+           || jingle->HasAttr(QN_ID)));
 }
 
 bool IsGingleMessage(const buzz::XmlElement* stanza) {
@@ -164,7 +178,13 @@ bool ParseJingleSessionMessage(const buzz::XmlElement* jingle,
   msg->protocol = PROTOCOL_JINGLE;
   std::string type_string = jingle->Attr(buzz::QN_ACTION);
   msg->type = ToActionType(type_string);
-  msg->sid = jingle->Attr(buzz::QN_ID);
+  msg->sid = jingle->Attr(QN_SID);
+  // TODO: This works around a bug in old jingle clients
+  // that set QN_ID instead of QN_SID.  Once we know there are no
+  // clients which have this bug, we can remove this code.
+  if (msg->sid.empty()) {
+    msg->sid = jingle->Attr(buzz::QN_ID);
+  }
   msg->initiator = GetXmlAttr(jingle, QN_INITIATOR, buzz::STR_EMPTY);
   msg->action_elem = jingle;
 
@@ -217,7 +237,11 @@ buzz::XmlElement* WriteJingleAction(const SessionMessage& msg,
                                     const XmlElements& action_elems) {
   buzz::XmlElement* jingle = new buzz::XmlElement(QN_JINGLE, true);
   jingle->AddAttr(buzz::QN_ACTION, ToJingleString(msg.type));
-  jingle->AddAttr(buzz::QN_ID, msg.sid);
+  jingle->AddAttr(QN_SID, msg.sid);
+  // TODO: This works around a bug in old jingle clinets
+  // that expected QN_ID instead of QN_SID.  Once we know there are no
+  // clients which have this bug, we can remove this code.
+  jingle->AddAttr(QN_ID, msg.sid);
   // TODO: Right now, the XMPP server rejects a jingle-only
   // (non hybrid) message with "feature-not-implemented" if there is
   // no initiator.  Fix the server, and then only set the initiator on
@@ -820,6 +844,40 @@ bool WriteTransportInfos(SignalingProtocol protocol,
   }
 }
 
+bool ParseSessionNotify(const buzz::XmlElement* action_elem,
+                        SessionNotify* notify, ParseError* error) {
+  const buzz::XmlElement* notify_elem;
+  for (notify_elem = action_elem->FirstNamed(QN_GINGLE_NOTIFY);
+      notify_elem != NULL;
+      notify_elem = notify_elem->NextNamed(QN_GINGLE_NOTIFY)) {
+    // Note that a subsequent notify element for the same user will override a
+    // previous.  We don't merge them.
+    std::string nick(notify_elem->Attr(QN_GINGLE_NOTIFY_NICK));
+    if (nick != buzz::STR_EMPTY) {
+      MediaSources sources;
+      const buzz::XmlElement* source_elem;
+      for (source_elem = notify_elem->FirstNamed(QN_GINGLE_NOTIFY_SOURCE);
+          source_elem != NULL;
+          source_elem = source_elem->NextNamed(QN_GINGLE_NOTIFY_SOURCE)) {
+        std::string ssrc = source_elem->Attr(QN_GINGLE_NOTIFY_SOURCE_SSRC);
+        if (ssrc != buzz::STR_EMPTY) {
+          std::string mtype = source_elem->Attr(QN_GINGLE_NOTIFY_SOURCE_MTYPE);
+          if (mtype == GINGLE_NOTIFY_SOURCE_MTYPE_AUDIO) {
+            sources.audio_ssrc = strtoul(ssrc.c_str(), NULL, 10);
+          } else if (mtype == GINGLE_NOTIFY_SOURCE_MTYPE_VIDEO) {
+            sources.video_ssrc = strtoul(ssrc.c_str(), NULL, 10);
+          }
+        }
+      }
+
+      notify->nickname_to_sources.insert(
+          std::pair<std::string, MediaSources>(nick, sources));
+    }
+  }
+
+  return true;
+}
+
 bool GetUriTarget(const std::string& prefix, const std::string& str,
                   std::string* after) {
   size_t pos = str.find(prefix);
@@ -828,6 +886,65 @@ bool GetUriTarget(const std::string& prefix, const std::string& str,
 
   *after = str.substr(pos + prefix.size(), std::string::npos);
   return true;
+}
+
+bool ParseSessionUpdate(const buzz::XmlElement* action_elem,
+                        SessionUpdate* update, ParseError* error) {
+  // TODO: Parse the update message.
+  return true;
+}
+
+void WriteSessionView(const SessionView& view, XmlElements* elems) {
+  std::vector<VideoViewRequest>::const_iterator it;
+  for (it = view.view_requests.begin(); it != view.view_requests.end(); it++) {
+    talk_base::scoped_ptr<buzz::XmlElement> view_elem(
+        new buzz::XmlElement(QN_GINGLE_VIEW));
+    if (view_elem.get() == NULL) {
+      return;
+    }
+
+    view_elem->SetAttr(QN_GINGLE_VIEW_TYPE, GINGLE_VIEW_TYPE_STATIC);
+    view_elem->SetAttr(QN_GINGLE_VIEW_NICK, it->nick_name);
+    view_elem->SetAttr(QN_GINGLE_VIEW_MEDIA_TYPE,
+        GINGLE_VIEW_MEDIA_TYPE_VIDEO);
+
+    // A 32-bit uint, expressed as decimal, has a max of 10 digits, plus one
+    // for the null.
+    char str[11];
+    int result = talk_base::sprintfn(str, ARRAY_SIZE(str), "%u", it->ssrc);
+    if (result < 0 || result >= ARRAY_SIZE(str)) {
+      continue;
+    }
+    view_elem->SetAttr(QN_GINGLE_VIEW_SSRC, str);
+
+    // Include video-specific parameters in a child <params> element.
+    talk_base::scoped_ptr<buzz::XmlElement> params_elem(
+        new buzz::XmlElement(QN_GINGLE_VIEW_PARAMS));
+    if (params_elem.get() == NULL) {
+      return;
+    }
+
+    result = talk_base::sprintfn(str, ARRAY_SIZE(str), "%u", it->width);
+    if (result < 0 || result >= ARRAY_SIZE(str)) {
+      continue;
+    }
+    params_elem->SetAttr(QN_GINGLE_VIEW_PARAMS_WIDTH, str);
+
+    result = talk_base::sprintfn(str, ARRAY_SIZE(str), "%u", it->height);
+    if (result < 0 || result >= ARRAY_SIZE(str)) {
+      continue;
+    }
+    params_elem->SetAttr(QN_GINGLE_VIEW_PARAMS_HEIGHT, str);
+
+    result = talk_base::sprintfn(str, ARRAY_SIZE(str), "%u", it->framerate);
+    if (result < 0 || result >= ARRAY_SIZE(str)) {
+      continue;
+    }
+    params_elem->SetAttr(QN_GINGLE_VIEW_PARAMS_FRAMERATE, str);
+
+    view_elem->AddElement(params_elem.release());
+    elems->push_back(view_elem.release());
+  }
 }
 
 bool FindSessionRedirect(const buzz::XmlElement* stanza,

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/upgrade_detector.h"
 #include "chrome/common/child_process_host.h"
@@ -19,81 +18,9 @@
 #include "chrome/common/notification_service.h"
 #include "chrome/common/service_messages.h"
 #include "chrome/common/service_process_util.h"
+#include "content/browser/browser_thread.h"
 #include "ui/base/ui_base_switches.h"
 
-// ServiceProcessControl::Launcher implementation.
-// This class is responsible for launching the service process on the
-// PROCESS_LAUNCHER thread.
-class ServiceProcessControl::Launcher
-    : public base::RefCountedThreadSafe<ServiceProcessControl::Launcher> {
- public:
-  Launcher(ServiceProcessControl* process, CommandLine* cmd_line)
-      : process_(process),
-        cmd_line_(cmd_line),
-        launched_(false),
-        retry_count_(0) {
-  }
-
-  // Execute the command line to start the process asynchronously.
-  // After the comamnd is executed |task| is called with the process handle on
-  // the UI thread.
-  void Run(Task* task) {
-    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-
-    notify_task_.reset(task);
-    BrowserThread::PostTask(BrowserThread::PROCESS_LAUNCHER, FROM_HERE,
-                           NewRunnableMethod(this, &Launcher::DoRun));
-  }
-
-  bool launched() const { return launched_; }
-
- private:
-  void DoRun() {
-    DCHECK(notify_task_.get());
-    base::LaunchApp(*cmd_line_.get(), false, true, NULL);
-    BrowserThread::PostTask(
-        BrowserThread::IO, FROM_HERE,
-        NewRunnableMethod(this, &Launcher::DoDetectLaunched));
-  }
-
-  void DoDetectLaunched() {
-    DCHECK(notify_task_.get());
-    const uint32 kMaxLaunchDetectRetries = 10;
-
-    {
-      // We should not be doing blocking disk IO from this thread!
-      // Temporarily allowed until we fix
-      //   http://code.google.com/p/chromium/issues/detail?id=60207
-      base::ThreadRestrictions::ScopedAllowIO allow_io;
-      launched_ = CheckServiceProcessReady();
-    }
-
-    if (launched_ || (retry_count_ >= kMaxLaunchDetectRetries)) {
-      BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-          NewRunnableMethod(this, &Launcher::Notify));
-      return;
-    }
-    retry_count_++;
-    // If the service process is not launched yet then check again in 2 seconds.
-    const int kDetectLaunchRetry = 2000;
-    MessageLoop::current()->PostDelayedTask(
-        FROM_HERE,
-        NewRunnableMethod(this, &Launcher::DoDetectLaunched),
-        kDetectLaunchRetry);
-  }
-
-  void Notify() {
-    DCHECK(notify_task_.get());
-    notify_task_->Run();
-    notify_task_.reset();
-  }
-
-  ServiceProcessControl* process_;
-  scoped_ptr<CommandLine> cmd_line_;
-  scoped_ptr<Task> notify_task_;
-  bool launched_;
-  uint32 retry_count_;
-};
 
 // ServiceProcessControl implementation.
 ServiceProcessControl::ServiceProcessControl(Profile* profile)
@@ -120,7 +47,7 @@ void ServiceProcessControl::ConnectInternal() {
   base::Thread* io_thread = g_browser_process->io_thread();
 
   // TODO(hclam): Handle error connecting to channel.
-  const std::string channel_id = GetServiceProcessChannelName();
+  const IPC::ChannelHandle channel_id = GetServiceProcessChannel();
   channel_.reset(
       new IPC::SyncChannel(channel_id, IPC::Channel::MODE_NAMED_CLIENT, this,
                            io_thread->message_loop(), true,
@@ -128,17 +55,31 @@ void ServiceProcessControl::ConnectInternal() {
 }
 
 void ServiceProcessControl::RunConnectDoneTasks() {
-  RunAllTasksHelper(&connect_done_tasks_);
-  DCHECK(connect_done_tasks_.empty());
+  // The tasks executed here may add more tasks to the vector. So copy
+  // them to the stack before executing them. This way recursion is
+  // avoided.
+  TaskList tasks;
+  tasks.swap(connect_done_tasks_);
+  RunAllTasksHelper(&tasks);
+  DCHECK(tasks.empty());
+
   if (is_connected()) {
-    RunAllTasksHelper(&connect_success_tasks_);
-    DCHECK(connect_success_tasks_.empty());
+    tasks.swap(connect_success_tasks_);
+    RunAllTasksHelper(&tasks);
+    DCHECK(tasks.empty());
+
     STLDeleteElements(&connect_failure_tasks_);
   } else {
-    RunAllTasksHelper(&connect_failure_tasks_);
-    DCHECK(connect_failure_tasks_.empty());
+    tasks.swap(connect_failure_tasks_);
+    RunAllTasksHelper(&tasks);
+    DCHECK(tasks.empty());
+
     STLDeleteElements(&connect_success_tasks_);
   }
+
+  DCHECK(connect_done_tasks_.empty());
+  DCHECK(connect_success_tasks_.empty());
+  DCHECK(connect_failure_tasks_.empty());
 }
 
 // static
@@ -201,8 +142,17 @@ void ServiceProcessControl::Launch(Task* success_task, Task* failure_task) {
   if (!logging_level.empty())
     cmd_line->AppendSwitchASCII(switches::kLoggingLevel, logging_level);
 
+  std::string v_level = browser_command_line.GetSwitchValueASCII(
+      switches::kV);
+  if (!v_level.empty())
+    cmd_line->AppendSwitchASCII(switches::kV, v_level);
+
   if (browser_command_line.HasSwitch(switches::kWaitForDebuggerChildren)) {
     cmd_line->AppendSwitch(switches::kWaitForDebugger);
+  }
+
+  if (browser_command_line.HasSwitch(switches::kEnableLogging)) {
+    cmd_line->AppendSwitch(switches::kEnableLogging);
   }
 
   std::string locale = g_browser_process->GetApplicationLocale();
@@ -327,7 +277,18 @@ bool ServiceProcessControl::DisableRemotingHost() {
 }
 
 bool ServiceProcessControl::RequestRemotingHostStatus() {
-  return Send(new ServiceMsg_GetRemotingHostInfo);
+  if (CheckServiceProcessReady()) {
+    remoting::ChromotingHostInfo failure_host_info;
+    failure_host_info.enabled = false;
+
+    Launch(NewRunnableMethod(this, &ServiceProcessControl::Send,
+                             new ServiceMsg_GetRemotingHostInfo),
+           NewRunnableMethod(this,
+                             &ServiceProcessControl::OnRemotingHostInfo,
+                             failure_host_info));
+    return true;
+  }
+  return false;
 }
 
 void ServiceProcessControl::AddMessageHandler(
@@ -341,3 +302,62 @@ void ServiceProcessControl::RemoveMessageHandler(
 }
 
 DISABLE_RUNNABLE_METHOD_REFCOUNT(ServiceProcessControl);
+
+ServiceProcessControl::Launcher::Launcher(ServiceProcessControl* process,
+                                          CommandLine* cmd_line)
+    : process_(process),
+      cmd_line_(cmd_line),
+      launched_(false),
+      retry_count_(0) {
+}
+
+// Execute the command line to start the process asynchronously.
+// After the command is executed, |task| is called with the process handle on
+// the UI thread.
+void ServiceProcessControl::Launcher::Run(Task* task) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  notify_task_.reset(task);
+  BrowserThread::PostTask(BrowserThread::PROCESS_LAUNCHER, FROM_HERE,
+                         NewRunnableMethod(this, &Launcher::DoRun));
+}
+
+ServiceProcessControl::Launcher::~Launcher() {}
+
+void ServiceProcessControl::Launcher::Notify() {
+  DCHECK(notify_task_.get());
+  notify_task_->Run();
+  notify_task_.reset();
+}
+
+#if !defined(OS_MACOSX)
+void ServiceProcessControl::Launcher::DoDetectLaunched() {
+  DCHECK(notify_task_.get());
+  const uint32 kMaxLaunchDetectRetries = 10;
+  launched_ = CheckServiceProcessReady();
+  if (launched_ || (retry_count_ >= kMaxLaunchDetectRetries)) {
+    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+        NewRunnableMethod(this, &Launcher::Notify));
+    return;
+  }
+  retry_count_++;
+
+  // If the service process is not launched yet then check again in 2 seconds.
+  const int kDetectLaunchRetry = 2000;
+  MessageLoop::current()->PostDelayedTask(
+      FROM_HERE,
+      NewRunnableMethod(this, &Launcher::DoDetectLaunched),
+      kDetectLaunchRetry);
+}
+
+void ServiceProcessControl::Launcher::DoRun() {
+  DCHECK(notify_task_.get());
+  if (base::LaunchApp(*cmd_line_, false, true, NULL)) {
+    BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
+                            NewRunnableMethod(this,
+                                              &Launcher::DoDetectLaunched));
+  } else {
+    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+                            NewRunnableMethod(this, &Launcher::Notify));
+  }
+}
+#endif  // !OS_MACOSX

@@ -11,6 +11,10 @@
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/cros_settings_names.h"
+#endif
+
 namespace policy {
 
 ManagedPrefsBannerBase::ManagedPrefsBannerBase(PrefService* user_prefs,
@@ -89,7 +93,17 @@ void ManagedPrefsBannerBase::Init(PrefService* local_state,
 #endif
       AddUserPref(prefs::kProxy);
       AddUserPref(prefs::kCloudPrintProxyEnabled);
+      AddUserPref(prefs::kDownloadDefaultDirectory);
       break;
+#if defined(OS_CHROMEOS)
+    case OPTIONS_PAGE_ACCOUNTS:
+      AddLocalStatePref(chromeos::kAccountsPrefAllowGuest);
+      AddLocalStatePref(chromeos::kAccountsPrefAllowNewUser);
+      AddLocalStatePref(chromeos::kAccountsPrefShowUserNamesOnSignIn);
+      AddLocalStatePref(chromeos::kAccountsPrefUsers);
+      AddLocalStatePref(chromeos::kSystemTimezone);
+      break;
+#endif
     default:
       NOTREACHED();
   }

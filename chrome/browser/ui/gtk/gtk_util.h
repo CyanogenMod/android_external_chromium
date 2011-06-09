@@ -203,8 +203,10 @@ bool WidgetContainsCursor(GtkWidget* widget);
 // border or alt-tab list).
 void SetWindowIcon(GtkWindow* window);
 
-// Sets the default window icon for windows created in this app.
-void SetDefaultWindowIcon();
+// Sets the default window icon for all windows created in this app. |window|
+// is used to determine if a themed icon exists. If so, we use that icon,
+// otherwise we use the icon packaged with Chrome.
+void SetDefaultWindowIcon(GtkWindow* window);
 
 // Adds an action button with the given text to the dialog. Only useful when you
 // want a stock icon but not the stock text to go with it. Returns the button.
@@ -321,8 +323,8 @@ void ShowDialogWithLocalizedSize(GtkWidget* dialog,
                                  int width_id,
                                  int height_id,
                                  bool resizeable);
-void ShowModalDialogWithMinLocalizedWidth(GtkWidget* dialog,
-                                          int width_id);
+void ShowDialogWithMinLocalizedWidth(GtkWidget* dialog,
+                                     int width_id);
 
 // Wrapper to present a window. On Linux, it just calls gtk_window_present or
 // gtk_window_present_with_time for non-zero timestamp. For ChromeOS, it first

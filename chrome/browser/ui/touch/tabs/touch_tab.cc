@@ -44,9 +44,19 @@ gfx::Size TouchTab::GetMinimumUnselectedSize() {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// TouchTab, protected:
+const gfx::Rect& TouchTab::GetTitleBounds() const {
+  return title_bounds_;
+}
+
+const gfx::Rect& TouchTab::GetIconBounds() const {
+  return favicon_bounds_;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // TouchTab, views::View overrides:
 
-void TouchTab::Paint(gfx::Canvas* canvas) {
+void TouchTab::OnPaint(gfx::Canvas* canvas) {
   // Don't paint if we're narrower than we can render correctly. (This should
   // only happen during animations).
   if (width() < GetMinimumUnselectedSize().width() && !data().mini)

@@ -34,6 +34,18 @@ IPC_STRUCT_BEGIN(IndexedDBHostMsg_FactoryOpen_Params)
   IPC_STRUCT_MEMBER(uint64, maximum_size)
 IPC_STRUCT_END()
 
+// Used to delete an indexed database.
+IPC_STRUCT_BEGIN(IndexedDBHostMsg_FactoryDeleteDatabase_Params)
+  // The routing ID of the view initiating the deletion.
+  IPC_STRUCT_MEMBER(int32, routing_id)
+  // The response should have this id.
+  IPC_STRUCT_MEMBER(int32, response_id)
+  // The origin doing the initiating.
+  IPC_STRUCT_MEMBER(string16, origin)
+  // The name of the database.
+  IPC_STRUCT_MEMBER(string16, name)
+IPC_STRUCT_END()
+
 // Used to create an object store.
 IPC_STRUCT_BEGIN(IndexedDBHostMsg_DatabaseCreateObjectStore_Params)
   // The name of the object store.
@@ -157,6 +169,9 @@ IPC_MESSAGE_CONTROL1(IndexedDBMsg_TransactionCallbacksComplete,
 IPC_MESSAGE_CONTROL1(IndexedDBMsg_TransactionCallbacksTimeout,
                      int32 /* transaction_id */)
 
+IPC_MESSAGE_CONTROL2(IndexedDBMsg_DatabaseCallbacksVersionChange,
+                     int32, /* database_id */
+                     string16) /* new_version */
 
 // Indexed DB messages sent from the renderer to the browser.
 
@@ -169,6 +184,11 @@ IPC_SYNC_MESSAGE_CONTROL1_1(IndexedDBHostMsg_CursorDirection,
 IPC_SYNC_MESSAGE_CONTROL1_1(IndexedDBHostMsg_CursorKey,
                             int32, /* idb_cursor_id */
                             IndexedDBKey /* key */)
+
+// WebIDBCursor::primaryKey() message.
+IPC_SYNC_MESSAGE_CONTROL1_1(IndexedDBHostMsg_CursorPrimaryKey,
+                            int32, /* idb_cursor_id */
+                            IndexedDBKey /* primary_key */)
 
 // WebIDBCursor::value() message.
 IPC_SYNC_MESSAGE_CONTROL1_2(IndexedDBHostMsg_CursorValue,
@@ -199,6 +219,10 @@ IPC_SYNC_MESSAGE_CONTROL2_1(IndexedDBHostMsg_CursorDelete,
 // WebIDBFactory::open() message.
 IPC_MESSAGE_CONTROL1(IndexedDBHostMsg_FactoryOpen,
                      IndexedDBHostMsg_FactoryOpen_Params)
+
+// WebIDBFactory::deleteDatabase() message.
+IPC_MESSAGE_CONTROL1(IndexedDBHostMsg_FactoryDeleteDatabase,
+                     IndexedDBHostMsg_FactoryDeleteDatabase_Params)
 
 // WebIDBDatabase::name() message.
 IPC_SYNC_MESSAGE_CONTROL1_1(IndexedDBHostMsg_DatabaseName,
@@ -248,9 +272,10 @@ IPC_SYNC_MESSAGE_CONTROL4_2(IndexedDBHostMsg_DatabaseTransaction,
                             int32, /* idb_transaction_id */
                             WebKit::WebExceptionCode /* ec */)
 
-// WebIDBDatabase::close() message.
-IPC_MESSAGE_CONTROL1(IndexedDBHostMsg_DatabaseOpen,
-                     int32 /* idb_database_id */)
+// WebIDBDatabase::open() message.
+IPC_MESSAGE_CONTROL2(IndexedDBHostMsg_DatabaseOpen,
+                     int32, /* idb_database_id */
+                     int32 /* response_id */)
 
 // WebIDBDatabase::close() message.
 IPC_MESSAGE_CONTROL1(IndexedDBHostMsg_DatabaseClose,
@@ -409,4 +434,3 @@ IPC_MESSAGE_CONTROL1(IndexedDBHostMsg_TransactionDidCompleteTaskEvents,
 // WebIDBTransaction::~WebIDBTransaction() message.
 IPC_MESSAGE_CONTROL1(IndexedDBHostMsg_TransactionDestroyed,
                      int32 /* idb_transaction_id */)
-

@@ -7,31 +7,22 @@
 #include <list>
 
 #include "base/message_loop.h"
-#include "base/singleton.h"
 #include "base/metrics/histogram.h"
+#include "base/singleton.h"
 #include "base/string_util.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/browser_window.h"
-#include "chrome/browser/browsing_instance.h"
 #include "chrome/browser/debugger/devtools_manager.h"
 #include "chrome/browser/desktop_notification_handler.h"
-#include "chrome/browser/dom_ui/web_ui_factory.h"
 #include "chrome/browser/extensions/extension_message_service.h"
-#include "chrome/browser/extensions/extension_tabs_module.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_tabs_module.h"
 #include "chrome/browser/file_select_helper.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_widget_host.h"
-#include "chrome/browser/renderer_host/render_widget_host_view.h"
-#include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/renderer_preferences_util.h"
 #include "chrome/browser/tab_contents/popup_menu_helper_mac.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/ui/app_modal_dialogs/message_box_handler.h"
 #include "chrome/browser/ui/browser.h"
@@ -44,6 +35,15 @@
 #include "chrome/common/render_messages_params.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/view_types.h"
+#include "content/browser/browsing_instance.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_widget_host.h"
+#include "content/browser/renderer_host/render_widget_host_view.h"
+#include "content/browser/site_instance.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_view.h"
+#include "content/browser/webui/web_ui_factory.h"
 #include "grit/browser_resources.h"
 #include "grit/generated_resources.h"
 #include "ui/base/keycodes/keyboard_codes.h"
@@ -497,7 +497,7 @@ WebPreferences ExtensionHost::GetWebkitPrefs() {
   Profile* profile = render_view_host()->process()->profile();
   WebPreferences webkit_prefs =
       RenderViewHostDelegateHelper::GetWebkitPrefs(profile,
-                                                   false);  // is_dom_ui
+                                                   false);  // is_web_ui
   // Extensions are trusted so we override any user preferences for disabling
   // javascript or images.
   webkit_prefs.loads_images_automatically = true;
@@ -686,7 +686,7 @@ void ExtensionHost::UpdateDragCursor(WebDragOperation operation) {
 }
 
 void ExtensionHost::GotFocus() {
-#if defined(TOOLKIT_VIEWS)
+#if defined(TOOLKIT_VIEWS) && !defined(TOUCH_UI)
   // Request focus so that the FocusManager has a focused view and can perform
   // normally its key event processing (so that it lets tab key events go to the
   // renderer).

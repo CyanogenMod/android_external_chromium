@@ -10,10 +10,10 @@
 #include "base/path_service.h"
 #include "base/scoped_temp_dir.h"
 #include "base/values.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/json_value_serializer.h"
+#include "content/browser/browser_thread.h"
 #include "grit/theme_resources.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/color_utils.h"
@@ -406,7 +406,8 @@ TEST_F(BrowserThemePackTest, CanBuildAndReadPack) {
     EXPECT_EQ("", error);
     ASSERT_TRUE(valid_value.get());
     scoped_refptr<Extension> extension(Extension::Create(
-        star_gazing_path, Extension::INVALID, *valid_value, true, &error));
+        star_gazing_path, Extension::INVALID, *valid_value, true, true,
+        &error));
     ASSERT_TRUE(extension.get());
     ASSERT_EQ("", error);
 

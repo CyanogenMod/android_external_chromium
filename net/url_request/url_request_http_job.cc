@@ -10,18 +10,20 @@
 #include "base/file_util.h"
 #include "base/file_version_info.h"
 #include "base/message_loop.h"
+#include "base/metrics/histogram.h"
 #include "base/rand_util.h"
 #include "base/string_util.h"
 #include "net/base/cert_status_flags.h"
 #include "net/base/cookie_policy.h"
 #include "net/base/cookie_store.h"
 #include "net/base/filter.h"
-#include "net/base/transport_security_state.h"
+#include "net/base/host_port_pair.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
 #include "net/base/sdch_manager.h"
 #include "net/base/ssl_cert_request_info.h"
+#include "net/base/transport_security_state.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_response_info.h"
@@ -140,7 +142,9 @@ URLRequestHttpJob::URLRequestHttpJob(URLRequest* request)
       sdch_test_activated_(false),
       sdch_test_control_(false),
       is_cached_content_(false),
+      request_creation_time_(),
       ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
+  ResetTimer();
 }
 
 void URLRequestHttpJob::NotifyHeadersComplete() {
@@ -543,6 +547,8 @@ void URLRequestHttpJob::OnCanSetCookieCompleted(int policy) {
 }
 
 void URLRequestHttpJob::OnStartCompleted(int result) {
+  RecordTimer();
+
   // If the request was destroyed, then there is no more work to do.
   if (!request_ || !request_->delegate())
     return;
@@ -613,6 +619,8 @@ void URLRequestHttpJob::RestartTransactionWithAuth(
   // These will be reset in OnStartCompleted.
   response_info_ = NULL;
   response_cookies_.clear();
+
+  ResetTimer();
 
   // Update the cookies, since the cookie store may have been updated from the
   // headers in the 401/407. Since cookies were already appended to
@@ -840,6 +848,8 @@ void URLRequestHttpJob::CancelAuth() {
   response_info_ = NULL;
   response_cookies_.clear();
 
+  ResetTimer();
+
   // OK, let the consumer read the error page...
   //
   // Because we set the AUTH_STATE_CANCELED flag, NeedsAuth will return false,
@@ -859,6 +869,8 @@ void URLRequestHttpJob::ContinueWithCertificate(
   DCHECK(transaction_.get());
 
   DCHECK(!response_info_) << "should not have a response yet";
+
+  ResetTimer();
 
   // No matter what, we want to report our status as IO pending since we will
   // be notifying our consumer asynchronously via OnStartCompleted.
@@ -882,6 +894,8 @@ void URLRequestHttpJob::ContinueDespiteLastError() {
     return;
 
   DCHECK(!response_info_) << "should not have a response yet";
+
+  ResetTimer();
 
   // No matter what, we want to report our status as IO pending since we will
   // be notifying our consumer asynchronously via OnStartCompleted.
@@ -926,6 +940,10 @@ void URLRequestHttpJob::StopCaching() {
     transaction_->StopCaching();
 }
 
+HostPortPair URLRequestHttpJob::GetSocketAddress() const {
+  return response_info_ ? response_info_->socket_address : HostPortPair();
+}
+
 URLRequestHttpJob::~URLRequestHttpJob() {
   DCHECK(!sdch_test_control_ || !sdch_test_activated_);
   if (!IsCachedContent()) {
@@ -952,6 +970,27 @@ URLRequestHttpJob::~URLRequestHttpJob() {
     if (manager)  // Defensive programming.
       manager->FetchDictionary(request_info_.url, sdch_dictionary_url_);
   }
+}
+
+void URLRequestHttpJob::RecordTimer() {
+  if (request_creation_time_.is_null()) {
+    NOTREACHED()
+        << "The same transaction shouldn't start twice without new timing.";
+    return;
+  }
+
+  base::TimeDelta to_start = base::Time::Now() - request_creation_time_;
+  request_creation_time_ = base::Time();
+  UMA_HISTOGRAM_MEDIUM_TIMES("Net.HttpTimeToFirstByte", to_start);
+}
+
+void URLRequestHttpJob::ResetTimer() {
+  if (!request_creation_time_.is_null()) {
+    NOTREACHED()
+        << "The timer was reset before it was recorded.";
+    return;
+  }
+  request_creation_time_ = base::Time::Now();
 }
 
 }  // namespace net

@@ -334,6 +334,7 @@
             '../chrome/chrome.gyp:sync_unit_tests',
             '../chrome/chrome.gyp:unit_tests',
             '../chrome/chrome.gyp:ui_tests',
+            '../ui/gfx/gfx.gyp:gfx_unittests',
             '../jingle/jingle.gyp:notifier_unit_tests',
             '../third_party/cacheinvalidation/cacheinvalidation.gyp:cacheinvalidation_unittests',
           ],
@@ -425,6 +426,7 @@
               'type': 'none',
               'dependencies': [
                 '../chrome/app/locales/locales.gyp:*',
+                '../chrome/chrome.gyp:chromedriver',
                 '../chrome/chrome.gyp:crash_service',
                 '../chrome/chrome.gyp:page_cycler_tests',
                 '../chrome/chrome.gyp:policy_templates',
@@ -436,6 +438,7 @@
                 '../chrome_frame/chrome_frame.gyp:chrome_frame_unittests',
                 '../chrome_frame/chrome_frame.gyp:npchrome_frame',
                 '../courgette/courgette.gyp:courgette',
+                '../courgette/courgette.gyp:courgette64',
                 '../third_party/adobe/flash/flash_player.gyp:flash_player',
                 '../webkit/webkit.gyp:test_shell',
               ],

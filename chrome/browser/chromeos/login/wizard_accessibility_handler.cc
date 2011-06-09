@@ -16,8 +16,8 @@
 #include "chrome/browser/extensions/extension_accessibility_api.h"
 #include "chrome/browser/extensions/extension_accessibility_api_constants.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_source.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_source.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -430,13 +430,13 @@ void WizardAccessibilityHandler::DescribeTextContentsChanged(
       new_indices[prefix_char_len],
       new_indices[new_suffix_char_start] - new_indices[prefix_char_len]);
 
-  if (inserted.size() > 0 && deleted.size() > 0) {
+  if (!inserted.empty() && !deleted.empty()) {
     // Replace one substring with another, speak inserted text.
     AppendUtterance(inserted, out_spoken_description);
-  } else if (inserted.size() > 0) {
+  } else if (!inserted.empty()) {
     // Speak inserted text.
     AppendUtterance(inserted, out_spoken_description);
-  } else if (deleted.size() > 0) {
+  } else if (!deleted.empty()) {
     // Speak deleted text.
     AppendUtterance(deleted, out_spoken_description);
   }

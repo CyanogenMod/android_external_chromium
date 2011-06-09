@@ -50,6 +50,7 @@ class HttpPortAllocator : public BasicPortAllocator {
   static const std::string kCreateSessionURL;
 
   HttpPortAllocator(talk_base::NetworkManager* network_manager,
+                    talk_base::PacketSocketFactory* socket_factory,
                     const std::string& user_agent);
   virtual ~HttpPortAllocator();
 

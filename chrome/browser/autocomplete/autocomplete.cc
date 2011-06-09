@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,18 +12,20 @@
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/autocomplete/autocomplete_controller_delegate.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
+#include "chrome/browser/autocomplete/builtin_provider.h"
+#include "chrome/browser/autocomplete/history_contents_provider.h"
 #include "chrome/browser/autocomplete/history_quick_provider.h"
 #include "chrome/browser/autocomplete/history_url_provider.h"
-#include "chrome/browser/autocomplete/history_contents_provider.h"
 #include "chrome/browser/autocomplete/keyword_provider.h"
 #include "chrome/browser/autocomplete/search_provider.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
-#include "chrome/browser/dom_ui/history_ui.h"
 #include "chrome/browser/external_protocol_handler.h"
 #include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/webui/history_ui.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
@@ -580,9 +582,10 @@ void AutocompleteResult::CopyFrom(const AutocompleteResult& rhs) {
   alternate_nav_url_ = rhs.alternate_nav_url_;
 }
 
-void AutocompleteResult::CopyOldMatches(const AutocompleteResult& old_matches) {
-  if (size() >= old_matches.size())
-    return;  // We've got enough matches.
+void AutocompleteResult::CopyOldMatches(const AutocompleteInput& input,
+                                        const AutocompleteResult& old_matches) {
+  if (old_matches.empty())
+    return;
 
   if (empty()) {
     // If we've got no matches we can copy everything from the last result.
@@ -596,15 +599,26 @@ void AutocompleteResult::CopyOldMatches(const AutocompleteResult& old_matches) {
   // per provider consistent. Other schemes (such as blindly copying the most
   // relevant matches) typically result in many successive 'What You Typed'
   // results filling all the matches, which looks awful.
-  ProviderToMatchPtrs matches_per_provider, old_matches_per_provider;
-  BuildProviderToMatchPtrs(&matches_per_provider);
-  old_matches.BuildProviderToMatchPtrs(&old_matches_per_provider);
-  size_t delta = old_matches.size() - size();
-  for (ProviderToMatchPtrs::const_iterator i =
-           old_matches_per_provider.begin();
-       i != old_matches_per_provider.end() && delta > 0; ++i) {
-    MergeMatchesByProvider(i->second, matches_per_provider[i->first], &delta);
+  //
+  // Instead of starting with the current matches and then adding old matches
+  // until we hit our overall limit, we copy enough old matches so that each
+  // provider has at least as many as before, and then use SortAndCull() to
+  // clamp globally. This way, old high-relevance matches will starve new
+  // low-relevance matches, under the assumption that the new matches will
+  // ultimately be similar.  If the assumption holds, this prevents seeing the
+  // new low-relevance match appear and then quickly get pushed off the bottom;
+  // if it doesn't, then once the providers are done and we expire the old
+  // matches, the new ones will all become visible, so we won't have lost
+  // anything permanently.
+  ProviderToMatches matches_per_provider, old_matches_per_provider;
+  BuildProviderToMatches(&matches_per_provider);
+  old_matches.BuildProviderToMatches(&old_matches_per_provider);
+  for (ProviderToMatches::const_iterator i = old_matches_per_provider.begin();
+       i != old_matches_per_provider.end(); ++i) {
+    MergeMatchesByProvider(i->second, matches_per_provider[i->first]);
   }
+
+  SortAndCull(input);
 }
 
 void AutocompleteResult::AppendMatches(const ACMatches& matches) {
@@ -660,19 +674,6 @@ bool AutocompleteResult::HasCopiedMatches() const {
   return false;
 }
 
-bool AutocompleteResult::RemoveCopiedMatches() {
-  bool removed = false;
-  for (ACMatches::iterator i = begin(); i != end(); ) {
-    if (i->from_previous) {
-      i = matches_.erase(i);
-      removed = true;
-    } else {
-      ++i;
-    }
-  }
-  return removed;
-}
-
 size_t AutocompleteResult::size() const {
   return matches_.size();
 }
@@ -725,46 +726,43 @@ void AutocompleteResult::Validate() const {
 }
 #endif
 
-void AutocompleteResult::BuildProviderToMatchPtrs(
-    ProviderToMatchPtrs* provider_to_matches) const {
+void AutocompleteResult::BuildProviderToMatches(
+    ProviderToMatches* provider_to_matches) const {
   for (ACMatches::const_iterator i = begin(); i != end(); ++i)
-    (*provider_to_matches)[i->provider].push_back(&(*i));
+    (*provider_to_matches)[i->provider].push_back(*i);
 }
 
 // static
 bool AutocompleteResult::HasMatchByDestination(const AutocompleteMatch& match,
-                                               const ACMatchPtrs& matches) {
-  for (ACMatchPtrs::const_iterator i = matches.begin(); i != matches.end();
-       ++i) {
-    if ((*i)->destination_url == match.destination_url)
+                                               const ACMatches& matches) {
+  for (ACMatches::const_iterator i = matches.begin(); i != matches.end(); ++i) {
+    if (i->destination_url == match.destination_url)
       return true;
   }
   return false;
 }
 
-void AutocompleteResult::MergeMatchesByProvider(const ACMatchPtrs& old_matches,
-                                                const ACMatchPtrs& new_matches,
-                                                size_t* max_to_add) {
+void AutocompleteResult::MergeMatchesByProvider(const ACMatches& old_matches,
+                                                const ACMatches& new_matches) {
   if (new_matches.size() >= old_matches.size())
     return;
 
   size_t delta = old_matches.size() - new_matches.size();
   const int max_relevance = (new_matches.empty() ?
-      matches_.front().relevance : new_matches[0]->relevance) - 1;
+      matches_.front().relevance : new_matches[0].relevance) - 1;
   // Because the goal is a visibly-stable popup, rather than one that preserves
   // the highest-relevance matches, we copy in the lowest-relevance matches
   // first. This means that within each provider's "group" of matches, any
   // synchronous matches (which tend to have the highest scores) will
   // "overwrite" the initial matches from that provider's previous results,
   // minimally disturbing the rest of the matches.
-  for (ACMatchPtrs::const_reverse_iterator i = old_matches.rbegin();
-       i != old_matches.rend() && *max_to_add > 0 && delta > 0; ++i) {
-    if (!HasMatchByDestination(**i, new_matches)) {
-      AutocompleteMatch match = **i;
+  for (ACMatches::const_reverse_iterator i = old_matches.rbegin();
+       i != old_matches.rend() && delta > 0; ++i) {
+    if (!HasMatchByDestination(*i, new_matches)) {
+      AutocompleteMatch match = *i;
       match.relevance = std::min(max_relevance, match.relevance);
       match.from_previous = true;
       AddMatch(match);
-      (*max_to_add)--;
       delta--;
     }
   }
@@ -780,19 +778,25 @@ const int AutocompleteController::kNoItemSelected = -1;
 // they initiate a query.
 static const int kExpireTimeMS = 500;
 
-AutocompleteController::AutocompleteController(Profile* profile)
-    : done_(true),
+AutocompleteController::AutocompleteController(
+    Profile* profile,
+    AutocompleteControllerDelegate* delegate)
+    : delegate_(delegate),
+      done_(true),
       in_start_(false) {
   search_provider_ = new SearchProvider(this, profile);
   providers_.push_back(search_provider_);
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kDisableHistoryQuickProvider))
+  if (CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableHistoryQuickProvider) &&
+      !CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDisableHistoryQuickProvider))
     providers_.push_back(new HistoryQuickProvider(this, profile));
   if (!CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kDisableHistoryURLProvider))
     providers_.push_back(new HistoryURLProvider(this, profile));
   providers_.push_back(new KeywordProvider(this, profile));
   providers_.push_back(new HistoryContentsProvider(this, profile));
+  providers_.push_back(new BuiltinProvider(this, profile));
   for (ACProviders::iterator i(providers_.begin()); i != providers_.end(); ++i)
     (*i)->AddRef();
 }
@@ -889,8 +893,13 @@ void AutocompleteController::DeleteMatch(const AutocompleteMatch& match) {
 }
 
 void AutocompleteController::ExpireCopiedEntries() {
-  if (result_.RemoveCopiedMatches())
-    NotifyChanged(false);
+  // Clear out the results. This ensures no results from the previous result set
+  // are copied over.
+  result_.Reset();
+  // We allow matches from the previous result set to starve out matches from
+  // the new result set. This means in order to expire matches we have to query
+  // the providers again.
+  UpdateResult(false);
 }
 
 void AutocompleteController::OnProviderUpdate(bool updated_matches) {
@@ -921,7 +930,7 @@ void AutocompleteController::UpdateResult(bool is_synchronous_pass) {
   if (!done_) {
     // This conditional needs to match the conditional in Start that invokes
     // StartExpireTimer.
-    result_.CopyOldMatches(last_result);
+    result_.CopyOldMatches(input_, last_result);
   }
 
   bool notify_default_match = is_synchronous_pass;
@@ -944,10 +953,14 @@ void AutocompleteController::UpdateResult(bool is_synchronous_pass) {
 }
 
 void AutocompleteController::NotifyChanged(bool notify_default_match) {
-  NotificationService::current()->Notify(
-      NotificationType::AUTOCOMPLETE_CONTROLLER_RESULT_UPDATED,
-      Source<AutocompleteController>(this),
-      Details<bool>(&notify_default_match));
+  if (delegate_)
+    delegate_->OnResultChanged(notify_default_match);
+  if (done_) {
+    NotificationService::current()->Notify(
+        NotificationType::AUTOCOMPLETE_CONTROLLER_RESULT_READY,
+        Source<AutocompleteController>(this),
+        NotificationService::NoDetails());
+  }
 }
 
 void AutocompleteController::CheckIfDone() {

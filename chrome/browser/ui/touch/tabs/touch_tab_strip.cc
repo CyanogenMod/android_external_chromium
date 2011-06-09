@@ -41,7 +41,7 @@ void TouchTabStrip::SetBackgroundOffset(const gfx::Point& offset) {
 }
 
 bool TouchTabStrip::IsPositionInWindowCaption(const gfx::Point& point) {
-  views::View* v = GetViewForPoint(point);
+  views::View* v = GetEventHandlerForPoint(point);
 
   // If there is no control at this location, claim the hit was in the title
   // bar to get a move action.
@@ -157,13 +157,13 @@ void TouchTabStrip::PaintChildren(gfx::Canvas* canvas) {
     if (tab->dragging()) {
       dragging_tab = tab;
     } else if (!tab->IsSelected()) {
-      tab->ProcessPaint(canvas);
+      tab->Paint(canvas);
     } else {
       selected_tab = tab;
     }
   }
 
-  if (GetWindow()->GetNonClientView()->UseNativeFrame()) {
+  if (GetWindow()->non_client_view()->UseNativeFrame()) {
     // Make sure unselected tabs are somewhat transparent.
     SkPaint paint;
     paint.setColor(SkColorSetARGB(200, 255, 255, 255));
@@ -176,11 +176,11 @@ void TouchTabStrip::PaintChildren(gfx::Canvas* canvas) {
 
   // Paint the selected tab last, so it overlaps all the others.
   if (selected_tab)
-    selected_tab->ProcessPaint(canvas);
+    selected_tab->Paint(canvas);
 
   // And the dragged tab.
   if (dragging_tab)
-    dragging_tab->ProcessPaint(canvas);
+    dragging_tab->Paint(canvas);
 }
 
 TouchTab* TouchTabStrip::GetTabAtTabDataIndex(int tab_data_index) const {

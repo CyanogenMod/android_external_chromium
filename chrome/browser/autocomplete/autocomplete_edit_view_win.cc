@@ -31,15 +31,16 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/common/notification_service.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "googleurl/src/url_util.h"
 #include "grit/generated_resources.h"
 #include "net/base/escape.h"
 #include "skia/ext/skia_utils_win.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
+#include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/dragdrop/drag_source.h"
 #include "ui/base/dragdrop/drop_target.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
@@ -63,13 +64,57 @@
 
 namespace {
 
+// A helper method for determining a valid DROPEFFECT given the allowed
+// DROPEFFECTS.  We prefer copy over link.
+DWORD CopyOrLinkDropEffect(DWORD effect) {
+  if (effect & DROPEFFECT_COPY)
+    return DROPEFFECT_COPY;
+  if (effect & DROPEFFECT_LINK)
+    return DROPEFFECT_LINK;
+  return DROPEFFECT_NONE;
+}
+
+// A helper method for determining a valid drag operation given the allowed
+// operation.  We prefer copy over link.
+int CopyOrLinkDragOperation(int drag_operation) {
+  if (drag_operation & ui::DragDropTypes::DRAG_COPY)
+    return ui::DragDropTypes::DRAG_COPY;
+  if (drag_operation & ui::DragDropTypes::DRAG_LINK)
+    return ui::DragDropTypes::DRAG_LINK;
+  return ui::DragDropTypes::DRAG_NONE;
+}
+
+// The AutocompleteEditState struct contains enough information about the
+// AutocompleteEditModel and AutocompleteEditViewWin to save/restore a user's
+// typing, caret position, etc. across tab changes.  We explicitly don't
+// preserve things like whether the popup was open as this might be weird.
+struct AutocompleteEditState {
+  AutocompleteEditState(const AutocompleteEditModel::State model_state,
+                        const AutocompleteEditViewWin::State view_state)
+      : model_state(model_state),
+        view_state(view_state) {
+  }
+
+  const AutocompleteEditModel::State model_state;
+  const AutocompleteEditViewWin::State view_state;
+};
+
+// Returns true if the current point is far enough from the origin that it
+// would be considered a drag.
+bool IsDrag(const POINT& origin, const POINT& current) {
+  return views::View::ExceededDragThreshold(current.x - origin.x,
+                                            current.y - origin.y);
+}
+
+}  // namespace
+
 // EditDropTarget is the IDropTarget implementation installed on
 // AutocompleteEditViewWin. EditDropTarget prefers URL over plain text. A drop
 // of a URL replaces all the text of the edit and navigates immediately to the
 // URL. A drop of plain text from the same edit either copies or moves the
 // selected text, and a drop of plain text from a source other than the edit
 // does a paste and go.
-class EditDropTarget : public ui::DropTarget {
+class AutocompleteEditViewWin::EditDropTarget : public ui::DropTarget {
  public:
   explicit EditDropTarget(AutocompleteEditViewWin* edit);
 
@@ -109,27 +154,19 @@ class EditDropTarget : public ui::DropTarget {
   DISALLOW_COPY_AND_ASSIGN(EditDropTarget);
 };
 
-// A helper method for determining a valid DROPEFFECT given the allowed
-// DROPEFFECTS.  We prefer copy over link.
-DWORD CopyOrLinkDropEffect(DWORD effect) {
-  if (effect & DROPEFFECT_COPY)
-    return DROPEFFECT_COPY;
-  if (effect & DROPEFFECT_LINK)
-    return DROPEFFECT_LINK;
-  return DROPEFFECT_NONE;
-}
-
-EditDropTarget::EditDropTarget(AutocompleteEditViewWin* edit)
+AutocompleteEditViewWin::EditDropTarget::EditDropTarget(
+    AutocompleteEditViewWin* edit)
     : ui::DropTarget(edit->m_hWnd),
       edit_(edit),
       drag_has_url_(false),
       drag_has_string_(false) {
 }
 
-DWORD EditDropTarget::OnDragEnter(IDataObject* data_object,
-                                  DWORD key_state,
-                                  POINT cursor_position,
-                                  DWORD effect) {
+DWORD AutocompleteEditViewWin::EditDropTarget::OnDragEnter(
+    IDataObject* data_object,
+    DWORD key_state,
+    POINT cursor_position,
+    DWORD effect) {
   ui::OSExchangeData os_data(new ui::OSExchangeDataProviderWin(data_object));
   drag_has_url_ = os_data.HasURL();
   drag_has_string_ = !drag_has_url_ && os_data.HasString();
@@ -148,10 +185,11 @@ DWORD EditDropTarget::OnDragEnter(IDataObject* data_object,
   return OnDragOver(data_object, key_state, cursor_position, effect);
 }
 
-DWORD EditDropTarget::OnDragOver(IDataObject* data_object,
-                                 DWORD key_state,
-                                 POINT cursor_position,
-                                 DWORD effect) {
+DWORD AutocompleteEditViewWin::EditDropTarget::OnDragOver(
+    IDataObject* data_object,
+    DWORD key_state,
+    POINT cursor_position,
+    DWORD effect) {
   if (drag_has_url_)
     return CopyOrLinkDropEffect(effect);
 
@@ -172,57 +210,35 @@ DWORD EditDropTarget::OnDragOver(IDataObject* data_object,
   return DROPEFFECT_NONE;
 }
 
-void EditDropTarget::OnDragLeave(IDataObject* data_object) {
+void AutocompleteEditViewWin::EditDropTarget::OnDragLeave(
+    IDataObject* data_object) {
   ResetDropHighlights();
 }
 
-DWORD EditDropTarget::OnDrop(IDataObject* data_object,
-                             DWORD key_state,
-                             POINT cursor_position,
-                             DWORD effect) {
+DWORD AutocompleteEditViewWin::EditDropTarget::OnDrop(
+    IDataObject* data_object,
+    DWORD key_state,
+    POINT cursor_position,
+    DWORD effect) {
+  effect = OnDragOver(data_object, key_state, cursor_position, effect);
+
   ui::OSExchangeData os_data(new ui::OSExchangeDataProviderWin(data_object));
+  views::DropTargetEvent event(os_data, cursor_position.x, cursor_position.y,
+      ui::DragDropTypes::DropEffectToDragOperation(effect));
 
-  if (drag_has_url_) {
-    GURL url;
-    string16 title;
-    if (os_data.GetURLAndTitle(&url, &title)) {
-      edit_->SetUserText(UTF8ToWide(url.spec()));
-      edit_->model()->AcceptInput(CURRENT_TAB, true);
-      return CopyOrLinkDropEffect(effect);
-    }
-  } else if (drag_has_string_) {
-    int string_drop_position = edit_->drop_highlight_position();
-    string16 text;
-    if ((string_drop_position != -1 || !edit_->in_drag()) &&
-        os_data.GetString(&text)) {
-      DCHECK(string_drop_position == -1 ||
-             ((string_drop_position >= 0) &&
-              (string_drop_position <= edit_->GetTextLength())));
-      const DWORD drop_operation =
-          OnDragOver(data_object, key_state, cursor_position, effect);
-      if (edit_->in_drag()) {
-        if (drop_operation == DROPEFFECT_MOVE)
-          edit_->MoveSelectedText(string_drop_position);
-        else
-          edit_->InsertText(string_drop_position, text);
-      } else {
-        edit_->PasteAndGo(CollapseWhitespace(text, true));
-      }
-      ResetDropHighlights();
-      return drop_operation;
-    }
-  }
+  int drag_operation = edit_->OnPerformDropImpl(event, edit_->in_drag());
 
-  ResetDropHighlights();
+  if (!drag_has_url_)
+    ResetDropHighlights();
 
-  return DROPEFFECT_NONE;
+  return ui::DragDropTypes::DragOperationToDropEffect(drag_operation);
 }
 
-void EditDropTarget::UpdateDropHighlightPosition(
+void AutocompleteEditViewWin::EditDropTarget::UpdateDropHighlightPosition(
     const POINT& cursor_screen_position) {
   if (drag_has_string_) {
     POINT client_position = cursor_screen_position;
-    ScreenToClient(edit_->m_hWnd, &client_position);
+    ::ScreenToClient(edit_->m_hWnd, &client_position);
     int drop_position = edit_->CharFromPos(client_position);
     if (edit_->in_drag()) {
       // Our edit originated the drag, don't allow a drop if over the selected
@@ -242,37 +258,11 @@ void EditDropTarget::UpdateDropHighlightPosition(
   }
 }
 
-void EditDropTarget::ResetDropHighlights() {
+void AutocompleteEditViewWin::EditDropTarget::ResetDropHighlights() {
   if (drag_has_string_)
     edit_->SetDropHighlightPosition(-1);
 }
 
-// The AutocompleteEditState struct contains enough information about the
-// AutocompleteEditModel and AutocompleteEditViewWin to save/restore a user's
-// typing, caret position, etc. across tab changes.  We explicitly don't
-// preserve things like whether the popup was open as this might be weird.
-struct AutocompleteEditState {
-  AutocompleteEditState(const AutocompleteEditModel::State model_state,
-                        const AutocompleteEditViewWin::State view_state)
-      : model_state(model_state),
-        view_state(view_state) {
-  }
-
-  const AutocompleteEditModel::State model_state;
-  const AutocompleteEditViewWin::State view_state;
-};
-
-// Returns true if the current point is far enough from the origin that it
-// would be considered a drag.
-bool IsDrag(const POINT& origin, const POINT& current) {
-  // The CXDRAG and CYDRAG system metrics describe the width and height of a
-  // rectangle around the origin position, inside of which motion is not
-  // considered a drag.
-  return (abs(current.x - origin.x) > (GetSystemMetrics(SM_CXDRAG) / 2)) ||
-         (abs(current.y - origin.y) > (GetSystemMetrics(SM_CYDRAG) / 2));
-}
-
-}  // namespace
 
 ///////////////////////////////////////////////////////////////////////////////
 // Helper classes
@@ -343,8 +333,7 @@ HDC WINAPI BeginPaintIntercept(HWND hWnd, LPPAINTSTRUCT lpPaint) {
 
 // Intercepted method for EndPaint(). Must use __stdcall convention.
 BOOL WINAPI EndPaintIntercept(HWND hWnd, const PAINTSTRUCT* lpPaint) {
-  return (edit_hwnd && (hWnd == edit_hwnd)) ?
-      true : ::EndPaint(hWnd, lpPaint);
+  return (edit_hwnd && (hWnd == edit_hwnd)) || ::EndPaint(hWnd, lpPaint);
 }
 
 // Returns a lazily initialized property bag accessor for saving our state in a
@@ -356,30 +345,11 @@ PropertyAccessor<AutocompleteEditState>* GetStateAccessor() {
 
 class PaintPatcher {
  public:
-  PaintPatcher() : refcount_(0) { }
-  ~PaintPatcher() { DCHECK(refcount_ == 0); }
+  PaintPatcher();
+  ~PaintPatcher();
 
-  void RefPatch() {
-    if (refcount_ == 0) {
-      DCHECK(!begin_paint_.is_patched());
-      DCHECK(!end_paint_.is_patched());
-      begin_paint_.Patch(L"riched20.dll", "user32.dll", "BeginPaint",
-                         &BeginPaintIntercept);
-      end_paint_.Patch(L"riched20.dll", "user32.dll", "EndPaint",
-                       &EndPaintIntercept);
-    }
-    ++refcount_;
-  }
-
-  void DerefPatch() {
-    DCHECK(begin_paint_.is_patched());
-    DCHECK(end_paint_.is_patched());
-    --refcount_;
-    if (refcount_ == 0) {
-      begin_paint_.Unpatch();
-      end_paint_.Unpatch();
-    }
-  }
+  void RefPatch();
+  void DerefPatch();
 
  private:
   size_t refcount_;
@@ -388,6 +358,35 @@ class PaintPatcher {
 
   DISALLOW_COPY_AND_ASSIGN(PaintPatcher);
 };
+
+PaintPatcher::PaintPatcher() : refcount_(0) {
+}
+
+PaintPatcher::~PaintPatcher() {
+  DCHECK_EQ(0U, refcount_);
+}
+
+void PaintPatcher::RefPatch() {
+  if (refcount_ == 0) {
+    DCHECK(!begin_paint_.is_patched());
+    DCHECK(!end_paint_.is_patched());
+    begin_paint_.Patch(L"riched20.dll", "user32.dll", "BeginPaint",
+                       &BeginPaintIntercept);
+    end_paint_.Patch(L"riched20.dll", "user32.dll", "EndPaint",
+                     &EndPaintIntercept);
+  }
+  ++refcount_;
+}
+
+void PaintPatcher::DerefPatch() {
+  DCHECK(begin_paint_.is_patched());
+  DCHECK(end_paint_.is_patched());
+  --refcount_;
+  if (refcount_ == 0) {
+    begin_paint_.Unpatch();
+    end_paint_.Unpatch();
+  }
+}
 
 base::LazyInstance<PaintPatcher> g_paint_patcher(base::LINKER_INITIALIZED);
 
@@ -401,7 +400,7 @@ AutocompleteEditViewWin::AutocompleteEditViewWin(
     const gfx::Font& font,
     AutocompleteEditController* controller,
     ToolbarModel* toolbar_model,
-    views::View* parent_view,
+    LocationBarView* parent_view,
     HWND hwnd,
     Profile* profile,
     CommandUpdater* command_updater,
@@ -434,8 +433,6 @@ AutocompleteEditViewWin::AutocompleteEditViewWin(
   // Dummy call to a function exported by riched20.dll to ensure it sets up an
   // import dependency on the dll.
   CreateTextServices(NULL, NULL, NULL);
-
-  model_->SetPopupModel(popup_view_->GetModel());
 
   saved_selection_for_focus_change_.cpMin = -1;
 
@@ -507,6 +504,10 @@ AutocompleteEditViewWin::~AutocompleteEditViewWin() {
   // been destroyed.  This prevents us from relying on the AtExit or static
   // destructor sequence to do our unpatching, which is generally fragile.
   g_paint_patcher.Pointer()->DerefPatch();
+}
+
+views::View* AutocompleteEditViewWin::parent_view() const {
+  return parent_view_;
 }
 
 int AutocompleteEditViewWin::WidthOfTextAfterCursor() {
@@ -730,10 +731,7 @@ void AutocompleteEditViewWin::UpdatePopup() {
 }
 
 void AutocompleteEditViewWin::ClosePopup() {
-  if (popup_view_->GetModel()->IsOpen())
-    controller_->OnAutocompleteWillClosePopup();
-
-  popup_view_->GetModel()->StopAutocomplete();
+  model_->StopAutocomplete();
 }
 
 void AutocompleteEditViewWin::SetFocus() {
@@ -916,7 +914,7 @@ bool AutocompleteEditViewWin::OnAfterPossibleChangeInternal(
     parent_view_->NotifyAccessibilityEvent(
         AccessibilityTypes::EVENT_SELECTION_CHANGED);
   } else if (delete_at_end_pressed_) {
-    controller_->OnChanged();
+    model_->OnChanged();
   }
 
   return something_changed;
@@ -935,14 +933,12 @@ void AutocompleteEditViewWin::SetInstantSuggestion(const string16& suggestion) {
   NOTREACHED();
 }
 
-string16 AutocompleteEditViewWin::GetInstantSuggestion() const {
-  // On Windows, we shows the suggestion in LocationBarView.
-  NOTREACHED();
-  return string16();
-}
-
 int AutocompleteEditViewWin::TextWidth() const {
   return WidthNeededToDisplay(GetText());
+}
+
+string16 AutocompleteEditViewWin::GetInstantSuggestion() const {
+  return parent_view_->GetInstantSuggestion();
 }
 
 bool AutocompleteEditViewWin::IsImeComposing() const {
@@ -961,6 +957,46 @@ views::View* AutocompleteEditViewWin::AddToView(views::View* parent) {
   host->set_focus_view(parent);
   host->Attach(GetNativeView());
   return host;
+}
+
+int AutocompleteEditViewWin::OnPerformDrop(
+    const views::DropTargetEvent& event) {
+  return OnPerformDropImpl(event, false);
+}
+
+int AutocompleteEditViewWin::OnPerformDropImpl(
+    const views::DropTargetEvent& event,
+    bool in_drag) {
+  const ui::OSExchangeData& data = event.data();
+
+  if (data.HasURL()) {
+    GURL url;
+    string16 title;
+    if (data.GetURLAndTitle(&url, &title)) {
+      SetUserText(UTF8ToWide(url.spec()));
+      model()->AcceptInput(CURRENT_TAB, true);
+      return CopyOrLinkDragOperation(event.source_operations());
+    }
+  } else if (data.HasString()) {
+    int string_drop_position = drop_highlight_position();
+    string16 text;
+    if ((string_drop_position != -1 || !in_drag) && data.GetString(&text)) {
+      DCHECK(string_drop_position == -1 ||
+             ((string_drop_position >= 0) &&
+              (string_drop_position <= GetTextLength())));
+      if (in_drag) {
+        if (event.source_operations()== ui::DragDropTypes::DRAG_MOVE)
+          MoveSelectedText(string_drop_position);
+        else
+          InsertText(string_drop_position, text);
+      } else {
+        PasteAndGo(CollapseWhitespace(text, true));
+      }
+      return CopyOrLinkDragOperation(event.source_operations());
+    }
+  }
+
+  return ui::DragDropTypes::DRAG_NONE;
 }
 
 void AutocompleteEditViewWin::PasteAndGo(const string16& text) {
@@ -1061,7 +1097,7 @@ bool AutocompleteEditViewWin::IsItemForCommandIdDynamic(int command_id) const {
 
 string16 AutocompleteEditViewWin::GetLabelForCommandId(
     int command_id) const {
-  DCHECK(command_id == IDS_PASTE_AND_GO);
+  DCHECK_EQ(IDS_PASTE_AND_GO, command_id);
   return l10n_util::GetStringUTF16(model_->is_paste_and_search() ?
       IDS_PASTE_AND_SEARCH : IDS_PASTE_AND_GO);
 }
@@ -1403,7 +1439,7 @@ void AutocompleteEditViewWin::OnKillFocus(HWND focus_wnd) {
   }
 
   // This must be invoked before ClosePopup.
-  controller_->OnAutocompleteLosingFocus(focus_wnd);
+  model_->OnWillKillFocus(focus_wnd);
 
   // Close the popup.
   ClosePopup();
@@ -1858,7 +1894,7 @@ bool AutocompleteEditViewWin::OnKeyDownOnlyWritable(TCHAR key,
         GetSel(selection);
         return (selection.cpMin == selection.cpMax) &&
             (selection.cpMin == GetTextLength()) &&
-            controller_->OnCommitSuggestedText(true);
+            model_->CommitSuggestedText(true);
       }
 
     case VK_RETURN:
@@ -1922,13 +1958,12 @@ bool AutocompleteEditViewWin::OnKeyDownOnlyWritable(TCHAR key,
           Cut();
           OnAfterPossibleChange();
         } else {
-          AutocompletePopupModel* popup_model = popup_view_->GetModel();
-          if (popup_model->IsOpen()) {
+          if (model_->popup_model()->IsOpen()) {
             // This is a bit overloaded, but we hijack Shift-Delete in this
             // case to delete the current item from the pop-up.  We prefer
             // cutting to this when possible since that's the behavior more
             // people expect from Shift-Delete, and it's more commonly useful.
-            popup_model->TryDeletingCurrentItem();
+            model_->popup_model()->TryDeletingCurrentItem();
           }
         }
       }
@@ -1993,7 +2028,7 @@ bool AutocompleteEditViewWin::OnKeyDownOnlyWritable(TCHAR key,
         PlaceCaretAt(GetTextLength());
         OnAfterPossibleChange();
       } else {
-        controller_->OnCommitSuggestedText(true);
+        model_->CommitSuggestedText(true);
       }
       return true;
     }
@@ -2041,7 +2076,7 @@ void AutocompleteEditViewWin::GetSelection(CHARRANGE& sel) const {
     return;
   ScopedComPtr<ITextSelection> selection;
   const HRESULT hr = text_object_model->GetSelection(selection.Receive());
-  DCHECK(hr == S_OK);
+  DCHECK_EQ(S_OK, hr);
   long flags;
   selection->GetFlags(&flags);
   if (flags & tomSelStartActive)
@@ -2071,7 +2106,7 @@ void AutocompleteEditViewWin::SetSelection(LONG start, LONG end) {
     return;
   ScopedComPtr<ITextSelection> selection;
   const HRESULT hr = text_object_model->GetSelection(selection.Receive());
-  DCHECK(hr == S_OK);
+  DCHECK_EQ(S_OK, hr);
   selection->SetFlags(tomSelStartActive);
 }
 
@@ -2305,9 +2340,10 @@ void AutocompleteEditViewWin::DrawSlashForInsecureScheme(
           canvas_clip_rect.top, &canvas_paint_clip_rect);
 }
 
-void AutocompleteEditViewWin::DrawDropHighlight(
-    HDC hdc, const CRect& client_rect, const CRect& paint_clip_rect) {
-  DCHECK(drop_highlight_position_ != -1);
+void AutocompleteEditViewWin::DrawDropHighlight(HDC hdc,
+                                                const CRect& client_rect,
+                                                const CRect& paint_clip_rect) {
+  DCHECK_NE(-1, drop_highlight_position_);
 
   const int highlight_y = client_rect.top + font_y_adjustment_;
   const int highlight_x = PosFromChar(drop_highlight_position_).x - 1;
@@ -2331,7 +2367,7 @@ void AutocompleteEditViewWin::DrawDropHighlight(
 void AutocompleteEditViewWin::TextChanged() {
   ScopedFreeze freeze(this, GetTextObjectModel());
   EmphasizeURLComponents();
-  controller_->OnChanged();
+  model_->OnChanged();
 }
 
 string16 AutocompleteEditViewWin::GetClipboardText() const {

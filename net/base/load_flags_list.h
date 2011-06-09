@@ -102,9 +102,15 @@ LOAD_FLAG(REPORT_RAW_HEADERS, 1 << 22)
 // and is (in theory) not intended for the current frame.
 LOAD_FLAG(PREFETCH, 1 << 23)
 
+<<<<<<< HEAD
 #ifdef ANDROID
 // Indicates that this is a load that ignores limits and should complete
 // immediately
 LOAD_FLAG(IGNORE_LIMITS, 1 << 24)
 #endif
 
+=======
+// Indicates that this load was requested by a page that is currently
+// prerendering.
+LOAD_FLAG(PRERENDER, 1 << 24)
+>>>>>>> chromium.org at r11.0.696.0

@@ -48,6 +48,7 @@ class DiskCacheBackendTest : public DiskCacheTestWithCache {
   void BackendTransaction(const std::string& name, int num_entries, bool load);
   void BackendRecoverInsert();
   void BackendRecoverRemove();
+  void BackendRecoverWithEviction();
   void BackendInvalidEntry2();
   void BackendInvalidEntry3();
   void BackendNotMarkedButDirty(const std::string& name);
@@ -866,7 +867,8 @@ TEST_F(DiskCacheBackendTest, MemoryOnlyEnumerations) {
   BackendEnumerations();
 }
 
-TEST_F(DiskCacheBackendTest, AppCacheEnumerations) {
+// Flaky, http://crbug.com/74387.
+TEST_F(DiskCacheBackendTest, FLAKY_AppCacheEnumerations) {
   SetCacheType(net::APP_CACHE);
   BackendEnumerations();
 }
@@ -1272,6 +1274,28 @@ TEST_F(DiskCacheBackendTest, NewEvictionRecoverRemove) {
   BackendRecoverRemove();
 }
 
+void DiskCacheBackendTest::BackendRecoverWithEviction() {
+  success_ = false;
+  ASSERT_TRUE(CopyTestCache("insert_load1"));
+  DisableFirstCleanup();
+
+  SetMask(0xf);
+  SetMaxSize(0x1000);
+
+  // We should not crash here.
+  InitCache();
+  DisableIntegrityCheck();
+}
+
+TEST_F(DiskCacheBackendTest, RecoverWithEviction) {
+  BackendRecoverWithEviction();
+}
+
+TEST_F(DiskCacheBackendTest, NewEvictionRecoverWithEviction) {
+  SetNewEviction();
+  BackendRecoverWithEviction();
+}
+
 // Tests dealing with cache files that cannot be recovered.
 TEST_F(DiskCacheTest, DeleteOld) {
   ASSERT_TRUE(CopyTestCache("wrong_version"));
@@ -1368,6 +1392,21 @@ TEST_F(DiskCacheBackendTest, InvalidEntry5) {
   InitCache();
 
   TrimDeletedListForTest(false);
+}
+
+TEST_F(DiskCacheBackendTest, InvalidEntry6) {
+  ASSERT_TRUE(CopyTestCache("dirty_entry5"));
+  SetMask(0x1);  // 2-entry table.
+  SetMaxSize(0x3000);  // 12 kB.
+  DisableFirstCleanup();
+  InitCache();
+
+  // There is a dirty entry (but marked as clean) at the end, pointing to a
+  // deleted entry through the hash collision list. We should not re-insert the
+  // deleted entry into the index table.
+
+  TrimForTest(false);
+  // The cache should be clean (as detected by CheckCacheIntegrity).
 }
 
 // Tests that we don't hang when there is a loop on the hash collision list.

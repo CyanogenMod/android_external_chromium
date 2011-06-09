@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,6 @@
 
 #include "base/string16.h"
 #include "chrome/browser/autofill/form_group.h"
-
-class Address;
-typedef std::map<FieldTypeGroup, FormGroup*> FormGroupMap;
 
 // A collection of FormGroups stored in a profile.  AutoFillProfile also
 // implements the FormGroup interface so that owners of this object can request
@@ -33,14 +30,14 @@ class AutoFillProfile : public FormGroup {
   virtual void GetPossibleFieldTypes(const string16& text,
                                      FieldTypeSet* possible_types) const;
   virtual void GetAvailableFieldTypes(FieldTypeSet* available_types) const;
-  virtual string16 GetFieldText(const AutoFillType& type) const;
+  virtual string16 GetFieldText(const AutofillType& type) const;
   // Returns true if the info matches the profile data corresponding to type.
   // If the type is UNKNOWN_TYPE then info will be matched against all of the
   // profile data.
-  virtual void FindInfoMatches(const AutoFillType& type,
+  virtual void FindInfoMatches(const AutofillType& type,
                                const string16& info,
                                std::vector<string16>* matched_text) const;
-  virtual void SetInfo(const AutoFillType& type, const string16& value);
+  virtual void SetInfo(const AutofillType& type, const string16& value);
   // Returns a copy of the profile it is called on. The caller is responsible
   // for deleting profile when they are done with it.
   virtual FormGroup* Clone() const;
@@ -52,6 +49,10 @@ class AutoFillProfile : public FormGroup {
   // This guid is the primary identifier for |AutoFillProfile| objects.
   const std::string guid() const { return guid_; }
   void set_guid(const std::string& guid) { guid_ = guid; }
+
+  // Accessors for the stored address's country code.
+  const std::string CountryCode() const;
+  void SetCountryCode(const std::string& country_code);
 
   // Adjusts the labels according to profile data.
   // Labels contain minimal different combination of:
@@ -77,8 +78,8 @@ class AutoFillProfile : public FormGroup {
   // least |minimal_fields_shown| fields, if possible.
   static void CreateInferredLabels(
       const std::vector<AutoFillProfile*>* profiles,
-      const std::vector<AutoFillFieldType>* suggested_fields,
-      AutoFillFieldType excluded_field,
+      const std::vector<AutofillFieldType>* suggested_fields,
+      AutofillFieldType excluded_field,
       size_t minimal_fields_shown,
       std::vector<string16>* created_labels);
 
@@ -92,17 +93,12 @@ class AutoFillProfile : public FormGroup {
   // or < 0, or > 0 if it is different.  The implied ordering can be used for
   // culling duplicates.  The ordering is based on collation order of the
   // textual contents of the fields.
-  // GUIDs, labels, and unique IDs are not compared, only the values of the
-  // profiles themselves.
+  // GUIDs are not compared, only the values of the contents themselves.
   int Compare(const AutoFillProfile& profile) const;
 
-  // TODO(dhollowa): These operators need to be made private and then the unit
-  // tests that use them made friends.  The public |Compare| method should be
-  // used by external clients (such as Sync).
-  // http://crbug.com/58813
+  // Equality operators compare GUIDs and the contents in the comparison.
   bool operator==(const AutoFillProfile& profile) const;
   virtual bool operator!=(const AutoFillProfile& profile) const;
-  void set_label(const string16& label) { label_ = label; }
 
   // Returns concatenation of full name and address line 1.  This acts as the
   // basis of comparison for new values that are submitted through forms to
@@ -110,11 +106,13 @@ class AutoFillProfile : public FormGroup {
   const string16 PrimaryValue() const;
 
  private:
+  typedef std::map<FieldTypeGroup, FormGroup*> FormGroupMap;
+
   // Builds inferred label from the first |num_fields_to_include| non-empty
   // fields in |label_fields|. Uses as many fields as possible if there are not
   // enough non-empty fields.
   string16 ConstructInferredLabel(
-      const std::vector<AutoFillFieldType>& label_fields,
+      const std::vector<AutofillFieldType>& label_fields,
       size_t num_fields_to_include) const;
 
   // Creates inferred labels for |profiles| at indices corresponding to
@@ -125,9 +123,12 @@ class AutoFillProfile : public FormGroup {
   static void CreateDifferentiatingLabels(
       const std::vector<AutoFillProfile*>& profiles,
       const std::list<size_t>& indices,
-      const std::vector<AutoFillFieldType>& fields,
+      const std::vector<AutofillFieldType>& fields,
       size_t num_fields_to_include,
       std::vector<string16>* created_labels);
+
+  // Utility to initialize a |FormGroupMap|.
+  static void InitPersonalInfo(FormGroupMap* personal_info);
 
   // The label presented to the user when selecting a profile.
   string16 label_;

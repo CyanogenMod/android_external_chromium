@@ -451,7 +451,7 @@ std::vector<PasswordForm*> GetPasswordsForForms(
     std::vector<PasswordForm*> keychain_matches =
         keychain_adapter.PasswordsMergeableWithForm(**i);
     MergePasswordForms(&keychain_matches, &db_form_container, &merged_forms);
-    if (db_form_container.size() == 0) {
+    if (db_form_container.empty()) {
       i = database_forms->erase(i);
     } else {
       ++i;
@@ -516,7 +516,7 @@ bool MacKeychainPasswordFormAdapter::HasPasswordsMergeableWithForm(
     keychain_->Free(*i);
   }
 
-  return matches.size() != 0;
+  return !matches.empty();
 }
 
 std::vector<PasswordForm*>
@@ -626,7 +626,7 @@ SecKeychainItemRef MacKeychainPasswordFormAdapter::KeychainItemForForm(
   std::vector<SecKeychainItemRef> matches = MatchingKeychainItems(
       form.signon_realm, form.scheme, path.c_str(), username.c_str());
 
-  if (matches.size() == 0) {
+  if (matches.empty()) {
     return NULL;
   }
   // Free all items after the first, since we won't be returning them.

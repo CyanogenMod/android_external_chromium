@@ -11,12 +11,12 @@
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_manager.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/download_item_view.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "content/browser/tab_contents/navigation_entry.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "ui/base/animation/slide_animation.h"
@@ -183,9 +183,9 @@ views::View* DownloadShelfView::GetDefaultFocusableChild() {
     return show_all_view_;
 }
 
-void DownloadShelfView::Paint(gfx::Canvas* canvas) {
-  PaintBackground(canvas);
-  PaintBorder(canvas);
+void DownloadShelfView::OnPaint(gfx::Canvas* canvas) {
+  OnPaintBackground(canvas);
+  OnPaintBorder(canvas);
 
   // Draw the focus rect here, since it's outside the bounds of the item.
   for (size_t i = 0; i < download_views_.size(); ++i) {
@@ -197,7 +197,7 @@ void DownloadShelfView::Paint(gfx::Canvas* canvas) {
   }
 }
 
-void DownloadShelfView::PaintBorder(gfx::Canvas* canvas) {
+void DownloadShelfView::OnPaintBorder(gfx::Canvas* canvas) {
   canvas->FillRectInt(kBorderColor, 0, 0, width(), 1);
 }
 
@@ -211,7 +211,7 @@ gfx::Size DownloadShelfView::GetPreferredSize() {
   AdjustSize(close_button_, &prefsize);
   AdjustSize(show_all_view_, &prefsize);
   // Add one download view to the preferred size.
-  if (download_views_.size() > 0) {
+  if (!download_views_.empty()) {
     AdjustSize(*download_views_.begin(), &prefsize);
     prefsize.Enlarge(kDownloadPadding, 0);
   }
@@ -282,10 +282,13 @@ void DownloadShelfView::Layout() {
                             show_all_size.width(),
                             show_all_size.height());
   next_x += show_all_size.width() + kCloseAndLinkPadding;
-  close_button_->SetBounds(next_x,
-                           CenterPosition(close_button_size.height(), height()),
-                           close_button_size.width(),
-                           close_button_size.height());
+  // If the window is maximized, we want to expand the hitbox of the close
+  // button to the right and bottom to make it easier to click.
+  bool is_maximized = browser_->window()->IsMaximized();
+  int y = CenterPosition(close_button_size.height(), height());
+  close_button_->SetBounds(next_x, y,
+      is_maximized ? width() - next_x : close_button_size.width(),
+      is_maximized ? height() - y : close_button_size.height());
   if (show_link_only) {
     // Let's hide all the items.
     std::vector<DownloadItemView*>::reverse_iterator ri;
@@ -382,6 +385,10 @@ void DownloadShelfView::Close() {
   shelf_animation_->Hide();
 }
 
+Browser* DownloadShelfView::browser() const {
+  return browser_;
+}
+
 void DownloadShelfView::Closed() {
   // When the close animation is complete, remove all completed downloads.
   size_t i = 0;
@@ -426,7 +433,7 @@ void DownloadShelfView::SchedulePaintForDownloadItem(views::View* view) {
   // Invalidate it
   gfx::Rect invalid_rect =
       GetFocusRectBounds(static_cast<DownloadItemView*>(view));
-  SchedulePaint(invalid_rect, false);
+  SchedulePaintInRect(invalid_rect);
 }
 
 gfx::Rect DownloadShelfView::GetFocusRectBounds(

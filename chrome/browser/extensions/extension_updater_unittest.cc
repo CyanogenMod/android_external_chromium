@@ -13,7 +13,6 @@
 #include "base/stringprintf.h"
 #include "base/threading/thread.h"
 #include "base/version.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extension_error_reporter.h"
 #include "chrome/browser/extensions/extension_updater.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -24,6 +23,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/common/net/test_url_fetcher_factory.h"
 #include "chrome/test/testing_profile.h"
+#include "content/browser/browser_thread.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
 #include "net/url_request/url_request_status.h"
@@ -147,16 +147,15 @@ bool ShouldAlwaysInstall(const Extension& extension) {
 void CreateTestPendingExtensions(int count, const GURL& update_url,
                                  PendingExtensionMap* pending_extensions) {
   for (int i = 1; i <= count; i++) {
-    ShouldInstallExtensionPredicate should_install_extension =
-        (i % 2 == 0) ? &ShouldInstallThemesOnly :
-        &ShouldInstallExtensionsOnly;
+    PendingExtensionInfo::ShouldAllowInstallPredicate should_allow_install =
+        (i % 2 == 0) ? &ShouldInstallThemesOnly : &ShouldInstallExtensionsOnly;
     const bool kIsFromSync = true;
     const bool kInstallSilently = true;
     const Extension::State kInitialState = Extension::ENABLED;
     const bool kInitialIncognitoEnabled = false;
     std::string id = GenerateId(base::StringPrintf("extension%i", i));
     (*pending_extensions)[id] =
-        PendingExtensionInfo(update_url, should_install_extension,
+        PendingExtensionInfo(update_url, should_allow_install,
                              kIsFromSync, kInstallSilently, kInitialState,
                              kInitialIncognitoEnabled, Extension::INTERNAL);
   }
@@ -279,7 +278,7 @@ static void ExtractParameters(const std::string& params,
   for (size_t i = 0; i < pairs.size(); i++) {
     std::vector<std::string> key_val;
     base::SplitString(pairs[i], '=', &key_val);
-    if (key_val.size() > 0) {
+    if (!key_val.empty()) {
       std::string key = key_val[0];
       EXPECT_TRUE(result->find(key) == result->end());
       (*result)[key] = (key_val.size() == 2) ? key_val[1] : "";

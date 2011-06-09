@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,29 +16,29 @@
 #include "webkit/glue/form_field.h"
 #endif
 
-class AutoFillField : public webkit_glue::FormField {
+class AutofillField : public webkit_glue::FormField {
  public:
-  AutoFillField();
-  AutoFillField(const webkit_glue::FormField& field,
+  AutofillField();
+  AutofillField(const webkit_glue::FormField& field,
                 const string16& unique_name);
-  virtual ~AutoFillField();
+  virtual ~AutofillField();
 
   const string16& unique_name() const { return unique_name_; }
 
-  AutoFillFieldType heuristic_type() const { return heuristic_type_; }
-  AutoFillFieldType server_type() const { return server_type_; }
+  AutofillFieldType heuristic_type() const { return heuristic_type_; }
+  AutofillFieldType server_type() const { return server_type_; }
   const FieldTypeSet& possible_types() const { return possible_types_; }
 
   // Sets the heuristic type of this field, validating the input.
-  void set_heuristic_type(const AutoFillFieldType& type);
-  void set_server_type(const AutoFillFieldType& type) { server_type_ = type; }
+  void set_heuristic_type(const AutofillFieldType& type);
+  void set_server_type(const AutofillFieldType& type) { server_type_ = type; }
   void set_possible_types(const FieldTypeSet& possible_types) {
     possible_types_ = possible_types;
   }
 
   // This function automatically chooses between server and heuristic autofill
   // type, depending on the data available.
-  AutoFillFieldType type() const;
+  AutofillFieldType type() const;
 
   // Returns true if the value of this field is empty.
   bool IsEmpty() const;
@@ -56,15 +56,15 @@ class AutoFillField : public webkit_glue::FormField {
   string16 unique_name_;
 
   // The type of the field, as determined by the AutoFill server.
-  AutoFillFieldType server_type_;
+  AutofillFieldType server_type_;
 
   // The type of the field, as determined by the local heuristics.
-  AutoFillFieldType heuristic_type_;
+  AutofillFieldType heuristic_type_;
 
   // The set of possible types for this field.
   FieldTypeSet possible_types_;
 
-  DISALLOW_COPY_AND_ASSIGN(AutoFillField);
+  DISALLOW_COPY_AND_ASSIGN(AutofillField);
 };
 
 #endif  // CHROME_BROWSER_AUTOFILL_AUTOFILL_FIELD_H_

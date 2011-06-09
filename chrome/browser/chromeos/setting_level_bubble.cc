@@ -45,14 +45,10 @@ static views::Widget* GetToplevelWidget() {
   if (!browser)
     return NULL;
 
-  views::RootView* root =
-      views::Widget::FindRootView(
+  views::NativeWidget* native_widget =
+      views::NativeWidget::GetNativeWidgetForNativeWindow(
           GTK_WINDOW(browser->window()->GetNativeHandle()));
-  DCHECK(root);
-  if (!root)
-    return NULL;
-
-  return root->GetWidget();
+  return native_widget->GetWidget();
 }
 
 SettingLevelBubble::SettingLevelBubble(SkBitmap* increase_icon,
@@ -93,8 +89,7 @@ void SettingLevelBubble::ShowBubble(int percent) {
     view_ = new SettingLevelBubbleView;
     view_->Init(icon, previous_percent_);
     // Calculate position of the bubble.
-    gfx::Rect bounds;
-    widget->GetBounds(&bounds, false);
+    gfx::Rect bounds = widget->GetClientAreaScreenBounds();
     const gfx::Size view_size = view_->GetPreferredSize();
     // Note that (x, y) is the point of the center of the bubble.
     const int x = view_size.width() / 2 +

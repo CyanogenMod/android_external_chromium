@@ -6,7 +6,6 @@
 
 #include <algorithm>
 
-#include "ui/base/l10n/l10n_util.h"
 #include "base/logging.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_aedesc.h"
@@ -30,16 +29,14 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/shell_integration.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_ui_util.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #import "chrome/browser/ui/cocoa/clear_browsing_data_controller.h"
-#import "chrome/browser/ui/cocoa/importer/import_settings_dialog.h"
+#import "chrome/browser/ui/cocoa/importer/import_dialog_cocoa.h"
 #import "chrome/browser/ui/cocoa/l10n_util.h"
 #import "chrome/browser/ui/cocoa/options/content_settings_dialog_controller.h"
 #import "chrome/browser/ui/cocoa/options/custom_home_pages_model.h"
@@ -57,14 +54,18 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/installer/util/google_update_settings.h"
+#include "content/browser/renderer_host/resource_dispatcher_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
 #import "third_party/GTM/AppKit/GTMNSAnimation+Duration.h"
 #import "third_party/GTM/AppKit/GTMUILocalizerAndLayoutTweaker.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/image.h"
 
 namespace {
 
@@ -483,6 +484,7 @@ class ManagedPrefsBannerState : public policy::ManagedPrefsBannerBase {
 @synthesize dnsPrefetchEnabled = dnsPrefetchEnabled_;
 @synthesize safeBrowsingEnabled = safeBrowsingEnabled_;
 @synthesize metricsReportingEnabled = metricsReportingEnabled_;
+@synthesize downloadLocationEnabled = downloadLocationEnabled_;
 @synthesize proxiesConfigureButtonEnabled = proxiesConfigureButtonEnabled_;
 
 - (id)initWithProfile:(Profile*)profile initialPage:(OptionsPage)initialPage {
@@ -570,6 +572,7 @@ class ManagedPrefsBannerState : public policy::ManagedPrefsBannerBase {
     [self setDnsPrefetchEnabled:!dnsPrefetch_.IsManaged()];
     [self setSafeBrowsingEnabled:!safeBrowsing_.IsManaged()];
     [self setMetricsReportingEnabled:!metricsReporting_.IsManaged()];
+    [self setDownloadLocationEnabled:!defaultDownloadLocation_.IsManaged()];
     proxyPrefs_.reset(
         PrefSetObserver::CreateProxyPrefSetObserver(prefs_, observer_.get()));
     [self setProxiesConfigureButtonEnabled:!proxyPrefs_->IsManaged()];
@@ -832,12 +835,7 @@ class ManagedPrefsBannerState : public policy::ManagedPrefsBannerBase {
 - (void)registerPrefObservers {
   if (!prefs_) return;
 
-  // During unit tests, there is no local state object, so we fall back to
-  // the prefs object (where we've explicitly registered this pref so we
-  // know it's there).
   PrefService* local = g_browser_process->local_state();
-  if (!local)
-    local = prefs_;
 
   // Basics panel
   registrar_.Init(prefs_);
@@ -1362,7 +1360,7 @@ const int kDisabledIndex = 1;
 // Called to import data from other browsers (Safari, Firefox, etc).
 - (IBAction)importData:(id)sender {
   UserMetrics::RecordAction(UserMetricsAction("Import_ShowDlg"), profile_);
-  [ImportSettingsDialogController showImportSettingsDialogForProfile:profile_];
+  [ImportDialogController showImportSettingsDialogForProfile:profile_];
 }
 
 - (IBAction)resetThemeToDefault:(id)sender {
@@ -1504,6 +1502,7 @@ const int kDisabledIndex = 1;
     [self setMetricsReportingEnabled:!metricsReporting_.IsManaged()];
   }
   else if (*prefName == prefs::kDownloadDefaultDirectory) {
+    [self setDownloadLocationEnabled:!defaultDownloadLocation_.IsManaged()];
     // Poke KVO.
     [self willChangeValueForKey:@"defaultDownloadLocation"];
     [self didChangeValueForKey:@"defaultDownloadLocation"];
@@ -2063,15 +2062,9 @@ const int kDisabledIndex = 1;
 - (void)initBannerStateForPage:(OptionsPage)page {
   page = [self normalizePage:page];
 
-  // During unit tests, there is no local state object, so we fall back to
-  // the prefs object (where we've explicitly registered this pref so we
-  // know it's there).
-  PrefService* local = g_browser_process->local_state();
-  if (!local)
-    local = prefs_;
   bannerState_.reset(
       new PreferencesWindowControllerInternal::ManagedPrefsBannerState(
-          self, page, local, prefs_));
+          self, page, g_browser_process->local_state(), prefs_));
 }
 
 - (void)switchToPage:(OptionsPage)page animate:(BOOL)animate {

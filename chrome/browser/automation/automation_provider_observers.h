@@ -9,13 +9,14 @@
 #include <deque>
 #include <map>
 #include <set>
+#include <string>
+#include <vector>
 
 #include "base/scoped_ptr.h"
 #include "base/weak_ptr.h"
 #include "chrome/browser/automation/automation_provider_json.h"
 #include "chrome/browser/bookmarks/bookmark_model_observer.h"
 #include "chrome/browser/browsing_data_remover.h"
-#include "chrome/browser/cancelable_request.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/history/history.h"
@@ -29,6 +30,7 @@
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_type.h"
+#include "content/browser/cancelable_request.h"
 #include "ui/gfx/size.h"
 
 class AutocompleteEditModel;
@@ -133,7 +135,8 @@ class NavigationNotificationObserver : public NotificationObserver {
                                  AutomationProvider* automation,
                                  IPC::Message* reply_message,
                                  int number_of_navigations,
-                                 bool include_current_navigation);
+                                 bool include_current_navigation,
+                                 bool use_json_interface);
   virtual ~NavigationNotificationObserver();
 
   virtual void Observe(NotificationType type,
@@ -149,6 +152,7 @@ class NavigationNotificationObserver : public NotificationObserver {
   NavigationController* controller_;
   int navigations_remaining_;
   bool navigation_started_;
+  bool use_json_interface_;
 
   DISALLOW_COPY_AND_ASSIGN(NavigationNotificationObserver);
 };
@@ -1073,6 +1077,27 @@ class InputEventAckNotificationObserver : public NotificationObserver {
   DISALLOW_COPY_AND_ASSIGN(InputEventAckNotificationObserver);
 };
 
+// Allows the automation provider to wait for all tabs to stop loading.
+class AllTabsStoppedLoadingObserver : public NotificationObserver {
+ public:
+  // Registers for notifications and checks to see if all tabs have stopped.
+  AllTabsStoppedLoadingObserver(AutomationProvider* automation,
+                                IPC::Message* reply_message);
+  virtual ~AllTabsStoppedLoadingObserver();
+
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
+
+ private:
+  void CheckIfStopped();
+  NotificationRegistrar registrar_;
+  base::WeakPtr<AutomationProvider> automation_;
+  scoped_ptr<IPC::Message> reply_message_;
+
+  DISALLOW_COPY_AND_ASSIGN(AllTabsStoppedLoadingObserver);
+};
+
 // Observer used to listen for new tab creation to complete.
 class NewTabObserver : public NotificationObserver {
  public:
@@ -1103,12 +1128,22 @@ class WaitForProcessLauncherThreadToGoIdleObserver
       AutomationProvider* automation, IPC::Message* reply_message);
 
  private:
-  friend class BrowserThread;
+  friend struct BrowserThread::DeleteOnThread<BrowserThread::UI>;
   friend class DeleteTask<WaitForProcessLauncherThreadToGoIdleObserver>;
 
   virtual ~WaitForProcessLauncherThreadToGoIdleObserver();
 
+  // Schedules a task on the PROCESS_LAUNCHER thread to execute
+  // |RunOnProcessLauncherThread2|. By the time the task is executed the
+  // PROCESS_LAUNCHER thread should be some what idle.
   void RunOnProcessLauncherThread();
+
+  // When executed the PROCESS_LAUNCHER thread should have processed any pending
+  // tasks.  Schedules a task on the UI thread that sends the message saying
+  // we're done.
+  void RunOnProcessLauncherThread2();
+
+  // Sends the |reply_message_| to |automation_| indicating we're done.
   void RunOnUIThread();
 
   base::WeakPtr<AutomationProvider> automation_;
@@ -1116,5 +1151,23 @@ class WaitForProcessLauncherThreadToGoIdleObserver
 
   DISALLOW_COPY_AND_ASSIGN(WaitForProcessLauncherThreadToGoIdleObserver);
 };
+
+// Observes the result of execution of Javascript and sends a JSON reply.
+class ExecuteJavascriptObserver : public DomOperationObserver {
+ public:
+  ExecuteJavascriptObserver(AutomationProvider* automation,
+                            IPC::Message* reply_message);
+  virtual ~ExecuteJavascriptObserver();
+
+ private:
+  // Overriden from DomOperationObserver.
+  virtual void OnDomOperationCompleted(const std::string& json);
+
+  base::WeakPtr<AutomationProvider> automation_;
+  scoped_ptr<IPC::Message> reply_message_;
+
+  DISALLOW_COPY_AND_ASSIGN(ExecuteJavascriptObserver);
+};
+
 
 #endif  // CHROME_BROWSER_AUTOMATION_AUTOMATION_PROVIDER_OBSERVERS_H_

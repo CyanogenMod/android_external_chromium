@@ -9,15 +9,15 @@
 #include "ui/base/animation/animation_delegate.h"
 #include "views/controls/label.h"
 
-class LocationBarView;
+class AutocompleteEditModel;
 
 // SuggestedTextView is used to show the suggest text in the LocationBar.
 // Invoke |StartAnimation| to start an animation that when done invokes
-// |OnCommitSuggestedText| on the LocationBar to commit the suggested text.
+// |CommitSuggestedText| on the AutocompleteEdit to commit the suggested text.
 class SuggestedTextView : public views::Label,
                           public ui::AnimationDelegate {
  public:
-  explicit SuggestedTextView(LocationBarView* location_bar);
+  explicit SuggestedTextView(AutocompleteEditModel* edit_model);
   virtual ~SuggestedTextView();
 
   // Starts the animation. If the animation is currently running it is stopped
@@ -30,7 +30,7 @@ class SuggestedTextView : public views::Label,
   void StopAnimation();
 
   // View overrides:
-  virtual void PaintBackground(gfx::Canvas* canvas);
+  virtual void OnPaintBackground(gfx::Canvas* canvas);
 
   // AnimationDelegate overrides:
   virtual void AnimationEnded(const ui::Animation* animation);
@@ -44,7 +44,7 @@ class SuggestedTextView : public views::Label,
   // Resets the background color.
   void UpdateBackgroundColor();
 
-  LocationBarView* location_bar_;
+  AutocompleteEditModel* edit_model_;
 
   scoped_ptr<ui::Animation> animation_;
 

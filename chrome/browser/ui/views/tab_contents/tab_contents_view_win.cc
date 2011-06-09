@@ -10,17 +10,17 @@
 
 #include "base/time.h"
 #include "chrome/browser/download/download_request_limiter.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_view_host_factory.h"
 #include "chrome/browser/renderer_host/render_widget_host_view_win.h"
-#include "chrome/browser/tab_contents/interstitial_page.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_delegate.h"
 #include "chrome/browser/tab_contents/web_drop_target_win.h"
 #include "chrome/browser/ui/views/sad_tab_view.h"
 #include "chrome/browser/ui/views/tab_contents/render_view_context_menu_views.h"
 #include "chrome/browser/ui/views/tab_contents/tab_contents_drag_win.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_view_host_factory.h"
+#include "content/browser/tab_contents/interstitial_page.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_delegate.h"
 #include "ui/gfx/canvas_skia_paint.h"
 #include "views/focus/view_storage.h"
 #include "views/screen.h"
@@ -30,6 +30,34 @@ using WebKit::WebDragOperation;
 using WebKit::WebDragOperationNone;
 using WebKit::WebDragOperationsMask;
 using WebKit::WebInputEvent;
+
+// Tabs must be created as child widgets, otherwise they will be given
+// a FocusManager which will conflict with the FocusManager of the
+// window they eventually end up attached to.
+//
+// A tab will not have a parent HWND whenever it is not active in its
+// host window - for example at creation time and when it's in the
+// background, so we provide a default widget to host them.
+//
+// It may be tempting to use GetDesktopWindow() instead, but this is
+// problematic as the shell sends messages to children of the desktop
+// window that interact poorly with us.
+//
+// See: http://crbug.com/16476
+static HWND GetHiddenTabHostWindow() {
+  static views::WidgetWin* window = NULL;
+
+  if (!window) {
+    window = new views::WidgetWin();
+    // If a background window requests focus, the hidden tab host will
+    // be activated to focus the tab.  Use WS_DISABLED to prevent
+    // this.
+    window->set_window_style(WS_POPUP | WS_DISABLED);
+    window->Init(NULL, gfx::Rect());
+  }
+
+  return window->hwnd();
+}
 
 // static
 TabContentsView* TabContentsView::Create(TabContents* tab_contents) {
@@ -61,15 +89,15 @@ void TabContentsViewWin::Unparent() {
   focus_manager_ = views::WidgetWin::GetFocusManager();
   // Note that we do not DCHECK on focus_manager_ as it may be NULL when used
   // with an external tab container.
-  ::SetParent(GetNativeView(), NULL);
+  ::SetParent(GetNativeView(), GetHiddenTabHostWindow());
 }
 
 void TabContentsViewWin::CreateView(const gfx::Size& initial_size) {
   set_delete_on_destroy(false);
-  // Since we create these windows parented to the desktop window initially, we
-  // don't want to create them initially visible.
+  // These windows remain hidden until they are parented to the
+  // browser window.
   set_window_style(WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS);
-  WidgetWin::Init(GetDesktopWindow(), gfx::Rect());
+  WidgetWin::Init(GetHiddenTabHostWindow(), gfx::Rect());
 
   // Remove the root view drop target so we can register our own.
   RevokeDragDrop(GetNativeView());
@@ -117,7 +145,7 @@ gfx::NativeWindow TabContentsViewWin::GetTopLevelNativeWindow() const {
 }
 
 void TabContentsViewWin::GetContainerBounds(gfx::Rect* out) const {
-  GetBounds(out, false);
+  *out = GetClientAreaScreenBounds();
 }
 
 void TabContentsViewWin::StartDragging(const WebDropData& drop_data,
@@ -189,6 +217,13 @@ void TabContentsViewWin::Focus() {
 
   if (tab_contents()->is_crashed() && sad_tab_ != NULL) {
     sad_tab_->RequestFocus();
+    return;
+  }
+
+  if (tab_contents()->constrained_window_count() > 0) {
+    ConstrainedWindow* window = *tab_contents()->constrained_window_begin();
+    DCHECK(window);
+    window->FocusConstrainedWindow();
     return;
   }
 
@@ -282,7 +317,7 @@ void TabContentsViewWin::CancelDragAndCloseTab() {
 }
 
 void TabContentsViewWin::GetViewBounds(gfx::Rect* out) const {
-  GetBounds(out, true);
+  *out = GetWindowScreenBounds();
 }
 
 void TabContentsViewWin::UpdateDragCursor(WebDragOperation operation) {
@@ -412,7 +447,7 @@ void TabContentsViewWin::OnPaint(HDC junk_dc) {
     GetClientRect(&cr);
     sad_tab_->SetBoundsRect(gfx::Rect(cr));
     gfx::CanvasSkiaPaint canvas(GetNativeView(), true);
-    sad_tab_->ProcessPaint(&canvas);
+    sad_tab_->Paint(&canvas);
     return;
   }
 

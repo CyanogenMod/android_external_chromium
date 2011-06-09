@@ -1,14 +1,11 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/touch/frame/touch_browser_frame_view.h"
 
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view_views.h"
-#include "chrome/browser/tab_contents/navigation_controller.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
@@ -16,12 +13,17 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/navigation_controller.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "ui/base/animation/slide_animation.h"
 #include "ui/gfx/rect.h"
 #include "views/controls/textfield/textfield.h"
 
 namespace {
 
 const int kKeyboardHeight = 300;
+const int kKeyboardSlideDuration = 500;  // In milliseconds
 
 PropertyAccessor<bool>* GetFocusedStateAccessor() {
   static PropertyAccessor<bool> state;
@@ -50,6 +52,10 @@ TouchBrowserFrameView::TouchBrowserFrameView(BrowserFrame* frame,
                  NotificationService::AllSources());
 
   browser_view->browser()->tabstrip_model()->AddObserver(this);
+
+  animation_.reset(new ui::SlideAnimation(this));
+  animation_->SetTweenType(ui::Tween::LINEAR);
+  animation_->SetSlideDuration(kKeyboardSlideDuration);
 }
 
 TouchBrowserFrameView::~TouchBrowserFrameView() {
@@ -62,8 +68,17 @@ void TouchBrowserFrameView::Layout() {
   if (!keyboard_)
     return;
 
-  keyboard_->SetVisible(keyboard_showing_);
-  keyboard_->SetBoundsRect(GetBoundsForReservedArea());
+  keyboard_->SetVisible(keyboard_showing_ || animation_->is_animating());
+  gfx::Rect bounds = GetBoundsForReservedArea();
+  if (animation_->is_animating() && !keyboard_showing_) {
+    // The keyboard is in the process of hiding. So pretend it still has the
+    // same bounds as when the keyboard is visible. But
+    // |GetBoundsForReservedArea| should not take this into account so that the
+    // render view gets the entire area to relayout itself.
+    bounds.set_y(bounds.y() - kKeyboardHeight);
+    bounds.set_height(kKeyboardHeight);
+  }
+  keyboard_->SetBoundsRect(bounds);
 }
 
 void TouchBrowserFrameView::FocusWillChange(views::View* focused_before,
@@ -79,10 +94,7 @@ void TouchBrowserFrameView::FocusWillChange(views::View* focused_before,
 ///////////////////////////////////////////////////////////////////////////////
 // TouchBrowserFrameView, protected:
 int TouchBrowserFrameView::GetReservedHeight() const {
-  if (keyboard_showing_)
-    return kKeyboardHeight;
-
-  return 0;
+  return keyboard_showing_ ? kKeyboardHeight : 0;
 }
 
 void TouchBrowserFrameView::ViewHierarchyChanged(bool is_add,
@@ -128,17 +140,19 @@ void TouchBrowserFrameView::UpdateKeyboardAndLayout(bool should_show_keyboard) {
   DCHECK(keyboard_);
 
   keyboard_showing_ = should_show_keyboard;
-
-  // Because the NonClientFrameView is a sibling of the ClientView, we rely on
-  // the parent to resize the ClientView instead of resizing it directly.
-  parent()->Layout();
-
-  // The keyboard that pops up may end up hiding the text entry. So make sure
-  // the renderer scrolls when necessary to keep the textfield visible.
   if (keyboard_showing_) {
-    RenderViewHost* host =
-        browser_view()->browser()->GetSelectedTabContents()->render_view_host();
-    host->ScrollFocusedEditableNodeIntoView();
+    animation_->Show();
+
+    // We don't re-layout the client view until the animation ends (see
+    // AnimationEnded below) because we want the client view to occupy the
+    // entire height during the animation.
+    Layout();
+  } else {
+    animation_->Hide();
+
+    browser_view()->set_clip_y(ui::Tween::ValueBetween(
+          animation_->GetCurrentValue(), 0, kKeyboardHeight));
+    parent()->Layout();
   }
 }
 
@@ -164,6 +178,9 @@ void TouchBrowserFrameView::TabSelectedAt(TabContentsWrapper* old_contents,
                                           TabContentsWrapper* new_contents,
                                           int index,
                                           bool user_gesture) {
+  if (new_contents == old_contents)
+    return;
+
   TabContents* contents = new_contents->tab_contents();
   bool* editable = GetFocusedStateAccessor()->GetProperty(
       contents->property_bag());
@@ -200,4 +217,30 @@ void TouchBrowserFrameView::Observe(NotificationType type,
     GetFocusedStateAccessor()->DeleteProperty(
         Source<TabContents>(source).ptr()->property_bag());
   }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// ui::AnimationDelegate implementation
+void TouchBrowserFrameView::AnimationProgressed(const ui::Animation* anim) {
+  keyboard_->SetTranslateY(
+      ui::Tween::ValueBetween(anim->GetCurrentValue(), kKeyboardHeight, 0));
+  browser_view()->set_clip_y(
+      ui::Tween::ValueBetween(anim->GetCurrentValue(), 0, kKeyboardHeight));
+  SchedulePaint();
+}
+
+void TouchBrowserFrameView::AnimationEnded(const ui::Animation* animation) {
+  browser_view()->set_clip_y(0);
+  if (keyboard_showing_) {
+    // Because the NonClientFrameView is a sibling of the ClientView, we rely on
+    // the parent to resize the ClientView instead of resizing it directly.
+    parent()->Layout();
+
+    // The keyboard that pops up may end up hiding the text entry. So make sure
+    // the renderer scrolls when necessary to keep the textfield visible.
+    RenderViewHost* host =
+        browser_view()->browser()->GetSelectedTabContents()->render_view_host();
+    host->ScrollFocusedEditableNodeIntoView();
+  }
+  SchedulePaint();
 }

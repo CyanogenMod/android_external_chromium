@@ -51,9 +51,9 @@ class TestSpdyStreamDelegate : public SpdyStream::Delegate {
     ADD_FAILURE() << "OnSendBody should not be called";
     return ERR_UNEXPECTED;
   }
-  virtual bool OnSendBodyComplete(int status) {
+  virtual int OnSendBodyComplete(int /*status*/, bool* /*eof*/) {
     ADD_FAILURE() << "OnSendBodyComplete should not be called";
-    return true;
+    return ERR_UNEXPECTED;
   }
 
   virtual int OnResponseReceived(const spdy::SpdyHeaderBlock& response,
@@ -80,6 +80,7 @@ class TestSpdyStreamDelegate : public SpdyStream::Delegate {
     callback_ = NULL;
     callback->Run(OK);
   }
+  virtual void set_chunk_callback(net::ChunkCallback *) {}
 
   bool send_headers_completed() const { return send_headers_completed_; }
   const linked_ptr<spdy::SpdyHeaderBlock>& response() const {
@@ -117,9 +118,7 @@ class SpdyStreamTest : public testing::Test {
     HostPortPair host_port_pair("www.google.com", 80);
     HostPortProxyPair pair(host_port_pair, ProxyServer::Direct());
     scoped_refptr<SpdySession> session(
-        session_->spdy_session_pool()->Get(pair,
-                                           session_->mutable_spdy_settings(),
-                                           BoundNetLog()));
+        session_->spdy_session_pool()->Get(pair, BoundNetLog()));
     return session;
   }
 

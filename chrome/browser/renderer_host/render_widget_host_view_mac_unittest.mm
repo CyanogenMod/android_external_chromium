@@ -5,10 +5,10 @@
 #include "chrome/browser/renderer_host/render_widget_host_view_mac.h"
 
 #include "base/mac/scoped_nsautorelease_pool.h"
-#include "chrome/browser/browser_thread.h"
-#include "chrome/browser/renderer_host/test/test_render_view_host.h"
 #import "chrome/browser/ui/cocoa/cocoa_test_helper.h"
 #include "chrome/browser/ui/cocoa/test_event_utils.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/test_render_view_host.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webkit/plugins/npapi/webplugin.h"
 
@@ -57,7 +57,8 @@ class RenderWidgetHostViewMacTest : public RenderViewHostTestHarness {
 
     // The accelerated view isn't shown until it has a valid rect and has been
     // painted to.
-    rwhv_mac_->AcceleratedSurfaceBuffersSwapped(accelerated_handle, 0, 0, 0, 0);
+    rwhv_mac_->AcceleratedSurfaceBuffersSwapped(accelerated_handle,
+                                                0, 0, 0, 0, 0);
     webkit::npapi::WebPluginGeometry geom;
     gfx::Rect rect(0, 0, w, h);
     geom.window = accelerated_handle;

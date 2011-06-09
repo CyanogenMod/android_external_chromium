@@ -6,10 +6,10 @@
 
 #include "base/string_util.h"
 #include "chrome/browser/browser_about_handler.h"
-#include "chrome/browser/dom_ui/web_ui_factory.h"
 #include "chrome/browser/extensions/extension_web_ui.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/webui/web_ui_factory.h"
 #include "googleurl/src/gurl.h"
 
 // Handles rewriting view-source URLs for what we'll actually load.

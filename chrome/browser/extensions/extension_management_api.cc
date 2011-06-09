@@ -9,6 +9,7 @@
 
 #include "base/basictypes.h"
 #include "base/json/json_writer.h"
+#include "base/metrics/histogram.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "chrome/browser/extensions/extension_event_names.h"
@@ -17,6 +18,7 @@
 #include "chrome/browser/extensions/extension_updater.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/webui/extension_icon_source.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_error_utils.h"
 #include "chrome/common/extensions/extension.h"
@@ -33,6 +35,7 @@ namespace {
 const char kAppLaunchUrlKey[] = "appLaunchUrl";
 const char kDescriptionKey[] = "description";
 const char kEnabledKey[] = "enabled";
+const char kHomepageURLKey[] = "homepageUrl";
 const char kIconsKey[] = "icons";
 const char kIdKey[] = "id";
 const char kIsAppKey[] = "isApp";
@@ -62,6 +65,8 @@ static DictionaryValue* CreateExtensionInfo(const Extension& extension,
   info->SetString(kDescriptionKey, extension.description());
   info->SetString(kOptionsUrlKey,
                     extension.options_url().possibly_invalid_spec());
+  info->SetString(kHomepageURLKey,
+                    extension.GetHomepageURL().possibly_invalid_spec());
   if (extension.is_app())
     info->SetString(kAppLaunchUrlKey,
                     extension.GetFullLaunchURL().possibly_invalid_spec());
@@ -72,9 +77,11 @@ static DictionaryValue* CreateExtensionInfo(const Extension& extension,
     std::map<int, std::string>::const_iterator icon_iter;
     for (icon_iter = icons.begin(); icon_iter != icons.end(); ++icon_iter) {
       DictionaryValue* icon_info = new DictionaryValue();
-      GURL url = extension.GetResourceURL(icon_iter->second);
+      Extension::Icons size = static_cast<Extension::Icons>(icon_iter->first);
+      GURL url = ExtensionIconSource::GetIconURL(
+          &extension, size, ExtensionIconSet::MATCH_EXACTLY, false);
       icon_info->SetInteger(kSizeKey, icon_iter->first);
-      icon_info->SetString(kUrlKey, url.possibly_invalid_spec());
+      icon_info->SetString(kUrlKey, url.spec());
       icon_list->Append(icon_info);
     }
     info->Set("icons", icon_list);
@@ -174,6 +181,9 @@ bool LaunchAppFunction::RunImpl() {
       service()->extension_prefs()->GetLaunchContainer(
           extension, ExtensionPrefs::LAUNCH_DEFAULT);
   Browser::OpenApplication(profile(), extension, launch_container, NULL);
+  UMA_HISTOGRAM_ENUMERATION(extension_misc::kAppLaunchHistogram,
+                            extension_misc::APP_LAUNCH_EXTENSION_API,
+                            extension_misc::APP_LAUNCH_BUCKET_BOUNDARY);
 
   return true;
 }

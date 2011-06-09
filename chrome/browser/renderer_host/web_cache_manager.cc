@@ -13,11 +13,11 @@
 #include "base/time.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/render_messages.h"
+#include "content/browser/renderer_host/render_process_host.h"
 
 using base::Time;
 using base::TimeDelta;
@@ -232,7 +232,7 @@ bool WebCacheManager::AttemptTactic(
   // The inactive renderers get one share of the extra memory to be divided
   // among themselves.
   size_t inactive_extra = 0;
-  if (inactive_renderers_.size() > 0) {
+  if (!inactive_renderers_.empty()) {
     ++shares;
     inactive_extra = total_extra / shares;
   }
@@ -256,7 +256,7 @@ void WebCacheManager::AddToStrategy(const std::set<int>& renderers,
 
   // Nothing to do if there are no renderers.  It is common for there to be no
   // inactive renderers if there is a single active tab.
-  if (renderers.size() == 0)
+  if (renderers.empty())
     return;
 
   // Divide the extra memory evenly among the renderers.

@@ -61,7 +61,6 @@ extern const char kAboutShorthangURL[];
 extern const char kAboutSyncURL[];
 extern const char kAboutSyncInternalsURL[];
 extern const char kAboutTermsURL[];
-extern const char kAboutVaporwareURL[];
 extern const char kAboutVersionURL[];
 
 // chrome: URLs (including schemes). Should be kept in sync with the
@@ -74,8 +73,10 @@ extern const char kChromeUIBookmarksURL[];
 extern const char kChromeUIBugReportURL[];
 extern const char kChromeUIConflictsURL[];
 extern const char kChromeUIConstrainedHTMLTestURL[];
+extern const char kChromeUICrashesURL[];
 extern const char kChromeUIDevToolsURL[];
 extern const char kChromeUIDownloadsURL[];
+extern const char kChromeUIExtensionIconURL[];
 extern const char kChromeUIExtensionsURL[];
 extern const char kChromeUIFlagsURL[];
 extern const char kChromeUIFavIconURL[];
@@ -100,6 +101,7 @@ extern const char kChromeUIMobileSetupURL[];
 extern const char kChromeUIRegisterPageURL[];
 extern const char kChromeUISlideshowURL[];
 extern const char kChromeUISystemInfoURL[];
+extern const char kChromeUIUserImageURL[];
 #endif
 
 // chrome components of URLs. Should be kept in sync with the full URLs
@@ -107,9 +109,11 @@ extern const char kChromeUISystemInfoURL[];
 extern const char kChromeUIBookmarksHost[];
 extern const char kChromeUIBugReportHost[];
 extern const char kChromeUIConflictsHost[];
+extern const char kChromeUICrashesHost[];
 extern const char kChromeUIDevToolsHost[];
 extern const char kChromeUIDialogHost[];
 extern const char kChromeUIDownloadsHost[];
+extern const char kChromeUIExtensionIconHost[];
 extern const char kChromeUIExtensionsHost[];
 extern const char kChromeUIFavIconHost[];
 extern const char kChromeUIFlagsHost[];
@@ -117,7 +121,6 @@ extern const char kChromeUIGpuInternalsHost[];
 extern const char kChromeUIHistory2Host[];
 extern const char kChromeUIHistoryHost[];
 extern const char kChromeUIKeyboardHost[];
-extern const char kChromeUILoginHost[];
 extern const char kChromeUINetInternalsHost[];
 extern const char kChromeUINewTabHost[];
 extern const char kChromeUIPluginsHost[];
@@ -146,6 +149,12 @@ extern const char kChromeUISystemInfoHost[];
 extern const char kChromeUIMenu[];
 extern const char kChromeUIWrenchMenu[];
 extern const char kChromeUINetworkMenu[];
+extern const char kChromeUIUserImageHost[];
+#endif
+
+#if defined(OS_CHROMEOS) && defined(TOUCH_UI)
+extern const char kChromeUILoginContainerHost[];
+extern const char kChromeUILoginHost[];
 #endif
 
 // Special URL used to start a navigation to an error page.
@@ -179,10 +188,8 @@ extern const char kBrowserOptionsSubPage[];
 extern const char kClearBrowserDataSubPage[];
 extern const char kContentSettingsSubPage[];
 extern const char kContentSettingsExceptionsSubPage[];
-extern const char kDefaultOptionsSubPage[];
 extern const char kImportDataSubPage[];
 extern const char kPersonalOptionsSubPage[];
-extern const char kSearchEnginesOptionsSubPage[];
 extern const char kSearchEnginesSubPage[];
 #if defined(OS_CHROMEOS)
 extern const char kInternetOptionsSubPage[];

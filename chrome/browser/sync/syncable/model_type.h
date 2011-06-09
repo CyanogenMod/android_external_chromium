@@ -106,6 +106,8 @@ int GetExtensionFieldNumberFromModelType(ModelType model_type);
 // Returns a string that represents the name of |model_type|.
 std::string ModelTypeToString(ModelType model_type);
 
+std::string ModelTypeSetToString(const ModelTypeSet& model_types);
+
 // Returns the ModelType corresponding to the name |model_type_string|.
 ModelType ModelTypeFromString(const std::string& model_type_string);
 
@@ -115,8 +117,17 @@ bool ModelTypeBitSetFromString(
     const std::string& model_type_bitset_string,
     ModelTypeBitSet* model_types);
 
+// Convert a ModelTypeSet to a ModelTypeBitSet.
+ModelTypeBitSet ModelTypeBitSetFromSet(const ModelTypeSet& set);
+
 // Caller takes ownership of returned list.
 ListValue* ModelTypeBitSetToValue(const ModelTypeBitSet& model_types);
+
+// Caller takes ownership of returned list.
+ListValue* ModelTypeSetToValue(const ModelTypeSet& model_types);
+
+// Returns a string corresponding to the syncable tag for this datatype.
+std::string ModelTypeToRootTag(ModelType type);
 
 // Posts timedeltas to histogram of datatypes. Allows tracking of the frequency
 // at which datatypes cause syncs.

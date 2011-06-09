@@ -53,9 +53,6 @@ class BaseTabStrip : public views::View,
   // Stops all tab higlighting.
   virtual void StopAllHighlighting() = 0;
 
-  // Returns the selected tab.
-  virtual BaseTab* GetSelectedBaseTab() const;
-
   // Retrieves the ideal bounds for the Tab at the specified index.
   const gfx::Rect& ideal_bounds(int tab_data_index) {
     return tab_data_[tab_data_index].ideal_bounds;
@@ -132,7 +129,7 @@ class BaseTabStrip : public views::View,
   // TabController overrides:
   virtual void SelectTab(BaseTab* tab);
   virtual void CloseTab(BaseTab* tab);
-  virtual void ShowContextMenu(BaseTab* tab, const gfx::Point& p);
+  virtual void ShowContextMenuForTab(BaseTab* tab, const gfx::Point& p);
   virtual bool IsTabSelected(const BaseTab* tab) const;
   virtual bool IsTabPinned(const BaseTab* tab) const;
   virtual bool IsTabCloseable(const BaseTab* tab) const;
@@ -176,7 +173,7 @@ class BaseTabStrip : public views::View,
   virtual void StartMiniTabAnimation();
 
   // Returns whether the highlight button should be highlighted after a remove.
-  virtual bool ShouldHighlightCloseButtonAfterRemove() { return true; }
+  virtual bool ShouldHighlightCloseButtonAfterRemove();
 
   // Animates all the views to their ideal bounds.
   // NOTE: this does *not* invoke GenerateIdealBounds, it uses the bounds

@@ -18,9 +18,9 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/views/browser_dialogs.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/test/ui_test_utils.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "views/controls/textfield/textfield.h"
@@ -196,8 +196,7 @@ IN_PROC_BROWSER_TEST_F(ScreenLockerTest, TestBasic) {
   // Test to make sure that the widget is actually appearing and is of
   // reasonable size, preventing a regression of
   // http://code.google.com/p/chromium-os/issues/detail?id=5987
-  gfx::Rect lock_bounds;
-  tester->GetChildWidget()->GetBounds(&lock_bounds, true);
+  gfx::Rect lock_bounds = tester->GetChildWidget()->GetWindowScreenBounds();
   EXPECT_GT(lock_bounds.width(), 10);
   EXPECT_GT(lock_bounds.height(), 10);
 

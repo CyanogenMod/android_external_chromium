@@ -2,19 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/hung_renderer_dialog.h"
+#include "chrome/browser/ui/browser_dialogs.h"
 
 #include <gtk/gtk.h>
 
 #include "base/process_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/logging_chrome.h"
 #include "chrome/common/result_codes.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -43,7 +44,7 @@ class HungRendererDialogGtk {
   // Create the gtk dialog and add the widgets.
   void Init();
 
-  CHROMEGTK_CALLBACK_1(HungRendererDialogGtk, void, OnDialogResponse, gint);
+  CHROMEGTK_CALLBACK_1(HungRendererDialogGtk, void, OnResponse, int);
 
   GtkDialog* dialog_;
   GtkListStore* model_;
@@ -75,8 +76,7 @@ void HungRendererDialogGtk::Init() {
       GTK_RESPONSE_OK,
       NULL));
   gtk_dialog_set_default_response(dialog_, GTK_RESPONSE_OK);
-  g_signal_connect(dialog_, "response",
-                   G_CALLBACK(OnDialogResponseThunk), this);
+  g_signal_connect(dialog_, "response", G_CALLBACK(OnResponseThunk), this);
 
   // We have an hbox with the frozen icon on the left.  On the right,
   // we have a vbox with the unresponsive text on top and a table of
@@ -152,7 +152,7 @@ void HungRendererDialogGtk::ShowForTabContents(TabContents* hung_contents) {
       gtk_list_store_append(model_, &tree_iter);
       std::string title = UTF16ToUTF8(it->GetTitle());
       if (title.empty())
-        title = UTF16ToUTF8(TabContents::GetDefaultTitle());
+        title = UTF16ToUTF8(TabContentsWrapper::GetDefaultTitle());
       SkBitmap favicon = it->GetFavIcon();
 
       GdkPixbuf* pixbuf = NULL;
@@ -181,8 +181,7 @@ void HungRendererDialogGtk::EndForTabContents(TabContents* contents) {
 
 // When the user clicks a button on the dialog or closes the dialog, this
 // callback is called.
-void HungRendererDialogGtk::OnDialogResponse(GtkWidget* widget,
-                                             gint response_id) {
+void HungRendererDialogGtk::OnResponse(GtkWidget* dialog, int response_id) {
   DCHECK(g_instance == this);
   switch (response_id) {
     case kKillPagesButtonResponse:
@@ -210,9 +209,9 @@ void HungRendererDialogGtk::OnDialogResponse(GtkWidget* widget,
 
 }  // namespace
 
-namespace hung_renderer_dialog {
+namespace browser {
 
-void ShowForTabContents(TabContents* contents) {
+void ShowHungRendererDialog(TabContents* contents) {
   if (!logging::DialogsAreSuppressed()) {
     if (!g_instance)
       g_instance = new HungRendererDialogGtk();
@@ -220,10 +219,9 @@ void ShowForTabContents(TabContents* contents) {
   }
 }
 
-// static
-void HideForTabContents(TabContents* contents) {
+void HideHungRendererDialog(TabContents* contents) {
   if (!logging::DialogsAreSuppressed() && g_instance)
     g_instance->EndForTabContents(contents);
 }
 
-}  // namespace hung_renderer_dialog
+}  // namespace browser

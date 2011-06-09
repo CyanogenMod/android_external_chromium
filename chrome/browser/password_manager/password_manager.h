@@ -10,8 +10,8 @@
 #include "base/stl_util-inl.h"
 #include "chrome/browser/password_manager/password_form_manager.h"
 #include "chrome/browser/prefs/pref_member.h"
-#include "chrome/browser/tab_contents/tab_contents_observer.h"
 #include "chrome/browser/ui/login/login_model.h"
+#include "content/browser/tab_contents/tab_contents_observer.h"
 #include "webkit/glue/password_form.h"
 #include "webkit/glue/password_form_dom_manager.h"
 
@@ -30,7 +30,8 @@ class PasswordManager : public LoginModel,
   static void RegisterUserPrefs(PrefService* prefs);
 
   // The delegate passed in is required to outlive the PasswordManager.
-  explicit PasswordManager(PasswordManagerDelegate* delegate);
+  PasswordManager(TabContents* tab_contents,
+                  PasswordManagerDelegate* delegate);
   virtual ~PasswordManager();
 
   // Called by a PasswordFormManager when it decides a form can be autofilled

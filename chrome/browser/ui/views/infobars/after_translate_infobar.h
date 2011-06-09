@@ -11,7 +11,6 @@
 #include "chrome/browser/ui/views/infobars/translate_infobar_base.h"
 #include "views/controls/menu/view_menu_delegate.h"
 
-class InfoBarTextButton;
 class TranslateInfoBarDelegate;
 namespace views {
 class Menu2;
@@ -28,7 +27,9 @@ class AfterTranslateInfoBar : public TranslateInfoBarBase,
 
   // TranslateInfoBarBase:
   virtual void Layout();
+  virtual void ViewHierarchyChanged(bool is_add, View* parent, View* child);
   virtual void ButtonPressed(views::Button* sender, const views::Event& event);
+  virtual int ContentMinimumWidth() const;
   virtual void OriginalLanguageChanged();
   virtual void TargetLanguageChanged();
 
@@ -45,17 +46,17 @@ class AfterTranslateInfoBar : public TranslateInfoBarBase,
 
   views::MenuButton* original_language_menu_button_;
   views::MenuButton* target_language_menu_button_;
-  InfoBarTextButton* revert_button_;
+  views::TextButton* revert_button_;
   views::MenuButton* options_menu_button_;
 
-  scoped_ptr<views::Menu2> original_language_menu_;
   LanguagesMenuModel original_language_menu_model_;
+  scoped_ptr<views::Menu2> original_language_menu_;
 
-  scoped_ptr<views::Menu2> target_language_menu_;
   LanguagesMenuModel target_language_menu_model_;
+  scoped_ptr<views::Menu2> target_language_menu_;
 
-  scoped_ptr<views::Menu2> options_menu_;
   OptionsMenuModel options_menu_model_;
+  scoped_ptr<views::Menu2> options_menu_;
 
   // True if the target language comes before the original one.
   bool swapped_language_buttons_;

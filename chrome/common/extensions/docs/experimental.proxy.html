@@ -16,7 +16,7 @@
     <script type="text/javascript" src="js/api_page_generator.js"></script>
     <script type="text/javascript" src="js/bootstrap.js"></script>
     <script type="text/javascript" src="js/sidebar.js"></script>
-  <title>chrome.experimental.proxy - Google Chrome Extensions - Google Code</title></head>
+  <title>Proxy Settings - Google Chrome Extensions - Google Code</title></head>
   <body>  <div id="gc-container" class="labs">
       <div id="devModeWarning">
         You are viewing extension docs in chrome via the 'file:' scheme: are you expecting to see local changes when you refresh? You'll need run chrome with --allow-file-access-from-files.
@@ -251,16 +251,43 @@
 
     <div class="g-unit" id="gc-pagecontent">
       <div id="pageTitle">
-        <h1 class="page_title">chrome.experimental.proxy</h1>
+        <h1 class="page_title">Proxy Settings</h1>
       </div>
         <!-- TABLE OF CONTENTS -->
         <div id="toc">
           <h2>Contents</h2>
           <ol>
-            <li style="display: none; ">
-              <a>h2Name</a>
+            <li>
+              <a href="#manifest">Manifest</a>
+              <ol>
+                <li style="display: none; ">
+                  <a>h3Name</a>
+                </li>
+              </ol>
+            </li><li>
+              <a href="#description">Objects and properties</a>
               <ol>
                 <li>
+                  <a href="#proxy_modes">Proxy modes</a>
+                </li><li>
+                  <a href="#proxy_rules">Proxy rules</a>
+                </li><li>
+                  <a href="#proxy_server_objects">Proxy server objects</a>
+                </li><li>
+                  <a href="#bypass_list">Bypass list</a>
+                </li>
+              </ol>
+            </li><li>
+              <a href="#precedence">Precedence</a>
+              <ol>
+                <li style="display: none; ">
+                  <a>h3Name</a>
+                </li>
+              </ol>
+            </li><li>
+              <a href="#overview-examples">Examples</a>
+              <ol>
+                <li style="display: none; ">
                   <a>h3Name</a>
                 </li>
               </ol>
@@ -268,31 +295,27 @@
               <li>
                 <a href="#apiReference">API reference: chrome.experimental.proxy</a>
                 <ol>
-                  <li style="display: none; ">
+                  <li>
                     <a href="#properties">Properties</a>
                     <ol>
                       <li>
-                        <a href="#property-anchor">propertyName</a>
+                        <a href="#property-settings">settings</a>
+                      </li>
+                    </ol>
+                  </li>
+                  <li style="display: none; ">
+                    <a>Methods</a>
+                    <ol>
+                      <li>
+                        <a href="#method-anchor">methodName</a>
                       </li>
                     </ol>
                   </li>
                   <li>
-                    <a href="#global-methods">Methods</a>
+                    <a href="#global-events">Events</a>
                     <ol>
                       <li>
-                        <a href="#method-getCurrentProxySettings">getCurrentProxySettings</a>
-                      </li><li>
-                        <a href="#method-removeCustomProxySettings">removeCustomProxySettings</a>
-                      </li><li>
-                        <a href="#method-useCustomProxySettings">useCustomProxySettings</a>
-                      </li>
-                    </ol>
-                  </li>
-                  <li style="display: none; ">
-                    <a>Events</a>
-                    <ol>
-                      <li>
-                        <a href="#event-anchor">eventName</a>
+                        <a href="#event-onProxyError">onProxyError</a>
                       </li>
                     </ol>
                   </li>
@@ -317,12 +340,270 @@
         <!-- /TABLE OF CONTENTS -->
 
         <!-- Standard content lead-in for experimental API pages -->
-        <p id="classSummary">
+        <p id="classSummary" style="display: none; ">
           For information on how to use experimental APIs, see the <a href="experimental.html">chrome.experimental.* APIs</a> page.
         </p>
 
         <!-- STATIC CONTENT PLACEHOLDER -->
-        <div id="static"></div>
+        <div id="static"><div id="pageData-name" class="pageData">Proxy Settings</div>
+
+<!-- BEGIN AUTHORED CONTENT -->
+<p id="classSummary">
+Use the <code>chrome.experimental.proxysettings</code> module to manage Chrome's
+proxy settings. This module is still experimental. For information on how to use
+experimental APIs, see the <a href="experimental.html">chrome.experimental.*
+  APIs</a> page.
+</p>
+
+<h2 id="manifest">Manifest</h2>
+<p>You must declare the "proxy" permission
+in the <a href="manifest.html">extension manifest</a>
+to use the proxy settings API.
+For example:</p>
+<pre>{
+  "name": "My extension",
+  ...
+  <b>"permissions": [
+    "experimental", "proxy"
+  ]</b>,
+  ...
+}</pre>
+
+<h2 id="description">Objects and properties</h2>
+
+<p>
+Proxy settings are defined in a 
+<a href="#type-ProxyConfig"><code>ProxyConfig</code></a> object. Depending on
+Chrome's proxy settings, the settings may contain
+<a href="#type-ProxyRules"><code>ProxyRules</code></a> or a <a href="#type-PacScript"><code>PacScript</code></a>.
+</p>
+
+<h3 id="proxy_modes">Proxy modes</h3>
+
+<p>
+A ProxyConfig object's <code>mode</code> attribute determines the overall
+behavior of Chrome with regards to proxy usage. It can take the following
+values:
+</p><dl>
+  <dt><code>direct</code></dt>
+  <dd>In <code>direct</code> mode all connections are created directly, without
+  any proxy involved. This mode allows no further parameters in the
+  <code>ProxyConfig</code> object.</dd>
+
+  <dt><code>auto_detect</code></dt>
+  <dd>In <code>auto_detect</code> mode the proxy configuration is determined by
+  a PAC script that can be downloaded at
+  <a href="http://wpad/wpad.dat">http://wpad/wpad.dat</a>.
+  This mode allows no further parameters in the <code>ProxyConfig</code>
+  object.</dd>
+
+  <dt><code>pac_script</code></dt>
+  <dd>In <code>pac_script</code> mode the proxy configuration is determined by
+  a PAC script that is either retrieved from the URL specified in the
+  <a href="#type-PacScript"><code>PacScript</code></a> object or
+  taken literally from the <code>data</code> element specified in the
+  <a href="#type-PacScript"><code>PacScript</code></a> object.
+  Besides this, this mode allows no further parameters in the
+  <code>ProxyConfig</code> object.</dd>
+
+  <dt><code>fixed_servers</code></dt>
+  <dd>In <code>fixed_servers</code> mode the proxy configuration is codified in
+  a <a href="#type-ProxyRules&gt;&lt;code&gt;ProxyRules"><code>ProxyRules</code></a>
+  object. Its structure is described in <a href="#proxy_rules">Proxy rules</a>.
+  Besides this, the <code>fixed_servers</code> mode allows no further parameters
+  in the <code>ProxyConfig</code> object.</dd>
+
+  <dt><code>system</code></dt>
+  <dd>In <code>system</code> mode the proxy configuration is taken from the
+  operating system. This mode allows no further parameters in the
+  <code>ProxyConfig</code> object. Note that the <code>system</code> mode is
+  different from setting no proxy configuration. In the latter case, Chrome
+  falls back to the system settings only if no command-line options influence
+  the proxy configuration.</dd>
+</dl>
+<p></p>
+
+<h3 id="proxy_rules">Proxy rules</h3>
+
+<p>
+The <a href="#type-ProxyRules"><code>ProxyRules</code></a> object can contain
+either a <code>singleProxy</code> attribute or a subset of
+<code>proxyForHttp</code>, <code>proxyForHttps</code>, <code>proxyForFtp</code>,
+and <code>fallbackProxy</code>.
+</p>
+
+<p>
+In the first case, HTTP, HTTPS and FTP traffic is proxied through the specified
+proxy server. Other traffic is sent directly. In the latter case the behavior is
+slightly more subtle: If a proxy server is configured for the HTTP, HTTPS or FTP
+protocol, the respective traffic is proxied through the specified server. If no
+such proxy server is specified or traffic uses a different protocol than HTTP,
+HTTPS or FTP, the <code>fallbackProxy</code> is used. If no
+<code>fallbackProxy</code> is specified, traffic is sent directly without a
+proxy server.
+</p>
+
+<h3 id="proxy_server_objects">Proxy server objects</h3>
+
+<p>
+A proxy server is configured in a
+<a href="#type-ProxyServer"><code>ProxyServer</code></a> object. The connection
+to the proxy server (defined by the <code>host</code> attribute) uses the
+protocol defined in the <code>scheme</code> attribute. If no <code>scheme</code>
+is specified, the proxy connection defaults to <code>http</code>.
+</p>
+
+<p>
+If no <code>port</code> is defined in a
+<a href="#type-ProxyServer"><code>ProxyServer</code></a> object, the port is
+derived from the scheme. The default ports are:
+</p><table>
+  <tbody><tr><th>Scheme</th><th>Port</th></tr>
+  <tr><td>http</td><td>80</td></tr>
+  <tr><td>https</td><td>443</td></tr>
+  <tr><td>socks4</td><td>1080</td></tr>
+  <tr><td>socks5</td><td>1080</td></tr>
+</tbody></table>
+<p></p>
+
+<h3 id="bypass_list">Bypass list</h3>
+
+<p>
+Individual servers may be excluded from being proxied with the
+<code>bypassList</code>. This list may contain the following entries:
+</p><dl>
+  <dt><code>[<em>&lt;scheme&gt;</em>://]<em>&lt;host-pattern&gt;</em>[:<em>&lt;port&gt;</em>]</code></dt>
+  <dd>Match all hostnames that match the pattern <em>&lt;host-pattern&gt;</em>.<br>
+  Examples: <code>"foobar.com", "*foobar.com", "*.foobar.com", "*foobar.com:99",
+    "https://x.*.y.com:99"</code></dd>
+
+  <dt><code>[<em>&lt;scheme&gt;</em>://]<em>&lt;ip-literal&gt;</em>[:<em>&lt;port&gt;</em>]</code></dt>
+  <dd>Match URLs that are IP address literals.<br>
+  Conceptually this is the similar to the first case, but with special cases
+  to handle IP literal canonicalization. For example, matching
+  on "[0:0:0::1]" is the same as matching on "[::1]" because
+  the IPv6 canonicalization is done internally.<br>
+  Examples: <code>"127.0.1", "[0:0::1]", "[::1]", "http://[::1]:99"</code></dd>
+
+  <dt><code><em>&lt;ip-literal&gt;</em>/<em>&lt;prefix-length-in-bits&gt;</em></code></dt>
+  <dd>Match any URL containing an IP literal within the given range. The IP 
+  range is specified using CIDR notation.<br>
+  Examples: <code>"192.168.1.1/16", "fefe:13::abc/33"</code></dd>
+
+  <dt><code>&lt;local&gt;</code></dt>
+  <dd>Match local addresses. An address is local if the host is "127.0.0.1",
+  "::1", or "localhost".<br>
+  Example: <code>"&lt;local&gt;"</code></dd>
+</dl>
+
+
+<h2 id="precedence">Precedence</h2>
+
+<p>
+Chrome manages settings on different layers. The following list describes the
+layers that may influence the effective proxy settings, in increasing order of
+precedence.
+</p><ol>
+  <li>System settings provided by the operating system</li>
+  <li>Command line parameters</li>
+  <li>Preferences set by extensions</li>
+  <li>Policies</li>
+</ol>
+<p></p>
+
+<p>
+As the list implies, policies might overrule any changes that you specify with
+the proxy settings API.
+</p>
+
+<p>
+Chrome allows using different proxy settings for regular windows and incognito
+windows. The following example illustrates the behavior. Assume that no policy
+overrides the proxy settings and that an extension can set proxy settings for
+regular windows <b>(R)</b> and proxy settings for incognito windows <b>(I)</b>.
+</p>
+
+<p>
+</p><ul>
+  <li>If only <b>(R)</b> is set, these settings are effective for both regular
+  and incognito windows.</li>
+  <li>If only <b>(I)</b> is set, these settings are effective for only incognito
+  windows. Regular windows use the proxy settings determined by the lower layers
+  (command-line options and system settings).</li>
+  <li>If both <b>(R)</b> and <b>(I)</b> are set, the respective settings are
+  used for regular and incognito windows.</li>
+</ul>
+<p></p>
+
+<p>
+If two extensions want to set proxy settings, the extension installed last takes
+precedence over the other extensions. If the extension installed last sets only
+<b>(I)</b>, the settings of regular windows can be defined by more recently
+installed extensions.
+</p>
+
+
+
+<h2 id="overview-examples">Examples</h2>
+
+<p>
+The following code sets a SOCKS 5 proxy for HTTP connections to all servers but
+foobar.com and uses direct connections for all other protocols. The settings
+apply to regular and incognito windows.
+</p>
+
+<pre>var config = {
+  mode: "fixed_servers",
+  rules: {
+    httpProxy: {
+      scheme: "socks5",
+      host: "1.2.3.4"
+    },
+    bypassList: ["foobar.com"]
+  }
+};
+chrome.experimental.proxy.settings.set(
+    {'value': config, 'incognito': false},
+    function() {});
+</pre>
+
+<p>
+The following code sets a custom pac script.
+</p>
+
+<pre>var config = {
+  mode: "pac_script",
+  pacScript: {
+    data: "function FindProxyForURL(url, host) {\n" +
+          "  if (host == 'foobar.com')\n" +
+          "    return 'PROXY blackhole:80';\n" +
+          "  return 'DIRECT';\n" +
+          "}"
+  }
+};
+chrome.experimental.proxy.settings.set(
+    {'value': config, 'incognito': false},
+    function() {});
+</pre>
+
+<p>
+The next snippet queries the current proxy settings.
+</p>
+
+<pre>chrome.experimental.proxy.settings.get(
+    {'incognito': false},
+    function(config) {console.log(JSON.stringify(config));});
+</pre>
+
+<p>
+Note that the <code>value</code> object passed to <code>set()</code> is not
+identical to the <code>value</code> object passed to callback function of
+<code>get()</code>. The latter will contain a <code>rules.httpProxy.port</code>
+element.
+</p>
+
+<!-- END AUTHORED CONTENT -->
+</div>
 
         <!-- API PAGE -->
         <div class="apiPage">
@@ -330,392 +611,129 @@
         <h2>API reference: chrome.experimental.proxy</h2>
 
           <!-- PROPERTIES -->
-          <div class="apiGroup" style="display: none; ">
+          <div class="apiGroup">
             <a name="properties"></a>
             <h3 id="properties">Properties</h3>
 
             <div>
-              <a></a>
-              <h4>getLastError</h4>
+              <a name="property-settings"></a>
+              <h4>settings</h4>
               <div class="summary">
                 <!-- Note: intentionally longer 80 columns -->
-                <span>chrome.extension</span><span>lastError</span>
+                <span>chrome.experimental.proxy.</span><span>settings</span>
               </div>
               <div>
+          <dt>
+            <var>settings</var>
+              <em>
+
+                <!-- TYPE -->
+                <div style="display:inline">
+                  (
+                    <span class="optional" style="display: none; ">optional</span>
+                    <span class="enum" style="display: none; ">enumerated</span>
+                    <span id="typeTemplate">
+                      <span>
+                        <a href="experimental.extension.html#type-Preference">Preference</a>
+                      </span>
+                      <span style="display: none; ">
+                        <span>
+                          array of <span><span></span></span>
+                        </span>
+                        <span>paramType</span>
+                        <span></span>
+                      </span>
+                    </span>
+                  )
+                </div>
+
+              </em>
+          </dt>
+          <dd class="todo" style="display: none; ">
+            Undocumented.
+          </dd>
+          <dd>Proxy settings to be used. The value of this preference is a ProxyConfig object.</dd>
+          <dd style="display: none; ">
+            This parameter was added in version
+            <b><span></span></b>.
+            You must omit this parameter in earlier versions,
+            and you may omit it in any version.  If you require this
+            parameter, the manifest key
+            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
+            can ensure that your extension won't be run in an earlier browser version.
+          </dd>
+
+          <!-- OBJECT PROPERTIES -->
+          <dd style="display: none; ">
+            <dl>
+              <div>
+                <div>
+                </div>
               </div>
+            </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- FUNCTION PARAMETERS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+        </div>
             </div>
 
           </div> <!-- /apiGroup -->
 
           <!-- METHODS -->
-          <div id="methodsTemplate" class="apiGroup">
-            <a name="global-methods"></a>
+          <div id="methodsTemplate" class="apiGroup" style="display: none; ">
+            <a></a>
             <h3>Methods</h3>
 
             <!-- iterates over all functions -->
             <div class="apiItem">
-              <a name="method-getCurrentProxySettings"></a> <!-- method-anchor -->
-              <h4>getCurrentProxySettings</h4>
+              <a></a> <!-- method-anchor -->
+              <h4>method name</h4>
 
-              <div class="summary"><span style="display: none; ">void</span>
+              <div class="summary"><span>void</span>
                   <!-- Note: intentionally longer 80 columns -->
-                  <span>chrome.experimental.proxy.getCurrentProxySettings</span>(<span class="null"><span style="display: none; ">, </span><span>boolean</span>
-                      <var><span>incognito</span></var></span><span class="null"><span>, </span><span>function</span>
-                      <var><span>callback</span></var></span>)</div>
+                  <span>chrome.module.methodName</span>(<span><span>, </span><span></span>
+                      <var><span></span></var></span>)</div>
 
               <div class="description">
-                <p class="todo" style="display: none; ">Undocumented.</p>
-                <p>Returns the currently effective proxy settings. These can originate from default values, command line options, the extension settings API, policies and possibly other sources in the future.</p>
-
-                <!-- PARAMETERS -->
-                <h4>Parameters</h4>
-                <dl>
-                  <div>
-                    <div>
-          <dt>
-            <var>incognito</var>
-              <em>
-
-                <!-- TYPE -->
-                <div style="display:inline">
-                  (
-                    <span class="optional" style="display: none; ">optional</span>
-                    <span class="enum" style="display: none; ">enumerated</span>
-                    <span id="typeTemplate">
-                      <span style="display: none; ">
-                        <a> Type</a>
-                      </span>
-                      <span>
-                        <span style="display: none; ">
-                          array of <span><span></span></span>
-                        </span>
-                        <span>boolean</span>
-                        <span style="display: none; "></span>
-                      </span>
-                    </span>
-                  )
-                </div>
-
-              </em>
-          </dt>
-          <dd class="todo" style="display: none; ">
-            Undocumented.
-          </dd>
-          <dd>See incognito parameter of useCustomProxySettings.</dd>
-          <dd style="display: none; ">
-            This parameter was added in version
-            <b><span></span></b>.
-            You must omit this parameter in earlier versions,
-            and you may omit it in any version.  If you require this
-            parameter, the manifest key
-            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
-            can ensure that your extension won't be run in an earlier browser version.
-          </dd>
-
-          <!-- OBJECT PROPERTIES -->
-          <dd style="display: none; ">
-            <dl>
-              <div>
-                <div>
-                </div>
-              </div>
-            </dl>
-          </dd>
-
-          <!-- OBJECT METHODS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-          <!-- OBJECT EVENT FIELDS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-          <!-- FUNCTION PARAMETERS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-        </div>
-                  </div><div>
-                    <div>
-          <dt>
-            <var>callback</var>
-              <em>
-
-                <!-- TYPE -->
-                <div style="display:inline">
-                  (
-                    <span class="optional" style="display: none; ">optional</span>
-                    <span class="enum" style="display: none; ">enumerated</span>
-                    <span id="typeTemplate">
-                      <span style="display: none; ">
-                        <a> Type</a>
-                      </span>
-                      <span>
-                        <span style="display: none; ">
-                          array of <span><span></span></span>
-                        </span>
-                        <span>function</span>
-                        <span style="display: none; "></span>
-                      </span>
-                    </span>
-                  )
-                </div>
-
-              </em>
-          </dt>
-          <dd class="todo">
-            Undocumented.
-          </dd>
-          <dd style="display: none; ">
-            Description of this parameter from the json schema.
-          </dd>
-          <dd style="display: none; ">
-            This parameter was added in version
-            <b><span></span></b>.
-            You must omit this parameter in earlier versions,
-            and you may omit it in any version.  If you require this
-            parameter, the manifest key
-            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
-            can ensure that your extension won't be run in an earlier browser version.
-          </dd>
-
-          <!-- OBJECT PROPERTIES -->
-          <dd style="display: none; ">
-            <dl>
-              <div>
-                <div>
-                </div>
-              </div>
-            </dl>
-          </dd>
-
-          <!-- OBJECT METHODS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-          <!-- OBJECT EVENT FIELDS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-          <!-- FUNCTION PARAMETERS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-        </div>
-                  </div>
-                </dl>
-
-                <!-- RETURNS -->
-                <h4 style="display: none; ">Returns</h4>
-                <dl>
-                  <div style="display: none; ">
-                    <div>
-                    </div>
-                  </div>
-                </dl>
-
-                <!-- CALLBACK -->
-                <div>
-                  <div>
-                  <h4>Callback function</h4>
-                  <p>
-                    The callback <em>parameter</em> should specify a function
-                    that looks like this:
-                  </p>
-                  <p style="display: none; ">
-                    If you specify the <em>callback</em> parameter, it should
-                    specify a function that looks like this:
-                  </p>
-
-                  <!-- Note: intentionally longer 80 columns -->
-                  <pre>function(<span>ProxyConfig config</span>) <span class="subdued">{...}</span>;</pre>
-                  <dl>
-                    <div>
-                      <div>
-          <dt>
-            <var>config</var>
-              <em>
-
-                <!-- TYPE -->
-                <div style="display:inline">
-                  (
-                    <span class="optional" style="display: none; ">optional</span>
-                    <span class="enum" style="display: none; ">enumerated</span>
-                    <span id="typeTemplate">
-                      <span>
-                        <a href="experimental.proxy.html#type-ProxyConfig">ProxyConfig</a>
-                      </span>
-                      <span style="display: none; ">
-                        <span>
-                          array of <span><span></span></span>
-                        </span>
-                        <span>paramType</span>
-                        <span></span>
-                      </span>
-                    </span>
-                  )
-                </div>
-
-              </em>
-          </dt>
-          <dd class="todo" style="display: none; ">
-            Undocumented.
-          </dd>
-          <dd>Configuration, not necessarily a literal copy of the configuration passed to useCustomProxySettings.</dd>
-          <dd style="display: none; ">
-            This parameter was added in version
-            <b><span></span></b>.
-            You must omit this parameter in earlier versions,
-            and you may omit it in any version.  If you require this
-            parameter, the manifest key
-            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
-            can ensure that your extension won't be run in an earlier browser version.
-          </dd>
-
-          <!-- OBJECT PROPERTIES -->
-          <dd style="display: none; ">
-            <dl>
-              <div>
-                <div>
-                </div>
-              </div>
-            </dl>
-          </dd>
-
-          <!-- OBJECT METHODS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-          <!-- OBJECT EVENT FIELDS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-          <!-- FUNCTION PARAMETERS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-        </div>
-                    </div>
-                  </dl>
-                  </div>
-                </div>
-
-                <!-- MIN_VERSION -->
-                <p style="display: none; ">
-                  This function was added in version <b><span></span></b>.
-                  If you require this function, the manifest key
-                  <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
-                  can ensure that your extension won't be run in an earlier browser version.
+                <p class="todo">Undocumented.</p>
+                <p>
+                  A description from the json schema def of the function goes here.
                 </p>
-              </div> <!-- /description -->
-
-            </div><div class="apiItem">
-              <a name="method-removeCustomProxySettings"></a> <!-- method-anchor -->
-              <h4>removeCustomProxySettings</h4>
-
-              <div class="summary"><span style="display: none; ">void</span>
-                  <!-- Note: intentionally longer 80 columns -->
-                  <span>chrome.experimental.proxy.removeCustomProxySettings</span>(<span class="optional"><span style="display: none; ">, </span><span>boolean</span>
-                      <var><span>incognito</span></var></span>)</div>
-
-              <div class="description">
-                <p class="todo" style="display: none; ">Undocumented.</p>
-                <p>Remove a custom proxy set by the current extension. This is the inverse of useCustomProxySettings.</p>
 
                 <!-- PARAMETERS -->
                 <h4>Parameters</h4>
                 <dl>
                   <div>
                     <div>
-          <dt>
-            <var>incognito</var>
-              <em>
-
-                <!-- TYPE -->
-                <div style="display:inline">
-                  (
-                    <span class="optional">optional</span>
-                    <span class="enum" style="display: none; ">enumerated</span>
-                    <span id="typeTemplate">
-                      <span style="display: none; ">
-                        <a> Type</a>
-                      </span>
-                      <span>
-                        <span style="display: none; ">
-                          array of <span><span></span></span>
-                        </span>
-                        <span>boolean</span>
-                        <span style="display: none; "></span>
-                      </span>
-                    </span>
-                  )
-                </div>
-
-              </em>
-          </dt>
-          <dd class="todo" style="display: none; ">
-            Undocumented.
-          </dd>
-          <dd>See incognito parameter of useCustomProxySettings.</dd>
-          <dd style="display: none; ">
-            This parameter was added in version
-            <b><span></span></b>.
-            You must omit this parameter in earlier versions,
-            and you may omit it in any version.  If you require this
-            parameter, the manifest key
-            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
-            can ensure that your extension won't be run in an earlier browser version.
-          </dd>
-
-          <!-- OBJECT PROPERTIES -->
-          <dd style="display: none; ">
-            <dl>
-              <div>
-                <div>
-                </div>
-              </div>
-            </dl>
-          </dd>
-
-          <!-- OBJECT METHODS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-          <!-- OBJECT EVENT FIELDS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-          <!-- FUNCTION PARAMETERS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-        </div>
+                    </div>
                   </div>
                 </dl>
 
                 <!-- RETURNS -->
-                <h4 style="display: none; ">Returns</h4>
+                <h4>Returns</h4>
                 <dl>
-                  <div style="display: none; ">
+                  <div>
                     <div>
                     </div>
                   </div>
                 </dl>
 
                 <!-- CALLBACK -->
-                <div style="display: none; ">
+                <div>
                   <div>
                   <h4>Callback function</h4>
                   <p>
@@ -739,207 +757,7 @@
                 </div>
 
                 <!-- MIN_VERSION -->
-                <p style="display: none; ">
-                  This function was added in version <b><span></span></b>.
-                  If you require this function, the manifest key
-                  <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
-                  can ensure that your extension won't be run in an earlier browser version.
-                </p>
-              </div> <!-- /description -->
-
-            </div><div class="apiItem">
-              <a name="method-useCustomProxySettings"></a> <!-- method-anchor -->
-              <h4>useCustomProxySettings</h4>
-
-              <div class="summary"><span style="display: none; ">void</span>
-                  <!-- Note: intentionally longer 80 columns -->
-                  <span>chrome.experimental.proxy.useCustomProxySettings</span>(<span class="null"><span style="display: none; ">, </span><span>ProxyConfig</span>
-                      <var><span>config</span></var></span><span class="optional"><span>, </span><span>boolean</span>
-                      <var><span>incognito</span></var></span>)</div>
-
-              <div class="description">
-                <p class="todo" style="display: none; ">Undocumented.</p>
-                <p>Apply the given proxy configuration.</p>
-
-                <!-- PARAMETERS -->
-                <h4>Parameters</h4>
-                <dl>
-                  <div>
-                    <div>
-          <dt>
-            <var>config</var>
-              <em>
-
-                <!-- TYPE -->
-                <div style="display:inline">
-                  (
-                    <span class="optional" style="display: none; ">optional</span>
-                    <span class="enum" style="display: none; ">enumerated</span>
-                    <span id="typeTemplate">
-                      <span>
-                        <a href="experimental.proxy.html#type-ProxyConfig">ProxyConfig</a>
-                      </span>
-                      <span style="display: none; ">
-                        <span>
-                          array of <span><span></span></span>
-                        </span>
-                        <span>paramType</span>
-                        <span></span>
-                      </span>
-                    </span>
-                  )
-                </div>
-
-              </em>
-          </dt>
-          <dd class="todo">
-            Undocumented.
-          </dd>
-          <dd style="display: none; ">
-            Description of this parameter from the json schema.
-          </dd>
-          <dd style="display: none; ">
-            This parameter was added in version
-            <b><span></span></b>.
-            You must omit this parameter in earlier versions,
-            and you may omit it in any version.  If you require this
-            parameter, the manifest key
-            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
-            can ensure that your extension won't be run in an earlier browser version.
-          </dd>
-
-          <!-- OBJECT PROPERTIES -->
-          <dd style="display: none; ">
-            <dl>
-              <div>
-                <div>
-                </div>
-              </div>
-            </dl>
-          </dd>
-
-          <!-- OBJECT METHODS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-          <!-- OBJECT EVENT FIELDS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-          <!-- FUNCTION PARAMETERS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-        </div>
-                  </div><div>
-                    <div>
-          <dt>
-            <var>incognito</var>
-              <em>
-
-                <!-- TYPE -->
-                <div style="display:inline">
-                  (
-                    <span class="optional">optional</span>
-                    <span class="enum" style="display: none; ">enumerated</span>
-                    <span id="typeTemplate">
-                      <span style="display: none; ">
-                        <a> Type</a>
-                      </span>
-                      <span>
-                        <span style="display: none; ">
-                          array of <span><span></span></span>
-                        </span>
-                        <span>boolean</span>
-                        <span style="display: none; "></span>
-                      </span>
-                    </span>
-                  )
-                </div>
-
-              </em>
-          </dt>
-          <dd class="todo" style="display: none; ">
-            Undocumented.
-          </dd>
-          <dd>If true, the proxy settings apply only to incognito windows. Otherwise they apply to regular windows (and incognito windows if no specific settings are provided for incognito windows)</dd>
-          <dd style="display: none; ">
-            This parameter was added in version
-            <b><span></span></b>.
-            You must omit this parameter in earlier versions,
-            and you may omit it in any version.  If you require this
-            parameter, the manifest key
-            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
-            can ensure that your extension won't be run in an earlier browser version.
-          </dd>
-
-          <!-- OBJECT PROPERTIES -->
-          <dd style="display: none; ">
-            <dl>
-              <div>
-                <div>
-                </div>
-              </div>
-            </dl>
-          </dd>
-
-          <!-- OBJECT METHODS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-          <!-- OBJECT EVENT FIELDS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-          <!-- FUNCTION PARAMETERS -->
-          <dd style="display: none; ">
-            <div></div>
-          </dd>
-
-        </div>
-                  </div>
-                </dl>
-
-                <!-- RETURNS -->
-                <h4 style="display: none; ">Returns</h4>
-                <dl>
-                  <div style="display: none; ">
-                    <div>
-                    </div>
-                  </div>
-                </dl>
-
-                <!-- CALLBACK -->
-                <div style="display: none; ">
-                  <div>
-                  <h4>Callback function</h4>
-                  <p>
-                    The callback <em>parameter</em> should specify a function
-                    that looks like this:
-                  </p>
-                  <p>
-                    If you specify the <em>callback</em> parameter, it should
-                    specify a function that looks like this:
-                  </p>
-
-                  <!-- Note: intentionally longer 80 columns -->
-                  <pre>function(<span>Type param1, Type param2</span>) <span class="subdued">{...}</span>;</pre>
-                  <dl>
-                    <div>
-                      <div>
-                      </div>
-                    </div>
-                  </dl>
-                  </div>
-                </div>
-
-                <!-- MIN_VERSION -->
-                <p style="display: none; ">
+                <p>
                   This function was added in version <b><span></span></b>.
                   If you require this function, the manifest key
                   <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
@@ -952,24 +770,22 @@
           </div>  <!-- /apiGroup -->
 
           <!-- EVENTS -->
-          <div id="eventsTemplate" class="apiGroup" style="display: none; ">
-            <a></a>
+          <div id="eventsTemplate" class="apiGroup">
+            <a name="global-events"></a>
             <h3>Events</h3>
             <!-- iterates over all events -->
             <div class="apiItem">
-              <a></a>
-              <h4>event name</h4>
+              <a name="event-onProxyError"></a>
+              <h4>onProxyError</h4>
 
               <div class="summary">
                 <!-- Note: intentionally longer 80 columns -->
-                <span class="subdued">chrome.bookmarks</span><span>onEvent</span><span class="subdued">.addListener</span>(function(<span>Type param1, Type param2</span>) <span class="subdued">{...}</span>);
+                <span class="subdued">chrome.experimental.proxy.</span><span>onProxyError</span><span class="subdued">.addListener</span>(function(<span>object details</span>) <span class="subdued">{...}</span>);
               </div>
 
               <div class="description">
-                <p class="todo">Undocumented.</p>
-                <p>
-                  A description from the json schema def of the event goes here.
-                </p>
+                <p class="todo" style="display: none; ">Undocumented.</p>
+                <p>Notifies about proxy errors.</p>
 
                 <!-- PARAMETERS -->
                 <div>
@@ -977,7 +793,275 @@
                   <dl>
                     <div>
                       <div>
-                      </div>
+          <dt>
+            <var>details</var>
+              <em>
+
+                <!-- TYPE -->
+                <div style="display:inline">
+                  (
+                    <span class="optional" style="display: none; ">optional</span>
+                    <span class="enum" style="display: none; ">enumerated</span>
+                    <span id="typeTemplate">
+                      <span style="display: none; ">
+                        <a> Type</a>
+                      </span>
+                      <span>
+                        <span style="display: none; ">
+                          array of <span><span></span></span>
+                        </span>
+                        <span>object</span>
+                        <span style="display: none; "></span>
+                      </span>
+                    </span>
+                  )
+                </div>
+
+              </em>
+          </dt>
+          <dd class="todo">
+            Undocumented.
+          </dd>
+          <dd style="display: none; ">
+            Description of this parameter from the json schema.
+          </dd>
+          <dd style="display: none; ">
+            This parameter was added in version
+            <b><span></span></b>.
+            You must omit this parameter in earlier versions,
+            and you may omit it in any version.  If you require this
+            parameter, the manifest key
+            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
+            can ensure that your extension won't be run in an earlier browser version.
+          </dd>
+
+          <!-- OBJECT PROPERTIES -->
+          <dd>
+            <dl>
+              <div>
+                <div>
+          <dt>
+            <var>fatal</var>
+              <em>
+
+                <!-- TYPE -->
+                <div style="display:inline">
+                  (
+                    <span class="optional" style="display: none; ">optional</span>
+                    <span class="enum" style="display: none; ">enumerated</span>
+                    <span id="typeTemplate">
+                      <span style="display: none; ">
+                        <a> Type</a>
+                      </span>
+                      <span>
+                        <span style="display: none; ">
+                          array of <span><span></span></span>
+                        </span>
+                        <span>boolean</span>
+                        <span style="display: none; "></span>
+                      </span>
+                    </span>
+                  )
+                </div>
+
+              </em>
+          </dt>
+          <dd class="todo" style="display: none; ">
+            Undocumented.
+          </dd>
+          <dd>If true, the error was fatal and the network transaction was aborted. Otherwise, a direct connection is used instead.</dd>
+          <dd style="display: none; ">
+            This parameter was added in version
+            <b><span></span></b>.
+            You must omit this parameter in earlier versions,
+            and you may omit it in any version.  If you require this
+            parameter, the manifest key
+            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
+            can ensure that your extension won't be run in an earlier browser version.
+          </dd>
+
+          <!-- OBJECT PROPERTIES -->
+          <dd style="display: none; ">
+            <dl>
+              <div>
+                <div>
+                </div>
+              </div>
+            </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- FUNCTION PARAMETERS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+        </div>
+              </div><div>
+                <div>
+          <dt>
+            <var>error</var>
+              <em>
+
+                <!-- TYPE -->
+                <div style="display:inline">
+                  (
+                    <span class="optional" style="display: none; ">optional</span>
+                    <span class="enum" style="display: none; ">enumerated</span>
+                    <span id="typeTemplate">
+                      <span style="display: none; ">
+                        <a> Type</a>
+                      </span>
+                      <span>
+                        <span style="display: none; ">
+                          array of <span><span></span></span>
+                        </span>
+                        <span>string</span>
+                        <span style="display: none; "></span>
+                      </span>
+                    </span>
+                  )
+                </div>
+
+              </em>
+          </dt>
+          <dd class="todo" style="display: none; ">
+            Undocumented.
+          </dd>
+          <dd>The error description.</dd>
+          <dd style="display: none; ">
+            This parameter was added in version
+            <b><span></span></b>.
+            You must omit this parameter in earlier versions,
+            and you may omit it in any version.  If you require this
+            parameter, the manifest key
+            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
+            can ensure that your extension won't be run in an earlier browser version.
+          </dd>
+
+          <!-- OBJECT PROPERTIES -->
+          <dd style="display: none; ">
+            <dl>
+              <div>
+                <div>
+                </div>
+              </div>
+            </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- FUNCTION PARAMETERS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+        </div>
+              </div><div>
+                <div>
+          <dt>
+            <var>details</var>
+              <em>
+
+                <!-- TYPE -->
+                <div style="display:inline">
+                  (
+                    <span class="optional" style="display: none; ">optional</span>
+                    <span class="enum" style="display: none; ">enumerated</span>
+                    <span id="typeTemplate">
+                      <span style="display: none; ">
+                        <a> Type</a>
+                      </span>
+                      <span>
+                        <span style="display: none; ">
+                          array of <span><span></span></span>
+                        </span>
+                        <span>string</span>
+                        <span style="display: none; "></span>
+                      </span>
+                    </span>
+                  )
+                </div>
+
+              </em>
+          </dt>
+          <dd class="todo" style="display: none; ">
+            Undocumented.
+          </dd>
+          <dd>Additional details about the error such as a JavaScript runtime error.</dd>
+          <dd style="display: none; ">
+            This parameter was added in version
+            <b><span></span></b>.
+            You must omit this parameter in earlier versions,
+            and you may omit it in any version.  If you require this
+            parameter, the manifest key
+            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
+            can ensure that your extension won't be run in an earlier browser version.
+          </dd>
+
+          <!-- OBJECT PROPERTIES -->
+          <dd style="display: none; ">
+            <dl>
+              <div>
+                <div>
+                </div>
+              </div>
+            </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- FUNCTION PARAMETERS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+        </div>
+              </div>
+            </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- FUNCTION PARAMETERS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+        </div>
                     </div>
                   </dl>
                 </div>
@@ -1061,7 +1145,7 @@
                           array of <span><span></span></span>
                         </span>
                         <span>string</span>
-                        <span>["http", "https", "socks", "socks4", "socks5"]</span>
+                        <span>["http", "https", "socks4", "socks5"]</span>
                       </span>
                     </span>
                   )
@@ -1072,7 +1156,7 @@
           <dd class="todo" style="display: none; ">
             Undocumented.
           </dd>
-          <dd>The scheme (protocol) of the proxy server itself.</dd>
+          <dd>The scheme (protocol) of the proxy server itself. Defaults to 'http'.</dd>
           <dd style="display: none; ">
             This parameter was added in version
             <b><span></span></b>.
@@ -1140,7 +1224,7 @@
           <dd class="todo" style="display: none; ">
             Undocumented.
           </dd>
-          <dd>The URI of the proxy server.</dd>
+          <dd>The URI of the proxy server. This must be an ASCII hostname (in Punycode format). IDNA is not supported, yet.</dd>
           <dd style="display: none; ">
             This parameter was added in version
             <b><span></span></b>.
@@ -1208,7 +1292,7 @@
           <dd class="todo" style="display: none; ">
             Undocumented.
           </dd>
-          <dd>The port of the proxy server.</dd>
+          <dd>The port of the proxy server. Defaults to a port that depends on the scheme.</dd>
           <dd style="display: none; ">
             This parameter was added in version
             <b><span></span></b>.
@@ -1300,7 +1384,7 @@
           <dd class="todo" style="display: none; ">
             Undocumented.
           </dd>
-          <dd>An object encapsulating the set of proxy rules for all protocols. Use either 'singleProxy' or (a subset of) 'proxyForHttp', 'proxyForHttps', 'proxyForFtp' and 'socksProxy'.</dd>
+          <dd>An object encapsulating the set of proxy rules for all protocols. Use either 'singleProxy' or (a subset of) 'proxyForHttp', 'proxyForHttps', 'proxyForFtp' and 'fallbackProxy'.</dd>
           <dd style="display: none; ">
             This parameter was added in version
             <b><span></span></b>.
@@ -1345,7 +1429,7 @@
           <dd class="todo" style="display: none; ">
             Undocumented.
           </dd>
-          <dd>The proxy server to be used for all per-URL requests (i.e., http, https, and ftp).</dd>
+          <dd>The proxy server to be used for all per-URL requests (that is http, https, and ftp).</dd>
           <dd style="display: none; ">
             This parameter was added in version
             <b><span></span></b>.
@@ -1589,7 +1673,7 @@
               </div><div>
                 <div>
           <dt>
-            <var>socksProxy</var>
+            <var>fallbackProxy</var>
               <em>
 
                 <!-- TYPE -->
@@ -1617,7 +1701,7 @@
           <dd class="todo" style="display: none; ">
             Undocumented.
           </dd>
-          <dd>The proxy server to be used for SOCKS requests.</dd>
+          <dd>The proxy server to be used for everthing else or if any of the specific proxyFor... is not specified.</dd>
           <dd style="display: none; ">
             This parameter was added in version
             <b><span></span></b>.
@@ -1788,7 +1872,7 @@
           <dd class="todo" style="display: none; ">
             Undocumented.
           </dd>
-          <dd>An object holding proxy auto-config information. Only one of the fields should be non-empty.</dd>
+          <dd>An object holding proxy auto-config information. Exactly one of the fields should be non-empty.</dd>
           <dd style="display: none; ">
             This parameter was added in version
             <b><span></span></b>.
@@ -1833,7 +1917,75 @@
           <dd class="todo" style="display: none; ">
             Undocumented.
           </dd>
-          <dd>URL of he PAC file to be used.</dd>
+          <dd>URL of the PAC file to be used.</dd>
+          <dd style="display: none; ">
+            This parameter was added in version
+            <b><span></span></b>.
+            You must omit this parameter in earlier versions,
+            and you may omit it in any version.  If you require this
+            parameter, the manifest key
+            <a href="manifest.html#minimum_chrome_version">minimum_chrome_version</a>
+            can ensure that your extension won't be run in an earlier browser version.
+          </dd>
+
+          <!-- OBJECT PROPERTIES -->
+          <dd style="display: none; ">
+            <dl>
+              <div>
+                <div>
+                </div>
+              </div>
+            </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- FUNCTION PARAMETERS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+        </div>
+              </div><div>
+                <div>
+          <dt>
+            <var>data</var>
+              <em>
+
+                <!-- TYPE -->
+                <div style="display:inline">
+                  (
+                    <span class="optional">optional</span>
+                    <span class="enum" style="display: none; ">enumerated</span>
+                    <span id="typeTemplate">
+                      <span style="display: none; ">
+                        <a> Type</a>
+                      </span>
+                      <span>
+                        <span style="display: none; ">
+                          array of <span><span></span></span>
+                        </span>
+                        <span>string</span>
+                        <span style="display: none; "></span>
+                      </span>
+                    </span>
+                  )
+                </div>
+
+              </em>
+          </dt>
+          <dd class="todo" style="display: none; ">
+            Undocumented.
+          </dd>
+          <dd>A PAC script.</dd>
           <dd style="display: none; ">
             This parameter was added in version
             <b><span></span></b>.

@@ -26,12 +26,12 @@
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/metrics_cros_settings_provider.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/renderer_host/site_instance.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/views/dom_view.h"
 #include "chrome/browser/ui/views/window.h"
 #include "chrome/common/native_web_keyboard_event.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/site_instance.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
@@ -293,19 +293,11 @@ static GURL GetOemEulaPagePath() {
       WizardController::default_controller()->GetCustomization();
   if (customization) {
     std::string locale = g_browser_process->GetApplicationLocale();
-    FilePath eula_page_path = customization->GetEULAPagePath(locale);
-    if (eula_page_path.empty()) {
-      VLOG(1) << "No eula found for locale: " << locale;
-      locale = customization->initial_locale();
-      eula_page_path = customization->GetEULAPagePath(locale);
-    }
-    if (!eula_page_path.empty()) {
-      const std::string page_path = std::string(chrome::kFileScheme) +
-          chrome::kStandardSchemeSeparator + eula_page_path.value();
-      return GURL(page_path);
-    } else {
-      VLOG(1) << "No eula found for locale: " << locale;
-    }
+    std::string eula_page = customization->GetEULAPage(locale);
+    if (!eula_page.empty())
+      return GURL(eula_page);
+
+    VLOG(1) << "No eula found for locale: " << locale;
   } else {
     LOG(ERROR) << "No manifest found.";
   }
@@ -496,6 +488,8 @@ static bool PublishTitleIfReady(const TabContents* contents,
   if (contents != eula_view->tab_contents())
     return false;
   eula_label->SetText(UTF16ToWide(eula_view->tab_contents()->GetTitle()));
+  eula_label->parent()->SetAccessibleName(
+      eula_view->tab_contents()->GetTitle());
   return true;
 }
 

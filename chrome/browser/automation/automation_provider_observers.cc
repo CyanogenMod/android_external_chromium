@@ -25,8 +25,6 @@
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/dom_operation_notification_details.h"
-#include "chrome/browser/dom_ui/most_visited_handler.h"
-#include "chrome/browser/dom_ui/new_tab_ui.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/save_package.h"
 #include "chrome/browser/extensions/extension_host.h"
@@ -35,18 +33,14 @@
 #include "chrome/browser/history/top_sites.h"
 #include "chrome/browser/metrics/metric_event_duration_details.h"
 #include "chrome/browser/notifications/balloon.h"
-#include "chrome/browser/notifications/balloon_host.h"
 #include "chrome/browser/notifications/balloon_collection.h"
+#include "chrome/browser/notifications/balloon_host.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/printing/print_job.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
-#include "chrome/browser/tab_contents/navigation_controller.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/thumbnail_generator.h"
 #include "chrome/browser/translate/page_translated_details.h"
 #include "chrome/browser/translate/translate_infobar_delegate.h"
@@ -54,9 +48,16 @@
 #include "chrome/browser/ui/find_bar/find_notification_details.h"
 #include "chrome/browser/ui/login/login_prompt.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
+#include "chrome/browser/ui/webui/app_launcher_handler.h"
+#include "chrome/browser/ui/webui/most_visited_handler.h"
+#include "chrome/browser/ui/webui/new_tab_ui.h"
 #include "chrome/common/automation_messages.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/notification_service.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/navigation_controller.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "googleurl/src/gurl.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/rect.h"
@@ -221,12 +222,14 @@ NavigationNotificationObserver::NavigationNotificationObserver(
     AutomationProvider* automation,
     IPC::Message* reply_message,
     int number_of_navigations,
-    bool include_current_navigation)
+    bool include_current_navigation,
+    bool use_json_interface)
     : automation_(automation->AsWeakPtr()),
       reply_message_(reply_message),
       controller_(controller),
       navigations_remaining_(number_of_navigations),
-      navigation_started_(false) {
+      navigation_started_(false),
+      use_json_interface_(use_json_interface) {
   DCHECK_LT(0, navigations_remaining_);
   Source<NavigationController> source(controller_);
   registrar_.Add(this, NotificationType::NAV_ENTRY_COMMITTED, source);
@@ -294,9 +297,16 @@ void NavigationNotificationObserver::Observe(
 void NavigationNotificationObserver::ConditionMet(
     AutomationMsg_NavigationResponseValues navigation_result) {
   if (automation_) {
-    IPC::ParamTraits<AutomationMsg_NavigationResponseValues>::Write(
-        reply_message_.get(), navigation_result);
-    automation_->Send(reply_message_.release());
+    if (use_json_interface_) {
+      DictionaryValue dict;
+      dict.SetInteger("result", navigation_result);
+      AutomationJSONReply(automation_, reply_message_.release())
+          .SendSuccess(&dict);
+    } else {
+      IPC::ParamTraits<AutomationMsg_NavigationResponseValues>::Write(
+          reply_message_.get(), navigation_result);
+      automation_->Send(reply_message_.release());
+    }
   }
 
   delete this;
@@ -346,7 +356,7 @@ void TabAppendedNotificationObserver::ObserveTab(
 
   new NavigationNotificationObserver(controller, automation_,
                                      reply_message_.release(),
-                                     1, false);
+                                     1, false, false);
 }
 
 TabClosedNotificationObserver::TabClosedNotificationObserver(
@@ -626,7 +636,7 @@ void ExtensionTestResultNotificationObserver::MaybeSendResult() {
   if (!automation_)
     return;
 
-  if (results_.size() > 0) {
+  if (!results_.empty()) {
     // This release method should return the automation's current
     // reply message, or NULL if there is no current one. If it is not
     // NULL, we are stating that we will handle this reply message.
@@ -851,7 +861,7 @@ bool ExecuteBrowserCommandObserver::CreateAndRegisterObserver(
     case IDC_RELOAD: {
       new NavigationNotificationObserver(
           &browser->GetSelectedTabContents()->controller(),
-          automation, reply_message, 1, false);
+          automation, reply_message, 1, false, false);
       break;
     }
     default: {
@@ -1716,6 +1726,22 @@ NTPInfoObserver::NTPInfoObserver(
     return;
   }
 
+  // Get information about the apps in the new tab page.
+  ExtensionService* ext_service = automation_->profile()->GetExtensionService();
+  const ExtensionList* extensions = ext_service->extensions();
+  ListValue* apps_list = new ListValue();
+  for (ExtensionList::const_iterator ext = extensions->begin();
+       ext != extensions->end(); ++ext) {
+    // Only return information about extensions that are actually apps.
+    if ((*ext)->is_app()) {
+      DictionaryValue* app_info = new DictionaryValue();
+      AppLauncherHandler::CreateAppInfo(*ext, ext_service->extension_prefs(),
+                                        app_info);
+      apps_list->Append(app_info);
+    }
+  }
+  ntp_info_->Set("apps", apps_list);
+
   // Get the info that would be displayed in the recently closed section.
   ListValue* recently_closed_list = new ListValue;
   NewTabUI::AddRecentlyClosedEntries(service->entries(),
@@ -1955,6 +1981,59 @@ void InputEventAckNotificationObserver::Observe(
   }
 }
 
+AllTabsStoppedLoadingObserver::AllTabsStoppedLoadingObserver(
+    AutomationProvider* automation,
+    IPC::Message* reply_message)
+    : automation_(automation->AsWeakPtr()),
+      reply_message_(reply_message) {
+  registrar_.Add(this, NotificationType::LOAD_STOP,
+                 NotificationService::AllSources());
+  registrar_.Add(this, NotificationType::TAB_CONTENTS_DISCONNECTED,
+                 NotificationService::AllSources());
+  registrar_.Add(this, NotificationType::TAB_CONTENTS_DESTROYED,
+                 NotificationService::AllSources());
+  registrar_.Add(this, NotificationType::TAB_CONTENTS_SWAPPED,
+                 NotificationService::AllSources());
+  registrar_.Add(this, NotificationType::TAB_CLOSED,
+                 NotificationService::AllSources());
+  CheckIfStopped();
+}
+
+AllTabsStoppedLoadingObserver::~AllTabsStoppedLoadingObserver() {}
+
+void AllTabsStoppedLoadingObserver::Observe(
+    NotificationType type,
+    const NotificationSource& source,
+    const NotificationDetails& details) {
+  CheckIfStopped();
+}
+
+void AllTabsStoppedLoadingObserver::CheckIfStopped() {
+  if (!automation_) {
+    delete this;
+    return;
+  }
+  bool done_loading = true;
+  BrowserList::const_iterator iter = BrowserList::begin();
+  for (; iter != BrowserList::end(); ++iter) {
+    Browser* browser = *iter;
+    for (int i = 0; i < browser->tab_count(); ++i) {
+      TabContents* tab = browser->GetTabContentsAt(i);
+      if (tab->is_loading()) {
+        done_loading = false;
+        break;
+      }
+    }
+    if (!done_loading)
+      break;
+  }
+  if (done_loading) {
+    AutomationJSONReply(automation_,
+                        reply_message_.release()).SendSuccess(NULL);
+    delete this;
+  }
+}
+
 NewTabObserver::NewTabObserver(AutomationProvider* automation,
                                IPC::Message* reply_message)
     : automation_(automation->AsWeakPtr()),
@@ -1979,7 +2058,7 @@ void NewTabObserver::Observe(NotificationType type,
                                                          true);
     new NavigationNotificationObserver(controller, automation_,
                                        reply_message_.release(),
-                                       1, false);
+                                       1, false, false);
   }
   delete this;
 }
@@ -2008,15 +2087,49 @@ WaitForProcessLauncherThreadToGoIdleObserver::
 
 void WaitForProcessLauncherThreadToGoIdleObserver::
 RunOnProcessLauncherThread() {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::PROCESS_LAUNCHER));
   BrowserThread::PostTask(
       BrowserThread::PROCESS_LAUNCHER, FROM_HERE,
+      NewRunnableMethod(
+          this,
+          &WaitForProcessLauncherThreadToGoIdleObserver::
+          RunOnProcessLauncherThread2));
+}
+
+void WaitForProcessLauncherThreadToGoIdleObserver::
+RunOnProcessLauncherThread2() {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::PROCESS_LAUNCHER));
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(
           this,
           &WaitForProcessLauncherThreadToGoIdleObserver::RunOnUIThread));
 }
 
 void WaitForProcessLauncherThreadToGoIdleObserver::RunOnUIThread() {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (automation_)
     automation_->Send(reply_message_.release());
   Release();
+}
+
+ExecuteJavascriptObserver::ExecuteJavascriptObserver(
+    AutomationProvider* automation,
+    IPC::Message* reply_message)
+    : automation_(automation->AsWeakPtr()),
+      reply_message_(reply_message) {
+}
+
+ExecuteJavascriptObserver::~ExecuteJavascriptObserver() {
+}
+
+void ExecuteJavascriptObserver::OnDomOperationCompleted(
+    const std::string& json) {
+  if (automation_) {
+    DictionaryValue dict;
+    dict.SetString("result", json);
+    AutomationJSONReply(automation_, reply_message_.release())
+        .SendSuccess(&dict);
+  }
+  delete this;
 }

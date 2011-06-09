@@ -51,8 +51,8 @@ namespace webkit_glue {
 
 void SetJavaScriptFlags(const std::string& flags);
 
-// Turn on the logging for notImplemented() calls from WebCore.
-void EnableWebCoreNotImplementedLogging();
+// Turn on logging for flags in the provided comma delimited list.
+void EnableWebCoreLogChannels(const std::string& channels);
 
 // Returns the text of the document element.
 string16 DumpDocumentText(WebKit::WebFrame* web_frame);
@@ -164,10 +164,6 @@ void PrecacheUrl(const char16* url, int url_length);
 // This function is called to add a line to the application's log file.
 void AppendToLog(const char* filename, int line, const char* message);
 
-// Gather usage statistics from the in-memory cache and inform our host, if
-// applicable.
-void NotifyCacheStats();
-
 // Glue to get resources from the embedder.
 
 // Gets a localized string given a message id.  Returns an empty string if the
@@ -265,7 +261,9 @@ void CloseCurrentConnections();
 void SetCacheMode(bool enabled);
 
 // Clear the disk cache.  Used for debugging.
-void ClearCache();
+// |preserve_ssl_host_info| indicates whether disk cache entries related to
+// SSL information should be purged.
+void ClearCache(bool preserve_ssl_host_info);
 
 // Returns the product version.  E.g., Chrome/4.1.333.0
 std::string GetProductVersion();

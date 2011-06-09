@@ -8,9 +8,9 @@
 
 #include "base/ref_counted.h"
 #include "base/string16.h"
-#include "chrome/browser/tab_contents/tab_contents_observer.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
+#include "content/browser/tab_contents/tab_contents_observer.h"
 #include "printing/printed_pages_source.h"
 
 class RenderViewHost;
@@ -29,7 +29,7 @@ class PrintViewManager : public NotificationObserver,
                          public PrintedPagesSource,
                          public TabContentsObserver {
  public:
-  explicit PrintViewManager(TabContents& owner);
+  explicit PrintViewManager(TabContents* tab_contents);
   virtual ~PrintViewManager();
 
   // Cancels the print job.
@@ -124,10 +124,10 @@ class PrintViewManager : public NotificationObserver,
   // print settings are being loaded.
   bool inside_inner_message_loop_;
 
-  // PrintViewManager is created as an extension of WebContent specialized for
-  // printing-related behavior. Still, access to the renderer is needed so a
-  // back reference is kept the the "parent object".
-  TabContents& owner_;
+#if defined(OS_POSIX) && !defined(OS_MACOSX)
+  // Set to true when OnDidPrintPage() should be expecting the first page.
+  bool expecting_first_page_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(PrintViewManager);
 };

@@ -5,22 +5,14 @@
 #include "chrome/browser/ui/views/infobars/translate_message_infobar.h"
 
 #include "chrome/browser/translate/translate_infobar_delegate.h"
-#include "chrome/browser/ui/views/infobars/infobar_text_button.h"
-#include "views/controls/image_view.h"
+#include "views/controls/button/text_button.h"
 #include "views/controls/label.h"
 
 TranslateMessageInfoBar::TranslateMessageInfoBar(
     TranslateInfoBarDelegate* delegate)
     : TranslateInfoBarBase(delegate),
+      label_(NULL),
       button_(NULL) {
-  label_ = CreateLabel(delegate->GetMessageInfoBarText());
-  AddChildView(label_);
-
-  string16 button_text = delegate->GetMessageInfoBarButtonText();
-  if (!button_text.empty()) {
-    button_ = InfoBarTextButton::Create(this, button_text);
-    AddChildView(button_);
-  }
 }
 
 TranslateMessageInfoBar::~TranslateMessageInfoBar() {
@@ -29,21 +21,37 @@ TranslateMessageInfoBar::~TranslateMessageInfoBar() {
 void TranslateMessageInfoBar::Layout() {
   TranslateInfoBarBase::Layout();
 
-  int x = icon_->bounds().right() + kIconLabelSpacing;
   gfx::Size label_size = label_->GetPreferredSize();
-  int available_width = GetAvailableWidth() - x;
-  gfx::Size button_size;
-  if (button_) {
-    button_size = button_->GetPreferredSize();
-    available_width -= (button_size.width() + kButtonInLabelSpacing);
-  }
-  label_->SetBounds(x, OffsetY(this, label_size),
-      std::min(label_size.width(), available_width), label_size.height());
+  label_->SetBounds(StartX(), OffsetY(label_size),
+      std::min(label_size.width(),
+               std::max(0, EndX() - StartX() - ContentMinimumWidth())),
+      label_size.height());
 
   if (button_) {
+    gfx::Size button_size = button_->GetPreferredSize();
     button_->SetBounds(label_->bounds().right() + kButtonInLabelSpacing,
-        OffsetY(this, button_size), button_size.width(), button_size.height());
+        OffsetY(button_size), button_size.width(), button_size.height());
   }
+}
+
+void TranslateMessageInfoBar::ViewHierarchyChanged(bool is_add,
+                                                   View* parent,
+                                                   View* child) {
+  if (is_add && (child == this) && (label_ == NULL)) {
+    TranslateInfoBarDelegate* delegate = GetDelegate();
+    label_ = CreateLabel(delegate->GetMessageInfoBarText());
+    AddChildView(label_);
+
+    string16 button_text(delegate->GetMessageInfoBarButtonText());
+    if (!button_text.empty()) {
+      button_ = CreateTextButton(this, button_text, false);
+      AddChildView(button_);
+    }
+  }
+
+  // This must happen after adding all other children so InfoBarView can ensure
+  // the close button is the last child.
+  TranslateInfoBarBase::ViewHierarchyChanged(is_add, parent, child);
 }
 
 void TranslateMessageInfoBar::ButtonPressed(views::Button* sender,
@@ -52,4 +60,9 @@ void TranslateMessageInfoBar::ButtonPressed(views::Button* sender,
     GetDelegate()->MessageInfoBarButtonPressed();
   else
     TranslateInfoBarBase::ButtonPressed(sender, event);
+}
+
+int TranslateMessageInfoBar::ContentMinimumWidth() const {
+  return (button_ != NULL) ?
+      (button_->GetPreferredSize().width() + kButtonInLabelSpacing) : 0;
 }

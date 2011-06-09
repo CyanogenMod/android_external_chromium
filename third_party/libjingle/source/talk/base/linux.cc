@@ -1,6 +1,29 @@
-// Copyright 2008 Google Inc. All Rights Reserved.
-
-//
+/*
+ * libjingle
+ * Copyright 2011, Google Inc.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *  1. Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *  2. Redistributions in binary form must reproduce the above copyright notice,
+ *     this list of conditions and the following disclaimer in the documentation
+ *     and/or other materials provided with the distribution.
+ *  3. The name of the author may not be used to endorse or promote products
+ *     derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+ * EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
 
 #ifdef LINUX
 #include "talk/base/linux.h"
@@ -26,16 +49,40 @@ ProcCpuInfo::~ProcCpuInfo() {
 
 bool ProcCpuInfo::LoadFromSystem() {
   ConfigParser procfs;
-  if (!procfs.Open(kCpuInfoFile))
+  if (!procfs.Open(kCpuInfoFile)) {
     return false;
+  }
   return procfs.Parse(&cpu_info_);
 };
 
 bool ProcCpuInfo::GetNumCpus(int *num) {
-  if (cpu_info_.size() == 0)
+  if (cpu_info_.size() == 0) {
     return false;
+  }
   *num = cpu_info_.size();
   return true;
+}
+
+bool ProcCpuInfo::GetNumPhysicalCpus(int *num) {
+  if (cpu_info_.size() == 0) {
+    return false;
+  }
+  int total_cores = 0;
+  int physical_id_prev = -1;
+  int cpus = static_cast<int>(cpu_info_.size());
+  for (int i = 0; i < cpus; ++i) {
+    int physical_id;
+    if (GetCpuIntValue(i, "physical id", &physical_id)) {
+      if (physical_id != physical_id_prev) {
+        physical_id_prev = physical_id;
+        int cores;
+        if (GetCpuIntValue(i, "cpu cores", &cores)) {
+          total_cores += cores;
+        }
+      }
+    }
+  }
+  return total_cores;
 }
 
 bool ProcCpuInfo::GetCpuStringValue(int cpu_id, const std::string& key,
@@ -43,8 +90,9 @@ bool ProcCpuInfo::GetCpuStringValue(int cpu_id, const std::string& key,
   if (cpu_id >= static_cast<int>(cpu_info_.size()))
     return false;
   ConfigParser::SimpleMap::iterator iter = cpu_info_[cpu_id].find(key);
-  if (iter == cpu_info_[cpu_id].end())
+  if (iter == cpu_info_[cpu_id].end()) {
     return false;
+  }
   *result = iter->second;
   return true;
 }
@@ -68,8 +116,9 @@ ConfigParser::~ConfigParser() {}
 
 bool ConfigParser::Open(const std::string& filename) {
   FileStream *fs = new FileStream();
-  if (!fs->Open(filename, "r"))
+  if (!fs->Open(filename, "r")) {
     return false;
+  }
   instream_.reset(fs);
   return true;
 }
@@ -102,20 +151,24 @@ bool ConfigParser::ParseLine(std::string *key, std::string *value) {
   // Parses the next line in the filestream and places the found key-value
   // pair into key and val.
   std::string line;
-  if ((instream_->ReadLine(&line)) == EOF)
+  if ((instream_->ReadLine(&line)) == EOF) {
     return false;
+  }
   std::vector<std::string> tokens;
-  if (2 != split(line, ':', &tokens))
+  if (2 != split(line, ':', &tokens)) {
     return false;
+  }
   // Removes whitespace at the end of Key name
   size_t pos = tokens[0].length() - 1;
-  while ((pos > 0) && isspace(tokens[0][pos]))
+  while ((pos > 0) && isspace(tokens[0][pos])) {
     pos--;
+  }
   tokens[0].erase(pos + 1);
   // Removes whitespace at the start of value
   pos = 0;
-  while (pos < tokens[1].length() && isspace(tokens[1][pos]))
+  while (pos < tokens[1].length() && isspace(tokens[1][pos])) {
     pos++;
+  }
   tokens[1].erase(0, pos);
   *key = tokens[0];
   *value = tokens[1];

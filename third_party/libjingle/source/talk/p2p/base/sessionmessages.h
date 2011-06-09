@@ -35,6 +35,7 @@
 #include "talk/xmllite/xmlelement.h"
 #include "talk/p2p/base/constants.h"
 #include "talk/p2p/base/sessiondescription.h"  // Needed to delete contents.
+#include "talk/base/basictypes.h"
 
 namespace cricket {
 
@@ -60,6 +61,13 @@ enum ActionType {
 
   ACTION_TRANSPORT_INFO,
   ACTION_TRANSPORT_ACCEPT,
+
+  // TODO: Make better names for these when we think of a
+  // "jingley" way of signaling them.  Even better, remove them from
+  // being needed at all.
+  ACTION_NOTIFY,
+  ACTION_UPDATE,
+  ACTION_VIEW,
 };
 
 // Abstraction of a <jingle> element within an <iq> stanza, per XMPP
@@ -153,6 +161,45 @@ struct SessionRedirect {
   std::string target;
 };
 
+// Holds the ssrcs for a user's media streams.
+struct MediaSources {
+  uint32 audio_ssrc;
+  uint32 video_ssrc;
+  MediaSources() : audio_ssrc(0), video_ssrc(0) {}
+};
+
+typedef std::map<std::string, MediaSources> StringToMediaSourcesMap;
+
+struct SessionNotify {
+  // A mapping of room users (identified by their nicknames) to their ssrcs.
+  StringToMediaSourcesMap nickname_to_sources;
+};
+
+// TODO: Populate the update message.
+struct SessionUpdate {
+};
+
+// Represents an individual <view> element in the <session type="view">
+// message.
+struct VideoViewRequest {
+  std::string nick_name;
+  uint32 ssrc;
+  uint32 width;
+  uint32 height;
+  uint32 framerate;
+
+  VideoViewRequest(const std::string& nick_name, uint32 ssrc, uint32 width,
+            uint32 height, uint32 framerate) :
+      nick_name(nick_name), ssrc(ssrc), width(width), height(height),
+      framerate(framerate) {}
+};
+
+typedef std::vector<VideoViewRequest> VideoViewRequestVector;
+
+struct SessionView {
+  VideoViewRequestVector view_requests;
+};
+
 bool IsSessionMessage(const buzz::XmlElement* stanza);
 bool ParseSessionMessage(const buzz::XmlElement* stanza,
                          SessionMessage* msg,
@@ -212,6 +259,11 @@ bool WriteTransportInfos(SignalingProtocol protocol,
                          const TransportParserMap& trans_parsers,
                          XmlElements* elems,
                          WriteError* error);
+bool ParseSessionNotify(const buzz::XmlElement* action_elem,
+                        SessionNotify* notify, ParseError* error);
+bool ParseSessionUpdate(const buzz::XmlElement* action_elem,
+                        SessionUpdate* update, ParseError* error);
+void WriteSessionView(const SessionView& view, XmlElements* elems);
 // Handles both Gingle and Jingle syntax.
 bool FindSessionRedirect(const buzz::XmlElement* stanza,
                          SessionRedirect* redirect);

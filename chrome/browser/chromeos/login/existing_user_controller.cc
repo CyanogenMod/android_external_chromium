@@ -28,9 +28,9 @@
 #include "chrome/browser/ui/views/window.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "views/window/window.h"
@@ -52,30 +52,6 @@ const char kCreateAccountURL[] =
 
 // Landing URL when launching Guest mode to fix captive portal.
 const char kCaptivePortalLaunchURL[] = "http://www.google.com/";
-
-// Used to handle the asynchronous response of deleting a cryptohome directory.
-class RemoveAttempt : public CryptohomeLibrary::Delegate {
- public:
-  explicit RemoveAttempt(const std::string& user_email)
-      : user_email_(user_email) {
-    if (CrosLibrary::Get()->EnsureLoaded()) {
-      CrosLibrary::Get()->GetCryptohomeLibrary()->AsyncRemove(
-          user_email_, this);
-    }
-  }
-
-  void OnComplete(bool success, int return_code) {
-    // Log the error, but there's not much we can do.
-    if (!success) {
-      VLOG(1) << "Removal of cryptohome for " << user_email_
-              << " failed, return code: " << return_code;
-    }
-    delete this;
-  }
-
- private:
-  std::string user_email_;
-};
 
 }  // namespace
 
@@ -116,6 +92,8 @@ void ExistingUserController::Init(const UserVector& users) {
           !state->IsManagedPreference(prefs::kApplicationLocale)) {
         state->SetString(prefs::kApplicationLocale, owner_locale);
         state->ScheduleSavePersistentPrefs();
+        // Here we don't enable keyboard layouts, as keyboard layouts are
+        // handled in WizardController.
         LanguageSwitchMenu::SwitchLanguage(owner_locale);
       }
     }
@@ -155,8 +133,11 @@ void ExistingUserController::Init(const UserVector& users) {
   login_display_->Init(filtered_users, show_guest, show_new_user);
 
   LoginUtils::Get()->PrewarmAuthentication();
-  if (CrosLibrary::Get()->EnsureLoaded())
+  if (CrosLibrary::Get()->EnsureLoaded()) {
     CrosLibrary::Get()->GetLoginLibrary()->EmitLoginPromptReady();
+    CrosLibrary::Get()->GetCryptohomeLibrary()->
+        AsyncDoAutomaticFreeDiskSpaceControl(NULL);
+  }
 }
 
 void ExistingUserController::OwnBackground(
@@ -200,6 +181,10 @@ void ExistingUserController::CreateAccount() {
   guest_mode_url_ =
       google_util::AppendGoogleLocaleParam(GURL(kCreateAccountURL));
   LoginAsGuest();
+}
+
+string16 ExistingUserController::GetConnectedNetworkName() {
+  return GetCurrentNetworkName(CrosLibrary::Get()->GetNetworkLibrary());
 }
 
 void ExistingUserController::FixCaptivePortal() {
@@ -273,34 +258,6 @@ void ExistingUserController::OnUserSelected(const std::string& username) {
   num_login_attempts_ = 0;
 }
 
-void ExistingUserController::RemoveUser(const std::string& username) {
-  // Owner is not allowed to be removed from the device.
-  // Must not proceed without signature verification.
-  UserCrosSettingsProvider user_settings;
-  bool trusted_owner_available = user_settings.RequestTrustedOwner(
-      method_factory_.NewRunnableMethod(&ExistingUserController::RemoveUser,
-                                        username));
-  if (!trusted_owner_available) {
-    // Value of owner email is still not verified.
-    // Another attempt will be invoked after verification completion.
-    return;
-  }
-  if (username == UserCrosSettingsProvider::cached_owner()) {
-    // Owner is not allowed to be removed from the device.
-    return;
-  }
-
-  login_display_->OnBeforeUserRemoved(username);
-
-  // Delete user from user list.
-  UserManager::Get()->RemoveUser(username);
-
-  // Delete the encrypted user directory.
-  new RemoveAttempt(username);
-
-  login_display_->OnUserRemoved(username);
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 // ExistingUserController, LoginPerformer::Delegate implementation:
 //
@@ -343,7 +300,10 @@ void ExistingUserController::OnLoginFailure(const LoginFailure& failure) {
       // 1. ClientLogin returns ServiceUnavailable code.
       // 2. Internet connectivity may be behind the captive portal.
       // Suggesting user to try sign in to a portal in Guest mode.
-      ShowError(IDS_LOGIN_ERROR_CAPTIVE_PORTAL, error);
+      if (UserCrosSettingsProvider::cached_allow_guest())
+        ShowError(IDS_LOGIN_ERROR_CAPTIVE_PORTAL, error);
+      else
+        ShowError(IDS_LOGIN_ERROR_CAPTIVE_PORTAL_NO_GUEST_MODE, error);
     } else {
       if (!UserManager::Get()->IsKnownUser(last_login_attempt_username_))
         ShowError(IDS_LOGIN_ERROR_AUTHENTICATING_NEW, error);
@@ -486,9 +446,10 @@ void ExistingUserController::ActivateWizard(const std::string& screen_name) {
   controller->OwnBackground(background_window_, background_view_);
   background_window_ = NULL;
 
-  controller->Init(screen_name, background_bounds_);
   if (chromeos::UserManager::Get()->IsLoggedInAsGuest())
     controller->set_start_url(guest_mode_url_);
+
+  controller->Init(screen_name, background_bounds_);
 
   login_display_->OnFadeOut();
 

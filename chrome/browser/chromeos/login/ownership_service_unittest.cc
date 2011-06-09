@@ -13,9 +13,9 @@
 #include "base/nss_util.h"
 #include "base/scoped_ptr.h"
 #include "base/scoped_temp_dir.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/login/mock_owner_key_utils.h"
 #include "chrome/browser/chromeos/login/owner_manager_unittest.h"
+#include "content/browser/browser_thread.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -86,12 +86,26 @@ TEST_F(OwnershipServiceTest, IsOwned) {
   EXPECT_TRUE(service_->IsAlreadyOwned());
 }
 
+TEST_F(OwnershipServiceTest, IsOwnershipTaken) {
+  EXPECT_CALL(*mock_, GetOwnerKeyFilePath())
+      .WillRepeatedly(Return(tmpfile_));
+  EXPECT_TRUE(service_->GetStatus(true) == OwnershipService::OWNERSHIP_TAKEN);
+}
+
 TEST_F(OwnershipServiceTest, IsUnowned) {
   StartUnowned();
 
   EXPECT_CALL(*mock_, GetOwnerKeyFilePath())
       .WillRepeatedly(Return(tmpfile_));
   EXPECT_FALSE(service_->IsAlreadyOwned());
+}
+
+TEST_F(OwnershipServiceTest, IsOwnershipNone) {
+  StartUnowned();
+
+  EXPECT_CALL(*mock_, GetOwnerKeyFilePath())
+      .WillRepeatedly(Return(tmpfile_));
+  EXPECT_TRUE(service_->GetStatus(true) == OwnershipService::OWNERSHIP_NONE);
 }
 
 TEST_F(OwnershipServiceTest, LoadOwnerKeyFail) {
@@ -119,24 +133,6 @@ TEST_F(OwnershipServiceTest, LoadOwnerKey) {
                       Return(true)))
       .RetiresOnSaturation();
   service_->StartLoadOwnerKeyAttempt();
-
-  message_loop_.Run();
-}
-
-TEST_F(OwnershipServiceTest, AttemptKeyGeneration) {
-  // We really only care that we initiate key generation here;
-  // actual key-generation paths are tested in owner_manager_unittest.cc
-  StartUnowned();
-  MockKeyLoadObserver loader;
-  loader.ExpectKeyFetchSuccess(false);
-
-  EXPECT_CALL(*mock_, GenerateKeyPair())
-      .WillOnce(Return(reinterpret_cast<RSAPrivateKey*>(NULL)))
-      .RetiresOnSaturation();
-  EXPECT_CALL(*mock_, GetOwnerKeyFilePath())
-      .WillRepeatedly(Return(tmpfile_));
-
-  service_->StartTakeOwnershipAttempt("me");
 
   message_loop_.Run();
 }

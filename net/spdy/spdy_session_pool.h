@@ -20,22 +20,19 @@
 #include "net/base/ssl_config_service.h"
 #include "net/proxy/proxy_config.h"
 #include "net/proxy/proxy_server.h"
+#include "net/spdy/spdy_settings_storage.h"
 
 namespace net {
-// Sessions are uniquely identified by their HostPortPair and the proxy server
-// that will be used to connect to it (may be DIRECT).
-typedef std::pair<HostPortPair, ProxyServer> HostPortProxyPair;
 
 class BoundNetLog;
 class ClientSocketHandle;
 class HttpNetworkSession;
 class SpdySession;
-class SpdySettingsStorage;
 
 // This is a very simple pool for open SpdySessions.
 // TODO(mbelshe): Make this production ready.
 class SpdySessionPool
-    : public NetworkChangeNotifier::Observer,
+    : public NetworkChangeNotifier::IPAddressObserver,
       public SSLConfigService::Observer {
  public:
   explicit SpdySessionPool(SSLConfigService* ssl_config_service);
@@ -45,7 +42,6 @@ class SpdySessionPool
   // use.
   scoped_refptr<SpdySession> Get(
       const HostPortProxyPair& host_port_proxy_pair,
-      SpdySettingsStorage* spdy_settings,
       const BoundNetLog& net_log);
 
   // Set the maximum concurrent sessions per domain.
@@ -66,7 +62,6 @@ class SpdySessionPool
   // Returns an error on failure, and |spdy_session| will be NULL.
   net::Error GetSpdySessionFromSocket(
       const HostPortProxyPair& host_port_proxy_pair,
-      SpdySettingsStorage* spdy_settings,
       ClientSocketHandle* connection,
       const BoundNetLog& net_log,
       int certificate_error_code,
@@ -92,7 +87,10 @@ class SpdySessionPool
   // responsible for deleting the returned value.
   Value* SpdySessionPoolInfoToValue() const;
 
-  // NetworkChangeNotifier::Observer methods:
+  SpdySettingsStorage* mutable_spdy_settings() { return &spdy_settings_; }
+  const SpdySettingsStorage& spdy_settings() const { return spdy_settings_; }
+
+  // NetworkChangeNotifier::IPAddressObserver methods:
 
   // We flush all idle sessions and release references to the active ones so
   // they won't get re-used.  The active ones will either complete successfully
@@ -104,6 +102,9 @@ class SpdySessionPool
   // We perform the same flushing as described above when SSL settings change.
   virtual void OnSSLConfigChanged();
 
+  // A debugging mode where we compress all accesses through a single domain.
+  static void ForceSingleDomain() { g_force_single_domain = true; }
+
  private:
   friend class SpdySessionPoolPeer;  // For testing.
   friend class SpdyNetworkTransactionTest;  // For testing.
@@ -113,18 +114,21 @@ class SpdySessionPool
   typedef std::map<HostPortProxyPair, SpdySessionList*> SpdySessionsMap;
 
   // Helper functions for manipulating the lists.
+  const HostPortProxyPair& NormalizeListPair(
+      const HostPortProxyPair& host_port_proxy_pair) const;
   SpdySessionList* AddSessionList(
       const HostPortProxyPair& host_port_proxy_pair);
   SpdySessionList* GetSessionList(
-      const HostPortProxyPair& host_port_proxy_pair);
-  const SpdySessionList* GetSessionList(
       const HostPortProxyPair& host_port_proxy_pair) const;
   void RemoveSessionList(const HostPortProxyPair& host_port_proxy_pair);
+
+  SpdySettingsStorage spdy_settings_;
 
   // This is our weak session pool - one session per domain.
   SpdySessionsMap sessions_;
 
   static int g_max_sessions_per_domain;
+  static bool g_force_single_domain;
 
   const scoped_refptr<SSLConfigService> ssl_config_service_;
 

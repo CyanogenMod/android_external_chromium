@@ -10,17 +10,11 @@
 #include "base/json/json_reader.h"
 #include "base/values.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/debugger/devtools_manager.h"
-#include "chrome/browser/dom_ui/web_ui.h"
-#include "chrome/browser/dom_ui/web_ui_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_url.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_source.h"
@@ -28,6 +22,11 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages_params.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_view.h"
+#include "content/browser/webui/web_ui.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "webkit/glue/webpreferences.h"
 
@@ -341,9 +340,12 @@ void CloudPrintFlowHandler::HandleSendPrintData(const ListValue* args) {
 }
 
 void CloudPrintFlowHandler::HandleSetPageParameters(const ListValue* args) {
-  std::string json(web_ui_util::GetJsonResponseFromFirstArgumentInList(args));
-  if (json.empty())
+  std::string json;
+  args->GetString(0, &json);
+  if (json.empty()) {
+    NOTREACHED() << "Empty json string";
     return;
+  }
 
   // These are backstop default values - 72 dpi to match the screen,
   // 8.5x11 inch paper with margins subtracted (1/4 inch top, left,

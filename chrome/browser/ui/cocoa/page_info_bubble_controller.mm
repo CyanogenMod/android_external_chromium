@@ -8,8 +8,6 @@
 #include "base/sys_string_conversions.h"
 #include "base/task.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/cert_store.h"
-#include "chrome/browser/certificate_viewer.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/profiles/profile.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
@@ -18,6 +16,8 @@
 #import "chrome/browser/ui/cocoa/info_bubble_window.h"
 #import "chrome/browser/ui/cocoa/location_bar/location_bar_view_mac.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/certificate_viewer.h"
+#include "content/browser/cert_store.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "net/base/cert_status_flags.h"
@@ -25,6 +25,7 @@
 #import "third_party/GTM/AppKit/GTMUILocalizerAndLayoutTweaker.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_mac.h"
+#include "ui/gfx/image.h"
 
 @interface PageInfoBubbleController (Private)
 - (PageInfoModel*)model;
@@ -402,7 +403,7 @@ void ShowPageInfoBubble(gfx::NativeWindow parent,
   scoped_nsobject<NSImageView> imageView(
       [[NSImageView alloc] initWithFrame:frame]);
   [imageView setImageFrameStyle:NSImageFrameNone];
-  [imageView setImage:model_->GetIconImage(info.icon_id)];
+  [imageView setImage:*model_->GetIconImage(info.icon_id)];
   [subviews addObject:imageView.get()];
 }
 

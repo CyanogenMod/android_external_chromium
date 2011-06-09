@@ -11,7 +11,6 @@
 #include "base/i18n/rtl.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/extension_function_dispatcher.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
@@ -26,6 +25,7 @@
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_source.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/animation/animation.h"
@@ -80,7 +80,7 @@ class DockView : public views::View {
     return gfx::Size(DockInfo::popup_width(), DockInfo::popup_height());
   }
 
-  virtual void PaintBackground(gfx::Canvas* canvas) {
+  virtual void OnPaintBackground(gfx::Canvas* canvas) {
     SkRect outer_rect = { SkIntToScalar(0), SkIntToScalar(0),
                           SkIntToScalar(width()),
                           SkIntToScalar(height()) };
@@ -616,14 +616,14 @@ void DraggedTabController::SetDraggedContents(
 
 void DraggedTabController::SaveFocus() {
   if (!old_focused_view_) {
-    old_focused_view_ = source_tabstrip_->GetRootView()->GetFocusedView();
-    source_tabstrip_->GetRootView()->FocusView(source_tabstrip_);
+    old_focused_view_ = source_tabstrip_->GetFocusManager()->GetFocusedView();
+    source_tabstrip_->GetFocusManager()->SetFocusedView(source_tabstrip_);
   }
 }
 
 void DraggedTabController::RestoreFocus() {
   if (old_focused_view_ && attached_tabstrip_ == source_tabstrip_)
-    old_focused_view_->GetRootView()->FocusView(old_focused_view_);
+    old_focused_view_->GetFocusManager()->SetFocusedView(old_focused_view_);
   old_focused_view_ = NULL;
 }
 

@@ -38,6 +38,7 @@ typedef std::vector<std::string> ResponseCookies;
 namespace net {
 
 class CookieOptions;
+class HostPortPair;
 class IOBuffer;
 class SSLCertRequestInfo;
 class UploadData;
@@ -329,10 +330,9 @@ class URLRequest : public base::NonThreadSafe {
   // call MarkEndOfChunks() to indicate the end of upload data.
   //
   // This method may be called only after calling EnableChunkedUpload().
-  void AppendChunkToUpload(const char* bytes, int bytes_len);
-
-  // Indicates the end of a chunked transfer encoded request body.
-  void MarkEndOfChunks();
+  void AppendChunkToUpload(const char* bytes,
+                           int bytes_len,
+                           bool is_last_chunk);
 
   // Set the upload data directly.
   void set_upload(net::UploadData* upload);
@@ -416,6 +416,10 @@ class URLRequest : public base::NonThreadSafe {
     return response_info_.was_fetched_via_proxy;
   }
 
+  // Returns the host and port that the content was fetched from.  See
+  // http_response_info.h for caveats relating to cached content.
+  HostPortPair GetSocketAddress() const;
+
   // Get all response headers, as a HttpResponseHeaders object.  See comments
   // in HttpResponseHeaders class as to the format of the data.
   net::HttpResponseHeaders* response_headers() const;
@@ -457,6 +461,9 @@ class URLRequest : public base::NonThreadSafe {
 
   // Returns the error status of the request.
   const net::URLRequestStatus& status() const { return status_; }
+
+  // Returns a globally unique identifier for this request.
+  uint64 identifier() const { return identifier_; }
 
   // This method is called to start the request.  The delegate will receive
   // a OnResponseStarted callback when the request is started.
@@ -651,6 +658,9 @@ class URLRequest : public base::NonThreadSafe {
   // The priority level for this request.  Objects like ClientSocketPool use
   // this to determine which URLRequest to allocate sockets to first.
   net::RequestPriority priority_;
+
+  // A globally unique identifier for this request.
+  const uint64 identifier_;
 
   base::debug::LeakTracker<URLRequest> leak_tracker_;
 

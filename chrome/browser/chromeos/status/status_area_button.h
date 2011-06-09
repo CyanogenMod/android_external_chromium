@@ -17,7 +17,7 @@ class StatusAreaButton : public views::MenuButton {
  public:
   explicit StatusAreaButton(views::ViewMenuDelegate* menu_delegate);
   virtual ~StatusAreaButton() {}
-  virtual void Paint(gfx::Canvas* canvas, bool for_drag);
+  virtual void PaintButton(gfx::Canvas* canvas, PaintButtonMode mode);
   virtual gfx::Size GetPreferredSize();
   virtual gfx::Insets GetInsets() const;
 
@@ -37,11 +37,6 @@ class StatusAreaButton : public views::MenuButton {
   bool active() const { return active_; }
 
  protected:
-
-  // Draws the icon for this status area button on the canvas.
-  // Subclasses should override this method if they need to draw their own icon.
-  // Otherwise, just call SetIcon() and the it will be handled for you.
-  virtual void DrawIcon(gfx::Canvas* canvas);
 
   // Subclasses should override these methods to return the correct dimensions.
   virtual int icon_height() { return 24; }

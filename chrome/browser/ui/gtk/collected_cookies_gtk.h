@@ -14,8 +14,8 @@
 #include "chrome/browser/ui/gtk/constrained_window_gtk.h"
 #include "chrome/browser/ui/gtk/gtk_tree.h"
 #include "chrome/common/content_settings.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "ui/base/gtk/gtk_signal.h"
 
 class CookiesTreeModel;
@@ -32,6 +32,7 @@ class CollectedCookiesGtk : public ConstrainedDialogDelegate,
 
   // ConstrainedDialogDelegate methods.
   virtual GtkWidget* GetWidgetRoot();
+  virtual GtkWidget* GetFocusWidget();
   virtual void DeleteDelegate();
 
  private:
@@ -81,6 +82,7 @@ class CollectedCookiesGtk : public ConstrainedDialogDelegate,
 
   GtkWidget* allow_blocked_cookie_button_;
   GtkWidget* for_session_blocked_cookie_button_;
+  GtkWidget* close_button_;
 
   // The table listing the cookies.
   GtkWidget* allowed_tree_;

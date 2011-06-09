@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,15 +10,16 @@
 #include "base/logging.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/autofill/autofill_field.h"
 #include "chrome/browser/autofill/autofill-inl.h"
+#include "chrome/browser/autofill/autofill_field.h"
+#include "chrome/browser/autofill/autofill_metrics.h"
 #include "chrome/browser/autofill/form_structure.h"
 #include "chrome/browser/autofill/phone_number.h"
-#include "chrome/browser/browser_thread.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/webdata/web_data_service.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/browser_thread.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebRegularExpression.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebString.h"
 
@@ -86,11 +87,14 @@ bool IsValidEmail(const string16& value) {
 // filled.  No verification of validity of the contents is preformed.  This is
 // and existence check only.
 bool IsMinimumAddress(const AutoFillProfile& profile) {
-  return !profile.GetFieldText(AutoFillType(ADDRESS_HOME_LINE1)).empty() &&
-         !profile.GetFieldText(AutoFillType(ADDRESS_HOME_CITY)).empty() &&
-         !profile.GetFieldText(AutoFillType(ADDRESS_HOME_STATE)).empty() &&
-         !profile.GetFieldText(AutoFillType(ADDRESS_HOME_ZIP)).empty();
+  return !profile.GetFieldText(AutofillType(ADDRESS_HOME_LINE1)).empty() &&
+         !profile.GetFieldText(AutofillType(ADDRESS_HOME_CITY)).empty() &&
+         !profile.GetFieldText(AutofillType(ADDRESS_HOME_STATE)).empty() &&
+         !profile.GetFieldText(AutofillType(ADDRESS_HOME_ZIP)).empty();
 }
+
+// Whether we have already logged the number of profiles this session.
+bool g_has_logged_profile_count = false;
 
 }  // namespace
 
@@ -182,7 +186,7 @@ bool PersonalDataManager::ImportFormData(
   for (iter = form_structures.begin(); iter != form_structures.end(); ++iter) {
     const FormStructure* form = *iter;
     for (size_t i = 0; i < form->field_count(); ++i) {
-      const AutoFillField* field = form->field(i);
+      const AutofillField* field = form->field(i);
       string16 value = CollapseWhitespace(field->value(), false);
 
       // If we don't know the type of the field, or the user hasn't entered any
@@ -190,10 +194,10 @@ bool PersonalDataManager::ImportFormData(
       if (!field->IsFieldFillable() || value.empty())
         continue;
 
-      AutoFillType field_type(field->type());
+      AutofillType field_type(field->type());
       FieldTypeGroup group(field_type.group());
 
-      if (group == AutoFillType::CREDIT_CARD) {
+      if (group == AutofillType::CREDIT_CARD) {
         // If the user has a password set, we have no way of setting credit
         // card numbers.
         if (!HasPassword()) {
@@ -202,14 +206,14 @@ bool PersonalDataManager::ImportFormData(
             local_imported_credit_card->SetInfoForMonthInputType(value);
           } else {
             local_imported_credit_card->SetInfo(
-                AutoFillType(field_type.field_type()), value);
+                AutofillType(field_type.field_type()), value);
           }
           ++importable_credit_card_fields;
         }
       } else {
         // In the case of a phone number, if the whole phone number was entered
         // into a single field, then parse it and set the sub components.
-        if (field_type.subgroup() == AutoFillType::PHONE_WHOLE_NUMBER) {
+        if (field_type.subgroup() == AutofillType::PHONE_WHOLE_NUMBER) {
           string16 number;
           string16 city_code;
           string16 country_code;
@@ -220,18 +224,18 @@ bool PersonalDataManager::ImportFormData(
           if (number.empty())
             continue;
 
-          if (group == AutoFillType::PHONE_HOME) {
-            imported_profile->SetInfo(AutoFillType(PHONE_HOME_COUNTRY_CODE),
+          if (group == AutofillType::PHONE_HOME) {
+            imported_profile->SetInfo(AutofillType(PHONE_HOME_COUNTRY_CODE),
                                       country_code);
-            imported_profile->SetInfo(AutoFillType(PHONE_HOME_CITY_CODE),
+            imported_profile->SetInfo(AutofillType(PHONE_HOME_CITY_CODE),
                                       city_code);
-            imported_profile->SetInfo(AutoFillType(PHONE_HOME_NUMBER), number);
-          } else if (group == AutoFillType::PHONE_FAX) {
-            imported_profile->SetInfo(AutoFillType(PHONE_FAX_COUNTRY_CODE),
+            imported_profile->SetInfo(AutofillType(PHONE_HOME_NUMBER), number);
+          } else if (group == AutofillType::PHONE_FAX) {
+            imported_profile->SetInfo(AutofillType(PHONE_FAX_COUNTRY_CODE),
                                       country_code);
-            imported_profile->SetInfo(AutoFillType(PHONE_FAX_CITY_CODE),
+            imported_profile->SetInfo(AutofillType(PHONE_FAX_CITY_CODE),
                                       city_code);
-            imported_profile->SetInfo(AutoFillType(PHONE_FAX_NUMBER), number);
+            imported_profile->SetInfo(AutofillType(PHONE_FAX_NUMBER), number);
           }
 
           continue;
@@ -240,11 +244,11 @@ bool PersonalDataManager::ImportFormData(
         // Phone and fax numbers can be split across multiple fields, so we
         // might have already stored the prefix, and now be at the suffix.
         // If so, combine them to form the full number.
-        if (group == AutoFillType::PHONE_HOME ||
-            group == AutoFillType::PHONE_FAX) {
-          AutoFillType number_type(PHONE_HOME_NUMBER);
-          if (group == AutoFillType::PHONE_FAX)
-            number_type = AutoFillType(PHONE_FAX_NUMBER);
+        if (group == AutofillType::PHONE_HOME ||
+            group == AutofillType::PHONE_FAX) {
+          AutofillType number_type(PHONE_HOME_NUMBER);
+          if (group == AutofillType::PHONE_FAX)
+            number_type = AutofillType(PHONE_FAX_NUMBER);
 
           string16 stored_number = imported_profile->GetFieldText(number_type);
           if (stored_number.size() ==
@@ -257,7 +261,7 @@ bool PersonalDataManager::ImportFormData(
         if (field_type.field_type() == EMAIL_ADDRESS && !IsValidEmail(value))
           continue;
 
-        imported_profile->SetInfo(AutoFillType(field_type.field_type()),
+        imported_profile->SetInfo(AutofillType(field_type.field_type()),
                                    value);
         ++importable_fields;
       }
@@ -276,7 +280,7 @@ bool PersonalDataManager::ImportFormData(
 
   if (local_imported_credit_card.get() &&
       !CreditCard::IsCreditCardNumber(local_imported_credit_card->GetFieldText(
-          AutoFillType(CREDIT_CARD_NUMBER)))) {
+          AutofillType(CREDIT_CARD_NUMBER)))) {
     local_imported_credit_card.reset();
   }
 
@@ -332,14 +336,14 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
            web_profiles_.begin();
        iter != web_profiles_.end(); ++iter) {
     if (!FindByGUID<AutoFillProfile>(*profiles, (*iter)->guid()))
-      wds->RemoveAutoFillProfileGUID((*iter)->guid());
+      wds->RemoveAutoFillProfile((*iter)->guid());
   }
 
   // Update the web database with the existing profiles.
   for (std::vector<AutoFillProfile>::iterator iter = profiles->begin();
        iter != profiles->end(); ++iter) {
     if (FindByGUID<AutoFillProfile>(web_profiles_, iter->guid()))
-      wds->UpdateAutoFillProfileGUID(*iter);
+      wds->UpdateAutoFillProfile(*iter);
   }
 
   // Add the new profiles to the web database.  Don't add a duplicate.
@@ -347,7 +351,7 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
        iter != profiles->end(); ++iter) {
     if (!FindByGUID<AutoFillProfile>(web_profiles_, iter->guid()) &&
         !FindByContents(web_profiles_, *iter))
-      wds->AddAutoFillProfileGUID(*iter);
+      wds->AddAutoFillProfile(*iter);
   }
 #endif
 
@@ -378,8 +382,6 @@ void PersonalDataManager::SetCreditCards(
           std::mem_fun_ref(&CreditCard::IsEmpty)),
       credit_cards->end());
 
-  SetUniqueCreditCardLabels(credit_cards);
-
   WebDataService* wds = profile_->GetWebDataService(Profile::EXPLICIT_ACCESS);
   if (!wds)
     return;
@@ -389,14 +391,14 @@ void PersonalDataManager::SetCreditCards(
   for (std::vector<CreditCard*>::const_iterator iter = credit_cards_.begin();
        iter != credit_cards_.end(); ++iter) {
     if (!FindByGUID<CreditCard>(*credit_cards, (*iter)->guid()))
-      wds->RemoveCreditCardGUID((*iter)->guid());
+      wds->RemoveCreditCard((*iter)->guid());
   }
 
   // Update the web database with the existing credit cards.
   for (std::vector<CreditCard>::iterator iter = credit_cards->begin();
        iter != credit_cards->end(); ++iter) {
     if (FindByGUID<CreditCard>(credit_cards_, iter->guid()))
-      wds->UpdateCreditCardGUID(*iter);
+      wds->UpdateCreditCard(*iter);
   }
 
   // Add the new credit cards to the web database.  Don't add a duplicate.
@@ -404,7 +406,7 @@ void PersonalDataManager::SetCreditCards(
        iter != credit_cards->end(); ++iter) {
     if (!FindByGUID<CreditCard>(credit_cards_, iter->guid()) &&
         !FindByContents(credit_cards_, *iter))
-      wds->AddCreditCardGUID(*iter);
+      wds->AddCreditCard(*iter);
   }
 
   // Copy in the new credit cards.
@@ -456,7 +458,7 @@ void PersonalDataManager::UpdateProfile(const AutoFillProfile& profile) {
   // Ensure that profile labels are up to date.
   AutoFillProfile::AdjustInferredLabels(&web_profiles_.get());
 
-  wds->UpdateAutoFillProfileGUID(profile);
+  wds->UpdateAutoFillProfile(profile);
   FOR_EACH_OBSERVER(Observer, observers_, OnPersonalDataChanged());
 #endif
 }
@@ -514,7 +516,7 @@ void PersonalDataManager::UpdateCreditCard(const CreditCard& credit_card) {
     }
   }
 
-  wds->UpdateCreditCardGUID(credit_card);
+  wds->UpdateCreditCard(credit_card);
   FOR_EACH_OBSERVER(Observer, observers_, OnPersonalDataChanged());
 #endif
 }
@@ -588,10 +590,14 @@ bool PersonalDataManager::IsDataLoaded() const {
 }
 
 const std::vector<AutoFillProfile*>& PersonalDataManager::profiles() {
+<<<<<<< HEAD
   // |profile_| is NULL in AutoFillManagerTest.
 #ifdef ANDROID
   bool auxiliary_profiles_enabled = false;
 #else
+=======
+  // |profile_| is NULL in AutofillManagerTest.
+>>>>>>> chromium.org at r11.0.696.0
   bool auxiliary_profiles_enabled = profile_ ? profile_->GetPrefs()->GetBoolean(
       prefs::kAutoFillAuxiliaryProfilesEnabled) : false;
 #endif
@@ -621,6 +627,7 @@ const std::vector<CreditCard*>& PersonalDataManager::credit_cards() {
   return credit_cards_.get();
 }
 
+<<<<<<< HEAD
 AutoFillProfile* PersonalDataManager::CreateNewEmptyAutoFillProfileForDBThread(
     const string16& label) {
 #ifdef ANDROID
@@ -635,16 +642,25 @@ AutoFillProfile* PersonalDataManager::CreateNewEmptyAutoFillProfileForDBThread(
 #endif
 }
 
+=======
+>>>>>>> chromium.org at r11.0.696.0
 void PersonalDataManager::Refresh() {
   LoadProfiles();
   LoadCreditCards();
+}
+
+// static
+void PersonalDataManager::set_has_logged_profile_count(
+    bool has_logged_profile_count) {
+  g_has_logged_profile_count = has_logged_profile_count;
 }
 
 PersonalDataManager::PersonalDataManager()
     : profile_(NULL),
       is_data_loaded_(false),
       pending_profiles_query_(0),
-      pending_creditcards_query_(0) {
+      pending_creditcards_query_(0),
+      metric_logger_(new AutofillMetrics) {
 }
 
 void PersonalDataManager::Init(Profile* profile) {
@@ -710,6 +726,8 @@ void PersonalDataManager::ReceiveLoadedProfiles(WebDataService::Handle h,
        iter != profiles.end(); ++iter) {
     web_profiles_.push_back(*iter);
   }
+
+  LogProfileCount();
 }
 
 void PersonalDataManager::ReceiveLoadedCreditCards(
@@ -743,28 +761,6 @@ void PersonalDataManager::CancelPendingQuery(WebDataService::Handle* handle) {
   }
   *handle = 0;
 #endif
-}
-
-void PersonalDataManager::SetUniqueCreditCardLabels(
-    std::vector<CreditCard>* credit_cards) {
-  std::map<string16, std::vector<CreditCard*> > label_map;
-  for (std::vector<CreditCard>::iterator iter = credit_cards->begin();
-       iter != credit_cards->end(); ++iter) {
-    label_map[iter->Label()].push_back(&(*iter));
-  }
-
-  for (std::map<string16, std::vector<CreditCard*> >::iterator iter =
-           label_map.begin();
-       iter != label_map.end(); ++iter) {
-    // Start at the second element because the first label should not be
-    // renamed.  The appended label number starts at 2, because the first label
-    // has an implicit index of 1.
-    for (size_t i = 1; i < iter->second.size(); ++i) {
-      string16 newlabel = iter->second[i]->Label() +
-          base::UintToString16(static_cast<unsigned int>(i + 1));
-      iter->second[i]->set_label(newlabel);
-    }
-  }
 }
 
 void PersonalDataManager::SaveImportedProfile(
@@ -873,4 +869,21 @@ void PersonalDataManager::SaveImportedCreditCard(
     creditcards.push_back(imported_credit_card);
 
   SetCreditCards(&creditcards);
+}
+
+
+void PersonalDataManager::LogProfileCount() const {
+  if (!g_has_logged_profile_count) {
+    g_has_logged_profile_count = true;
+    metric_logger_->LogProfileCount(web_profiles_.size());
+  }
+}
+
+const AutofillMetrics* PersonalDataManager::metric_logger() const {
+  return metric_logger_.get();
+}
+
+void PersonalDataManager::set_metric_logger(
+    const AutofillMetrics* metric_logger) {
+  metric_logger_.reset(metric_logger);
 }

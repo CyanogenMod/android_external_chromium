@@ -7,10 +7,10 @@
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/render_messages_params.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
 
 DesktopNotificationHandler::DesktopNotificationHandler(
     TabContents* tab, RenderProcessHost* process)
@@ -87,3 +87,14 @@ RenderProcessHost* DesktopNotificationHandler::GetRenderProcessHost() {
   return tab_ ? tab_->GetRenderProcessHost() : process_;
 }
 
+DesktopNotificationHandlerForTC::DesktopNotificationHandlerForTC(
+    TabContents* tab_contents,
+    RenderProcessHost* process)
+    : TabContentsObserver(tab_contents),
+      handler_(tab_contents, process) {
+}
+
+bool DesktopNotificationHandlerForTC::OnMessageReceived(
+    const IPC::Message& message) {
+  return handler_.OnMessageReceived(message);
+}

@@ -4,8 +4,7 @@
 
 #include "chrome/browser/ui/views/dom_view.h"
 
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "ipc/ipc_message.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "views/focus/focus_manager.h"
 
 #if defined(TOUCH_UI)
@@ -50,7 +49,7 @@ bool DOMView::SkipDefaultKeyEventProcessing(const views::KeyEvent& e) {
   return views::FocusManager::IsTabTraversalKeyEvent(e);
 }
 
-void DOMView::Focus() {
+void DOMView::OnFocus() {
   tab_contents_->Focus();
 }
 

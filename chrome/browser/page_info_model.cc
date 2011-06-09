@@ -10,10 +10,10 @@
 #include "base/i18n/time_formatting.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/cert_store.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ssl/ssl_error_info.h"
 #include "chrome/browser/ssl/ssl_manager.h"
+#include "content/browser/cert_store.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "net/base/cert_status_flags.h"
@@ -22,10 +22,6 @@
 #include "net/base/x509_certificate.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
-
-#if defined(OS_MACOSX)
-#include "base/mac/mac_util.h"
-#endif
 
 PageInfoModel::PageInfoModel(Profile* profile,
                              const GURL& url,
@@ -248,7 +244,8 @@ PageInfoModel::PageInfoModel(Profile* profile,
 
     if (did_fallback) {
       // For now, only SSLv3 fallback will trigger a warning icon.
-      icon_id = ICON_STATE_ERROR;
+      if (icon_id < ICON_STATE_WARNING_MINOR)
+        icon_id = ICON_STATE_WARNING_MINOR;
       description += ASCIIToUTF16("\n\n");
       description += l10n_util::GetStringUTF16(
           IDS_PAGE_INFO_SECURITY_TAB_FALLBACK_MESSAGE);
@@ -279,15 +276,7 @@ PageInfoModel::PageInfoModel(Profile* profile,
   }
 }
 
-PageInfoModel::~PageInfoModel() {
-#if defined(OS_MACOSX)
-  // Release the NSImages.
-  for (std::vector<gfx::NativeImage>::iterator it = icons_.begin();
-       it != icons_.end(); ++it) {
-    base::mac::NSObjectRelease(*it);
-  }
-#endif
-}
+PageInfoModel::~PageInfoModel() {}
 
 int PageInfoModel::GetSectionCount() {
   return sections_.size();
@@ -298,7 +287,7 @@ PageInfoModel::SectionInfo PageInfoModel::GetSectionInfo(int index) {
   return sections_[index];
 }
 
-gfx::NativeImage PageInfoModel::GetIconImage(SectionStateIcon icon_id) {
+gfx::Image* PageInfoModel::GetIconImage(SectionStateIcon icon_id) {
   if (icon_id == ICON_NONE)
     return NULL;
   // The bubble uses new, various icons.
@@ -349,20 +338,10 @@ PageInfoModel::PageInfoModel() : observer_(NULL) {
 void PageInfoModel::Init() {
   // Loads the icons into the vector. The order must match the SectionStateIcon
   // enum.
-  icons_.push_back(GetBitmapNamed(IDR_PAGEINFO_GOOD));
-  icons_.push_back(GetBitmapNamed(IDR_PAGEINFO_WARNING_MINOR));
-  icons_.push_back(GetBitmapNamed(IDR_PAGEINFO_WARNING_MAJOR));
-  icons_.push_back(GetBitmapNamed(IDR_PAGEINFO_BAD));
-  icons_.push_back(GetBitmapNamed(IDR_PAGEINFO_INFO));
-}
-
-gfx::NativeImage PageInfoModel::GetBitmapNamed(int resource_id) {
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  gfx::NativeImage image = rb.GetNativeImageNamed(resource_id);
-#if defined(OS_MACOSX)
-  // Unlike other platforms, the Mac ResourceBundle does not keep a shared image
-  // cache. These are released in the dtor.
-  base::mac::NSObjectRetain(image);
-#endif
-  return image;
+  icons_.push_back(&rb.GetNativeImageNamed(IDR_PAGEINFO_GOOD));
+  icons_.push_back(&rb.GetNativeImageNamed(IDR_PAGEINFO_WARNING_MINOR));
+  icons_.push_back(&rb.GetNativeImageNamed(IDR_PAGEINFO_WARNING_MAJOR));
+  icons_.push_back(&rb.GetNativeImageNamed(IDR_PAGEINFO_BAD));
+  icons_.push_back(&rb.GetNativeImageNamed(IDR_PAGEINFO_INFO));
 }

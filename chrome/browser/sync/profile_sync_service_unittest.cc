@@ -15,7 +15,6 @@
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/net/gaia/token_service.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
@@ -39,6 +38,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/testing_profile.h"
 #include "chrome/test/testing_pref_service.h"
+#include "content/browser/browser_thread.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 using std::vector;
@@ -271,7 +271,7 @@ class FakeServerChange {
   // of the changelist.
   void SetModified(int64 id) {
     // Coalesce multi-property edits.
-    if (changes_.size() > 0 && changes_.back().id == id &&
+    if (!changes_.empty() && changes_.back().id == id &&
         changes_.back().action ==
         sync_api::SyncManager::ChangeRecord::ACTION_UPDATE)
       return;

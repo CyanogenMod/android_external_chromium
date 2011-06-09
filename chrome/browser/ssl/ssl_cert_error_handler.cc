@@ -4,21 +4,18 @@
 
 #include "chrome/browser/ssl/ssl_cert_error_handler.h"
 
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/ssl/ssl_manager.h"
 #include "chrome/browser/ssl/ssl_policy.h"
+#include "content/browser/renderer_host/resource_dispatcher_host.h"
 #include "net/base/x509_certificate.h"
 
 SSLCertErrorHandler::SSLCertErrorHandler(
     ResourceDispatcherHost* rdh,
     net::URLRequest* request,
     ResourceType::Type resource_type,
-    const std::string& frame_origin,
-    const std::string& main_frame_origin,
     int cert_error,
     net::X509Certificate* cert)
-    : SSLErrorHandler(rdh, request, resource_type, frame_origin,
-                      main_frame_origin),
+    : SSLErrorHandler(rdh, request, resource_type),
       cert_error_(cert_error) {
   DCHECK(request == resource_dispatcher_host_->GetURLRequest(request_id_));
 

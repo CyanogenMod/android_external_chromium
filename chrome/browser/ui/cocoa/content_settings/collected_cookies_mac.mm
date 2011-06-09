@@ -9,10 +9,10 @@
 #import "base/mac/mac_util.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #import "chrome/browser/ui/cocoa/vertical_gradient_view.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_source.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "skia/ext/skia_utils_mac.h"
@@ -22,6 +22,7 @@
 #import "third_party/GTM/AppKit/GTMUILocalizerAndLayoutTweaker.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/image.h"
 
 namespace {
 // Colors for the infobar.

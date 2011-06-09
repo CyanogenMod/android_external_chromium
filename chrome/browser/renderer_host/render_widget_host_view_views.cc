@@ -14,12 +14,12 @@
 #include "base/string_number_conversions.h"
 #include "base/task.h"
 #include "base/time.h"
-#include "chrome/browser/renderer_host/backing_store_skia.h"
-#include "chrome/browser/renderer_host/backing_store_x.h"
-#include "chrome/browser/renderer_host/render_widget_host.h"
 #include "chrome/common/native_web_keyboard_event.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/result_codes.h"
+#include "content/browser/renderer_host/backing_store_skia.h"
+#include "content/browser/renderer_host/backing_store_x.h"
+#include "content/browser/renderer_host/render_widget_host.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/gtk/WebInputEventFactory.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebInputEvent.h"
 #include "ui/base/keycodes/keyboard_code_conversion_gtk.h"
@@ -27,6 +27,7 @@
 #include "ui/base/x/x11_util.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/gtk_native_view_id_manager.h"
 #include "views/events/event.h"
 #include "views/ime/ime_context.h"
 #include "views/widget/widget.h"
@@ -442,7 +443,7 @@ void RenderWidgetHostViewViews::DidUpdateBackingStore(
   if (about_to_validate_and_paint_)
     invalid_rect_ = invalid_rect_.Union(scroll_rect);
   else
-    SchedulePaint(scroll_rect, false);
+    SchedulePaintInRect(scroll_rect);
 
   for (size_t i = 0; i < copy_rects.size(); ++i) {
     // Avoid double painting.  NOTE: This is only relevant given the call to
@@ -454,7 +455,7 @@ void RenderWidgetHostViewViews::DidUpdateBackingStore(
     if (about_to_validate_and_paint_)
       invalid_rect_ = invalid_rect_.Union(rect);
     else
-      SchedulePaint(rect, false);
+      SchedulePaintInRect(rect);
   }
   invalid_rect_ = invalid_rect_.Intersect(bounds());
 }
@@ -531,7 +532,7 @@ void RenderWidgetHostViewViews::SetBackground(const SkBitmap& background) {
   host_->Send(new ViewMsg_SetBackground(host_->routing_id(), background));
 }
 
-void RenderWidgetHostViewViews::Paint(gfx::Canvas* canvas) {
+void RenderWidgetHostViewViews::OnPaint(gfx::Canvas* canvas) {
   if (is_hidden_) {
     return;
   }
@@ -707,38 +708,13 @@ bool RenderWidgetHostViewViews::OnKeyReleased(const views::KeyEvent& e) {
   return TRUE;
 }
 
-void RenderWidgetHostViewViews::DidGainFocus() {
-#if 0
-  // TODO(anicolao): - is this needed/replicable?
-  // Comes from the GTK equivalent.
-
-  int x, y;
-  gtk_widget_get_pointer(native_view(), &x, &y);
-  // http://crbug.com/13389
-  // If the cursor is in the render view, fake a mouse move event so that
-  // webkit updates its state. Otherwise webkit might think the cursor is
-  // somewhere it's not.
-  if (x >= 0 && y >= 0 && x < native_view()->allocation.width &&
-      y < native_view()->allocation.height) {
-    WebKit::WebMouseEvent fake_event;
-    fake_event.timeStampSeconds = base::Time::Now().ToDoubleT();
-    fake_event.modifiers = 0;
-    fake_event.windowX = fake_event.x = x;
-    fake_event.windowY = fake_event.y = y;
-    gdk_window_get_origin(native_view()->window, &x, &y);
-    fake_event.globalX = fake_event.x + x;
-    fake_event.globalY = fake_event.y + y;
-    fake_event.type = WebKit::WebInputEvent::MouseMove;
-    fake_event.button = WebKit::WebMouseEvent::ButtonNone;
-    GetRenderWidgetHost()->ForwardMouseEvent(fake_event);
-  }
-#endif
+void RenderWidgetHostViewViews::OnFocus() {
   ime_context_->Focus();
   ShowCurrentCursor();
   GetRenderWidgetHost()->GotFocus();
 }
 
-void RenderWidgetHostViewViews::WillLoseFocus() {
+void RenderWidgetHostViewViews::OnBlur() {
   // If we are showing a context menu, maintain the illusion that webkit has
   // focus.
   if (!is_showing_context_menu_ && !is_hidden_ && host_)
@@ -784,6 +760,21 @@ void RenderWidgetHostViewViews::AcceleratedCompositingActivated(
   // TODO(anicolao): figure out if we need something here
   if (activated)
     NOTIMPLEMENTED();
+}
+
+gfx::PluginWindowHandle RenderWidgetHostViewViews::AcquireCompositingSurface() {
+  GtkNativeViewManager* manager = GtkNativeViewManager::GetInstance();
+  gfx::PluginWindowHandle surface = gfx::kNullPluginWindow;
+  gfx::NativeViewId view_id = gfx::IdFromNativeView(GetInnerNativeView());
+
+  if (!manager->GetXIDForId(&surface, view_id)) {
+    DLOG(ERROR) << "Can't find XID for view id " << view_id;
+  }
+  return surface;
+}
+
+void RenderWidgetHostViewViews::ReleaseCompositingSurface(
+    gfx::PluginWindowHandle surface) {
 }
 
 WebKit::WebMouseEvent RenderWidgetHostViewViews::WebMouseEventFromViewsEvent(

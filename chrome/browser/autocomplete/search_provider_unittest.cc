@@ -8,14 +8,16 @@
 #include "build/build_config.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autocomplete/search_provider.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/common/net/test_url_fetcher_factory.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/test/testing_browser_process.h"
+#include "chrome/test/testing_browser_process_test.h"
 #include "chrome/test/testing_profile.h"
+#include "content/browser/browser_thread.h"
 #include "net/url_request/url_request_status.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -28,7 +30,7 @@
 // . The URL created by using the search term keyword_term_ with keyword_t_url_
 //   is added to history.
 // . test_factory_ is set as the URLFetcher::Factory.
-class SearchProviderTest : public testing::Test,
+class SearchProviderTest : public TestingBrowserProcessTest,
                            public AutocompleteProvider::ACProviderListener {
  public:
   SearchProviderTest()

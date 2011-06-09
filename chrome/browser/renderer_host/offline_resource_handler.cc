@@ -10,13 +10,16 @@
 #include "base/metrics/histogram.h"
 #include "base/singleton.h"
 #include "base/string_util.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/network_state_notifier.h"
 #include "chrome/browser/chromeos/offline/offline_load_page.h"
-#include "chrome/browser/chromeos/offline/offline_load_service.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
+#include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/resource_dispatcher_host.h"
+#include "content/browser/renderer_host/resource_dispatcher_host_request_info.h"
+#include "net/base/net_errors.h"
+#include "net/url_request/url_request.h"
+#include "net/url_request/url_request_context.h"
 
 OfflineResourceHandler::OfflineResourceHandler(
     ResourceHandler* handler,
@@ -30,6 +33,10 @@ OfflineResourceHandler::OfflineResourceHandler(
       rdh_(rdh),
       request_(request),
       deferred_request_id_(-1) {
+}
+
+OfflineResourceHandler::~OfflineResourceHandler() {
+  DCHECK(!appcache_completion_callback_.get());
 }
 
 bool OfflineResourceHandler::OnUploadProgress(int request_id,
@@ -59,7 +66,32 @@ bool OfflineResourceHandler::OnResponseCompleted(
 }
 
 void OfflineResourceHandler::OnRequestClosed() {
+  if (appcache_completion_callback_) {
+    appcache_completion_callback_->Cancel();
+    appcache_completion_callback_.release();
+    Release();  // Balanced with OnWillStart
+  }
   next_handler_->OnRequestClosed();
+}
+
+void OfflineResourceHandler::OnCanHandleOfflineComplete(int rv) {
+  CHECK(appcache_completion_callback_);
+  appcache_completion_callback_ = NULL;
+  if (deferred_request_id_ == -1) {
+    LOG(WARNING) << "OnCanHandleOfflineComplete called after completion: "
+                 << " this=" << this;
+    NOTREACHED();
+    return;
+  }
+  if (rv == net::OK) {
+    Resume();
+    Release();  // Balanced with OnWillStart
+  } else {
+    // Skipping AddRef/Release because they're redundant.
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
+        NewRunnableMethod(this, &OfflineResourceHandler::ShowOfflinePage));
+  }
 }
 
 bool OfflineResourceHandler::OnWillStart(int request_id,
@@ -69,10 +101,16 @@ bool OfflineResourceHandler::OnWillStart(int request_id,
     deferred_request_id_ = request_id;
     deferred_url_ = url;
     DVLOG(1) << "WillStart: this=" << this << ", request id=" << request_id;
-    AddRef();  //  Balanced with OnBlockingPageComplete
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        NewRunnableMethod(this, &OfflineResourceHandler::ShowOfflinePage));
+    AddRef();  //  Balanced with OnCanHandleOfflineComplete
+    DCHECK(!appcache_completion_callback_);
+    appcache_completion_callback_ =
+        new net::CancelableCompletionCallback<OfflineResourceHandler>(
+            this, &OfflineResourceHandler::OnCanHandleOfflineComplete);
+    ChromeURLRequestContext* url_request_context =
+        static_cast<ChromeURLRequestContext*>(request_->context());
+    url_request_context->appcache_service()->CanHandleMainResourceOffline(
+        url, appcache_completion_callback_);
+
     *defer = true;
     return true;
   }
@@ -91,19 +129,18 @@ bool OfflineResourceHandler::OnReadCompleted(int request_id, int* bytes_read) {
 }
 
 void OfflineResourceHandler::OnBlockingPageComplete(bool proceed) {
-  if (deferred_request_id_ < 0) {
-    LOG(WARNING) << "OnBlockingPageComplete called after completion: "
-                 << " this=" << this << ", request_id="
-                 << deferred_request_id_;
-    NOTREACHED();
-    return;
-  }
   if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
     BrowserThread::PostTask(
         BrowserThread::IO, FROM_HERE,
         NewRunnableMethod(this,
                           &OfflineResourceHandler::OnBlockingPageComplete,
                           proceed));
+    return;
+  }
+  if (deferred_request_id_ == -1) {
+    LOG(WARNING) << "OnBlockingPageComplete called after completion: "
+                 << " this=" << this;
+    NOTREACHED();
     return;
   }
   if (proceed) {
@@ -133,9 +170,7 @@ bool OfflineResourceHandler::ShouldShowOfflinePage(const GURL& url) const {
   return IsRemote(url) &&
       !chromeos::NetworkStateNotifier::is_connected() &&
       ResourceDispatcherHost::InfoForRequest(request_)->resource_type()
-          == ResourceType::MAIN_FRAME &&
-      !chromeos::OfflineLoadService::Get()->ShouldProceed(
-          process_host_id_, render_view_id_, url);
+        == ResourceType::MAIN_FRAME;
 }
 
 void OfflineResourceHandler::Resume() {
@@ -143,10 +178,6 @@ void OfflineResourceHandler::Resume() {
   int request_id = deferred_request_id_;
   ClearRequestInfo();
 
-  chromeos::OfflineLoadService::Get()->Proceeded(
-      process_host_id_, render_view_id_, url);
-
-  DCHECK_NE(request_id, -1);
   bool defer = false;
   DVLOG(1) << "Resume load: this=" << this << ", request id=" << request_id;
   next_handler_->OnWillStart(request_id, url, &defer);

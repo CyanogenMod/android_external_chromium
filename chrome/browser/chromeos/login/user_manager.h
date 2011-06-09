@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,14 +13,15 @@
 #include "base/hash_tables.h"
 #include "base/ref_counted.h"
 #include "chrome/browser/chromeos/login/user_image_loader.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 class FilePath;
 class PrefService;
 
 namespace chromeos {
+class RemoveUserDelegate;
 
 // This class provides a mechanism for discovering users who have logged
 // into this chromium os device before and updating that list.
@@ -31,7 +32,7 @@ class UserManager : public UserImageLoader::Delegate,
   class User {
    public:
     User();
-    ~User() {}
+    ~User();
 
     // The email the user used to log in.
     void set_email(const std::string& email) { email_ = email; }
@@ -71,16 +72,21 @@ class UserManager : public UserImageLoader::Delegate,
   // The persistent list will be updated accordingly.
   virtual void UserLoggedIn(const std::string& email);
 
-  // Remove user from persistent list. NOTE: user's data won't be removed.
-  virtual void RemoveUser(const std::string& email);
+  // Removes the user from the device. Note, it will verify that the given user
+  // isn't the owner, so calling this method for the owner will take no effect.
+  // Note, |delegate| can be NULL.
+  virtual void RemoveUser(const std::string& email,
+                          RemoveUserDelegate* delegate);
+
+  // Removes the user from the persistent list only. Also removes the user's
+  // picture.
+  virtual void RemoveUserFromList(const std::string& email);
 
   // Returns true if given user has logged into the device before.
   virtual bool IsKnownUser(const std::string& email);
 
   // Returns the logged-in user.
-  virtual const User& logged_in_user() const {
-    return logged_in_user_;
-  }
+  virtual const User& logged_in_user() const;
 
   // Sets image for logged-in user and sends LOGIN_USER_IMAGE_CHANGED
   // notification about the image changed via NotificationService.
@@ -100,12 +106,8 @@ class UserManager : public UserImageLoader::Delegate,
                        const NotificationDetails& details);
 
   // Accessor for current_user_is_owner_
-  virtual bool current_user_is_owner() const {
-    return current_user_is_owner_;
-  }
-  virtual void set_current_user_is_owner(bool current_user_is_owner) {
-    current_user_is_owner_ = current_user_is_owner;
-  }
+  virtual bool current_user_is_owner() const;
+  virtual void set_current_user_is_owner(bool current_user_is_owner);
 
   // Accessor for current_user_is_new_.
   bool current_user_is_new() const {

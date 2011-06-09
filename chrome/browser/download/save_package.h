@@ -16,8 +16,9 @@
 #include "base/hash_tables.h"
 #include "base/ref_counted.h"
 #include "base/task.h"
-#include "chrome/browser/tab_contents/tab_contents_observer.h"
+#include "chrome/browser/history/download_create_info.h"
 #include "chrome/browser/ui/shell_dialogs.h"
+#include "content/browser/tab_contents/tab_contents_observer.h"
 #include "googleurl/src/gurl.h"
 
 class SaveFileManager;
@@ -163,6 +164,12 @@ class SavePackage : public base::RefCountedThreadSafe<SavePackage>,
   void SaveNextFile(bool process_all_remainder_items);
   void DoSavingProcess();
 
+  // Called when Save Page As entry is commited to the history system.
+  void OnDownloadEntryAdded(DownloadCreateInfo info, int64 db_handle);
+
+  // Called when a Save Page As download is started.
+  void CreateDownloadItem(const FilePath& path, const GURL& url, bool is_otr);
+
   // TabContentsObserver implementation.
   virtual bool OnMessageReceived(const IPC::Message& message);
 
@@ -268,8 +275,6 @@ class SavePackage : public base::RefCountedThreadSafe<SavePackage>,
 
   // Non-owning pointer for handling file writing on the file thread.
   SaveFileManager* file_manager_;
-
-  TabContents* tab_contents_;
 
   // We use a fake DownloadItem here in order to reuse the DownloadItemView.
   // This class owns the pointer.

@@ -9,6 +9,7 @@
 #include <string>
 
 #include "base/scoped_ptr.h"
+#include "base/string16.h"
 #include "base/task.h"
 #include "base/timer.h"
 #include "chrome/browser/chromeos/login/background_view.h"
@@ -18,8 +19,8 @@
 #include "chrome/browser/chromeos/login/password_changed_view.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/chromeos/wm_message_listener.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "googleurl/src/gurl.h"
 #include "testing/gtest/include/gtest/gtest_prod.h"
 #include "ui/gfx/rect.h"
@@ -59,12 +60,12 @@ class ExistingUserController : public LoginDisplay::Delegate,
 
   // LoginDisplay::Delegate: implementation
   virtual void CreateAccount();
+  virtual string16 GetConnectedNetworkName();
   virtual void FixCaptivePortal();
   virtual void Login(const std::string& username,
                      const std::string& password);
   virtual void LoginAsGuest();
   virtual void OnUserSelected(const std::string& username);
-  virtual void RemoveUser(const std::string& username);
 
   // NotificationObserver implementation.
   virtual void Observe(NotificationType type,

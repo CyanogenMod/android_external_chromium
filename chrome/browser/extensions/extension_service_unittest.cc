@@ -22,22 +22,18 @@
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
 #include "base/version.h"
-#include "chrome/browser/appcache/chrome_appcache_service.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/extension_creator.h"
 #include "chrome/browser/extensions/extension_error_reporter.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_special_storage_policy.h"
 #include "chrome/browser/extensions/external_extension_provider_interface.h"
 #include "chrome/browser/extensions/external_extension_provider_impl.h"
 #include "chrome/browser/extensions/external_pref_extension_loader.h"
 #include "chrome/browser/extensions/pack_extension_job.cc"
-#include "chrome/browser/file_system/browser_file_system_helper.h"
-#include "chrome/browser/in_process_webkit/dom_storage_context.h"
-#include "chrome/browser/in_process_webkit/webkit_context.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/prefs/pref_service_mock_builder.h"
-#include "chrome/browser/prefs/scoped_pref_update.h"
+#include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension.h"
@@ -52,6 +48,11 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/testing_profile.h"
+#include "content/browser/appcache/chrome_appcache_service.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/file_system/browser_file_system_helper.h"
+#include "content/browser/in_process_webkit/dom_storage_context.h"
+#include "content/browser/in_process_webkit/webkit_context.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/cookie_monster.h"
 #include "net/base/cookie_options.h"
@@ -341,11 +342,13 @@ class ExtensionTestingProfile : public TestingProfile {
       appcache_service_ = new ChromeAppCacheService;
       BrowserThread::PostTask(
           BrowserThread::IO, FROM_HERE,
-          NewRunnableMethod(appcache_service_.get(),
-                            &ChromeAppCacheService::InitializeOnIOThread,
-                            GetPath(), IsOffTheRecord(),
-                            make_scoped_refptr(GetHostContentSettingsMap()),
-                            false));
+          NewRunnableMethod(
+              appcache_service_.get(),
+              &ChromeAppCacheService::InitializeOnIOThread,
+              GetPath(), IsOffTheRecord(),
+              make_scoped_refptr(GetHostContentSettingsMap()),
+              make_scoped_refptr(GetExtensionSpecialStoragePolicy()),
+              false));
     }
     return appcache_service_;
   }
@@ -353,7 +356,7 @@ class ExtensionTestingProfile : public TestingProfile {
   virtual fileapi::FileSystemContext* GetFileSystemContext() {
     if (!file_system_context_)
       file_system_context_ = CreateFileSystemContext(
-          GetPath(), IsOffTheRecord());
+          GetPath(), IsOffTheRecord(), GetExtensionSpecialStoragePolicy());
     return file_system_context_;
   }
 
@@ -545,10 +548,22 @@ class ExtensionServiceTest
       PackAndInstallExtension(dir_path, FilePath(), should_succeed);
   }
 
+  // Create a CrxInstaller and start installation. To allow the install
+  // to happen, use loop_.RunAllPending();. Most tests will not use this
+  // method directly.  Instead, use InstallExtension(), which waits for
+  // the crx to be installed and does extra error checking.
+  void StartCrxInstall(const FilePath& crx_path) {
+    ASSERT_TRUE(file_util::PathExists(crx_path));
+    scoped_refptr<CrxInstaller> installer(
+        new CrxInstaller(service_,  // frontend
+                         NULL));  // no client (silent install)
+    installer->InstallCrx(crx_path);
+  }
+
   void InstallExtension(const FilePath& path,
                         bool should_succeed) {
     ASSERT_TRUE(file_util::PathExists(path));
-    service_->InstallExtension(path);
+    StartCrxInstall(path);
     loop_.RunAllPending();
     std::vector<std::string> errors = GetErrors();
     if (should_succeed) {
@@ -1674,13 +1689,11 @@ TEST_F(ExtensionServiceTest, UpdateApps) {
 TEST_F(ExtensionServiceTest, InstallAppsWithUnlimtedStorage) {
   InitializeEmptyExtensionService();
   EXPECT_TRUE(service_->extensions()->empty());
-  EXPECT_TRUE(service_->unlimited_storage_map_.empty());
 
   FilePath extensions_path;
   ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &extensions_path));
   extensions_path = extensions_path.AppendASCII("extensions");
   int pref_count = 0;
-  ChromeAppCacheService* appcache_service = profile_->GetAppCacheService();
 
   // Install app1 with unlimited storage.
   PackAndInstallExtension(extensions_path.AppendASCII("app1"), true);
@@ -1693,9 +1706,8 @@ TEST_F(ExtensionServiceTest, InstallAppsWithUnlimtedStorage) {
   EXPECT_TRUE(extension->web_extent().ContainsURL(
                   extension->GetFullLaunchURL()));
   const GURL origin1(extension->GetFullLaunchURL().GetOrigin());
-  EXPECT_EQ(kint64max,
-            appcache_service->storage()->GetOriginQuotaInMemory(origin1));
-  EXPECT_FALSE(service_->unlimited_storage_map_.empty());
+  EXPECT_TRUE(profile_->GetExtensionSpecialStoragePolicy()->
+      IsStorageUnlimited(origin1));
 
   // Install app2 from the same origin with unlimited storage.
   PackAndInstallExtension(extensions_path.AppendASCII("app2"), true);
@@ -1709,32 +1721,30 @@ TEST_F(ExtensionServiceTest, InstallAppsWithUnlimtedStorage) {
                   extension->GetFullLaunchURL()));
   const GURL origin2(extension->GetFullLaunchURL().GetOrigin());
   EXPECT_EQ(origin1, origin2);
-  EXPECT_EQ(kint64max,
-            appcache_service->storage()->GetOriginQuotaInMemory(origin2));
-  EXPECT_FALSE(service_->unlimited_storage_map_.empty());
+  EXPECT_TRUE(profile_->GetExtensionSpecialStoragePolicy()->
+      IsStorageUnlimited(origin2));
+
 
   // Uninstall one of them, unlimited storage should still be granted
   // to the origin.
   service_->UninstallExtension(id1, false);
   loop_.RunAllPending();
   EXPECT_EQ(1u, service_->extensions()->size());
-  EXPECT_EQ(kint64max,
-            appcache_service->storage()->GetOriginQuotaInMemory(origin1));
-  EXPECT_FALSE(service_->unlimited_storage_map_.empty());
+  EXPECT_TRUE(profile_->GetExtensionSpecialStoragePolicy()->
+      IsStorageUnlimited(origin1));
+
 
   // Uninstall the other, unlimited storage should be revoked.
   service_->UninstallExtension(id2, false);
   loop_.RunAllPending();
   EXPECT_EQ(0u, service_->extensions()->size());
-  EXPECT_EQ(-1L,
-            appcache_service->storage()->GetOriginQuotaInMemory(origin2));
-  EXPECT_TRUE(service_->unlimited_storage_map_.empty());
+  EXPECT_FALSE(profile_->GetExtensionSpecialStoragePolicy()->
+      IsStorageUnlimited(origin2));
 }
 
 TEST_F(ExtensionServiceTest, InstallAppsAndCheckStorageProtection) {
   InitializeEmptyExtensionService();
   EXPECT_TRUE(service_->extensions()->empty());
-  EXPECT_TRUE(service_->protected_storage_map_.empty());
 
   FilePath extensions_path;
   ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &extensions_path));
@@ -1747,9 +1757,9 @@ TEST_F(ExtensionServiceTest, InstallAppsAndCheckStorageProtection) {
   const Extension* extension = service_->extensions()->at(0);
   EXPECT_TRUE(extension->is_app());
   const std::string id1 = extension->id();
-  EXPECT_FALSE(service_->protected_storage_map_.empty());
   const GURL origin1(extension->GetFullLaunchURL().GetOrigin());
-  ASSERT_EQ(1, service_->protected_storage_map_[origin1]);
+  EXPECT_TRUE(profile_->GetExtensionSpecialStoragePolicy()->
+      IsStorageProtected(origin1));
 
   // App 4 has a different origin (maps.google.com).
   PackAndInstallExtension(extensions_path.AppendASCII("app4"), true);
@@ -1757,21 +1767,23 @@ TEST_F(ExtensionServiceTest, InstallAppsAndCheckStorageProtection) {
   ASSERT_EQ(2u, service_->extensions()->size());
   extension = service_->extensions()->at(1);
   const std::string id2 = extension->id();
-  EXPECT_FALSE(service_->protected_storage_map_.empty());
   const GURL origin2(extension->GetFullLaunchURL().GetOrigin());
   ASSERT_NE(origin1, origin2);
-  ASSERT_EQ(1, service_->protected_storage_map_[origin2]);
+  EXPECT_TRUE(profile_->GetExtensionSpecialStoragePolicy()->
+      IsStorageProtected(origin2));
 
   service_->UninstallExtension(id1, false);
   loop_.RunAllPending();
   EXPECT_EQ(1u, service_->extensions()->size());
-  EXPECT_FALSE(service_->protected_storage_map_.empty());
 
   service_->UninstallExtension(id2, false);
   loop_.RunAllPending();
 
   EXPECT_TRUE(service_->extensions()->empty());
-  EXPECT_TRUE(service_->protected_storage_map_.empty());
+  EXPECT_FALSE(profile_->GetExtensionSpecialStoragePolicy()->
+      IsStorageProtected(origin1));
+  EXPECT_FALSE(profile_->GetExtensionSpecialStoragePolicy()->
+      IsStorageProtected(origin2));
 }
 
 // Test that when an extension version is reinstalled, nothing happens.
@@ -1783,7 +1795,7 @@ TEST_F(ExtensionServiceTest, Reinstall) {
 
   // A simple extension that should install without error.
   FilePath path = extensions_path.AppendASCII("good.crx");
-  service_->InstallExtension(path);
+  StartCrxInstall(path);
   loop_.RunAllPending();
 
   ASSERT_TRUE(installed_);
@@ -1798,7 +1810,7 @@ TEST_F(ExtensionServiceTest, Reinstall) {
   ExtensionErrorReporter::GetInstance()->ClearErrors();
 
   // Reinstall the same version, it should overwrite the previous one.
-  service_->InstallExtension(path);
+  StartCrxInstall(path);
   loop_.RunAllPending();
 
   ASSERT_TRUE(installed_);
@@ -1817,7 +1829,7 @@ TEST_F(ExtensionServiceTest, UpgradeSignedGood) {
   extensions_path = extensions_path.AppendASCII("extensions");
 
   FilePath path = extensions_path.AppendASCII("good.crx");
-  service_->InstallExtension(path);
+  StartCrxInstall(path);
   loop_.RunAllPending();
 
   ASSERT_TRUE(installed_);
@@ -1827,7 +1839,7 @@ TEST_F(ExtensionServiceTest, UpgradeSignedGood) {
 
   // Upgrade to version 2.0
   path = extensions_path.AppendASCII("good2.crx");
-  service_->InstallExtension(path);
+  StartCrxInstall(path);
   loop_.RunAllPending();
 
   ASSERT_TRUE(installed_);
@@ -1844,7 +1856,7 @@ TEST_F(ExtensionServiceTest, UpgradeSignedBad) {
   extensions_path = extensions_path.AppendASCII("extensions");
 
   FilePath path = extensions_path.AppendASCII("good.crx");
-  service_->InstallExtension(path);
+  StartCrxInstall(path);
   loop_.RunAllPending();
 
   ASSERT_TRUE(installed_);
@@ -1854,8 +1866,8 @@ TEST_F(ExtensionServiceTest, UpgradeSignedBad) {
 
   // Try upgrading with a bad signature. This should fail during the unpack,
   // because the key will not match the signature.
-  path = extensions_path.AppendASCII("good2_bad_signature.crx");
-  service_->InstallExtension(path);
+  path = extensions_path.AppendASCII("bad_signature.crx");
+  StartCrxInstall(path);
   loop_.RunAllPending();
 
   ASSERT_FALSE(installed_);
@@ -2054,9 +2066,9 @@ TEST_F(ExtensionServiceTest, AddPendingExtensionFromSync) {
   PendingExtensionMap::const_iterator it =
       service_->pending_extensions().find(kFakeId);
   ASSERT_TRUE(it != service_->pending_extensions().end());
-  EXPECT_EQ(kFakeUpdateURL, it->second.update_url);
-  EXPECT_EQ(&IsExtension, it->second.should_install_extension);
-  EXPECT_EQ(kFakeInstallSilently, it->second.install_silently);
+  EXPECT_EQ(kFakeUpdateURL, it->second.update_url());
+  EXPECT_EQ(&IsExtension, it->second.should_allow_install_);
+  EXPECT_EQ(kFakeInstallSilently, it->second.install_silently());
 }
 
 namespace {
@@ -2089,7 +2101,7 @@ TEST_F(ExtensionServiceTest, UpdatePendingExtension) {
   ASSERT_TRUE(extension);
 
   bool enabled = service_->GetExtensionById(kGoodId, false);
-  EXPECT_EQ(kGoodInitialState == Extension::ENABLED, enabled);
+  EXPECT_EQ(enabled, kGoodInitialState == Extension::ENABLED);
   EXPECT_EQ(kGoodInitialState,
             service_->extension_prefs()->GetExtensionState(extension->id()));
   EXPECT_EQ(kGoodInitialIncognitoEnabled,
@@ -2170,7 +2182,7 @@ TEST_F(ExtensionServiceTest, UpdatePendingExternalCrxWinsOverSync) {
   PendingExtensionMap::const_iterator it;
   it = service_->pending_extensions().find(kGoodId);
   ASSERT_TRUE(it != service_->pending_extensions().end());
-  EXPECT_TRUE(it->second.is_from_sync);
+  EXPECT_TRUE(it->second.is_from_sync());
 
   // Add a crx to be updated, with the same ID, from a non-sync source.
   service_->AddPendingExtensionFromExternalUpdateUrl(
@@ -2179,7 +2191,8 @@ TEST_F(ExtensionServiceTest, UpdatePendingExternalCrxWinsOverSync) {
   // Check that there is a pending crx, with is_from_sync set to false.
   it = service_->pending_extensions().find(kGoodId);
   ASSERT_TRUE(it != service_->pending_extensions().end());
-  EXPECT_FALSE(it->second.is_from_sync);
+  EXPECT_FALSE(it->second.is_from_sync());
+  EXPECT_EQ(Extension::EXTERNAL_PREF_DOWNLOAD, it->second.install_source());
 
   // Add a crx to be installed from the update mechanism.
   service_->AddPendingExtensionFromSync(
@@ -2190,7 +2203,8 @@ TEST_F(ExtensionServiceTest, UpdatePendingExternalCrxWinsOverSync) {
   // Check that the external, non-sync update was not overridden.
   it = service_->pending_extensions().find(kGoodId);
   ASSERT_TRUE(it != service_->pending_extensions().end());
-  EXPECT_FALSE(it->second.is_from_sync);
+  EXPECT_FALSE(it->second.is_from_sync());
+  EXPECT_EQ(Extension::EXTERNAL_PREF_DOWNLOAD, it->second.install_source());
 }
 
 // Updating a theme should fail if the updater is explicitly told that
@@ -2362,7 +2376,7 @@ TEST_F(ExtensionServiceTest, BlacklistedExtensionWillNotInstall) {
   ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &extensions_path));
   extensions_path = extensions_path.AppendASCII("extensions");
   FilePath path = extensions_path.AppendASCII("good.crx");
-  service_->InstallExtension(path);
+  StartCrxInstall(path);
   loop_.RunAllPending();
   EXPECT_EQ(0u, service_->extensions()->size());
   ValidateBooleanPref(good_crx, "blacklist", true);
@@ -2458,7 +2472,7 @@ TEST_F(ExtensionServiceTest, BlacklistedByPolicyWillNotInstall) {
   ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &extensions_path));
   extensions_path = extensions_path.AppendASCII("extensions");
   FilePath path = extensions_path.AppendASCII("good.crx");
-  service_->InstallExtension(path);
+  StartCrxInstall(path);
   loop_.RunAllPending();
   EXPECT_EQ(0u, service_->extensions()->size());
 
@@ -2466,7 +2480,7 @@ TEST_F(ExtensionServiceTest, BlacklistedByPolicyWillNotInstall) {
   whitelist->Append(Value::CreateStringValue(good_crx));
 
   // Ensure we can now install good_crx.
-  service_->InstallExtension(path);
+  StartCrxInstall(path);
   loop_.RunAllPending();
   EXPECT_EQ(1u, service_->extensions()->size());
 }
@@ -2480,13 +2494,13 @@ TEST_F(ExtensionServiceTest, BlacklistedByPolicyRemovedIfRunning) {
   ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &extensions_path));
   extensions_path = extensions_path.AppendASCII("extensions");
   FilePath path = extensions_path.AppendASCII("good.crx");
-  service_->InstallExtension(path);
+  StartCrxInstall(path);
   loop_.RunAllPending();
   EXPECT_EQ(1u, service_->extensions()->size());
 
   { // Scope for pref update notification.
     PrefService* prefs = profile_->GetPrefs();
-    ScopedPrefUpdate pref_update(prefs, prefs::kExtensionInstallDenyList);
+    ScopedUserPrefUpdate pref_update(prefs, prefs::kExtensionInstallDenyList);
     ListValue* blacklist =
         prefs->GetMutableList(prefs::kExtensionInstallDenyList);
     ASSERT_TRUE(blacklist != NULL);

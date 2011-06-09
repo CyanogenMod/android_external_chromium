@@ -4,6 +4,7 @@
 
 #include <algorithm>
 
+#include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/logging.h"
 #include "base/mac/scoped_nsautorelease_pool.h"
@@ -16,10 +17,14 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/version.h"
+#include "chrome/common/child_process_host.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/service_process_util.h"
+
+#if !defined(OS_MACOSX)
 
 namespace {
 
@@ -49,7 +54,7 @@ enum ServiceProcessRunningState {
 ServiceProcessRunningState GetServiceProcessRunningState(
     std::string* service_version_out, base::ProcessId* pid_out) {
   std::string version;
-  if (!GetServiceProcessSharedData(&version, pid_out))
+  if (!GetServiceProcessData(&version, pid_out))
     return SERVICE_NOT_RUNNING;
 
 #if defined(OS_POSIX)
@@ -125,14 +130,9 @@ std::string GetServiceProcessScopedVersionedName(
   return GetServiceProcessScopedName(versioned_str);
 }
 
-// Gets the name of the service process IPC channel.
-std::string GetServiceProcessChannelName() {
-  return GetServiceProcessScopedVersionedName("_service_ipc");
-}
-
 // Reads the named shared memory to get the shared data. Returns false if no
 // matching shared memory was found.
-bool GetServiceProcessSharedData(std::string* version, base::ProcessId* pid) {
+bool GetServiceProcessData(std::string* version, base::ProcessId* pid) {
   scoped_ptr<base::SharedMemory> shared_mem_service_data;
   shared_mem_service_data.reset(new base::SharedMemory());
   ServiceProcessSharedData* service_data = NULL;
@@ -153,17 +153,23 @@ bool GetServiceProcessSharedData(std::string* version, base::ProcessId* pid) {
   return false;
 }
 
+// Gets the name of the service process IPC channel.
+IPC::ChannelHandle GetServiceProcessChannel() {
+  return GetServiceProcessScopedVersionedName("_service_ipc");
+}
+
+#endif  // !OS_MACOSX
+
 ServiceProcessState::ServiceProcessState() : state_(NULL) {
+  CreateAutoRunCommandLine();
 }
 
 ServiceProcessState::~ServiceProcessState() {
+#if !defined(OS_MACOSX)
   if (shared_mem_service_data_.get()) {
-    // Delete needs a pool wrapped around it because it calls some Obj-C on Mac,
-    // and since ServiceProcessState is a singleton, it gets destructed after
-    // the standard NSAutoreleasePools have already been cleaned up.
-    base::mac::ScopedNSAutoreleasePool pool;
     shared_mem_service_data_->Delete(GetServiceProcessSharedMemName());
   }
+#endif  // !OS_MACOSX
   TearDownState();
 }
 
@@ -172,7 +178,16 @@ ServiceProcessState* ServiceProcessState::GetInstance() {
   return Singleton<ServiceProcessState>::get();
 }
 
+void ServiceProcessState::SignalStopped() {
+  TearDownState();
+  shared_mem_service_data_.reset();
+}
+
+#if !defined(OS_MACOSX)
 bool ServiceProcessState::Initialize() {
+  if (!InitializeState()) {
+    return false;
+  }
   if (!TakeSingletonLock()) {
     return false;
   }
@@ -242,11 +257,27 @@ bool ServiceProcessState::CreateSharedData() {
   return true;
 }
 
-std::string ServiceProcessState::GetAutoRunKey() {
-  return GetServiceProcessScopedName("_service_run");
+IPC::ChannelHandle ServiceProcessState::GetServiceProcessChannel() {
+  return ::GetServiceProcessChannel();
 }
 
-void ServiceProcessState::SignalStopped() {
-  TearDownState();
-  shared_mem_service_data_.reset();
+#endif  // !OS_MACOSX
+
+void ServiceProcessState::CreateAutoRunCommandLine() {
+  FilePath exe_path = ChildProcessHost::GetChildPath(false);
+  if (exe_path.empty()) {
+    NOTREACHED() << "Unable to get service process binary name.";
+  }
+  autorun_command_line_.reset(new CommandLine(exe_path));
+  autorun_command_line_->AppendSwitchASCII(switches::kProcessType,
+                                           switches::kServiceProcess);
+
+  // The user data directory is the only other flag we currently want to
+  // possibly store.
+  const CommandLine& browser_command_line = *CommandLine::ForCurrentProcess();
+  FilePath user_data_dir =
+    browser_command_line.GetSwitchValuePath(switches::kUserDataDir);
+  if (!user_data_dir.empty())
+    autorun_command_line_->AppendSwitchPath(switches::kUserDataDir,
+                                            user_data_dir);
 }

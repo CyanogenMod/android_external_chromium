@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,11 +27,12 @@ namespace {
 const size_t kMaxFormCacheSize = 16;
 };
 
-struct AutoFillDownloadManager::FormRequestData {
+struct AutofillDownloadManager::FormRequestData {
   std::vector<std::string> form_signatures;
-  AutoFillRequestType request_type;
+  AutofillRequestType request_type;
 };
 
+<<<<<<< HEAD
 #ifdef ANDROID
 // Taken from autofill_manager.cc
 const double kAutoFillPositiveUploadRateDefaultValue = 0.01;
@@ -39,6 +40,9 @@ const double kAutoFillNegativeUploadRateDefaultValue = 0.01;
 #endif
 
 AutoFillDownloadManager::AutoFillDownloadManager(Profile* profile)
+=======
+AutofillDownloadManager::AutofillDownloadManager(Profile* profile)
+>>>>>>> chromium.org at r11.0.696.0
     : profile_(profile),
       observer_(NULL),
       max_form_cache_size_(kMaxFormCacheSize),
@@ -62,13 +66,13 @@ AutoFillDownloadManager::AutoFillDownloadManager(Profile* profile)
 #endif
 }
 
-AutoFillDownloadManager::~AutoFillDownloadManager() {
+AutofillDownloadManager::~AutofillDownloadManager() {
   STLDeleteContainerPairFirstPointers(url_fetchers_.begin(),
                                       url_fetchers_.end());
 }
 
-void AutoFillDownloadManager::SetObserver(
-    AutoFillDownloadManager::Observer *observer) {
+void AutofillDownloadManager::SetObserver(
+    AutofillDownloadManager::Observer *observer) {
   if (observer) {
     DCHECK(!observer_);
     observer_ = observer;
@@ -77,9 +81,9 @@ void AutoFillDownloadManager::SetObserver(
   }
 }
 
-bool AutoFillDownloadManager::StartQueryRequest(
+bool AutofillDownloadManager::StartQueryRequest(
     const ScopedVector<FormStructure>& forms,
-    const AutoFillMetrics& metric_logger) {
+    const AutofillMetrics& metric_logger) {
   if (next_query_request_ > base::Time::Now()) {
     // We are in back-off mode: do not do the request.
     return false;
@@ -91,22 +95,22 @@ bool AutoFillDownloadManager::StartQueryRequest(
     return false;
   }
 
-  request_data.request_type = AutoFillDownloadManager::REQUEST_QUERY;
-  metric_logger.Log(AutoFillMetrics::QUERY_SENT);
+  request_data.request_type = AutofillDownloadManager::REQUEST_QUERY;
+  metric_logger.Log(AutofillMetrics::QUERY_SENT);
 
   std::string query_data;
   if (CheckCacheForQueryRequest(request_data.form_signatures, &query_data)) {
-    VLOG(1) << "AutoFillDownloadManager: query request has been retrieved from"
+    VLOG(1) << "AutofillDownloadManager: query request has been retrieved from"
             << "the cache";
     if (observer_)
-      observer_->OnLoadedAutoFillHeuristics(query_data);
+      observer_->OnLoadedAutofillHeuristics(query_data);
     return true;
   }
 
   return StartRequest(form_xml, request_data);
 }
 
-bool AutoFillDownloadManager::StartUploadRequest(
+bool AutofillDownloadManager::StartUploadRequest(
     const FormStructure& form, bool form_was_matched) {
   if (next_upload_request_ > base::Time::Now()) {
     // We are in back-off mode: do not do the request.
@@ -117,7 +121,7 @@ bool AutoFillDownloadManager::StartUploadRequest(
   double upload_rate = form_was_matched ? GetPositiveUploadRate() :
                                           GetNegativeUploadRate();
   if (base::RandDouble() > upload_rate) {
-    VLOG(1) << "AutoFillDownloadManager: Upload request is ignored";
+    VLOG(1) << "AutofillDownloadManager: Upload request is ignored";
     // If we ever need notification that upload was skipped, add it here.
     return false;
   }
@@ -127,14 +131,14 @@ bool AutoFillDownloadManager::StartUploadRequest(
 
   FormRequestData request_data;
   request_data.form_signatures.push_back(form.FormSignature());
-  request_data.request_type = AutoFillDownloadManager::REQUEST_UPLOAD;
+  request_data.request_type = AutofillDownloadManager::REQUEST_UPLOAD;
 
   return StartRequest(form_xml, request_data);
 }
 
-bool AutoFillDownloadManager::CancelRequest(
+bool AutofillDownloadManager::CancelRequest(
     const std::string& form_signature,
-    AutoFillDownloadManager::AutoFillRequestType request_type) {
+    AutofillDownloadManager::AutofillRequestType request_type) {
   for (std::map<URLFetcher *, FormRequestData>::iterator it =
        url_fetchers_.begin();
        it != url_fetchers_.end();
@@ -151,15 +155,15 @@ bool AutoFillDownloadManager::CancelRequest(
   return false;
 }
 
-double AutoFillDownloadManager::GetPositiveUploadRate() const {
+double AutofillDownloadManager::GetPositiveUploadRate() const {
   return positive_upload_rate_;
 }
 
-double AutoFillDownloadManager::GetNegativeUploadRate() const {
+double AutofillDownloadManager::GetNegativeUploadRate() const {
   return negative_upload_rate_;
 }
 
-void AutoFillDownloadManager::SetPositiveUploadRate(double rate) {
+void AutofillDownloadManager::SetPositiveUploadRate(double rate) {
   if (rate == positive_upload_rate_)
     return;
   positive_upload_rate_ = rate;
@@ -172,7 +176,7 @@ void AutoFillDownloadManager::SetPositiveUploadRate(double rate) {
 #endif
 }
 
-void AutoFillDownloadManager::SetNegativeUploadRate(double rate) {
+void AutofillDownloadManager::SetNegativeUploadRate(double rate) {
   if (rate == negative_upload_rate_)
     return;
   negative_upload_rate_ = rate;
@@ -185,11 +189,20 @@ void AutoFillDownloadManager::SetNegativeUploadRate(double rate) {
 #endif
 }
 
-bool AutoFillDownloadManager::StartRequest(
+bool AutofillDownloadManager::StartRequest(
     const std::string& form_xml,
     const FormRequestData& request_data) {
+  URLRequestContextGetter* request_context =
+      Profile::GetDefaultRequestContext();
+  // Check if default request context is NULL: this very rarely happens,
+  // I think, this could happen only if user opens chrome with some pages
+  // loading the forms immediately; I cannot reproduce this even in that
+  // scenario, but bug 74492 shows it happened at least once. In that case bail
+  // out and fall back on our own heuristics.
+  if (!request_context)
+    return false;
   std::string request_url;
-  if (request_data.request_type == AutoFillDownloadManager::REQUEST_QUERY)
+  if (request_data.request_type == AutofillDownloadManager::REQUEST_QUERY)
     request_url = AUTO_FILL_QUERY_SERVER_REQUEST_URL;
   else
     request_url = AUTO_FILL_UPLOAD_SERVER_REQUEST_URL;
@@ -202,6 +215,7 @@ bool AutoFillDownloadManager::StartRequest(
                                            this);
   url_fetchers_[fetcher] = request_data;
   fetcher->set_automatically_retry_on_5xx(false);
+<<<<<<< HEAD
 #ifdef ANDROID
   // On Android, use the webview request context getter which was passed
   // through in the WebAutoFill::init() method in WebKit.
@@ -209,12 +223,15 @@ bool AutoFillDownloadManager::StartRequest(
 #else
   fetcher->set_request_context(Profile::GetDefaultRequestContext());
 #endif
+=======
+  fetcher->set_request_context(request_context);
+>>>>>>> chromium.org at r11.0.696.0
   fetcher->set_upload_data("text/plain", form_xml);
   fetcher->Start();
   return true;
 }
 
-void AutoFillDownloadManager::CacheQueryRequest(
+void AutofillDownloadManager::CacheQueryRequest(
     const std::vector<std::string>& forms_in_query,
     const std::string& query_data) {
   std::string signature = GetCombinedSignature(forms_in_query);
@@ -236,7 +253,7 @@ void AutoFillDownloadManager::CacheQueryRequest(
     cached_forms_.pop_back();
 }
 
-bool AutoFillDownloadManager::CheckCacheForQueryRequest(
+bool AutofillDownloadManager::CheckCacheForQueryRequest(
     const std::vector<std::string>& forms_in_query,
     std::string* query_data) const {
   std::string signature = GetCombinedSignature(forms_in_query);
@@ -251,7 +268,7 @@ bool AutoFillDownloadManager::CheckCacheForQueryRequest(
   return false;
 }
 
-std::string AutoFillDownloadManager::GetCombinedSignature(
+std::string AutofillDownloadManager::GetCombinedSignature(
     const std::vector<std::string>& forms_in_query) const {
   size_t total_size = forms_in_query.size();
   for (size_t i = 0; i < forms_in_query.size(); ++i)
@@ -268,7 +285,7 @@ std::string AutoFillDownloadManager::GetCombinedSignature(
   return signature;
 }
 
-void AutoFillDownloadManager::OnURLFetchComplete(
+void AutofillDownloadManager::OnURLFetchComplete(
     const URLFetcher* source,
     const GURL& url,
     const net::URLRequestStatus& status,
@@ -283,7 +300,7 @@ void AutoFillDownloadManager::OnURLFetchComplete(
     return;
   }
   std::string type_of_request(
-      it->second.request_type == AutoFillDownloadManager::REQUEST_QUERY ?
+      it->second.request_type == AutofillDownloadManager::REQUEST_QUERY ?
           "query" : "upload");
   const int kHttpResponseOk = 200;
   const int kHttpInternalServerError = 500;
@@ -302,7 +319,7 @@ void AutoFillDownloadManager::OnURLFetchComplete(
                             AUTO_FILL_QUERY_SERVER_NAME_START_IN_HEADER,
                             false) != 0)
           break;
-        // Bad getaway was received from AutoFill servers. Fall through to back
+        // Bad getaway was received from Autofill servers. Fall through to back
         // off.
       case kHttpInternalServerError:
       case kHttpServiceUnavailable:
@@ -312,14 +329,14 @@ void AutoFillDownloadManager::OnURLFetchComplete(
 
     if (back_off) {
       base::Time back_off_time(base::Time::Now() + source->backoff_delay());
-      if (it->second.request_type == AutoFillDownloadManager::REQUEST_QUERY) {
+      if (it->second.request_type == AutofillDownloadManager::REQUEST_QUERY) {
         next_query_request_ = back_off_time;
       } else {
         next_upload_request_ = back_off_time;
       }
     }
 
-    LOG(WARNING) << "AutoFillDownloadManager: " << type_of_request
+    LOG(WARNING) << "AutofillDownloadManager: " << type_of_request
                  << " request has failed with response " << response_code;
     if (observer_) {
       observer_->OnHeuristicsRequestError(it->second.form_signatures[0],
@@ -327,12 +344,12 @@ void AutoFillDownloadManager::OnURLFetchComplete(
                                           response_code);
     }
   } else {
-    VLOG(1) << "AutoFillDownloadManager: " << type_of_request
+    VLOG(1) << "AutofillDownloadManager: " << type_of_request
             << " request has succeeded";
-    if (it->second.request_type == AutoFillDownloadManager::REQUEST_QUERY) {
+    if (it->second.request_type == AutofillDownloadManager::REQUEST_QUERY) {
       CacheQueryRequest(it->second.form_signatures, data);
       if (observer_)
-        observer_->OnLoadedAutoFillHeuristics(data);
+        observer_->OnLoadedAutofillHeuristics(data);
     } else {
       double new_positive_upload_rate = 0;
       double new_negative_upload_rate = 0;
@@ -346,7 +363,7 @@ void AutoFillDownloadManager::OnURLFetchComplete(
       }
 
       if (observer_)
-        observer_->OnUploadedAutoFillHeuristics(it->second.form_signatures[0]);
+        observer_->OnUploadedAutofillHeuristics(it->second.form_signatures[0]);
     }
   }
   delete it->first;

@@ -10,10 +10,10 @@
 #include "chrome/browser/extensions/extension_test_message_listener.h"
 #include "chrome/browser/extensions/user_script_master.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/ui_test_utils.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "net/base/mock_host_resolver.h"
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, IncognitoNoScript) {
@@ -81,15 +81,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, IncognitoYesScript) {
   EXPECT_TRUE(result);
 }
 
-// http://crbug.com/70913 flaky hangs on linux so disabling.
-#if defined(OS_LINUX)
-#define MAYBE_DontCreateIncognitoProfile DISABLED_DontCreateIncognitoProfile
-#else
-#define MAYBE_DontCreateIncognitoProfile DontCreateIncognitoProfile
-#endif
 // Tests that an extension which is enabled for incognito mode doesn't
 // accidentially create and incognito profile.
-IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MAYBE_DontCreateIncognitoProfile) {
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, DontCreateIncognitoProfile) {
   ASSERT_FALSE(browser()->profile()->HasOffTheRecordProfile());
   ASSERT_TRUE(RunExtensionTestIncognito(
       "incognito/dont_create_profile")) << message_;

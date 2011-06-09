@@ -10,14 +10,13 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/search_engines/keyword_editor_controller.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
-#include "chrome/browser/search_engines/template_url_table_model.h"
-#include "chrome/browser/ui/gtk/accessible_widget_helper_gtk.h"
 #include "chrome/browser/ui/gtk/edit_search_engine_dialog.h"
 #include "chrome/browser/ui/gtk/gtk_tree.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
+#include "chrome/browser/ui/search_engines/keyword_editor_controller.h"
+#include "chrome/browser/ui/search_engines/template_url_table_model.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -93,10 +92,6 @@ void KeywordEditorView::Init() {
       GTK_STOCK_CLOSE,
       GTK_RESPONSE_CLOSE,
       NULL);
-
-  accessible_widget_helper_.reset(new AccessibleWidgetHelper(
-      dialog_, profile_));
-  accessible_widget_helper_->SendOpenWindowNotification(dialog_name);
 
   gtk_box_set_spacing(GTK_BOX(GTK_DIALOG(dialog_)->vbox),
                       gtk_util::kContentAreaSpacing);
@@ -202,7 +197,7 @@ void KeywordEditorView::Init() {
 
   EnableControls();
 
-  g_signal_connect(dialog_, "response", G_CALLBACK(OnResponse), this);
+  g_signal_connect(dialog_, "response", G_CALLBACK(OnResponseThunk), this);
   g_signal_connect(dialog_, "destroy", G_CALLBACK(OnWindowDestroy), this);
 }
 
@@ -401,10 +396,8 @@ void KeywordEditorView::OnWindowDestroy(GtkWidget* widget,
   MessageLoop::current()->DeleteSoon(FROM_HERE, window);
 }
 
-// static
-void KeywordEditorView::OnResponse(GtkDialog* dialog, int response_id,
-                                   KeywordEditorView* window) {
-  gtk_widget_destroy(window->dialog_);
+void KeywordEditorView::OnResponse(GtkWidget* dialog, int response_id) {
+  gtk_widget_destroy(dialog_);
 }
 
 // static

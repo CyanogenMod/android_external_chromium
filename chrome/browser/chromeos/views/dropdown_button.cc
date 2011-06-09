@@ -63,11 +63,16 @@ DropDownButton::DropDownButton(views::ButtonListener* listener,
 DropDownButton::~DropDownButton() {
 }
 
-void DropDownButton::PaintFocusBorder(gfx::Canvas* canvas) {
+void DropDownButton::OnPaintFocusBorder(gfx::Canvas* canvas) {
   if (HasFocus() && (IsFocusable() || IsAccessibilityFocusableInRootView()))
     canvas->DrawFocusRect(kFocusFrameLeftOffset, kFocusFrameTopOffset,
                           width() - kFocusFrameRightOffset,
                           height() - kFocusFrameBottomOffset);
+}
+
+void DropDownButton::SetText(const std::wstring& text) {
+  text_ = WideToUTF16Hack(text);
+  UpdateTextSize();
 }
 
 }  // namespace chromeos

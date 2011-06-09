@@ -1,29 +1,39 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/browser_navigator.h"
+
+#include <algorithm>
 
 #include "base/command_line.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_url_handler.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/status_bubble.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/site_instance.h"
+#include "content/browser/tab_contents/tab_contents.h"
 
 namespace {
 
-// Returns the SiteInstance for |source_contents| if it represents the same
-// website as |url|, or NULL otherwise. |source_contents| cannot be NULL.
-SiteInstance* GetSiteInstance(TabContents* source_contents, const GURL& url) {
+// Returns an appropriate SiteInstance for WebUI URLs, or the SiteInstance for
+// |source_contents| if it represents the same website as |url|.  Returns NULL
+// otherwise.
+SiteInstance* GetSiteInstance(TabContents* source_contents, Profile* profile,
+                              const GURL& url) {
+  // If url is a WebUI or extension, we need to be sure to use the right type
+  // of renderer process up front.  Otherwise, we create a normal SiteInstance
+  // as part of creating the tab.
+  if (WebUIFactory::UseWebUIForURL(profile, url))
+    return SiteInstance::CreateSiteInstanceForURL(profile, url);
+
   if (!source_contents)
     return NULL;
 
@@ -82,21 +92,29 @@ int GetIndexOfSingletonTab(browser::NavigateParams* params) {
                                            params->browser->profile(),
                                            &reverse_on_redirect);
 
-  for (int i = 0; i < params->browser->tab_count(); ++i) {
+  // If there are several matches: prefer currently selected tab. So we are
+  // starting our search at selected tab.
+  int start_index = std::max(0, params->browser->selected_index());
+  int tab_count = params->browser->tab_count();
+  for (int i = 0; i < tab_count; ++i) {
+    int tab_index = (start_index + i) % tab_count;
     TabContentsWrapper* tab =
-        params->browser->GetTabContentsWrapperAt(i);
+        params->browser->GetTabContentsWrapperAt(tab_index);
 
     url_canon::Replacements<char> replacements;
     replacements.ClearRef();
-    if (params->ignore_path)
+    if (params->path_behavior == browser::NavigateParams::IGNORE_AND_NAVIGATE ||
+        params->path_behavior == browser::NavigateParams::IGNORE_AND_STAY_PUT) {
       replacements.ClearPath();
+      replacements.ClearQuery();
+    }
 
     if (CompareURLsWithReplacements(tab->tab_contents()->GetURL(),
                                     params->url, replacements) ||
         CompareURLsWithReplacements(tab->tab_contents()->GetURL(),
                                     rewritten_url, replacements)) {
       params->target_contents = tab;
-      return i;
+      return tab_index;
     }
   }
 
@@ -323,7 +341,7 @@ NavigateParams::NavigateParams(
       tabstrip_index(-1),
       tabstrip_add_types(TabStripModel::ADD_SELECTED),
       show_window(false),
-      ignore_path(false),
+      path_behavior(RESPECT),
       browser(a_browser),
       profile(NULL) {
 }
@@ -337,7 +355,7 @@ NavigateParams::NavigateParams(Browser* a_browser,
       tabstrip_index(-1),
       tabstrip_add_types(TabStripModel::ADD_SELECTED),
       show_window(false),
-      ignore_path(false),
+      path_behavior(RESPECT),
       browser(a_browser),
       profile(NULL) {
 }
@@ -390,13 +408,15 @@ void Navigate(NavigateParams* params) {
   // If no target TabContents was specified, we need to construct one if we are
   // supposed to target a new tab; unless it's a singleton that already exists.
   if (!params->target_contents && singleton_index < 0) {
+    GURL url = params->url.is_empty() ? params->browser->GetHomePage()
+                                      : params->url;
     if (params->disposition != CURRENT_TAB) {
       TabContents* source_contents = params->source_contents ?
           params->source_contents->tab_contents() : NULL;
       params->target_contents =
           Browser::TabContentsFactory(
               params->browser->profile(),
-              GetSiteInstance(source_contents, params->url),
+              GetSiteInstance(source_contents, params->browser->profile(), url),
               MSG_ROUTING_NONE,
               source_contents,
               NULL);
@@ -425,8 +445,6 @@ void Navigate(NavigateParams* params) {
     }
 
     // Perform the actual navigation.
-    GURL url = params->url.is_empty() ? params->browser->GetHomePage()
-                                      : params->url;
     params->target_contents->controller().LoadURL(url, params->referrer,
                                                   params->transition);
   } else {
@@ -461,9 +479,8 @@ void Navigate(NavigateParams* params) {
   if (singleton_index >= 0) {
     TabContents* target = params->browser->GetTabContentsAt(singleton_index);
 
-    // Load the URL if the target contents URL doesn't match. This can happen
-    // if the URL path is ignored when locating the singleton tab.
-    if (target->GetURL() != params->url) {
+    if (params->path_behavior == NavigateParams::IGNORE_AND_NAVIGATE &&
+        target->GetURL() != params->url) {
       target->controller().LoadURL(
           params->url, params->referrer, params->transition);
     }

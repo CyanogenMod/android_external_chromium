@@ -89,7 +89,7 @@ class ToolbarView : public AccessiblePaneView,
   virtual bool SetPaneFocus(int view_storage_id, View* initial_focus);
   virtual AccessibilityTypes::Role GetAccessibleRole();
 
-  // Overridden from Menu::BaseControllerDelegate:
+  // Overridden from Menu::Delegate:
   virtual bool GetAcceleratorInfo(int id, ui::Accelerator* accel);
 
   // Overridden from views::MenuDelegate:
@@ -118,7 +118,13 @@ class ToolbarView : public AccessiblePaneView,
   // Overridden from views::View:
   virtual gfx::Size GetPreferredSize();
   virtual void Layout();
-  virtual void Paint(gfx::Canvas* canvas);
+  virtual void OnPaint(gfx::Canvas* canvas);
+  virtual bool GetDropFormats(
+      int* formats,
+      std::set<OSExchangeData::CustomFormat>* custom_formats);
+  virtual bool CanDrop(const ui::OSExchangeData& data);
+  virtual int OnDragUpdated(const views::DropTargetEvent& event);
+  virtual int OnPerformDrop(const views::DropTargetEvent& event);
   virtual void OnThemeChanged();
 
   // The apparent horizontal space between most items, and the vertical padding

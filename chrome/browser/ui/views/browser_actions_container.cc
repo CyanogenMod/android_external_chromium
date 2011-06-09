@@ -13,9 +13,6 @@
 #include "chrome/browser/extensions/extension_tabs_module.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_widget_host_view.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/view_ids.h"
@@ -28,6 +25,9 @@
 #include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_widget_host_view.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -42,6 +42,7 @@
 #include "views/controls/button/text_button.h"
 #include "views/controls/menu/menu_2.h"
 #include "views/drag_utils.h"
+#include "views/metrics.h"
 #include "views/window/window.h"
 
 #include "grit/theme_resources.h"
@@ -575,7 +576,7 @@ void BrowserActionsContainer::Layout() {
   }
 }
 
-void BrowserActionsContainer::Paint(gfx::Canvas* canvas) {
+void BrowserActionsContainer::OnPaint(gfx::Canvas* canvas) {
   // TODO(sky/glen): Instead of using a drop indicator, animate the icons while
   // dragging (like we do for tab dragging).
   if (drop_indicator_position_ > -1) {
@@ -633,7 +634,7 @@ void BrowserActionsContainer::OnDragEntered(
 int BrowserActionsContainer::OnDragUpdated(
     const views::DropTargetEvent& event) {
   // First check if we are above the chevron (overflow) menu.
-  if (GetViewForPoint(event.location()) == chevron_) {
+  if (GetEventHandlerForPoint(event.location()) == chevron_) {
     if (show_menu_task_factory_.empty() && !overflow_menu_)
       StartShowFolderDropMenuTimer();
     return ui::DragDropTypes::DRAG_MOVE;
@@ -753,9 +754,9 @@ void BrowserActionsContainer::RunMenu(View* source, const gfx::Point& pt) {
   }
 }
 
-void BrowserActionsContainer::WriteDragData(View* sender,
-                                            const gfx::Point& press_pt,
-                                            OSExchangeData* data) {
+void BrowserActionsContainer::WriteDragDataForView(View* sender,
+                                                   const gfx::Point& press_pt,
+                                                   OSExchangeData* data) {
   DCHECK(data);
 
   for (size_t i = 0; i < browser_action_views_.size(); ++i) {
@@ -776,14 +777,14 @@ void BrowserActionsContainer::WriteDragData(View* sender,
   }
 }
 
-int BrowserActionsContainer::GetDragOperations(View* sender,
-                                               const gfx::Point& p) {
+int BrowserActionsContainer::GetDragOperationsForView(View* sender,
+                                                      const gfx::Point& p) {
   return ui::DragDropTypes::DRAG_MOVE;
 }
 
-bool BrowserActionsContainer::CanStartDrag(View* sender,
-                                           const gfx::Point& press_pt,
-                                           const gfx::Point& p) {
+bool BrowserActionsContainer::CanStartDragForView(View* sender,
+                                                  const gfx::Point& press_pt,
+                                                  const gfx::Point& p) {
   return true;
 }
 
@@ -1011,7 +1012,7 @@ void BrowserActionsContainer::StopShowFolderDropMenuTimer() {
 }
 
 void BrowserActionsContainer::StartShowFolderDropMenuTimer() {
-  int delay = View::GetMenuShowDelay();
+  int delay = views::GetMenuShowDelay();
   MessageLoop::current()->PostDelayedTask(FROM_HERE,
       show_menu_task_factory_.NewRunnableMethod(
           &BrowserActionsContainer::ShowDropFolder),

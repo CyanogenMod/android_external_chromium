@@ -159,12 +159,24 @@ void RelayServer::RemoveInternalServerSocket(
   socket->SignalReadEvent.disconnect(this);
 }
 
-int RelayServer::GetConnectionCount() {
+int RelayServer::GetConnectionCount() const {
   return connections_.size();
 }
 
-bool RelayServer::HasConnection(const talk_base::SocketAddress& address) {
-  for (ConnectionMap::iterator it = connections_.begin();
+talk_base::SocketAddressPair RelayServer::GetConnection(int connection) const {
+  int i = 0;
+  for (ConnectionMap::const_iterator it = connections_.begin();
+       it != connections_.end(); ++it) {
+    if (i == connection) {
+      return it->second->addr_pair();
+    }
+    ++i;
+  }
+  return talk_base::SocketAddressPair();
+}
+
+bool RelayServer::HasConnection(const talk_base::SocketAddress& address) const {
+  for (ConnectionMap::const_iterator it = connections_.begin();
        it != connections_.end(); ++it) {
     if (it->second->addr_pair().destination() == address) {
       return true;
@@ -180,11 +192,14 @@ void RelayServer::OnReadEvent(talk_base::AsyncSocket* socket) {
 }
 
 void RelayServer::OnInternalPacket(
-    const char* bytes, size_t size, const talk_base::SocketAddress& remote_addr,
-    talk_base::AsyncPacketSocket* socket) {
+    talk_base::AsyncPacketSocket* socket, const char* bytes, size_t size,
+    const talk_base::SocketAddress& remote_addr) {
 
   // Get the address of the connection we just received on.
-  talk_base::SocketAddressPair ap(remote_addr, socket->GetLocalAddress());
+  bool allocated;
+  talk_base::SocketAddressPair ap(
+      remote_addr, socket->GetLocalAddress(&allocated));
+  ASSERT(allocated);
   ASSERT(!ap.destination().IsAny());
 
   // If this did not come from an existing connection, it should be a STUN
@@ -224,11 +239,14 @@ void RelayServer::OnInternalPacket(
 }
 
 void RelayServer::OnExternalPacket(
-    const char* bytes, size_t size, const talk_base::SocketAddress& remote_addr,
-    talk_base::AsyncPacketSocket* socket) {
+    talk_base::AsyncPacketSocket* socket, const char* bytes, size_t size,
+    const talk_base::SocketAddress& remote_addr) {
 
   // Get the address of the connection we just received on.
-  talk_base::SocketAddressPair ap(remote_addr, socket->GetLocalAddress());
+  bool allocated;
+  talk_base::SocketAddressPair ap(
+      remote_addr, socket->GetLocalAddress(&allocated));
+  ASSERT(allocated);
   ASSERT(!ap.destination().IsAny());
 
   // If this connection already exists, then forward the traffic.
@@ -425,8 +443,10 @@ void RelayServer::HandleStunAllocate(
   response.AddAttribute(magic_cookie_attr);
 
   size_t index = rand() % external_sockets_.size();
+  bool allocated;
   talk_base::SocketAddress ext_addr =
-      external_sockets_[index]->GetLocalAddress();
+      external_sockets_[index]->GetLocalAddress(&allocated);
+  ASSERT(allocated);
 
   StunAddressAttribute* addr_attr =
       StunAttribute::CreateAddress(STUN_ATTR_MAPPED_ADDRESS);
@@ -472,7 +492,10 @@ void RelayServer::HandleStunSend(
     // Create a new connection to establish the relationship with this binding.
     ASSERT(external_sockets_.size() == 1);
     talk_base::AsyncPacketSocket* socket = external_sockets_[0];
-    talk_base::SocketAddressPair ap(ext_addr, socket->GetLocalAddress());
+    bool allocated;
+    talk_base::SocketAddressPair ap(
+        ext_addr, socket->GetLocalAddress(&allocated));
+    ASSERT(allocated);
     ext_conn = new RelayServerConnection(int_conn->binding(), ap, socket);
     ext_conn->binding()->AddExternalConnection(ext_conn);
     AddConnection(ext_conn);
@@ -559,7 +582,7 @@ void RelayServer::AcceptConnection(talk_base::AsyncSocket* server_socket) {
       accepted_socket = new talk_base::AsyncSSLServerSocket(accepted_socket);
     }
     talk_base::AsyncTCPSocket* tcp_socket =
-        new talk_base::AsyncTCPSocket(accepted_socket);
+        new talk_base::AsyncTCPSocket(accepted_socket, false);
 
     // Finally add the socket so it can start communicating with the client.
     AddInternalSocket(tcp_socket);

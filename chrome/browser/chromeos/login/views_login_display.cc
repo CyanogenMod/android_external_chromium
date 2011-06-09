@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "base/stl_util-inl.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
 #include "chrome/browser/chromeos/login/message_bubble.h"
 #include "chrome/browser/chromeos/login/wizard_accessibility_helper.h"
@@ -141,7 +142,7 @@ void ViewsLoginDisplay::OnUserImageChanged(UserManager::User* user) {
 
 void ViewsLoginDisplay::OnUserRemoved(const std::string& username) {
   // We need to unmap entry windows, the windows will be unmapped in destructor.
-  delete controller_for_removal_;
+  MessageLoop::current()->DeleteSoon(FROM_HERE, controller_for_removal_);
   controller_for_removal_ = NULL;
 
   // Nothing to insert.
@@ -199,6 +200,9 @@ void ViewsLoginDisplay::ShowError(int error_msg_id,
   if (error_msg_id == IDS_LOGIN_ERROR_AUTHENTICATING_HOSTED) {
     error_text = l10n_util::GetStringFUTF16(
         error_msg_id, l10n_util::GetStringUTF16(IDS_PRODUCT_OS_NAME));
+  } else if (error_msg_id == IDS_LOGIN_ERROR_CAPTIVE_PORTAL) {
+    error_text = l10n_util::GetStringFUTF16(
+        error_msg_id, delegate()->GetConnectedNetworkName());
   } else {
     error_text = l10n_util::GetStringUTF16(error_msg_id);
   }
@@ -217,6 +221,8 @@ void ViewsLoginDisplay::ShowError(int error_msg_id,
   string16 help_link;
   if (error_msg_id == IDS_LOGIN_ERROR_CAPTIVE_PORTAL) {
     help_link = l10n_util::GetStringUTF16(IDS_LOGIN_FIX_CAPTIVE_PORTAL);
+  } else if (error_msg_id == IDS_LOGIN_ERROR_CAPTIVE_PORTAL_NO_GUEST_MODE) {
+    // No help link is needed.
   } else if (error_msg_id == IDS_LOGIN_ERROR_AUTHENTICATING_HOSTED ||
              login_attempts > 1) {
     help_link = l10n_util::GetStringUTF16(IDS_LEARN_MORE);
@@ -273,7 +279,7 @@ void ViewsLoginDisplay::OnUserSelected(UserController* source) {
 
 void ViewsLoginDisplay::RemoveUser(UserController* source) {
   ClearErrors();
-  delegate()->RemoveUser(source->user().email());
+  UserManager::Get()->RemoveUser(source->user().email(), this);
 }
 
 void ViewsLoginDisplay::SelectUser(int index) {

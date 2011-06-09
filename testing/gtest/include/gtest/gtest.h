@@ -281,20 +281,33 @@ class GTEST_API_ AssertionResult {
   // assertion's expectation). When nothing has been streamed into the
   // object, returns an empty string.
   const char* message() const {
-    return message_.get() != NULL && message_->c_str() != NULL ?
-           message_->c_str() : "";
+    return message_.get() != NULL ?  message_->c_str() : "";
   }
   // TODO(vladl@google.com): Remove this after making sure no clients use it.
   // Deprecated; please use message() instead.
   const char* failure_message() const { return message(); }
 
   // Streams a custom failure message into this object.
-  template <typename T> AssertionResult& operator<<(const T& value);
+  template <typename T> AssertionResult& operator<<(const T& value) {
+    AppendMessage(Message() << value);
+    return *this;
+  }
+
+  // Allows streaming basic output manipulators such as endl or flush into
+  // this object.
+  AssertionResult& operator<<(
+      ::std::ostream& (*basic_manipulator)(::std::ostream& stream)) {
+    AppendMessage(Message() << basic_manipulator);
+    return *this;
+  }
 
  private:
-  // No implementation - we want AssertionResult to be
-  // copy-constructible but not assignable.
-  void operator=(const AssertionResult& other);
+  // Appends the contents of message to message_.
+  void AppendMessage(const Message& a_message) {
+    if (message_.get() == NULL)
+      message_.reset(new ::std::string);
+    message_->append(a_message.GetString().c_str());
+  }
 
   // Stores result of the assertion predicate.
   bool success_;
@@ -302,19 +315,10 @@ class GTEST_API_ AssertionResult {
   // construct is not satisfied with the predicate's outcome.
   // Referenced via a pointer to avoid taking too much stack frame space
   // with test assertions.
-  internal::scoped_ptr<internal::String> message_;
-};  // class AssertionResult
+  internal::scoped_ptr< ::std::string> message_;
 
-// Streams a custom failure message into this object.
-template <typename T>
-AssertionResult& AssertionResult::operator<<(const T& value) {
-  Message msg;
-  if (message_.get() != NULL)
-    msg << *message_;
-  msg << value;
-  message_.reset(new internal::String(msg.GetString()));
-  return *this;
-}
+  GTEST_DISALLOW_ASSIGN_(AssertionResult);
+};
 
 // Makes a successful assertion result.
 GTEST_API_ AssertionResult AssertionSuccess();
@@ -630,11 +634,21 @@ class GTEST_API_ TestInfo {
   // Returns the test name.
   const char* name() const { return name_.c_str(); }
 
-  // Returns the test case comment.
-  const char* test_case_comment() const { return test_case_comment_.c_str(); }
+  // Returns the name of the parameter type, or NULL if this is not a typed
+  // or a type-parameterized test.
+  const char* type_param() const {
+    if (type_param_.get() != NULL)
+      return type_param_->c_str();
+    return NULL;
+  }
 
-  // Returns the test comment.
-  const char* comment() const { return comment_.c_str(); }
+  // Returns the text representation of the value parameter, or NULL if this
+  // is not a value-parameterized test.
+  const char* value_param() const {
+    if (value_param_.get() != NULL)
+      return value_param_->c_str();
+    return NULL;
+  }
 
   // Returns true if this test should run, that is if the test is not disabled
   // (or it is disabled but the also_run_disabled_tests flag has been specified)
@@ -666,7 +680,8 @@ class GTEST_API_ TestInfo {
   friend class internal::UnitTestImpl;
   friend TestInfo* internal::MakeAndRegisterTestInfo(
       const char* test_case_name, const char* name,
-      const char* test_case_comment, const char* comment,
+      const char* type_param,
+      const char* value_param,
       internal::TypeId fixture_class_id,
       Test::SetUpTestCaseFunc set_up_tc,
       Test::TearDownTestCaseFunc tear_down_tc,
@@ -675,7 +690,8 @@ class GTEST_API_ TestInfo {
   // Constructs a TestInfo object. The newly constructed instance assumes
   // ownership of the factory object.
   TestInfo(const char* test_case_name, const char* name,
-           const char* test_case_comment, const char* comment,
+           const char* a_type_param,
+           const char* a_value_param,
            internal::TypeId fixture_class_id,
            internal::TestFactoryBase* factory);
 
@@ -696,8 +712,12 @@ class GTEST_API_ TestInfo {
   // These fields are immutable properties of the test.
   const std::string test_case_name_;     // Test case name
   const std::string name_;               // Test name
-  const std::string test_case_comment_;  // Test case comment
-  const std::string comment_;            // Test comment
+  // Name of the parameter type, or NULL if this is not a typed or a
+  // type-parameterized test.
+  const internal::scoped_ptr<const ::std::string> type_param_;
+  // Text representation of the value parameter, or NULL if this is not a
+  // value-parameterized test.
+  const internal::scoped_ptr<const ::std::string> value_param_;
   const internal::TypeId fixture_class_id_;   // ID of the test fixture class
   bool should_run_;                 // True iff this test should run
   bool is_disabled_;                // True iff this test is disabled
@@ -726,9 +746,11 @@ class GTEST_API_ TestCase {
   // Arguments:
   //
   //   name:         name of the test case
+  //   a_type_param: the name of the test's type parameter, or NULL if
+  //                 this is not a type-parameterized test.
   //   set_up_tc:    pointer to the function that sets up the test case
   //   tear_down_tc: pointer to the function that tears down the test case
-  TestCase(const char* name, const char* comment,
+  TestCase(const char* name, const char* a_type_param,
            Test::SetUpTestCaseFunc set_up_tc,
            Test::TearDownTestCaseFunc tear_down_tc);
 
@@ -738,8 +760,13 @@ class GTEST_API_ TestCase {
   // Gets the name of the TestCase.
   const char* name() const { return name_.c_str(); }
 
-  // Returns the test case comment.
-  const char* comment() const { return comment_.c_str(); }
+  // Returns the name of the parameter type, or NULL if this is not a
+  // type-parameterized test case.
+  const char* type_param() const {
+    if (type_param_.get() != NULL)
+      return type_param_->c_str();
+    return NULL;
+  }
 
   // Returns true if any test in this test case should run.
   bool should_run() const { return should_run_; }
@@ -842,8 +869,9 @@ class GTEST_API_ TestCase {
 
   // Name of the test case.
   internal::String name_;
-  // Comment on the test case.
-  internal::String comment_;
+  // Name of the parameter type, or NULL if this is not a typed or a
+  // type-parameterized test.
+  const internal::scoped_ptr<const ::std::string> type_param_;
   // The vector of TestInfos in their original order.  It owns the
   // elements in the vector.
   std::vector<TestInfo*> test_info_list_;
@@ -1338,7 +1366,7 @@ class EqHelper {
 };
 
 // This specialization is used when the first argument to ASSERT_EQ()
-// is a null pointer literal.
+// is a null pointer literal, like NULL, false, or 0.
 template <>
 class EqHelper<true> {
  public:
@@ -1347,24 +1375,38 @@ class EqHelper<true> {
   // NOT a pointer, e.g. ASSERT_EQ(0, AnIntFunction()) or
   // EXPECT_EQ(false, a_bool).
   template <typename T1, typename T2>
-  static AssertionResult Compare(const char* expected_expression,
-                                 const char* actual_expression,
-                                 const T1& expected,
-                                 const T2& actual) {
+  static AssertionResult Compare(
+      const char* expected_expression,
+      const char* actual_expression,
+      const T1& expected,
+      const T2& actual,
+      // The following line prevents this overload from being considered if T2
+      // is not a pointer type.  We need this because ASSERT_EQ(NULL, my_ptr)
+      // expands to Compare("", "", NULL, my_ptr), which requires a conversion
+      // to match the Secret* in the other overload, which would otherwise make
+      // this template match better.
+      typename EnableIf<!is_pointer<T2>::value>::type* = 0) {
     return CmpHelperEQ(expected_expression, actual_expression, expected,
                        actual);
   }
 
-  // This version will be picked when the second argument to
-  // ASSERT_EQ() is a pointer, e.g. ASSERT_EQ(NULL, a_pointer).
-  template <typename T1, typename T2>
-  static AssertionResult Compare(const char* expected_expression,
-                                 const char* actual_expression,
-                                 const T1& /* expected */,
-                                 T2* actual) {
+  // This version will be picked when the second argument to ASSERT_EQ() is a
+  // pointer, e.g. ASSERT_EQ(NULL, a_pointer).
+  template <typename T>
+  static AssertionResult Compare(
+      const char* expected_expression,
+      const char* actual_expression,
+      // We used to have a second template parameter instead of Secret*.  That
+      // template parameter would deduce to 'long', making this a better match
+      // than the first overload even without the first overload's EnableIf.
+      // Unfortunately, gcc with -Wconversion-null warns when "passing NULL to
+      // non-pointer argument" (even a deduced integral argument), so the old
+      // implementation caused warnings in user code.
+      Secret* /* expected (NULL) */,
+      T* actual) {
     // We already know that 'expected' is a null pointer.
     return CmpHelperEQ(expected_expression, actual_expression,
-                       static_cast<T2*>(NULL), actual);
+                       static_cast<T*>(NULL), actual);
   }
 };
 
@@ -1585,9 +1627,13 @@ class GTEST_API_ AssertHelper {
 }  // namespace internal
 
 #if GTEST_HAS_PARAM_TEST
-// The abstract base class that all value-parameterized tests inherit from.
+// The pure interface class that all value-parameterized tests inherit from.
+// A value-parameterized class must inherit from both ::testing::Test and
+// ::testing::WithParamInterface. In most cases that just means inheriting
+// from ::testing::TestWithParam, but more complicated test hierarchies
+// may need to inherit from Test and WithParamInterface at different levels.
 //
-// This class adds support for accessing the test parameter value via
+// This interface has support for accessing the test parameter value via
 // the GetParam() method.
 //
 // Use it with one of the parameter generator defining functions, like Range(),
@@ -1616,12 +1662,16 @@ class GTEST_API_ AssertHelper {
 // INSTANTIATE_TEST_CASE_P(OneToTenRange, FooTest, ::testing::Range(1, 10));
 
 template <typename T>
-class TestWithParam : public Test {
+class WithParamInterface {
  public:
   typedef T ParamType;
+  virtual ~WithParamInterface() {}
 
   // The current parameter value. Is also available in the test fixture's
-  // constructor.
+  // constructor. This member function is non-static, even though it only
+  // references static data, to reduce the opportunity for incorrect uses
+  // like writing 'WithParamInterface<bool>::GetParam()' for a test that
+  // uses a fixture whose parameter type is int.
   const ParamType& GetParam() const { return *parameter_; }
 
  private:
@@ -1634,12 +1684,19 @@ class TestWithParam : public Test {
   // Static value used for accessing parameter during a test lifetime.
   static const ParamType* parameter_;
 
-  // TestClass must be a subclass of TestWithParam<T>.
+  // TestClass must be a subclass of WithParamInterface<T> and Test.
   template <class TestClass> friend class internal::ParameterizedTestFactory;
 };
 
 template <typename T>
-const T* TestWithParam<T>::parameter_ = NULL;
+const T* WithParamInterface<T>::parameter_ = NULL;
+
+// Most value-parameterized classes can ignore the existence of
+// WithParamInterface, and can just inherit from ::testing::TestWithParam.
+
+template <typename T>
+class TestWithParam : public Test, public WithParamInterface<T> {
+};
 
 #endif  // GTEST_HAS_PARAM_TEST
 

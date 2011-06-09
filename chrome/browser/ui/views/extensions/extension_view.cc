@@ -5,9 +5,9 @@
 #include "chrome/browser/ui/views/extensions/extension_view.h"
 
 #include "chrome/browser/extensions/extension_host.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/ui/views/extensions/extension_popup.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_widget_host_view.h"
 #include "views/widget/widget.h"
 
 #if defined(OS_WIN)
@@ -104,7 +104,7 @@ void ExtensionView::CreateWidgetHostView() {
   RenderWidgetHostViewViews* view_views =
       static_cast<RenderWidgetHostViewViews*>(view);
   view_views->InitAsChild();
-  Attach(view_views->GetNativeView());
+  AttachToView(view_views);
 #elif defined(OS_LINUX)
   RenderWidgetHostViewGtk* view_gtk =
       static_cast<RenderWidgetHostViewGtk*>(view);

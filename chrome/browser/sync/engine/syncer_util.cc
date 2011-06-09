@@ -4,6 +4,7 @@
 
 #include "chrome/browser/sync/engine/syncer_util.h"
 
+#include <algorithm>
 #include <set>
 #include <string>
 #include <vector>
@@ -17,6 +18,7 @@
 #include "chrome/browser/sync/protocol/sync.pb.h"
 #include "chrome/browser/sync/syncable/directory_manager.h"
 #include "chrome/browser/sync/syncable/model_type.h"
+#include "chrome/browser/sync/syncable/nigori_util.h"
 #include "chrome/browser/sync/syncable/syncable.h"
 #include "chrome/browser/sync/syncable/syncable_changes_version.h"
 
@@ -26,7 +28,6 @@ using syncable::CHANGES_VERSION;
 using syncable::CREATE;
 using syncable::CREATE_NEW_UPDATE_ITEM;
 using syncable::CTIME;
-using syncable::ComparePathNames;
 using syncable::Directory;
 using syncable::Entry;
 using syncable::GET_BY_HANDLE;
@@ -219,8 +220,8 @@ syncable::Id SyncerUtil::FindLocalIdToUpdate(
     if (local_entry.good() && !local_entry.Get(IS_DEL)) {
       int64 old_version = local_entry.Get(BASE_VERSION);
       int64 new_version = update.version();
-      DCHECK(old_version <= 0);
-      DCHECK(new_version > 0);
+      DCHECK_LE(old_version, 0);
+      DCHECK_GT(new_version, 0);
       // Otherwise setting the base version could cause a consistency failure.
       // An entry should never be version 0 and SYNCED.
       DCHECK(local_entry.Get(IS_UNSYNCED));
@@ -286,8 +287,9 @@ UpdateAttemptResponse SyncerUtil::AttemptToUpdateEntry(
     }
   }
 
-  // We intercept updates to the Nigori node and update the Cryptographer here
-  // because there is no Nigori ChangeProcessor.
+  // We intercept updates to the Nigori node, update the Cryptographer and
+  // encrypt any unsynced changes here because there is no Nigori
+  // ChangeProcessor.
   const sync_pb::EntitySpecifics& specifics = entry->Get(SERVER_SPECIFICS);
   if (specifics.HasExtension(sync_pb::nigori)) {
     const sync_pb::NigoriSpecifics& nigori =
@@ -299,17 +301,49 @@ UpdateAttemptResponse SyncerUtil::AttemptToUpdateEntry(
         cryptographer->SetPendingKeys(nigori.encrypted());
       }
     }
+
+    // Make sure any unsynced changes are properly encrypted as necessary.
+    syncable::ModelTypeSet encrypted_types =
+        syncable::GetEncryptedDataTypesFromNigori(nigori);
+    if (!VerifyUnsyncedChangesAreEncrypted(trans, encrypted_types) &&
+        (!cryptographer->is_ready() ||
+         !syncable::ProcessUnsyncedChangesForEncryption(trans, encrypted_types,
+                                                        cryptographer))) {
+      // We were unable to encrypt the changes, possibly due to a missing
+      // passphrase. We return conflict, even though the conflict is with the
+      // unsynced change and not the nigori node. We ensure foward progress
+      // because the cryptographer already has the pending keys set, so once
+      // the new passphrase is entered we should be able to encrypt properly.
+      // And, because this update will not be applied yet, next time around
+      // we will properly encrypt all appropriate unsynced data.
+      VLOG(1) << "Marking nigori node update as conflicting due to being unable"
+              << " to encrypt all necessary unsynced changes.";
+      return CONFLICT;
+    }
+
+    // Note that we don't bother to encrypt any synced data that now requires
+    // encryption. The machine that turned on encryption should encrypt
+    // everything itself. It's possible it could get interrupted during this
+    // process, but we currently reencrypt everything at startup as well,
+    // so as soon as a client is restarted with this datatype encrypted, all the
+    // data should be updated as necessary.
   }
 
   // Only apply updates that we can decrypt. Updates that can't be decrypted yet
   // will stay in conflict until the user provides a passphrase that lets the
   // Cryptographer decrypt them.
-  if (!entry->Get(SERVER_IS_DIR) && specifics.HasExtension(sync_pb::password)) {
-    const sync_pb::PasswordSpecifics& password =
-        specifics.GetExtension(sync_pb::password);
-    if (!cryptographer->CanDecrypt(password.encrypted())) {
+  if (!entry->Get(SERVER_IS_DIR)) {
+    if (specifics.has_encrypted() &&
+        !cryptographer->CanDecrypt(specifics.encrypted())) {
       // We can't decrypt this node yet.
       return CONFLICT;
+    } else if (specifics.HasExtension(sync_pb::password)) {
+      // Passwords use their own legacy encryption scheme.
+      const sync_pb::PasswordSpecifics& password =
+          specifics.GetExtension(sync_pb::password);
+      if (!cryptographer->CanDecrypt(password.encrypted())) {
+        return CONFLICT;
+      }
     }
   }
 
@@ -441,8 +475,7 @@ bool SyncerUtil::ServerAndLocalOrdersMatch(syncable::Entry* entry) {
 
   // Now find the closest up-to-date sibling in the server order.
   syncable::Id server_up_to_date_predecessor =
-      ComputePrevIdFromServerPosition(entry->trans(), entry,
-                                      entry->Get(SERVER_PARENT_ID));
+      entry->ComputePrevIdFromServerPosition(entry->Get(SERVER_PARENT_ID));
   return server_up_to_date_predecessor == local_up_to_date_predecessor;
 }
 
@@ -516,7 +549,7 @@ void SyncerUtil::UpdateLocalDataFromServerData(
   DCHECK(!entry->Get(IS_UNSYNCED));
   DCHECK(entry->Get(IS_UNAPPLIED_UPDATE));
 
-  VLOG(1) << "Updating entry : " << *entry;
+  VLOG(2) << "Updating entry : " << *entry;
   // Start by setting the properties that determine the model_type.
   entry->Put(SPECIFICS, entry->Get(SERVER_SPECIFICS));
   entry->Put(IS_DIR, entry->Get(SERVER_IS_DIR));
@@ -529,8 +562,8 @@ void SyncerUtil::UpdateLocalDataFromServerData(
     entry->Put(NON_UNIQUE_NAME, entry->Get(SERVER_NON_UNIQUE_NAME));
     entry->Put(PARENT_ID, entry->Get(SERVER_PARENT_ID));
     CHECK(entry->Put(IS_DEL, false));
-    Id new_predecessor = ComputePrevIdFromServerPosition(trans, entry,
-        entry->Get(SERVER_PARENT_ID));
+    Id new_predecessor =
+        entry->ComputePrevIdFromServerPosition(entry->Get(SERVER_PARENT_ID));
     CHECK(entry->PutPredecessor(new_predecessor))
         << " Illegal predecessor after converting from server position.";
   }
@@ -808,64 +841,6 @@ VerifyResult SyncerUtil::VerifyUndelete(syncable::WriteTransaction* trans,
     return VERIFY_SUCCESS;  // Expected in new sync protocol.
   }
   return VERIFY_UNDECIDED;
-}
-
-// static
-syncable::Id SyncerUtil::ComputePrevIdFromServerPosition(
-    syncable::BaseTransaction* trans,
-    syncable::Entry* update_item,
-    const syncable::Id& parent_id) {
-  const int64 position_in_parent = update_item->Get(SERVER_POSITION_IN_PARENT);
-
-  // TODO(ncarter): This computation is linear in the number of children, but
-  // we could make it logarithmic if we kept an index on server position.
-  syncable::Id closest_sibling;
-  syncable::Id next_id = trans->directory()->GetFirstChildId(trans, parent_id);
-  while (!next_id.IsRoot()) {
-    syncable::Entry candidate(trans, GET_BY_ID, next_id);
-    if (!candidate.good()) {
-      LOG(WARNING) << "Should not happen";
-      return closest_sibling;
-    }
-    next_id = candidate.Get(NEXT_ID);
-
-    // Defensively prevent self-comparison.
-    if (candidate.Get(META_HANDLE) == update_item->Get(META_HANDLE)) {
-      continue;
-    }
-
-    // Ignore unapplied updates -- they might not even be server-siblings.
-    if (candidate.Get(IS_UNAPPLIED_UPDATE)) {
-      continue;
-    }
-
-    // Unsynced items don't have a valid server position.
-    if (!candidate.Get(IS_UNSYNCED)) {
-      // If |candidate| is after |update_entry| according to the server
-      // ordering, then we're done.  ID is the tiebreaker.
-      if ((candidate.Get(SERVER_POSITION_IN_PARENT) > position_in_parent) ||
-          ((candidate.Get(SERVER_POSITION_IN_PARENT) == position_in_parent) &&
-           (candidate.Get(ID) > update_item->Get(ID)))) {
-          return closest_sibling;
-      }
-    }
-
-    // We can't trust the SERVER_ fields of unsynced items, but they are
-    // potentially legitimate local predecessors.  In the case where
-    // |update_item| and an unsynced item wind up in the same insertion
-    // position, we need to choose how to order them.  The following check puts
-    // the unapplied update first; removing it would put the unsynced item(s)
-    // first.
-    if (candidate.Get(IS_UNSYNCED)) {
-      continue;
-    }
-
-    // |update_entry| is considered to be somewhere after |candidate|, so store
-    // it as the upper bound.
-    closest_sibling = candidate.Get(ID);
-  }
-
-  return closest_sibling;
 }
 
 }  // namespace browser_sync

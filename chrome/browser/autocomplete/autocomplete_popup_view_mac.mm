@@ -169,7 +169,7 @@ NSMutableAttributedString* AutocompletePopupViewMac::ElideString(
   }
 
   // If everything was elided away, clear the string.
-  if (elided.size() == 0) {
+  if (elided.empty()) {
     [aString deleteCharactersInRange:NSMakeRange(0, [aString length])];
     return aString;
   }
@@ -177,7 +177,7 @@ NSMutableAttributedString* AutocompletePopupViewMac::ElideString(
   // The ellipses should be the last character, and everything before
   // that should match the original string.
   const size_t i(elided.size() - 1);
-  DCHECK(0 != elided.compare(0, i, originalString));
+  DCHECK_NE(0, elided.compare(0, i, originalString));
 
   // Replace the end of |aString| with the ellipses from |elided|.
   NSString* s = base::SysUTF16ToNSString(elided.substr(i));
@@ -293,7 +293,6 @@ AutocompletePopupViewMac::AutocompletePopupViewMac(
   DCHECK(edit_view);
   DCHECK(edit_model);
   DCHECK(profile);
-  edit_model->SetPopupModel(model_.get());
 }
 
 AutocompletePopupViewMac::~AutocompletePopupViewMac() {
@@ -320,7 +319,7 @@ AutocompleteMatrix* AutocompletePopupViewMac::GetAutocompleteMatrix() {
 }
 
 bool AutocompletePopupViewMac::IsOpen() const {
-  return [popup_ isVisible] ? true : false;
+  return popup_ != nil;
 }
 
 void AutocompletePopupViewMac::CreatePopupIfNeeded() {
@@ -410,7 +409,7 @@ void AutocompletePopupViewMac::PositionPopup(const CGFloat matrixHeight) {
     [popup_ setAnimations:savedAnimations];
   }
 
-  if (!IsOpen())
+  if (![popup_ isVisible])
     [[field_ window] addChildWindow:popup_ ordered:NSWindowAbove];
 }
 
@@ -439,6 +438,8 @@ void AutocompletePopupViewMac::UpdatePopupAppearance() {
     [matrix setPopupView:NULL];
 
     popup_.reset(nil);
+
+    targetPopupFrame_ = NSZeroRect;
 
     return;
   }
@@ -526,10 +527,6 @@ void AutocompletePopupViewMac::SetSelectedLine(size_t line) {
 void AutocompletePopupViewMac::PaintUpdatesNow() {
   AutocompleteMatrix* matrix = GetAutocompleteMatrix();
   [matrix selectCellAtRow:model_->selected_line() column:0];
-}
-
-AutocompletePopupModel* AutocompletePopupViewMac::GetModel() {
-  return model_.get();
 }
 
 void AutocompletePopupViewMac::OpenURLForRow(int row, bool force_background) {

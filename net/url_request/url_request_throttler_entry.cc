@@ -66,6 +66,7 @@ URLRequestThrottlerEntry::URLRequestThrottlerEntry(
 }
 
 bool URLRequestThrottlerEntry::IsEntryOutdated() const {
+  CHECK(this);  // to help track crbug.com/71721
   if (entry_lifetime_ms_ == -1)
     return false;
 
@@ -73,7 +74,7 @@ bool URLRequestThrottlerEntry::IsEntryOutdated() const {
 
   // If there are send events in the sliding window period, we still need this
   // entry.
-  if (send_log_.size() > 0 &&
+  if (!send_log_.empty() &&
       send_log_.back() + sliding_window_period_ > now) {
     return false;
   }
@@ -184,6 +185,10 @@ void URLRequestThrottlerEntry::ReceivedContentWasMalformed() {
   failure_count_ += 2;
   latest_response_was_failure_ = true;
   exponential_backoff_release_time_ = CalculateExponentialBackoffReleaseTime();
+}
+
+void URLRequestThrottlerEntry::SetEntryLifetimeMsForTest(int lifetime_ms) {
+  entry_lifetime_ms_ = lifetime_ms;
 }
 
 URLRequestThrottlerEntry::~URLRequestThrottlerEntry() {

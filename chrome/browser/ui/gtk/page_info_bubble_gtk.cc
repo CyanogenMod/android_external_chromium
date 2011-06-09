@@ -9,7 +9,6 @@
 #include "base/i18n/rtl.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/certificate_viewer.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/page_info_model.h"
 #include "chrome/browser/page_info_window.h"
@@ -20,10 +19,11 @@
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/browser/ui/gtk/info_bubble_gtk.h"
 #include "chrome/browser/ui/gtk/location_bar_view_gtk.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/certificate_viewer.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
+#include "content/common/notification_service.h"
 #include "googleurl/src/gurl.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
@@ -214,7 +214,7 @@ GtkWidget* PageInfoBubbleGtk::CreateSection(
     const PageInfoModel::SectionInfo& section) {
   GtkWidget* section_box = gtk_hbox_new(FALSE, gtk_util::kControlSpacing);
 
-  GdkPixbuf* pixbuf = model_.GetIconImage(section.icon_id);
+  GdkPixbuf* pixbuf = *model_.GetIconImage(section.icon_id);
   if (pixbuf) {
     GtkWidget* image = gtk_image_new_from_pixbuf(pixbuf);
     gtk_box_pack_start(GTK_BOX(section_box), image, FALSE, FALSE, 0);

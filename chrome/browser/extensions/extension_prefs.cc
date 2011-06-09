@@ -9,6 +9,7 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/extensions/extension_pref_store.h"
 #include "chrome/browser/prefs/pref_notifier.h"
+#include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/url_pattern.h"
 #include "chrome/common/notification_service.h"
@@ -78,6 +79,12 @@ const char kPrefLaunchType[] = "launchType";
 
 // A preference determining the order of which the apps appear on the NTP.
 const char kPrefAppLaunchIndex[] = "app_launcher_index";
+
+// A preference determining the page on which an app appears in the NTP.
+const char kPrefPageIndex[] = "page_index";
+
+// A preference specifying if the user dragged the app on the NTP.
+const char kPrefUserDraggedApp[] = "user_dragged_app_ntp";
 
 // A preference for storing extra data sent in update checks for an extension.
 const char kUpdateUrlData[] = "update_url_data";
@@ -338,9 +345,7 @@ void ExtensionPrefs::AddToExtensionPrefStringSet(
 
 void ExtensionPrefs::SavePrefsAndNotify() {
   prefs_->ScheduleSavePersistentPrefs();
-  // TODO(mnissler, danno): Don't use pref_notifier() here, but tell the
-  // PrefService by some other means that we changed the pref value.
-  prefs_->pref_notifier()->OnPreferenceChanged(kExtensionsPref);
+  ScopedUserPrefUpdate update(prefs_, kExtensionsPref);
 }
 
 bool ExtensionPrefs::IsBlacklistBitSet(DictionaryValue* ext) {
@@ -482,6 +487,25 @@ void ExtensionPrefs::SetLastPingDayImpl(const Time& time,
   SavePrefsAndNotify();
 }
 
+Time ExtensionPrefs::LastPingDay(const std::string& extension_id) const {
+  DCHECK(Extension::IdIsValid(extension_id));
+  return LastPingDayImpl(GetExtensionPref(extension_id));
+}
+
+Time ExtensionPrefs::BlacklistLastPingDay() const {
+  return LastPingDayImpl(prefs_->GetDictionary(kExtensionsBlacklistUpdate));
+}
+
+void ExtensionPrefs::SetLastPingDay(const std::string& extension_id,
+                                    const Time& time) {
+  DCHECK(Extension::IdIsValid(extension_id));
+  SetLastPingDayImpl(time, GetExtensionPref(extension_id));
+}
+
+void ExtensionPrefs::SetBlacklistLastPingDay(const Time& time) {
+  SetLastPingDayImpl(time,
+                     prefs_->GetMutableDictionary(kExtensionsBlacklistUpdate));
+}
 
 bool ExtensionPrefs::GetGrantedPermissions(
     const std::string& extension_id,
@@ -505,11 +529,20 @@ bool ExtensionPrefs::GetGrantedPermissions(
   // "permissions" array and from the content script "matches" arrays,
   // so the URLPattern needs to accept valid schemes from both types.
   for (std::set<std::string>::iterator i = host_permissions.begin();
-       i != host_permissions.end(); ++i)
-    host_extent->AddPattern(URLPattern(
+       i != host_permissions.end(); ++i) {
+    URLPattern pattern(
         Extension::kValidHostPermissionSchemes |
-        UserScript::kValidUserScriptSchemes,
-        *i));
+        UserScript::kValidUserScriptSchemes);
+
+    // Parse without strict checks, so that new strict checks do not
+    // fail on a pattern in an installed extension.
+    if (URLPattern::PARSE_SUCCESS != pattern.Parse(
+            *i, URLPattern::PARSE_LENIENT)) {
+      NOTREACHED();  // Corrupt prefs?  Hand editing?
+    } else {
+      host_extent->AddPattern(pattern);
+    }
+  }
 
   return true;
 }
@@ -538,26 +571,6 @@ void ExtensionPrefs::AddGrantedPermissions(
   }
 
   SavePrefsAndNotify();
-}
-
-Time ExtensionPrefs::LastPingDay(const std::string& extension_id) const {
-  DCHECK(Extension::IdIsValid(extension_id));
-  return LastPingDayImpl(GetExtensionPref(extension_id));
-}
-
-Time ExtensionPrefs::BlacklistLastPingDay() const {
-  return LastPingDayImpl(prefs_->GetDictionary(kExtensionsBlacklistUpdate));
-}
-
-void ExtensionPrefs::SetLastPingDay(const std::string& extension_id,
-                                    const Time& time) {
-  DCHECK(Extension::IdIsValid(extension_id));
-  SetLastPingDayImpl(time, GetExtensionPref(extension_id));
-}
-
-void ExtensionPrefs::SetBlacklistLastPingDay(const Time& time) {
-  SetLastPingDayImpl(time,
-                     prefs_->GetMutableDictionary(kExtensionsBlacklistUpdate));
 }
 
 bool ExtensionPrefs::IsIncognitoEnabled(const std::string& extension_id) {
@@ -1126,6 +1139,44 @@ void ExtensionPrefs::SetAppLauncherOrder(
       NotificationService::NoDetails());
 }
 
+int ExtensionPrefs::GetPageIndex(const std::string& extension_id)
+{
+  int value;
+  if (ReadExtensionPrefInteger(extension_id, kPrefPageIndex, &value))
+    return value;
+
+  return -1;
+}
+
+void ExtensionPrefs::SetPageIndex(const std::string& extension_id, int index)
+{
+  CHECK_GE(index, 0);
+  UpdateExtensionPref(extension_id, kPrefPageIndex,
+                      Value::CreateIntegerValue(index));
+  SavePrefsAndNotify();
+}
+
+bool ExtensionPrefs::WasAppDraggedByUser(const std::string& extension_id) {
+  DictionaryValue* dictionary = GetExtensionPref(extension_id);
+  if (!dictionary) {
+    NOTREACHED();
+    return false;
+  }
+
+  return ReadBooleanFromPref(dictionary, kPrefUserDraggedApp);
+}
+
+void ExtensionPrefs::SetAppDraggedByUser(const std::string& extension_id) {
+  DictionaryValue* dictionary = GetExtensionPref(extension_id);
+  if (!dictionary) {
+    NOTREACHED();
+    return;
+  }
+
+  dictionary->SetBoolean(kPrefUserDraggedApp, true);
+  SavePrefsAndNotify();
+}
+
 void ExtensionPrefs::SetUpdateUrlData(const std::string& extension_id,
                                       const std::string& data) {
   DictionaryValue* dictionary = GetExtensionPref(extension_id);
@@ -1253,9 +1304,14 @@ void ExtensionPrefs::SetExtensionControlledPref(const std::string& extension_id,
                                                 const std::string& pref_key,
                                                 bool incognito,
                                                 Value* value) {
-  DCHECK(pref_service()->FindPreference(pref_key.c_str()))
-      << "Extension controlled preference key " << pref_key
-      << " not registered.";
+#ifndef NDEBUG
+  const PrefService::Preference* pref =
+      pref_service()->FindPreference(pref_key.c_str());
+  DCHECK(pref) << "Extension controlled preference key " << pref_key
+               << " not registered.";
+  DCHECK_EQ(pref->GetType(), value->GetType())
+      << "Extension controlled preference " << pref_key << " has wrong type.";
+#endif
 
   if (!incognito) {
     // Also store in persisted Preferences file to recover after a
@@ -1287,6 +1343,30 @@ void ExtensionPrefs::RemoveExtensionControlledPref(
 
   extension_pref_value_map_->RemoveExtensionPref(
       extension_id, pref_key, incognito);
+}
+
+bool ExtensionPrefs::CanExtensionControlPref(const std::string& extension_id,
+                                             const std::string& pref_key,
+                                             bool incognito) {
+  DCHECK(pref_service()->FindPreference(pref_key.c_str()))
+      << "Extension controlled preference key " << pref_key
+      << " not registered.";
+
+  return extension_pref_value_map_->CanExtensionControlPref(extension_id,
+                                                            pref_key,
+                                                            incognito);
+}
+
+bool ExtensionPrefs::DoesExtensionControlPref(const std::string& extension_id,
+                                              const std::string& pref_key,
+                                              bool incognito) {
+  DCHECK(pref_service()->FindPreference(pref_key.c_str()))
+      << "Extension controlled preference key " << pref_key
+      << " not registered.";
+
+  return extension_pref_value_map_->DoesExtensionControlPref(extension_id,
+                                                             pref_key,
+                                                             incognito);
 }
 
 // static

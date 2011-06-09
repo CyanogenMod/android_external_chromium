@@ -19,7 +19,7 @@
 #include "base/task.h"
 #include "chrome/browser/accessibility/browser_accessibility_manager.h"
 #include "chrome/browser/ime_input.h"
-#include "chrome/browser/renderer_host/render_widget_host_view.h"
+#include "content/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "ui/gfx/native_widget_types.h"
@@ -120,6 +120,7 @@ class RenderWidgetHostViewWin
     MESSAGE_HANDLER(WM_IME_CHAR, OnKeyEvent)
     MESSAGE_HANDLER(WM_MOUSEACTIVATE, OnMouseActivate)
     MESSAGE_HANDLER(WM_GETOBJECT, OnGetObject)
+    MESSAGE_HANDLER(WM_PARENTNOTIFY, OnParentNotify)
   END_MSG_MAP()
 
   // Implementation of RenderWidgetHostView:
@@ -159,7 +160,8 @@ class RenderWidgetHostViewWin
   virtual bool ContainsNativeView(gfx::NativeView native_view) const;
   virtual void SetVisuallyDeemphasized(const SkColor* color, bool animate);
 
-  virtual gfx::PluginWindowHandle GetCompositorHostWindow();
+  virtual gfx::PluginWindowHandle AcquireCompositingSurface();
+  virtual void ReleaseCompositingSurface(gfx::PluginWindowHandle surface);
   virtual void ShowCompositorHostWindow(bool show);
 
   virtual void OnAccessibilityNotifications(
@@ -215,6 +217,9 @@ class RenderWidgetHostViewWin
   LRESULT OnVScroll(int code, short position, HWND scrollbar_control);
   // Handle horizontal scrolling
   LRESULT OnHScroll(int code, short position, HWND scrollbar_control);
+
+  LRESULT OnParentNotify(UINT message, WPARAM wparam, LPARAM lparam,
+                         BOOL& handled);
 
   void OnFinalMessage(HWND window);
 

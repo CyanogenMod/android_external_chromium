@@ -7,13 +7,13 @@
 
 #include "base/scoped_ptr.h"
 #include "base/values.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/policy/configuration_policy_pref_store.h"
 #include "chrome/browser/policy/dummy_configuration_policy_provider.h"
 #include "chrome/browser/prefs/pref_notifier.h"
 #include "chrome/browser/prefs/pref_value_store.h"
 #include "chrome/browser/prefs/testing_pref_store.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/browser_thread.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -611,5 +611,26 @@ TEST_F(PrefValueStoreTest, PrefValueUserModifiable) {
   EXPECT_TRUE(pref_value_store_->PrefValueUserModifiable(
       prefs::kDefaultPref));
   EXPECT_TRUE(pref_value_store_->PrefValueUserModifiable(
+      prefs::kMissingPref));
+}
+
+TEST_F(PrefValueStoreTest, PrefValueExtensionModifiable) {
+  EXPECT_FALSE(pref_value_store_->PrefValueExtensionModifiable(
+      prefs::kManagedPlatformPref));
+  EXPECT_FALSE(pref_value_store_->PrefValueExtensionModifiable(
+      prefs::kManagedCloudPref));
+  EXPECT_TRUE(pref_value_store_->PrefValueExtensionModifiable(
+      prefs::kExtensionPref));
+  EXPECT_TRUE(pref_value_store_->PrefValueExtensionModifiable(
+      prefs::kCommandLinePref));
+  EXPECT_TRUE(pref_value_store_->PrefValueExtensionModifiable(
+      prefs::kUserPref));
+  EXPECT_TRUE(pref_value_store_->PrefValueExtensionModifiable(
+      prefs::kRecommendedPlatformPref));
+  EXPECT_TRUE(pref_value_store_->PrefValueExtensionModifiable(
+      prefs::kRecommendedCloudPref));
+  EXPECT_TRUE(pref_value_store_->PrefValueExtensionModifiable(
+      prefs::kDefaultPref));
+  EXPECT_TRUE(pref_value_store_->PrefValueExtensionModifiable(
       prefs::kMissingPref));
 }

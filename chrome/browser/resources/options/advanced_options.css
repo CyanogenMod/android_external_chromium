@@ -4,11 +4,7 @@
  * found in the LICENSE file.
  */
 
-#advancedPage .informational-text {
-  color: grey;
-}
-
-#advancedPage > section > div:only-of-type > label.checkbox {
+#advancedPage > section > div:only-of-type > div.checkbox {
   margin: 10px 0;
 }
 
@@ -28,7 +24,7 @@
 
 #download-location-group {
   margin: 10px 0 5px;
-  min-width: 700px;
+  min-width: 470px;
 }
 
 #promptForDownload {

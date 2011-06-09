@@ -35,19 +35,19 @@
 #include "chrome/browser/printing/cloud_print/cloud_print_setup_flow.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_url.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/ui/options/options_util.h"
 #include "chrome/browser/ui/options/show_options_url.h"
 #include "chrome/browser/ui/shell_dialogs.h"
 #include "chrome/browser/ui/views/browser_dialogs.h"
-#include "chrome/browser/ui/views/clear_browsing_data.h"
+#include "chrome/browser/ui/views/clear_browsing_data_view.h"
 #include "chrome/browser/ui/views/list_background.h"
 #include "chrome/browser/ui/views/options/content_settings_window_view.h"
 #include "chrome/browser/ui/views/options/fonts_languages_window_view.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/renderer_host/resource_dispatcher_host.h"
 #include "grit/app_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -90,7 +90,7 @@ class FileDisplayArea : public views::View {
   void SetFile(const FilePath& file_path);
 
   // views::View overrides:
-  virtual void Paint(gfx::Canvas* canvas);
+  virtual void OnPaint(gfx::Canvas* canvas);
   virtual void Layout();
   virtual gfx::Size GetPreferredSize();
 
@@ -140,7 +140,7 @@ void FileDisplayArea::SetFile(const FilePath& file_path) {
   }
 }
 
-void FileDisplayArea::Paint(gfx::Canvas* canvas) {
+void FileDisplayArea::OnPaint(gfx::Canvas* canvas) {
   HDC dc = canvas->BeginPlatformPaint();
   RECT rect = { 0, 0, width(), height() };
   gfx::NativeTheme::instance()->PaintTextField(
@@ -1078,6 +1078,9 @@ class DownloadSection : public AdvancedSection,
   // the current value of the pref.
   void UpdateDownloadDirectoryDisplay();
 
+  // Helper function for reacting to managed prefs.
+  void DownloadSection::UpdateWidgetsForManagedPrefs();
+
   StringPrefMember auto_open_files_;
 
   DISALLOW_COPY_AND_ASSIGN(DownloadSection);
@@ -1227,11 +1230,19 @@ void DownloadSection::NotifyPrefChanged(const std::string* pref_name) {
     reset_file_handlers_label_->SetEnabled(enabled);
     reset_file_handlers_button_->SetEnabled(enabled);
   }
+  UpdateWidgetsForManagedPrefs();
 }
 
 void DownloadSection::UpdateDownloadDirectoryDisplay() {
   download_default_download_location_display_->SetFile(
       default_download_location_.GetValue());
+}
+
+void DownloadSection::UpdateWidgetsForManagedPrefs() {
+  const bool enabled = !default_download_location_.IsManaged();
+  download_default_download_location_display_->SetEnabled(enabled);
+  download_browse_button_->SetEnabled(enabled);
+  download_ask_for_save_location_checkbox_->SetEnabled(enabled);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

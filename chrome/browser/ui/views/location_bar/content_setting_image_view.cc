@@ -8,11 +8,11 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/content_setting_bubble_model.h"
 #include "chrome/browser/content_setting_image_model.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/browser/ui/views/content_setting_bubble_contents.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/common/chrome_switches.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "third_party/skia/include/core/SkShader.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -67,16 +67,13 @@ ContentSettingImageView::~ContentSettingImageView() {
 }
 
 void ContentSettingImageView::UpdateFromTabContents(TabContents* tab_contents) {
-  int old_icon = content_setting_image_model_->get_icon();
   content_setting_image_model_->UpdateFromTabContents(tab_contents);
   if (!content_setting_image_model_->is_visible()) {
     SetVisible(false);
     return;
   }
-  if (old_icon != content_setting_image_model_->get_icon()) {
-    SetImage(ResourceBundle::GetSharedInstance().GetBitmapNamed(
-        content_setting_image_model_->get_icon()));
-  }
+  SetImage(ResourceBundle::GetSharedInstance().GetBitmapNamed(
+      content_setting_image_model_->get_icon()));
   SetTooltipText(UTF8ToWide(content_setting_image_model_->get_tooltip()));
   SetVisible(true);
 
@@ -136,6 +133,12 @@ void ContentSettingImageView::OnMouseReleased(const views::MouseEvent& event,
   if (!tab_contents)
     return;
 
+  // Prerender does not have a bubble.
+  ContentSettingsType content_settings_type =
+      content_setting_image_model_->get_content_settings_type();
+  if (content_settings_type == CONTENT_SETTINGS_TYPE_PRERENDER)
+    return;
+
   gfx::Rect screen_bounds(GetImageBounds());
   gfx::Point origin(screen_bounds.origin());
   views::View::ConvertPointToScreen(this, &origin);
@@ -143,8 +146,7 @@ void ContentSettingImageView::OnMouseReleased(const views::MouseEvent& event,
   ContentSettingBubbleContents* bubble_contents =
       new ContentSettingBubbleContents(
           ContentSettingBubbleModel::CreateContentSettingBubbleModel(
-              tab_contents, profile_,
-              content_setting_image_model_->get_content_settings_type()),
+              tab_contents, profile_, content_settings_type),
           profile_, tab_contents);
   info_bubble_ = InfoBubble::Show(GetWidget(), screen_bounds,
       BubbleBorder::TOP_RIGHT, bubble_contents, this);
@@ -157,7 +159,7 @@ void ContentSettingImageView::VisibilityChanged(View* starting_from,
     info_bubble_->Close();
 }
 
-void ContentSettingImageView::Paint(gfx::Canvas* canvas) {
+void ContentSettingImageView::OnPaint(gfx::Canvas* canvas) {
   gfx::Insets current_insets;
   if (border())
     border()->GetInsets(&current_insets);
@@ -179,7 +181,7 @@ void ContentSettingImageView::Paint(gfx::Canvas* canvas) {
     set_border(empty_border);
   }
   // Paint an icon with possibly non-empty left border.
-  views::ImageView::Paint(canvas);
+  views::ImageView::OnPaint(canvas);
   if (animation_in_progress_) {
     // Paint text to the right of the icon.
     ResourceBundle& rb = ResourceBundle::GetSharedInstance();
@@ -191,9 +193,9 @@ void ContentSettingImageView::Paint(gfx::Canvas* canvas) {
   }
 }
 
-void ContentSettingImageView::PaintBackground(gfx::Canvas* canvas) {
+void ContentSettingImageView::OnPaintBackground(gfx::Canvas* canvas) {
   if (!animation_in_progress_) {
-    views::ImageView::PaintBackground(canvas);
+    views::ImageView::OnPaintBackground(canvas);
     return;
   }
   // Paint yellow gradient background if in animation mode.
@@ -223,6 +225,10 @@ void ContentSettingImageView::InfoBubbleClosing(InfoBubble* info_bubble,
 
 bool ContentSettingImageView::CloseOnEscape() {
   return true;
+}
+
+bool ContentSettingImageView::FadeInOnShow() {
+  return false;
 }
 
 void ContentSettingImageView::AnimateToState(double state) {

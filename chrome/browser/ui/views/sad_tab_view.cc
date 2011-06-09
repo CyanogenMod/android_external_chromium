@@ -6,9 +6,9 @@
 
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/google/google_util.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_delegate.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_delegate.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
@@ -70,7 +70,9 @@ SadTabView::SadTabView(TabContents* tab_contents, Kind kind)
   }
 }
 
-void SadTabView::Paint(gfx::Canvas* canvas) {
+SadTabView::~SadTabView() {}
+
+void SadTabView::OnPaint(gfx::Canvas* canvas) {
   SkPaint paint;
   SkSafeUnref(paint.setShader(
       gfx::CreateGradientShader(

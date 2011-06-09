@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "base/allocator/allocator_shim.h"
 #include "base/at_exit.h"
 #include "base/command_line.h"
 #include "base/debug/trace_event.h"
@@ -35,16 +36,16 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_impl.h"
 #include "chrome/browser/browser_shutdown.h"
-#include "chrome/browser/browser_thread.h"
-#include "chrome/browser/dom_ui/chrome_url_data_manager_backend.h"
 #include "chrome/browser/extensions/extension_protocols.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extensions_startup.h"
 #include "chrome/browser/first_run/first_run.h"
+#include "chrome/browser/gpu_data_manager.h"
 #include "chrome/browser/jankometer.h"
 #include "chrome/browser/metrics/histogram_synchronizer.h"
 #include "chrome/browser/metrics/metrics_log.h"
 #include "chrome/browser/metrics/metrics_service.h"
+#include "chrome/browser/metrics/thread_watcher.h"
 #include "chrome/browser/net/blob_url_request_job_factory.h"
 #include "chrome/browser/net/chrome_dns_cert_provenance_checker.h"
 #include "chrome/browser/net/chrome_dns_cert_provenance_checker_factory.h"
@@ -53,17 +54,15 @@
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/net/sdch_dictionary_fetcher.h"
 #include "chrome/browser/net/websocket_experiment/websocket_experiment_runner.h"
-#include "chrome/browser/plugin_service.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/pref_value_store.h"
-#include "chrome/browser/prerender/prerender_manager.h"
+#include "chrome/browser/prerender/prerender_field_trial.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_proxy_service.h"
 #include "chrome/browser/printing/print_dialog_cloud.h"
 #include "chrome/browser/process_singleton.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/search_engines/search_engine_type.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
@@ -73,7 +72,7 @@
 #include "chrome/browser/translate/translate_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_init.h"
-#include "chrome/common/child_process.h"
+#include "chrome/browser/ui/webui/chrome_url_data_manager_backend.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -89,6 +88,10 @@
 #include "chrome/common/profiling.h"
 #include "chrome/common/result_codes.h"
 #include "chrome/installer/util/google_update_settings.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/plugin_service.h"
+#include "content/browser/renderer_host/resource_dispatcher_host.h"
+#include "content/common/child_process.h"
 #include "grit/app_locale_settings.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -136,6 +139,7 @@
 #include <windows.h>
 
 #include "app/win/scoped_com_initializer.h"
+#include "base/win/windows_version.h"
 #include "chrome/browser/browser_trial.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/net/url_fixer_upper.h"
@@ -161,7 +165,9 @@
 #if defined(TOOLKIT_VIEWS)
 #include "chrome/browser/ui/views/chrome_views_delegate.h"
 #include "views/focus/accelerator_handler.h"
-#include "views/widget/root_view.h"
+#if defined(TOOLKIT_USES_GTK)
+#include "views/widget/widget_gtk.h"
+#endif
 #endif
 
 #if defined(OS_CHROMEOS)
@@ -171,6 +177,7 @@
 #include "chrome/browser/chromeos/external_metrics.h"
 #include "chrome/browser/chromeos/login/authenticator.h"
 #include "chrome/browser/chromeos/login/login_utils.h"
+#include "chrome/browser/chromeos/login/ownership_service.h"
 #include "chrome/browser/chromeos/login/screen_locker.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/chromeos/metrics_cros_settings_provider.h"
@@ -228,9 +235,10 @@ void BrowserMainParts::SetupFieldTrials() {
   ConnectionFieldTrial();
   SocketTimeoutFieldTrial();
   ProxyConnectionsFieldTrial();
-  PrefetchAndPrerenderFieldTrial();
+  prerender::ConfigurePrefetchAndPrerender(parsed_command_line());
   SpdyFieldTrial();
   ConnectBackupJobsFieldTrial();
+  SSLFalseStartFieldTrial();
 }
 
 // This is an A/B test for the maximum number of persistent connections per
@@ -429,78 +437,28 @@ void BrowserMainParts::SpdyFieldTrial() {
   }
 }
 
-// Parse the --prerender= command line switch, which controls both prerendering
-// and prefetching.  If the switch is unset, or is set to "auto", then the user
-// is assigned to a field trial.
-void BrowserMainParts::PrefetchAndPrerenderFieldTrial() {
-  enum PrerenderOption {
-    PRERENDER_OPTION_AUTO,
-    PRERENDER_OPTION_DISABLED,
-    PRERENDER_OPTION_ENABLED,
-    PRERENDER_OPTION_PREFETCH_ONLY,
-  };
-
-  PrerenderOption prerender_option = PRERENDER_OPTION_AUTO;
-  if (parsed_command_line().HasSwitch(switches::kPrerender)) {
-    const std::string switch_value =
-        parsed_command_line().GetSwitchValueASCII(switches::kPrerender);
-
-    if (switch_value == switches::kPrerenderSwitchValueAuto) {
-      prerender_option = PRERENDER_OPTION_AUTO;
-    } else if (switch_value == switches::kPrerenderSwitchValueDisabled) {
-      prerender_option = PRERENDER_OPTION_DISABLED;
-    } else if (switch_value.empty() ||
-               switch_value == switches::kPrerenderSwitchValueEnabled) {
-      // The empty string means the option was provided with no value, and that
-      // means enable.
-      prerender_option = PRERENDER_OPTION_ENABLED;
-    } else if (switch_value == switches::kPrerenderSwitchValuePrefetchOnly) {
-      prerender_option = PRERENDER_OPTION_PREFETCH_ONLY;
-    } else {
-      prerender_option = PRERENDER_OPTION_DISABLED;
-      LOG(ERROR) << "Invalid --prerender option received on command line: "
-                 << switch_value;
-      LOG(ERROR) << "Disabling prerendering!";
-    }
+void BrowserMainParts::SSLFalseStartFieldTrial() {
+  if (parsed_command_line().HasSwitch(switches::kDisableSSLFalseStart)) {
+    net::SSLConfigService::DisableFalseStart();
+    return;
   }
 
-  switch (prerender_option) {
-    case PRERENDER_OPTION_AUTO: {
-      const base::FieldTrial::Probability kPrefetchDivisor = 1000;
-      const base::FieldTrial::Probability no_prefetch_probability = 500;
-      // After June 30, 2011 builds, it will always be in default group.
-      scoped_refptr<base::FieldTrial> trial(
-          new base::FieldTrial("Prefetch", kPrefetchDivisor,
-                               "ContentPrefetchEnabled", 2011, 6, 30));
-      const int yes_prefetch_grp = trial->kDefaultGroupNumber;
-      trial->AppendGroup("ContentPrefetchDisabled", no_prefetch_probability);
-      const int trial_grp = trial->group();
-      ResourceDispatcherHost::set_is_prefetch_enabled(
-          trial_grp == yes_prefetch_grp);
+  const base::FieldTrial::Probability kDivisor = 100;
+  base::FieldTrial::Probability falsestart_probability = 50;  // 50/50 trial
 
-      // There is currently no prerendering field trial.
-      PrerenderManager::SetMode(PrerenderManager::PRERENDER_MODE_DISABLED);
-      break;
-    }
-    case PRERENDER_OPTION_DISABLED:
-      ResourceDispatcherHost::set_is_prefetch_enabled(false);
-      PrerenderManager::SetMode(PrerenderManager::PRERENDER_MODE_DISABLED);
-      break;
-    case PRERENDER_OPTION_ENABLED:
-      ResourceDispatcherHost::set_is_prefetch_enabled(true);
-      PrerenderManager::SetMode(PrerenderManager::PRERENDER_MODE_ENABLED);
-      break;
-    case PRERENDER_OPTION_PREFETCH_ONLY:
-      ResourceDispatcherHost::set_is_prefetch_enabled(true);
-      PrerenderManager::SetMode(PrerenderManager::PRERENDER_MODE_DISABLED);
-      break;
-    default:
-      NOTREACHED();
-  }
+  // After July 30, 2011 builds, it will always be in default group.
+  scoped_refptr<base::FieldTrial> trial(
+      new base::FieldTrial(
+          "SSLFalseStart", kDivisor, "FalseStart_enabled", 2011, 7, 30));
 
-  UMA_HISTOGRAM_ENUMERATION("Prerender.Sessions", PrerenderManager::GetMode(),
-                            PrerenderManager::PRERENDER_MODE_MAX);
+  int disabled_group = trial->AppendGroup("FalseStart_disabled",
+                                          falsestart_probability);
+
+  int trial_grp = trial->group();
+  if (trial_grp == disabled_group)
+    net::SSLConfigService::DisableFalseStart();
 }
+
 
 // If neither --enable-connect-backup-jobs or --disable-connect-backup-jobs is
 // specified, run an A/B test for automatically establishing backup TCP
@@ -669,6 +627,9 @@ void CreateChildThreads(BrowserProcessImpl* process) {
   process->process_launcher_thread();
   process->cache_thread();
   process->io_thread();
+  // Create watchdog thread after creating all other threads because it will
+  // watch the other threads and they must be running.
+  process->watchdog_thread();
 }
 
 // Returns the new local state object, guaranteed non-NULL.
@@ -873,6 +834,17 @@ void MaybeChangeUIFont() {
     return;
   }
   gtk_util::SetGtkFont(font_name);
+
+  // Override the font set for tooltips in the gtkrc file so tooltips use the
+  // IDS_UI_FONT_FAMILY_CROS font.
+  // TODO(falken): this is a hack: make adding locale-specific changes to GTK
+  // settings cleaner.  See http://crosbug.com/12257
+  std::string tooltip_style =
+      "style \"OverrideTooltipFontStyle\" = \"TooltipStyle\" {\n"
+      "  font_name = \"" + font_name + "\"\n"
+      "}\n"
+      "widget \"gtk-tooltip*\" style \"OverrideTooltipFontStyle\"\n";
+  gtk_rc_parse_string(tooltip_style.c_str());
 }
 #endif
 
@@ -974,8 +946,11 @@ void InitializeToolkit(const MainFunctionParams& parameters) {
   if (!views::ViewsDelegate::views_delegate)
     views::ViewsDelegate::views_delegate = new ChromeViewsDelegate;
 
+#if defined(TOOLKIT_USES_GTK)
+  // TODO(beng): Move to WidgetImpl and implement on Windows too!
   if (parameters.command_line_.HasSwitch(switches::kDebugViewsPaint))
-    views::RootView::EnableDebugPaint();
+    views::WidgetGtk::EnableDebugPaint();
+#endif
 #endif
 
 #if defined(OS_WIN)
@@ -1165,6 +1140,14 @@ int BrowserMain(const MainFunctionParams& parameters) {
   const CommandLine& parsed_command_line = parameters.command_line_;
   base::mac::ScopedNSAutoreleasePool* pool = parameters.autorelease_pool_;
 
+#if defined(OS_WIN) && !defined(NO_TCMALLOC)
+  // When linking shared libraries, NO_TCMALLOC is defined, and dynamic
+  // allocator selection is not supported.
+
+  // Make this call before going multithreaded, or spawning any subprocesses.
+  base::allocator::SetupSubprocessAllocator();
+#endif  // OS_WIN
+
   FilePath user_data_dir;
 #if defined(OS_WIN)
   PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
@@ -1251,20 +1234,26 @@ int BrowserMain(const MainFunctionParams& parameters) {
 #endif  // defined(OS_MACOSX)
   }
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_CHROMEOS)
-  // gdk_pixbuf_loader_write always fails on chromeos device.
-  // Disabling for chromeos as well because chromeos is not using them.
-  // http://crosbug.com/4996 .
-  gtk_util::SetDefaultWindowIcon();
+#if defined(TOOLKIT_GTK)
+  g_set_application_name(l10n_util::GetStringUTF8(IDS_PRODUCT_NAME).c_str());
 #endif
 
   std::string try_chrome =
       parsed_command_line.GetSwitchValueASCII(switches::kTryChromeAgain);
   if (!try_chrome.empty()) {
 #if defined(OS_WIN)
+    // Setup.exe has determined that we need to run a retention experiment
+    // and has lauched chrome to show the experiment UI.
+    if (process_singleton.FoundOtherProcessWindow()) {
+      // It seems that we don't need to run the experiment since chrome
+      // in the same profile is already running.
+      VLOG(1) << "Retention experiment not required";
+      return Upgrade::TD_NOT_NOW;
+    }
     int try_chrome_int;
     base::StringToInt(try_chrome, &try_chrome_int);
-    Upgrade::TryResult answer = Upgrade::ShowTryChromeDialog(try_chrome_int);
+    Upgrade::TryResult answer =
+        Upgrade::ShowTryChromeDialog(try_chrome_int, &process_singleton);
     if (answer == Upgrade::TD_NOT_NOW)
       return ResultCodes::NORMAL_EXIT_CANCEL;
     if (answer == Upgrade::TD_UNINSTALL_CHROME)
@@ -1309,6 +1298,11 @@ int BrowserMain(const MainFunctionParams& parameters) {
   scoped_refptr<HistogramSynchronizer> histogram_synchronizer(
       new HistogramSynchronizer());
 
+  // Initialize thread watcher system. This is a singleton and is used by
+  // WatchDogThread to keep track of information about threads that are being
+  // watched.
+  scoped_ptr<ThreadWatcherList> thread_watcher_list(new ThreadWatcherList());
+
   // Initialize the prefs of the local state.
   browser::RegisterLocalState(local_state);
 
@@ -1348,6 +1342,9 @@ int BrowserMain(const MainFunctionParams& parameters) {
   // Change the UI font if necessary. This has to be done after
   // InitSharedInstance() is called, as it depends on resource data.
   MaybeChangeUIFont();
+
+  // Trigger prefetching of ownership status.
+  chromeos::OwnershipService::GetSharedInstance();
 #endif
 
   // Record last shutdown time into a histogram.
@@ -1558,6 +1555,18 @@ int BrowserMain(const MainFunctionParams& parameters) {
   // testing against a bunch of special cases that are taken care early on.
   PrepareRestartOnCrashEnviroment(parsed_command_line);
 
+#if defined(OS_WIN)
+  // Registers Chrome with the Windows Restart Manager, which will restore the
+  // Chrome session when the computer is restarted after a system update.
+  // This could be run as late as WM_QUERYENDSESSION for system update reboots,
+  // but should run on startup if extended to handle crashes/hangs/patches.
+  // Also, better to run once here than once for each HWND's WM_QUERYENDSESSION.
+  if (base::win::GetVersion() >= base::win::VERSION_VISTA) {
+    bool result = RegisterApplicationRestart(parsed_command_line);
+    DCHECK(result);
+  }
+#endif  // OS_WIN
+
   // Initialize and maintain network predictor module, which handles DNS
   // pre-resolution, as well as TCP/IP connection pre-warming.
   // This also registers an observer to discard data when closing incognito
@@ -1580,8 +1589,8 @@ int BrowserMain(const MainFunctionParams& parameters) {
   // file thread to be run sometime later. If this is the first run we record
   // the installation event.
   RLZTracker::InitRlzDelayed(is_first_run, master_prefs.ping_delay);
-#endif
-#endif
+#endif  // GOOGLE_CHROME_BUILD
+#endif  // OS_WIN
 
   // Configure modules that need access to resources.
   net::NetModule::SetResourceProvider(chrome_common_net::NetResourceProvider);
@@ -1593,9 +1602,7 @@ int BrowserMain(const MainFunctionParams& parameters) {
   RegisterExtensionProtocols();
   RegisterMetadataURLRequestHandler();
   RegisterBlobURLRequestJobFactory();
-
-  if (parsed_command_line.HasSwitch(switches::kEnableFileSystemURLScheme))
-    RegisterFileSystemURLRequestJobFactory();
+  RegisterFileSystemURLRequestJobFactory();
 
   // In unittest mode, this will do nothing.  In normal mode, this will create
   // the global GoogleURLTracker and IntranetRedirectDetector instances, which
@@ -1753,6 +1760,15 @@ int BrowserMain(const MainFunctionParams& parameters) {
   // might have shutdown because an update was available.
   profile->GetCloudPrintProxyService();
 
+  // Need to initialize GpuDataManager to load the current GPU blacklist,
+  // collect preliminary GPU info, run through GPU blacklist, and schedule
+  // a GPU blacklist auto update.
+  GpuDataManager* gpu_data_manager = GpuDataManager::GetInstance();
+  DCHECK(gpu_data_manager);
+
+  // Start watching all browser threads for responsiveness.
+  ThreadWatcherList::StartWatchingAll();
+
   int result_code = ResultCodes::NORMAL_EXIT;
   if (parameters.ui_task) {
     // We are in test mode. Run one task and enter the main message loop.
@@ -1761,8 +1777,8 @@ int BrowserMain(const MainFunctionParams& parameters) {
     parameters.ui_task->Run();
     delete parameters.ui_task;
   } else {
-    // We are in regular browser boot sequence. Open initial stabs and enter
-    // the main message loop.
+    // We are in regular browser boot sequence. Open initial tabs and enter the
+    // main message loop.
     if (browser_init.Start(parsed_command_line, FilePath(), profile,
                            &result_code)) {
 #if (defined(OS_WIN) || defined(OS_LINUX)) && !defined(OS_CHROMEOS)
@@ -1838,6 +1854,9 @@ int BrowserMain(const MainFunctionParams& parameters) {
   chrome_browser_net_websocket_experiment::WebSocketExperimentRunner::Stop();
 
   process_singleton.Cleanup();
+
+  // Stop all tasks that might run on WatchDogThread.
+  ThreadWatcherList::StopWatchingAll();
 
   metrics->Stop();
 

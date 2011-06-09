@@ -7,13 +7,14 @@
 #include "base/time.h"
 #include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/render_messages.h"
+#include "content/browser/tab_contents/tab_contents.h"
+
+namespace prerender {
 
 PrerenderPLTRecorder::PrerenderPLTRecorder(TabContents* tab_contents)
-    : tab_contents_(tab_contents),
+    : TabContentsObserver(tab_contents),
       pplt_load_start_() {
-
 }
 
 PrerenderPLTRecorder::~PrerenderPLTRecorder() {
@@ -38,10 +39,13 @@ void PrerenderPLTRecorder::OnDidStartProvisionalLoadForFrame(int64 frame_id,
 
 void PrerenderPLTRecorder::DidStopLoading() {
   // Compute the PPLT metric and report it in a histogram, if needed.
-  PrerenderManager* pm = tab_contents_->profile()->GetPrerenderManager();
-  if (pm != NULL && !pplt_load_start_.is_null())
-    pm->RecordPerceivedPageLoadTime(base::TimeTicks::Now() - pplt_load_start_);
+  if (!pplt_load_start_.is_null()) {
+    PrerenderManager::RecordPerceivedPageLoadTime(
+        base::TimeTicks::Now() - pplt_load_start_);
+  }
 
   // Reset the PPLT metric.
   pplt_load_start_ = base::TimeTicks();
 }
+
+}  // namespace prerender

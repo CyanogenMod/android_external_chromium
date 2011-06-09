@@ -33,14 +33,14 @@
 //
 // This file tests the built-in actions.
 
-#include <gmock/gmock-actions.h>
+#include "gmock/gmock-actions.h"
 #include <algorithm>
 #include <iterator>
 #include <string>
-#include <gmock/gmock.h>
-#include <gmock/internal/gmock-port.h>
-#include <gtest/gtest.h>
-#include <gtest/gtest-spi.h>
+#include "gmock/gmock.h"
+#include "gmock/internal/gmock-port.h"
+#include "gtest/gtest.h"
+#include "gtest/gtest-spi.h"
 
 namespace {
 
@@ -68,6 +68,8 @@ using testing::PolymorphicAction;
 using testing::Return;
 using testing::ReturnNull;
 using testing::ReturnRef;
+using testing::ReturnRefOfCopy;
+using testing::SetArgPointee;
 using testing::SetArgumentPointee;
 
 #if !GTEST_OS_WINDOWS_MOBILE
@@ -332,8 +334,7 @@ class MyActionImpl : public ActionInterface<MyFunction> {
 
 TEST(ActionInterfaceTest, CanBeImplementedByDefiningPerform) {
   MyActionImpl my_action_impl;
-
-  EXPECT_FALSE(my_action_impl.IsDoDefault());
+  (void)my_action_impl;
 }
 
 TEST(ActionInterfaceTest, MakeAction) {
@@ -584,6 +585,30 @@ TEST(ReturnRefTest, IsCovariant) {
   EXPECT_EQ(&derived, &a.Perform(make_tuple()));
 }
 
+// Tests that ReturnRefOfCopy(v) works for reference types.
+TEST(ReturnRefOfCopyTest, WorksForReference) {
+  int n = 42;
+  const Action<const int&()> ret = ReturnRefOfCopy(n);
+
+  EXPECT_NE(&n, &ret.Perform(make_tuple()));
+  EXPECT_EQ(42, ret.Perform(make_tuple()));
+
+  n = 43;
+  EXPECT_NE(&n, &ret.Perform(make_tuple()));
+  EXPECT_EQ(42, ret.Perform(make_tuple()));
+}
+
+// Tests that ReturnRefOfCopy(v) is covariant.
+TEST(ReturnRefOfCopyTest, IsCovariant) {
+  Base base;
+  Derived derived;
+  Action<Base&()> a = ReturnRefOfCopy(base);
+  EXPECT_NE(&base, &a.Perform(make_tuple()));
+
+  a = ReturnRefOfCopy(derived);
+  EXPECT_NE(&derived, &a.Perform(make_tuple()));
+}
+
 // Tests that DoDefault() does the default action for the mock method.
 
 class MyClass {};
@@ -668,6 +693,162 @@ TEST(DoDefaultTest, CannotBeUsedInOnCall) {
       .WillByDefault(DoDefault());
   }, "DoDefault() cannot be used in ON_CALL()");
 }
+
+// Tests that SetArgPointee<N>(v) sets the variable pointed to by
+// the N-th (0-based) argument to v.
+TEST(SetArgPointeeTest, SetsTheNthPointee) {
+  typedef void MyFunction(bool, int*, char*);
+  Action<MyFunction> a = SetArgPointee<1>(2);
+
+  int n = 0;
+  char ch = '\0';
+  a.Perform(make_tuple(true, &n, &ch));
+  EXPECT_EQ(2, n);
+  EXPECT_EQ('\0', ch);
+
+  a = SetArgPointee<2>('a');
+  n = 0;
+  ch = '\0';
+  a.Perform(make_tuple(true, &n, &ch));
+  EXPECT_EQ(0, n);
+  EXPECT_EQ('a', ch);
+}
+
+// Tests that SetArgPointee<N>() accepts a string literal.
+TEST(SetArgPointeeTest, AcceptsStringLiteral) {
+  typedef void MyFunction(bool, std::string*, const char**);
+  Action<MyFunction> a = SetArgPointee<1>("hi");
+  std::string str;
+  const char* ptr = NULL;
+  a.Perform(make_tuple(true, &str, &ptr));
+  EXPECT_EQ("hi", str);
+  EXPECT_TRUE(ptr == NULL);
+
+  a = SetArgPointee<2>("world");
+  str = "";
+  a.Perform(make_tuple(true, &str, &ptr));
+  EXPECT_EQ("", str);
+  EXPECT_STREQ("world", ptr);
+}
+
+// Tests that SetArgPointee<N>() accepts a char pointer.
+TEST(SetArgPointeeTest, AcceptsCharPointer) {
+  typedef void MyFunction(bool, std::string*, const char**);
+  const char* const hi = "hi";
+  Action<MyFunction> a = SetArgPointee<1>(hi);
+  std::string str;
+  const char* ptr = NULL;
+  a.Perform(make_tuple(true, &str, &ptr));
+  EXPECT_EQ("hi", str);
+  EXPECT_TRUE(ptr == NULL);
+
+  char world_array[] = "world";
+  char* const world = world_array;
+  a = SetArgPointee<2>(world);
+  str = "";
+  a.Perform(make_tuple(true, &str, &ptr));
+  EXPECT_EQ("", str);
+  EXPECT_EQ(world, ptr);
+}
+
+#if GTEST_HAS_PROTOBUF_
+
+// Tests that SetArgPointee<N>(proto_buffer) sets the v1 protobuf
+// variable pointed to by the N-th (0-based) argument to proto_buffer.
+TEST(SetArgPointeeTest, SetsTheNthPointeeOfProtoBufferType) {
+  TestMessage* const msg = new TestMessage;
+  msg->set_member("yes");
+  TestMessage orig_msg;
+  orig_msg.CopyFrom(*msg);
+
+  Action<void(bool, TestMessage*)> a = SetArgPointee<1>(*msg);
+  // SetArgPointee<N>(proto_buffer) makes a copy of proto_buffer
+  // s.t. the action works even when the original proto_buffer has
+  // died.  We ensure this behavior by deleting msg before using the
+  // action.
+  delete msg;
+
+  TestMessage dest;
+  EXPECT_FALSE(orig_msg.Equals(dest));
+  a.Perform(make_tuple(true, &dest));
+  EXPECT_TRUE(orig_msg.Equals(dest));
+}
+
+// Tests that SetArgPointee<N>(proto_buffer) sets the
+// ::ProtocolMessage variable pointed to by the N-th (0-based)
+// argument to proto_buffer.
+TEST(SetArgPointeeTest, SetsTheNthPointeeOfProtoBufferBaseType) {
+  TestMessage* const msg = new TestMessage;
+  msg->set_member("yes");
+  TestMessage orig_msg;
+  orig_msg.CopyFrom(*msg);
+
+  Action<void(bool, ::ProtocolMessage*)> a = SetArgPointee<1>(*msg);
+  // SetArgPointee<N>(proto_buffer) makes a copy of proto_buffer
+  // s.t. the action works even when the original proto_buffer has
+  // died.  We ensure this behavior by deleting msg before using the
+  // action.
+  delete msg;
+
+  TestMessage dest;
+  ::ProtocolMessage* const dest_base = &dest;
+  EXPECT_FALSE(orig_msg.Equals(dest));
+  a.Perform(make_tuple(true, dest_base));
+  EXPECT_TRUE(orig_msg.Equals(dest));
+}
+
+// Tests that SetArgPointee<N>(proto2_buffer) sets the v2
+// protobuf variable pointed to by the N-th (0-based) argument to
+// proto2_buffer.
+TEST(SetArgPointeeTest, SetsTheNthPointeeOfProto2BufferType) {
+  using testing::internal::FooMessage;
+  FooMessage* const msg = new FooMessage;
+  msg->set_int_field(2);
+  msg->set_string_field("hi");
+  FooMessage orig_msg;
+  orig_msg.CopyFrom(*msg);
+
+  Action<void(bool, FooMessage*)> a = SetArgPointee<1>(*msg);
+  // SetArgPointee<N>(proto2_buffer) makes a copy of
+  // proto2_buffer s.t. the action works even when the original
+  // proto2_buffer has died.  We ensure this behavior by deleting msg
+  // before using the action.
+  delete msg;
+
+  FooMessage dest;
+  dest.set_int_field(0);
+  a.Perform(make_tuple(true, &dest));
+  EXPECT_EQ(2, dest.int_field());
+  EXPECT_EQ("hi", dest.string_field());
+}
+
+// Tests that SetArgPointee<N>(proto2_buffer) sets the
+// proto2::Message variable pointed to by the N-th (0-based) argument
+// to proto2_buffer.
+TEST(SetArgPointeeTest, SetsTheNthPointeeOfProto2BufferBaseType) {
+  using testing::internal::FooMessage;
+  FooMessage* const msg = new FooMessage;
+  msg->set_int_field(2);
+  msg->set_string_field("hi");
+  FooMessage orig_msg;
+  orig_msg.CopyFrom(*msg);
+
+  Action<void(bool, ::proto2::Message*)> a = SetArgPointee<1>(*msg);
+  // SetArgPointee<N>(proto2_buffer) makes a copy of
+  // proto2_buffer s.t. the action works even when the original
+  // proto2_buffer has died.  We ensure this behavior by deleting msg
+  // before using the action.
+  delete msg;
+
+  FooMessage dest;
+  dest.set_int_field(0);
+  ::proto2::Message* const dest_base = &dest;
+  a.Perform(make_tuple(true, dest_base));
+  EXPECT_EQ(2, dest.int_field());
+  EXPECT_EQ("hi", dest.string_field());
+}
+
+#endif  // GTEST_HAS_PROTOBUF_
 
 // Tests that SetArgumentPointee<N>(v) sets the variable pointed to by
 // the N-th (0-based) argument to v.

@@ -42,8 +42,8 @@ $$}} This meta comment fixes auto-indentation in editors.
 #ifndef GMOCK_INCLUDE_GMOCK_GMOCK_GENERATED_ACTIONS_H_
 #define GMOCK_INCLUDE_GMOCK_GMOCK_GENERATED_ACTIONS_H_
 
-#include <gmock/gmock-actions.h>
-#include <gmock/internal/gmock-port.h>
+#include "gmock/gmock-actions.h"
+#include "gmock/internal/gmock-port.h"
 
 namespace testing {
 namespace internal {
@@ -605,7 +605,7 @@ $if i==1 [[P]] $elif i>=2 [[P$i]]
 
 // The name of the class template implementing the action template.
 #define GMOCK_ACTION_CLASS_(name, value_params)\
-    GMOCK_CONCAT_TOKEN_(name##Action, GMOCK_INTERNAL_COUNT_##value_params)
+    GTEST_CONCAT_TOKEN_(name##Action, GMOCK_INTERNAL_COUNT_##value_params)
 
 $range k 0..n-1
 

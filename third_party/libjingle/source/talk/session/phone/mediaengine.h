@@ -39,9 +39,6 @@
 #include "talk/session/phone/codec.h"
 #include "talk/session/phone/devicemanager.h"
 #include "talk/session/phone/mediachannel.h"
-#ifdef USE_TALK_SOUND
-#include "talk/sound/soundsystemfactory.h"
-#endif
 #include "talk/session/phone/videocommon.h"
 
 namespace cricket {
@@ -88,11 +85,7 @@ class MediaEngine {
   };
 
   virtual ~MediaEngine() {}
-  static MediaEngine* Create(
-#ifdef USE_TALK_SOUND
-      SoundSystemFactory *factory
-#endif
-      );
+  static MediaEngine* Create();
 
   // Initialization
   // Starts the engine.
@@ -154,7 +147,7 @@ class MediaEngine {
   virtual void SetVoiceLogging(int min_sev, const char* filter) = 0;
   virtual void SetVideoLogging(int min_sev, const char* filter) = 0;
 
-  sigslot::repeater1<bool> SignalVideoCaptureResult;
+  sigslot::repeater1<CaptureResult> SignalVideoCaptureResult;
 };
 
 // CompositeMediaEngine constructs a MediaEngine from separate
@@ -162,11 +155,6 @@ class MediaEngine {
 template<class VOICE, class VIDEO>
 class CompositeMediaEngine : public MediaEngine {
  public:
-#ifdef USE_TALK_SOUND
-  explicit CompositeMediaEngine(SoundSystemFactory *factory)
-      : voice_(factory) {
-  }
-#endif
   CompositeMediaEngine() {}
   virtual bool Init() {
     if (!voice_.Init())
@@ -257,6 +245,37 @@ class CompositeMediaEngine : public MediaEngine {
   VIDEO video_;
 };
 
+class NullVoiceMediaChannel : public VoiceMediaChannel {
+ public:
+  explicit NullVoiceMediaChannel() {}
+  ~NullVoiceMediaChannel() {}
+  // MediaChannel implementations
+  virtual void OnPacketReceived(talk_base::Buffer* packet) {}
+  virtual void OnRtcpReceived(talk_base::Buffer* packet) {}
+  virtual void SetSendSsrc(uint32 id) {}
+  virtual bool SetRtcpCName(const std::string& cname) { return true; }
+  virtual bool Mute(bool on) { return true; }
+  virtual bool SetSendBandwidth(bool autobw, int bps) { return true; }
+  virtual bool SetOptions(int options) { return true; }
+  // VoiceMediaChannel implementations
+  virtual bool SetRecvCodecs(const std::vector<AudioCodec> &codecs) {
+    return true;
+  }
+  virtual bool SetSendCodecs(const std::vector<AudioCodec> &codecs) {
+    return true;
+  }
+  virtual bool SetPlayout(bool playout) { return true; }
+  virtual bool SetSend(SendFlags flag) { return true; }
+  virtual bool AddStream(uint32 ssrc) { return true; }
+  virtual bool RemoveStream(uint32 ssrc) { return true; }
+  virtual bool GetActiveStreams(AudioInfo::StreamList* streams) { return true; }
+  virtual int GetOutputLevel() { return 0; }
+  virtual void SetRingbackTone(const char *buf, int len) {}
+  virtual bool PlayRingbackTone(bool play, bool loop) { return true; }
+  virtual bool PressDTMF(int event, bool playout) { return true; }
+  virtual bool GetStats(VoiceMediaInfo* info) { return false; }
+};
+
 // NullVoiceEngine can be used with CompositeMediaEngine in the case where only
 // a video engine is desired.
 class NullVoiceEngine {
@@ -265,7 +284,9 @@ class NullVoiceEngine {
   void Terminate() {}
   int GetCapabilities() { return 0; }
   VoiceMediaChannel* CreateChannel() {
-    return NULL;
+    // TODO: See if we can make things work without requiring
+    // allocation of a channel.
+    return new NullVoiceMediaChannel();
   }
   SoundclipMedia* CreateSoundclip() {
     return NULL;
@@ -304,7 +325,7 @@ class NullVideoEngine {
   const std::vector<VideoCodec>& codecs() { return codecs_; }
   bool FindCodec(const VideoCodec&) { return false; }
   void SetLogging(int min_sev, const char* filter) {}
-  sigslot::signal1<bool> SignalCaptureResult;
+  sigslot::signal1<CaptureResult> SignalCaptureResult;
  private:
   std::vector<VideoCodec> codecs_;
 };

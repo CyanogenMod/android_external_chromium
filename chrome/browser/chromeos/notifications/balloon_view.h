@@ -12,8 +12,8 @@
 #include "base/scoped_ptr.h"
 #include "base/task.h"
 #include "chrome/browser/notifications/balloon.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "ui/gfx/path.h"
 #include "ui/gfx/point.h"
 #include "ui/gfx/rect.h"
@@ -42,7 +42,7 @@ class BalloonViewImpl : public BalloonView,
                         public views::View,
                         public NotificationObserver {
  public:
-  BalloonViewImpl(bool sticky, bool controls, bool dom_ui);
+  BalloonViewImpl(bool sticky, bool controls, bool web_ui);
   virtual ~BalloonViewImpl();
 
   // views::View interface.

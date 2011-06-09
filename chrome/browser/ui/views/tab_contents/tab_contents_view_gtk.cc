@@ -11,17 +11,17 @@
 #include "base/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/download/download_shelf.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_view_host_factory.h"
 #include "chrome/browser/renderer_host/render_widget_host_view_gtk.h"
-#include "chrome/browser/tab_contents/interstitial_page.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_delegate.h"
 #include "chrome/browser/tab_contents/web_drag_dest_gtk.h"
 #include "chrome/browser/ui/gtk/constrained_window_gtk.h"
 #include "chrome/browser/ui/gtk/tab_contents_drag_source.h"
 #include "chrome/browser/ui/views/sad_tab_view.h"
 #include "chrome/browser/ui/views/tab_contents/render_view_context_menu_views.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_view_host_factory.h"
+#include "content/browser/tab_contents/interstitial_page.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_delegate.h"
 #include "ui/gfx/canvas_skia_paint.h"
 #include "ui/gfx/point.h"
 #include "ui/gfx/rect.h"
@@ -216,7 +216,7 @@ gfx::NativeWindow TabContentsViewGtk::GetTopLevelNativeWindow() const {
 void TabContentsViewGtk::GetContainerBounds(gfx::Rect* out) const {
   // Callers expect the requested bounds not the actual bounds. For example,
   // during init callers expect 0x0, but Gtk layout enforces a min size of 1x1.
-  GetBounds(out, false);
+  *out = GetClientAreaScreenBounds();
 
   gfx::Size size;
   WidgetGtk::GetRequestedSize(&size);
@@ -264,6 +264,11 @@ void TabContentsViewGtk::Focus() {
 
   if (tab_contents()->is_crashed() && sad_tab_ != NULL) {
     sad_tab_->RequestFocus();
+    return;
+  }
+
+  if (constrained_windows_.size()) {
+    constrained_windows_.back()->FocusConstrainedWindow();
     return;
   }
 
@@ -324,7 +329,7 @@ void TabContentsViewGtk::RestoreFocus() {
 }
 
 void TabContentsViewGtk::GetViewBounds(gfx::Rect* out) const {
-  GetBounds(out, true);
+  *out = GetWindowScreenBounds();
 }
 
 void TabContentsViewGtk::UpdateDragCursor(WebDragOperation operation) {
@@ -405,11 +410,10 @@ gboolean TabContentsViewGtk::OnPaint(GtkWidget* widget, GdkEventExpose* event) {
         SadTabView::KILLED : SadTabView::CRASHED;
     sad_tab_ = new SadTabView(tab_contents(), kind);
     SetContentsView(sad_tab_);
-    gfx::Rect bounds;
-    GetBounds(&bounds, true);
+    gfx::Rect bounds = GetWindowScreenBounds();
     sad_tab_->SetBoundsRect(gfx::Rect(0, 0, bounds.width(), bounds.height()));
     gfx::CanvasSkiaPaint canvas(event);
-    sad_tab_->ProcessPaint(&canvas);
+    sad_tab_->Paint(&canvas);
   }
   return false;  // False indicates other widgets should get the event as well.
 }

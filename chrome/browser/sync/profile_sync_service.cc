@@ -41,6 +41,7 @@
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/time_format.h"
+#include "chrome/common/url_constants.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "jingle/notifier/communicator/const_communicator.h"
@@ -432,11 +433,7 @@ void ProfileSyncService::CreateBackend() {
 }
 
 bool ProfileSyncService::IsEncryptedDatatypeEnabled() const {
-  // Currently on passwords are an encrypted datatype, so
-  // we check to see if it is enabled.
-  syncable::ModelTypeSet types;
-  GetPreferredDataTypes(&types);
-  return types.count(syncable::PASSWORDS) != 0;
+  return !encrypted_types_.empty();
 }
 
 void ProfileSyncService::StartUp() {
@@ -728,8 +725,13 @@ void ProfileSyncService::OnPassphraseRequired(bool for_decryption) {
     return;
   }
 
-  if (WizardIsVisible()) {
+  if (WizardIsVisible() && for_decryption) {
     wizard_.Step(SyncSetupWizard::ENTER_PASSPHRASE);
+  } else if (WizardIsVisible() && !for_decryption) {
+    // The user is enabling an encrypted data type for the first
+    // time, and we don't even have a default passphrase.  We need
+    // to refresh credentials and show the passphrase migration.
+    SigninForPassphraseMigration(NULL);
   }
 
   NotifyObservers();
@@ -750,15 +752,28 @@ void ProfileSyncService::OnPassphraseAccepted() {
   wizard_.Step(SyncSetupWizard::DONE);
 }
 
+void ProfileSyncService::OnEncryptionComplete(
+    const syncable::ModelTypeSet& encrypted_types) {
+  if (encrypted_types_ != encrypted_types) {
+    encrypted_types_ = encrypted_types;
+    NotifyObservers();
+  }
+}
+
 void ProfileSyncService::ShowLoginDialog(gfx::NativeWindow parent_window) {
-  // TODO(johnnyg): File a bug to make sure this doesn't happen.
   if (!cros_user_.empty()) {
-    LOG(WARNING) << "ShowLoginDialog called on Chrome OS.";
+    // For ChromeOS, any login UI needs to be handled by the settings page.
+    Browser* browser = BrowserList::GetLastActiveWithProfile(profile());
+    if (browser)
+      browser->ShowOptionsTab(chrome::kPersonalOptionsSubPage);
     return;
   }
 
   if (WizardIsVisible()) {
     wizard_.Focus();
+    // Force the wizard to step to the login screen (which will only actually
+    // happen if the transition is valid).
+    wizard_.Step(SyncSetupWizard::GAIA_LOGIN);
     return;
   }
 
@@ -1055,6 +1070,14 @@ void ProfileSyncService::ConfigureDataTypeManager() {
 
   syncable::ModelTypeSet types;
   GetPreferredDataTypes(&types);
+  // We set this special case here since it's the only datatype whose encryption
+  // status we already know. All others are set after the initial sync
+  // completes (for now).
+  // TODO(zea): Implement a better way that uses preferences for which types
+  // need encryption.
+  encrypted_types_.clear();
+  if (types.count(syncable::PASSWORDS) > 0)
+    encrypted_types_.insert(syncable::PASSWORDS);
   data_type_manager_->Configure(types);
 }
 
@@ -1167,6 +1190,16 @@ void ProfileSyncService::SetPassphrase(const std::string& passphrase,
     tried_setting_explicit_passphrase_ = true;
 }
 
+void ProfileSyncService::EncryptDataTypes(
+    const syncable::ModelTypeSet& encrypted_types) {
+  backend_->EncryptDataTypes(encrypted_types);
+}
+
+void ProfileSyncService::GetEncryptedDataTypes(
+    syncable::ModelTypeSet* encrypted_types) const {
+  *encrypted_types = encrypted_types_;
+}
+
 void ProfileSyncService::Observe(NotificationType type,
                                  const NotificationSource& source,
                                  const NotificationDetails& details) {
@@ -1202,6 +1235,10 @@ void ProfileSyncService::Observe(NotificationType type,
         wizard_.Step(SyncSetupWizard::DONE);
       NotifyObservers();
 
+      // In the old world, this would be a no-op.  With new syncer thread,
+      // this is the point where it is safe to switch from config-mode to
+      // normal operation.
+      backend_->StartSyncingWithServer();
       break;
     }
     case NotificationType::SYNC_DATA_TYPES_UPDATED: {

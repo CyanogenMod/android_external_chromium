@@ -7,15 +7,15 @@
 #pragma once
 
 #include "base/string16.h"
-#include "chrome/browser/tab_contents/infobar_delegate.h"
+#include "chrome/browser/tab_contents/confirm_infobar_delegate.h"
 
-class AutoFillManager;
+class AutofillManager;
 
 // An InfoBar delegate that enables the user to allow or deny storing credit
 // card information gathered from a form submission.
 class AutoFillCCInfoBarDelegate : public ConfirmInfoBarDelegate {
  public:
-  AutoFillCCInfoBarDelegate(TabContents* tab_contents, AutoFillManager* host);
+  AutoFillCCInfoBarDelegate(TabContents* tab_contents, AutofillManager* host);
 
  private:
   virtual ~AutoFillCCInfoBarDelegate();
@@ -33,13 +33,8 @@ class AutoFillCCInfoBarDelegate : public ConfirmInfoBarDelegate {
   virtual string16 GetLinkText();
   virtual bool LinkClicked(WindowOpenDisposition disposition);
 
-#if defined(OS_WIN)
-  // Overridden from InfoBarDelegate:
-  virtual InfoBar* CreateInfoBar();
-#endif  // defined(OS_WIN)
-
-  // The AutoFillManager that initiated this InfoBar.
-  AutoFillManager* host_;
+  // The AutofillManager that initiated this InfoBar.
+  AutofillManager* host_;
 
   DISALLOW_COPY_AND_ASSIGN(AutoFillCCInfoBarDelegate);
 };

@@ -16,10 +16,10 @@
 #include "base/scoped_callback_factory.h"
 #include "base/scoped_ptr.h"
 #include "base/timer.h"
-#include "chrome/browser/child_process_launcher.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
+#include "content/browser/child_process_launcher.h"
+#include "content/browser/renderer_host/render_process_host.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebCache.h"
 
 class CommandLine;
@@ -115,10 +115,6 @@ class BrowserRenderProcessHost : public RenderProcessHost,
   // Initialize support for extension APIs. Send the list of registered API
   // functions to thre renderer process.
   void InitExtensions();
-
-  // Initialize support for speech input API. Informs the renderer if the API
-  // is enabled or not.
-  void InitSpeechInput();
 
   // Sends the renderer process a new set of user scripts.
   void SendUserScriptsUpdate(base::SharedMemory* shared_memory);

@@ -110,6 +110,23 @@ IN_PROC_BROWSER_TEST_F(ProxySettingsApiTest, ProxyPacScript) {
                    "http://wpad/windows.pac", pref_service);
 }
 
+// Tests PAC proxy settings.
+IN_PROC_BROWSER_TEST_F(ProxySettingsApiTest, ProxyPacData) {
+  CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kEnableExperimentalExtensionApis);
+
+  ASSERT_TRUE(RunExtensionTest("proxy/pacdata")) << message_;
+  const Extension* extension = GetSingleLoadedExtension();
+  ASSERT_TRUE(extension);
+  const char url[] =
+      "data:application/x-ns-proxy-autoconfig;base64,ZnVuY3Rpb24gRmluZFByb3h5R"
+      "m9yVVJMKHVybCwgaG9zdCkgewogIGlmIChob3N0ID09ICdmb29iYXIuY29tJykKICAgIHJl"
+      "dHVybiAnUFJPWFkgYmxhY2tob2xlOjgwJzsKICByZXR1cm4gJ0RJUkVDVCc7Cn0=";
+  PrefService* pref_service = browser()->profile()->GetPrefs();
+  ValidateSettings(ProxyPrefs::MODE_PAC_SCRIPT, kNoServer, kNoBypass,
+                   url, pref_service);
+}
+
 // Tests setting a single proxy to cover all schemes.
 IN_PROC_BROWSER_TEST_F(ProxySettingsApiTest, ProxyFixedSingle) {
   CommandLine::ForCurrentProcess()->AppendSwitch(
@@ -189,7 +206,7 @@ IN_PROC_BROWSER_TEST_F(ProxySettingsApiTest,
   pref_service = browser()->profile()->GetOffTheRecordProfile()->GetPrefs();
   ValidateSettings(ProxyPrefs::MODE_FIXED_SERVERS,
                    "http=1.1.1.1:80;"
-                       "https=socks5://2.2.2.2:1080;"  // socks5 equals socks.
+                       "https=socks5://2.2.2.2:1080;"
                        "ftp=3.3.3.3:9000;"
                        "socks=socks4://4.4.4.4:9090",
                    kNoBypass,
@@ -265,4 +282,12 @@ IN_PROC_BROWSER_TEST_F(ProxySettingsApiTest,
                    "localhost,::1,foo.bar,<local>",
                    kNoPac,
                    pref_service);
+}
+
+// Tests error events.
+IN_PROC_BROWSER_TEST_F(ProxySettingsApiTest, ProxyEvents) {
+  CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kEnableExperimentalExtensionApis);
+
+  ASSERT_TRUE(RunExtensionTest("proxy/events")) << message_;
 }

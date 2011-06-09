@@ -35,7 +35,7 @@ static bool GetDeclarationValue(const base::StringPiece& line,
   std::string temp(line.data() + index + prefix.length(),
                    line.length() - index - prefix.length());
 
-  if (temp.size() == 0 || !IsWhitespace(temp[0]))
+  if (temp.empty() || !IsWhitespace(temp[0]))
     return false;
 
   TrimWhitespaceASCII(temp, TRIM_ALL, value);
@@ -107,7 +107,8 @@ bool UserScriptMaster::ScriptReloader::ParseMetadataHeader(
         script->set_description(value);
       } else if (GetDeclarationValue(line, kMatchDeclaration, &value)) {
         URLPattern pattern(UserScript::kValidUserScriptSchemes);
-        if (URLPattern::PARSE_SUCCESS != pattern.Parse(value))
+        if (URLPattern::PARSE_SUCCESS !=
+            pattern.Parse(value, URLPattern::PARSE_LENIENT))
           return false;
         script->add_url_pattern(pattern);
       } else if (GetDeclarationValue(line, kRunAtDeclaration, &value)) {
@@ -125,7 +126,7 @@ bool UserScriptMaster::ScriptReloader::ParseMetadataHeader(
 
   // If no patterns were specified, default to @include *. This is what
   // Greasemonkey does.
-  if (script->globs().size() == 0 && script->url_patterns().size() == 0)
+  if (script->globs().empty() && script->url_patterns().empty())
     script->add_glob("*");
 
   return true;

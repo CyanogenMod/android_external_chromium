@@ -28,38 +28,61 @@
 #ifndef TALK_BASE_ASYNCPACKETSOCKET_H_
 #define TALK_BASE_ASYNCPACKETSOCKET_H_
 
-#include "talk/base/asyncsocket.h"
+#include "talk/base/sigslot.h"
+#include "talk/base/socket.h"
 
 namespace talk_base {
 
-// Provides the ability to receive packets asynchronously.  Sends are not
+// Provides the ability to receive packets asynchronously. Sends are not
 // buffered since it is acceptable to drop packets under high load.
 class AsyncPacketSocket : public sigslot::has_slots<> {
  public:
-  explicit AsyncPacketSocket(AsyncSocket* socket);
-  virtual ~AsyncPacketSocket();
+  AsyncPacketSocket() { }
+  virtual ~AsyncPacketSocket() { }
 
-  // Relevant socket methods:
-  virtual SocketAddress GetLocalAddress() const;
-  virtual SocketAddress GetRemoteAddress() const;
-  virtual int Bind(const SocketAddress& addr);
-  virtual int Connect(const SocketAddress& addr);
-  virtual int Send(const void *pv, size_t cb);
-  virtual int SendTo(const void *pv, size_t cb, const SocketAddress& addr);
-  virtual int Close();
+  // Returns current local address. If port or IP address is not
+  // assigned yet, then they set to 0 in the result and |allocated| is
+  // set to false. Otherwise |allocated| is set to true.
+  virtual SocketAddress GetLocalAddress(bool* allocated) const = 0;
 
-  virtual Socket::ConnState GetState() const;
-  virtual int GetOption(Socket::Option opt, int* value);
-  virtual int SetOption(Socket::Option opt, int value);
-  virtual int GetError() const;
-  virtual void SetError(int error);
+  // Returns remote address. Returns zeroes if this is not a client TCP socket.
+  virtual SocketAddress GetRemoteAddress() const = 0;
 
-  // Emitted each time a packet is read.
-  sigslot::signal4<const char*, size_t,
-                   const SocketAddress&, AsyncPacketSocket*> SignalReadPacket;
+  // Send a packet.
+  virtual int Send(const void *pv, size_t cb) = 0;
+  virtual int SendTo(const void *pv, size_t cb, const SocketAddress& addr) = 0;
 
- protected:
-  AsyncSocket* socket_;
+  // Close the socket.
+  virtual int Close() = 0;
+
+  // Returns current state of the socket.
+  virtual Socket::ConnState GetState() const = 0;
+
+  // Get/set options.
+  virtual int GetOption(Socket::Option opt, int* value) = 0;
+  virtual int SetOption(Socket::Option opt, int value) = 0;
+
+  // Get/Set current error.
+  // TODO: Do we really need SetError() here?
+  virtual int GetError() const = 0;
+  virtual void SetError(int error) = 0;
+
+  // Emitted after address for the socket is allocated.
+  sigslot::signal2<AsyncPacketSocket*, const SocketAddress&> SignalAddressReady;
+
+  // Emitted each time a packet is read. Used only for UDP and
+  // connected TCP sockets.
+  sigslot::signal4<AsyncPacketSocket*, const char*, size_t,
+                   const SocketAddress&> SignalReadPacket;
+
+  // Used only for connected TCP sockets.
+  sigslot::signal1<AsyncPacketSocket*> SignalConnect;
+  sigslot::signal2<AsyncPacketSocket*, int> SignalClose;
+
+  // Used only for listening TCP sockets.
+  sigslot::signal2<AsyncPacketSocket*, AsyncPacketSocket*> SignalNewConnection;
+
+ private:
   DISALLOW_EVIL_CONSTRUCTORS(AsyncPacketSocket);
 };
 

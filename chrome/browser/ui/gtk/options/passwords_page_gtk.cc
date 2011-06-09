@@ -12,10 +12,10 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/gtk/gtk_tree.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_type.h"
 #include "grit/app_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -165,7 +165,7 @@ void PasswordsPageGtk::SetPasswordList(
         UTF16ToUTF8(net::FormatUrl(result[i]->origin, languages)).c_str(),
         COL_USERNAME, UTF16ToUTF8(result[i]->username_value).c_str(), -1);
   }
-  gtk_widget_set_sensitive(remove_all_button_, result.size() > 0);
+  gtk_widget_set_sensitive(remove_all_button_, !result.empty());
 }
 
 void PasswordsPageGtk::HidePassword() {
@@ -222,7 +222,7 @@ void PasswordsPageGtk::OnRemoveButtonClicked(GtkWidget* widget) {
   delete password_list_[index];
   password_list_.erase(password_list_.begin() + index);
 
-  gtk_widget_set_sensitive(remove_all_button_, password_list_.size() > 0);
+  gtk_widget_set_sensitive(remove_all_button_, !password_list_.empty());
 }
 
 void PasswordsPageGtk::OnRemoveAllButtonClicked(GtkWidget* widget) {
@@ -244,17 +244,17 @@ void PasswordsPageGtk::OnRemoveAllButtonClicked(GtkWidget* widget) {
   gtk_widget_show_all(confirm);
 }
 
-void PasswordsPageGtk::OnRemoveAllConfirmResponse(GtkWidget* confirm,
-                                                  gint response) {
+void PasswordsPageGtk::OnRemoveAllConfirmResponse(GtkWidget* dialog,
+                                                  int response_id) {
   bool confirmed = false;
-  switch (response) {
+  switch (response_id) {
     case GTK_RESPONSE_YES:
       confirmed = true;
       break;
     default:
       break;
   }
-  gtk_widget_destroy(confirm);
+  gtk_widget_destroy(dialog);
   if (!confirmed)
     return;
 

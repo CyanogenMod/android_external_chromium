@@ -23,13 +23,13 @@
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
-#include "chrome/browser/disposition_utils.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/gtk/cairo_cached_surface.h"
 #include "chrome/browser/ui/gtk/gtk_theme_provider.h"
 #include "chrome/common/renderer_preferences.h"
+#include "content/browser/disposition_utils.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "googleurl/src/gurl.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -55,6 +55,12 @@ using WebKit::WebDragOperationLink;
 using WebKit::WebDragOperationMove;
 
 namespace {
+
+#if defined(GOOGLE_CHROME_BUILD)
+static const char* kIconName = "google-chrome";
+#else
+static const char* kIconName = "chromium-browser";
+#endif
 
 const char kBoldLabelMarkup[] = "<span weight='bold'>%s</span>";
 
@@ -609,10 +615,24 @@ void SetWindowIcon(GtkWindow* window) {
   g_list_free(icon_list);
 }
 
-void SetDefaultWindowIcon() {
-  GList* icon_list = GetIconList();
-  gtk_window_set_default_icon_list(icon_list);
-  g_list_free(icon_list);
+void SetDefaultWindowIcon(GtkWindow* window) {
+  GtkIconTheme* theme =
+      gtk_icon_theme_get_for_screen(gtk_widget_get_screen(GTK_WIDGET(window)));
+
+  if (gtk_icon_theme_has_icon(theme, kIconName)) {
+    gtk_window_set_default_icon_name(kIconName);
+    // Sometimes the WM fails to update the icon when we tell it to. The above
+    // line should be enough to update all existing windows, but it can fail,
+    // e.g. with Lucid/metacity. The following line seems to fix the common
+    // case where the first window created doesn't have an icon.
+    gtk_window_set_icon_name(window, kIconName);
+  } else {
+    GList* icon_list = GetIconList();
+    gtk_window_set_default_icon_list(icon_list);
+    // Same logic applies here.
+    gtk_window_set_icon_list(window, icon_list);
+    g_list_free(icon_list);
+  }
 }
 
 GtkWidget* AddButtonToDialog(GtkWidget* dialog, const gchar* text,
@@ -1019,6 +1039,17 @@ GtkWindow* GetLastActiveBrowserWindow() {
   return NULL;
 }
 
+int GetNativeDialogFlags(GtkWindow* dialog) {
+  int flags = chromeos::DIALOG_FLAG_DEFAULT;
+
+  if (gtk_window_get_resizable(dialog))
+    flags |= chromeos::DIALOG_FLAG_RESIZEABLE;
+  if (gtk_window_get_modal(dialog))
+    flags |= chromeos::DIALOG_FLAG_MODAL;
+
+  return flags;
+}
+
 GtkWindow* GetDialogTransientParent(GtkWindow* dialog) {
   GtkWindow* parent = gtk_window_get_transient_for(dialog);
   if (!parent)
@@ -1038,9 +1069,7 @@ void ShowDialog(GtkWidget* dialog) {
 
   chromeos::ShowNativeDialog(GetDialogTransientParent(GTK_WINDOW(dialog)),
       dialog,
-      gtk_window_get_resizable(GTK_WINDOW(dialog)) ?
-          chromeos::DIALOG_FLAG_RESIZEABLE :
-          chromeos::DIALOG_FLAG_DEFAULT,
+      GetNativeDialogFlags(GTK_WINDOW(dialog)),
       gfx::Size(width, height),
       gfx::Size());
 }
@@ -1062,14 +1091,14 @@ void ShowDialogWithLocalizedSize(GtkWidget* dialog,
       gfx::Size());
 }
 
-void ShowModalDialogWithMinLocalizedWidth(GtkWidget* dialog,
-                                          int width_id) {
+void ShowDialogWithMinLocalizedWidth(GtkWidget* dialog,
+                                     int width_id) {
   int width = (width_id == -1) ? 0 :
       views::Window::GetLocalizedContentsWidth(width_id);
 
   chromeos::ShowNativeDialog(GetDialogTransientParent(GTK_WINDOW(dialog)),
       dialog,
-      chromeos::DIALOG_FLAG_MODAL,
+      GetNativeDialogFlags(GTK_WINDOW(dialog)),
       gfx::Size(),
       gfx::Size(width, 0));
 }
@@ -1110,8 +1139,8 @@ void ShowDialogWithLocalizedSize(GtkWidget* dialog,
   gtk_widget_show_all(dialog);
 }
 
-void ShowModalDialogWithMinLocalizedWidth(GtkWidget* dialog,
-                                          int width_id) {
+void ShowDialogWithMinLocalizedWidth(GtkWidget* dialog,
+                                     int width_id) {
   gtk_widget_show_all(dialog);
 
   // Suggest a minimum size.

@@ -15,7 +15,6 @@
 #include "chrome/browser/background_application_list_model.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_shutdown.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/command_updater.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/metrics/user_metrics.h"
@@ -25,7 +24,6 @@
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/sync/sync_ui_util_mac.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_init.h"
 #include "chrome/browser/ui/browser_list.h"
@@ -39,7 +37,7 @@
 #import "chrome/browser/ui/cocoa/confirm_quit_panel_controller.h"
 #import "chrome/browser/ui/cocoa/encoding_menu_controller_delegate_mac.h"
 #import "chrome/browser/ui/cocoa/history_menu_bridge.h"
-#import "chrome/browser/ui/cocoa/importer/import_settings_dialog.h"
+#import "chrome/browser/ui/cocoa/importer/import_dialog_cocoa.h"
 #import "chrome/browser/ui/cocoa/options/preferences_window_controller.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_strip_controller.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_window_controller.h"
@@ -50,11 +48,14 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "net/base/net_util.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_mac.h"
+#include "ui/base/models/accelerator_cocoa.h"
 
 // 10.6 adds a public API for the Spotlight-backed search menu item in the Help
 // menu.  Provide the declaration so it can be called below when building with
@@ -277,101 +278,19 @@ void RecordLastRunAppBundlePath() {
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication*)app {
   // Check if the experiment is enabled.
   const CommandLine* commandLine(CommandLine::ForCurrentProcess());
-  if (!commandLine->HasSwitch(switches::kEnableConfirmToQuit))
+  if (commandLine->HasSwitch(switches::kDisableConfirmToQuit))
     return NSTerminateNow;
 
   // If the application is going to terminate as the result of a Cmd+Q
   // invocation, use the special sauce to prevent accidental quitting.
   // http://dev.chromium.org/developers/design-documents/confirm-to-quit-experiment
 
-  // How long the user must hold down Cmd+Q to confirm the quit.
-  const NSTimeInterval kTimeToConfirmQuit = 1.5;
-  // Leeway between the |targetDate| and the current time that will confirm a
-  // quit.
-  const NSTimeInterval kTimeDeltaFuzzFactor = 1.0;
-  // Duration of the window fade out animation.
-  const NSTimeInterval kWindowFadeAnimationDuration = 0.2;
-
   // This logic is only for keyboard-initiated quits.
-  if ([[app currentEvent] type] != NSKeyDown)
+  if (![ConfirmQuitPanelController eventTriggersFeature:[app currentEvent]])
     return NSTerminateNow;
 
-  // If this is the second of two such attempts to quit within a certain time
-  // interval, then just quit.
-  // Time of last quit attempt, if any.
-  static NSDate* lastQuitAttempt; // Initially nil, as it's static.
-  NSDate* timeNow = [NSDate date];
-  if (lastQuitAttempt &&
-      [timeNow timeIntervalSinceDate:lastQuitAttempt] < kTimeDeltaFuzzFactor) {
-    return NSTerminateNow;
-  } else {
-    [lastQuitAttempt release]; // Harmless if already nil.
-    lastQuitAttempt = [timeNow retain]; // Record this attempt for next time.
-  }
-
-  // Show the info panel that explains what the user must to do confirm quit.
-  [[ConfirmQuitPanelController sharedController] showWindow:self];
-
-  // Spin a nested run loop until the |targetDate| is reached or a KeyUp event
-  // is sent.
-  NSDate* targetDate =
-      [NSDate dateWithTimeIntervalSinceNow:kTimeToConfirmQuit];
-  BOOL willQuit = NO;
-  NSEvent* nextEvent = nil;
-  do {
-    // Dequeue events until a key up is received.
-    nextEvent = [app nextEventMatchingMask:NSKeyUpMask
-                                 untilDate:nil
-                                    inMode:NSEventTrackingRunLoopMode
-                                   dequeue:YES];
-
-    // Wait for the time expiry to happen. Once past the hold threshold,
-    // commit to quitting and hide all the open windows.
-    if (!willQuit) {
-      NSDate* now = [NSDate date];
-      NSTimeInterval difference = [targetDate timeIntervalSinceDate:now];
-      if (difference < kTimeDeltaFuzzFactor) {
-        willQuit = YES;
-
-        // At this point, the quit has been confirmed and windows should all
-        // fade out to convince the user to release the key combo to finalize
-        // the quit.
-        [NSAnimationContext beginGrouping];
-        [[NSAnimationContext currentContext] setDuration:
-            kWindowFadeAnimationDuration];
-        for (NSWindow* aWindow in [app windows]) {
-          // Windows that are set to animate and have a delegate do not
-          // expect to be animated by other things and could result in an
-          // invalid state. If a window is set up like so, just force the
-          // alpha value to 0. Otherwise, animate all pretty and stuff.
-          if (![[aWindow animationForKey:@"alphaValue"] delegate]) {
-            [[aWindow animator] setAlphaValue:0.0];
-          } else {
-            [aWindow setAlphaValue:0.0];
-          }
-        }
-        [NSAnimationContext endGrouping];
-      }
-    }
-  } while (!nextEvent);
-
-  // The user has released the key combo. Discard any events (i.e. the
-  // repeated KeyDown Cmd+Q).
-  [app discardEventsMatchingMask:NSAnyEventMask beforeEvent:nextEvent];
-
-  if (willQuit) {
-    // The user held down the combination long enough that quitting should
-    // happen.
-    return NSTerminateNow;
-  } else {
-    // Slowly fade the confirm window out in case the user doesn't
-    // understand what they have to do to quit.
-    [[ConfirmQuitPanelController sharedController] dismissPanel];
-    return NSTerminateCancel;
-  }
-
-  // Default case: terminate.
-  return NSTerminateNow;
+  return [[ConfirmQuitPanelController sharedController]
+      runModalLoopForApplication:app];
 }
 
 // Called when the app is shutting down. Clean-up as appropriate.
@@ -861,7 +780,7 @@ void RecordLastRunAppBundlePath() {
               switches::kDisableTabbedOptions)) {
         UserMetrics::RecordAction(UserMetricsAction("Import_ShowDlg"),
                                   defaultProfile);
-        [ImportSettingsDialogController
+        [ImportDialogController
             showImportSettingsDialogForProfile:defaultProfile];
       } else {
         if (Browser* browser = ActivateBrowser(defaultProfile)) {
@@ -1118,7 +1037,7 @@ void RecordLastRunAppBundlePath() {
 // window controller.
 - (void)prefsWindowClosed:(NSNotification*)notification {
   NSWindow* window = [prefsController_ window];
-  DCHECK([notification object] == window);
+  DCHECK_EQ([notification object], window);
   NSNotificationCenter* defaultCenter = [NSNotificationCenter defaultCenter];
   [defaultCenter removeObserver:self
                            name:NSWindowWillCloseNotification
@@ -1135,7 +1054,7 @@ void RecordLastRunAppBundlePath() {
   if (!parsed_command_line.HasSwitch(switches::kDisableTabbedOptions)) {
     if (Browser* browser = ActivateBrowser([self defaultProfile])) {
       // Show options tab in the active browser window.
-      browser->ShowOptionsTab(chrome::kDefaultOptionsSubPage);
+      browser->OpenOptionsDialog();
     } else {
       // No browser window, so create one for the options tab.
       Browser::OpenOptionsWindow([self defaultProfile]);
@@ -1171,7 +1090,7 @@ void RecordLastRunAppBundlePath() {
 // window controller.
 - (void)aboutWindowClosed:(NSNotification*)notification {
   NSWindow* window = [aboutController_ window];
-  DCHECK(window == [notification object]);
+  DCHECK_EQ([notification object], window);
   [[NSNotificationCenter defaultCenter]
       removeObserver:self
                 name:NSWindowWillCloseNotification
@@ -1239,7 +1158,7 @@ void RecordLastRunAppBundlePath() {
       for (ExtensionList::const_iterator cursor = applications.begin();
            cursor != applications.end();
            ++cursor, ++position) {
-        DCHECK(position == applications.GetPosition(*cursor));
+        DCHECK_EQ(applications.GetPosition(*cursor), position);
         NSString* itemStr =
             base::SysUTF16ToNSString(UTF8ToUTF16((*cursor)->name()));
         scoped_nsobject<NSMenuItem> appItem([[NSMenuItem alloc]

@@ -11,8 +11,8 @@
 #include "base/synchronization/waitable_event.h"
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
+#include "content/browser/browser_thread.h"
 #include "googleurl/src/gurl.h"
 #include "grit/generated_resources.h"
 #include "ui/base/gtk/gtk_signal.h"
@@ -140,6 +140,10 @@ CryptoModulePasswordDialog::CryptoModulePasswordDialog(
       text = l10n_util::GetStringFUTF8(
           IDS_CRYPTO_MODULE_AUTH_DIALOG_TEXT_CLIENT_AUTH, slot16, server16);
       break;
+    case browser::kCryptoModulePasswordListCerts:
+      text = l10n_util::GetStringFUTF8(
+          IDS_CRYPTO_MODULE_AUTH_DIALOG_TEXT_LIST_CERTS, slot16);
+      break;
     case browser::kCryptoModulePasswordCertImport:
       text = l10n_util::GetStringFUTF8(
           IDS_CRYPTO_MODULE_AUTH_DIALOG_TEXT_CERT_IMPORT, slot16);
@@ -193,7 +197,7 @@ void CryptoModulePasswordDialog::OnResponse(GtkWidget* dialog,
   // gtk_entry_buffer_normal_delete_text:
   // http://git.gnome.org/browse/gtk+/tree/gtk/gtkentrybuffer.c#n187)
   gtk_editable_delete_text(GTK_EDITABLE(password_entry_), 0, -1);
-  gtk_widget_destroy(GTK_WIDGET(dialog_));
+  gtk_widget_destroy(dialog_);
 }
 
 void CryptoModulePasswordDialog::OnWindowDestroy(GtkWidget* widget) {

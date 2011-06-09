@@ -24,10 +24,11 @@
 #include "chrome/browser/ui/gtk/owned_widget_gtk.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
 #include "chrome/common/content_settings_types.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
 #include "chrome/common/page_transition_types.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/animation/slide_animation.h"
 #include "ui/base/gtk/gtk_signal.h"
 #include "webkit/glue/window_open_disposition.h"
 
@@ -91,24 +92,19 @@ class LocationBarViewGtk : public AutocompleteEditController,
   void SetStarred(bool starred);
 
   // Implement the AutocompleteEditController interface.
-  virtual void OnAutocompleteWillClosePopup();
-  virtual void OnAutocompleteLosingFocus(gfx::NativeView view_gaining_focus);
-  virtual void OnAutocompleteWillAccept();
-  // For this implementation, the parameter is ignored.
-  virtual bool OnCommitSuggestedText(bool skip_inline_autocomplete);
-  virtual bool AcceptCurrentInstantPreview();
-  virtual void OnPopupBoundsChanged(const gfx::Rect& bounds);
   virtual void OnAutocompleteAccept(const GURL& url,
-      WindowOpenDisposition disposition,
-      PageTransition::Type transition,
-      const GURL& alternate_nav_url);
-  virtual void OnChanged();
-  virtual void OnSelectionBoundsChanged();
-  virtual void OnKillFocus();
-  virtual void OnSetFocus();
-  virtual void OnInputInProgress(bool in_progress);
-  virtual SkBitmap GetFavIcon() const;
-  virtual string16 GetTitle() const;
+                                    WindowOpenDisposition disposition,
+                                    PageTransition::Type transition,
+                                    const GURL& alternate_nav_url) OVERRIDE;
+  virtual void OnChanged() OVERRIDE;
+  virtual void OnSelectionBoundsChanged() OVERRIDE;
+  virtual void OnKillFocus() OVERRIDE;
+  virtual void OnSetFocus() OVERRIDE;
+  virtual void OnInputInProgress(bool in_progress) OVERRIDE;
+  virtual SkBitmap GetFavIcon() const OVERRIDE;
+  virtual string16 GetTitle() const OVERRIDE;
+  virtual InstantController* GetInstant() OVERRIDE;
+  virtual TabContentsWrapper* GetTabContentsWrapper() OVERRIDE;
 
   // Implement the LocationBar interface.
   virtual void ShowFirstRunBubble(FirstRun::BubbleType bubble_type);
@@ -144,23 +140,37 @@ class LocationBarViewGtk : public AutocompleteEditController,
   static const GdkColor kBackgroundColor;
 
  private:
-  class ContentSettingImageViewGtk : public InfoBubbleGtkDelegate {
+  class ContentSettingImageViewGtk : public InfoBubbleGtkDelegate,
+                                     public ui::AnimationDelegate {
    public:
     ContentSettingImageViewGtk(ContentSettingsType content_type,
                                const LocationBarViewGtk* parent,
                                Profile* profile);
     virtual ~ContentSettingImageViewGtk();
 
-    GtkWidget* widget() { return event_box_.get(); }
+    GtkWidget* widget() { return alignment_.get(); }
 
     void set_profile(Profile* profile) { profile_ = profile; }
 
     bool IsVisible() { return GTK_WIDGET_VISIBLE(widget()); }
     void UpdateFromTabContents(TabContents* tab_contents);
 
+    // Overridden from ui::AnimationDelegate:
+    virtual void AnimationProgressed(const ui::Animation* animation);
+    virtual void AnimationEnded(const ui::Animation* animation);
+    virtual void AnimationCanceled(const ui::Animation* animation);
+
    private:
+    // Start the process of showing the label.
+    void StartAnimating();
+
+    // Slide the label shut.
+    void CloseAnimation();
+
     CHROMEGTK_CALLBACK_1(ContentSettingImageViewGtk, gboolean, OnButtonPressed,
                          GdkEvent*);
+    CHROMEGTK_CALLBACK_1(ContentSettingImageViewGtk, gboolean, OnExpose,
+                         GdkEventExpose*);
 
     // InfoBubbleDelegate overrides:
     virtual void InfoBubbleClosing(InfoBubbleGtk* info_bubble,
@@ -169,8 +179,13 @@ class LocationBarViewGtk : public AutocompleteEditController,
     scoped_ptr<ContentSettingImageModel> content_setting_image_model_;
 
     // The widgets for this content settings view.
+    OwnedWidgetGtk alignment_;
     OwnedWidgetGtk event_box_;
+    GtkWidget* hbox_;
     OwnedWidgetGtk image_;
+
+    // Explanatory text ("popup blocked").
+    OwnedWidgetGtk label_;
 
     // The owning LocationBarViewGtk.
     const LocationBarViewGtk* parent_;
@@ -180,6 +195,14 @@ class LocationBarViewGtk : public AutocompleteEditController,
 
     // The currently shown info bubble if any.
     ContentSettingBubbleGtk* info_bubble_;
+
+    // When we show explanatory text, we slide it in/out.
+    ui::SlideAnimation animation_;
+
+    // The label's default requisition (cached so we can animate accordingly).
+    GtkRequisition label_req_;
+
+    ScopedRunnableMethodFactory<ContentSettingImageViewGtk> method_factory_;
 
     DISALLOW_COPY_AND_ASSIGN(ContentSettingImageViewGtk);
   };
@@ -365,6 +388,7 @@ class LocationBarViewGtk : public AutocompleteEditController,
   GtkWidget* entry_box_;
 
   // Area on the left shown when in tab to search mode.
+  GtkWidget* tab_to_search_alignment_;
   GtkWidget* tab_to_search_box_;
   GtkWidget* tab_to_search_magnifier_;
   GtkWidget* tab_to_search_full_label_;
@@ -424,9 +448,6 @@ class LocationBarViewGtk : public AutocompleteEditController,
 
   // The last search keyword that was shown via the |tab_to_search_box_|.
   string16 last_keyword_;
-
-  // True if we should update the instant controller when the edit text changes.
-  bool update_instant_;
 
   DISALLOW_COPY_AND_ASSIGN(LocationBarViewGtk);
 };

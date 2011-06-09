@@ -12,10 +12,8 @@
 #include "chrome/browser/bookmarks/bookmark_utils.h"
 #include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/content_settings/host_content_settings_map.h"
+#include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/debugger/devtools_manager.h"
-#include "chrome/browser/dom_ui/flags_ui.h"
-#include "chrome/browser/dom_ui/new_tab_ui.h"
-#include "chrome/browser/dom_ui/plugins_ui.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/extensions/extension_prefs.h"
 #include "chrome/browser/extensions/extension_web_ui.h"
@@ -24,7 +22,6 @@
 #include "chrome/browser/geolocation/geolocation_content_settings_map.h"
 #include "chrome/browser/geolocation/geolocation_prefs.h"
 #include "chrome/browser/google/google_url_tracker.h"
-#include "chrome/browser/host_zoom_map.h"
 #include "chrome/browser/instant/instant_controller.h"
 #include "chrome/browser/intranet_redirect_detector.h"
 #include "chrome/browser/metrics/metrics_log.h"
@@ -36,24 +33,29 @@
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/page_info_model.h"
 #include "chrome/browser/password_manager/password_manager.h"
-#include "chrome/browser/policy/profile_policy_context.h"
+#include "chrome/browser/policy/browser_policy_connector.h"
+#include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile_impl.h"
 #include "chrome/browser/renderer_host/browser_render_process_host.h"
 #include "chrome/browser/renderer_host/web_cache_manager.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
-#include "chrome/browser/search_engines/keyword_editor_controller.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/search_engines/template_url_prepopulate_data.h"
 #include "chrome/browser/ssl/ssl_manager.h"
 #include "chrome/browser/sync/signin_manager.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/pinned_tab_codec.h"
 #include "chrome/browser/task_manager/task_manager.h"
 #include "chrome/browser/translate/translate_prefs.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/search_engines/keyword_editor_controller.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
+#include "chrome/browser/ui/webui/flags_ui.h"
+#include "chrome/browser/ui/webui/new_tab_ui.h"
+#include "chrome/browser/ui/webui/plugins_ui.h"
 #include "chrome/browser/upgrade_detector.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/host_zoom_map.h"
 
 #if defined(TOOLKIT_VIEWS)  // TODO(port): whittle this down as we port
 #include "chrome/browser/ui/views/browser_actions_container.h"
@@ -77,11 +79,6 @@
 
 namespace browser {
 
-void RegisterAllPrefs(PrefService* user_prefs, PrefService* local_state) {
-  RegisterLocalState(local_state);
-  RegisterUserPrefs(user_prefs);
-}
-
 void RegisterLocalState(PrefService* local_state) {
   // Prefs in Local State
   Browser::RegisterPrefs(local_state);
@@ -101,9 +98,11 @@ void RegisterLocalState(PrefService* local_state) {
   UpgradeDetector::RegisterPrefs(local_state);
   TaskManager::RegisterPrefs(local_state);
   geolocation::RegisterPrefs(local_state);
-  AutoFillManager::RegisterBrowserPrefs(local_state);
+  AutofillManager::RegisterBrowserPrefs(local_state);
   BackgroundPageTracker::RegisterPrefs(local_state);
   NotificationUIManager::RegisterPrefs(local_state);
+  PrefProxyConfigService::RegisterPrefs(local_state);
+  policy::BrowserPolicyConnector::RegisterPrefs(local_state);
 #if defined(OS_CHROMEOS)
   chromeos::AudioMixerAlsa::RegisterPrefs(local_state);
   chromeos::UserManager::RegisterPrefs(local_state);
@@ -117,14 +116,14 @@ void RegisterLocalState(PrefService* local_state) {
 
 void RegisterUserPrefs(PrefService* user_prefs) {
   // User prefs
-  AutoFillManager::RegisterUserPrefs(user_prefs);
+  AutofillManager::RegisterUserPrefs(user_prefs);
   SessionStartupPref::RegisterUserPrefs(user_prefs);
   Browser::RegisterUserPrefs(user_prefs);
   PasswordManager::RegisterUserPrefs(user_prefs);
   chrome_browser_net::RegisterUserPrefs(user_prefs);
   DownloadPrefs::RegisterUserPrefs(user_prefs);
   bookmark_utils::RegisterUserPrefs(user_prefs);
-  TabContents::RegisterUserPrefs(user_prefs);
+  TabContentsWrapper::RegisterUserPrefs(user_prefs);
   TemplateURLPrepopulateData::RegisterUserPrefs(user_prefs);
   ExtensionWebUI::RegisterUserPrefs(user_prefs);
   ExtensionsUI::RegisterUserPrefs(user_prefs);
@@ -139,7 +138,7 @@ void RegisterUserPrefs(PrefService* user_prefs) {
   GeolocationContentSettingsMap::RegisterUserPrefs(user_prefs);
   TranslatePrefs::RegisterUserPrefs(user_prefs);
   DesktopNotificationService::RegisterUserPrefs(user_prefs);
-  PrefProxyConfigService::RegisterUserPrefs(user_prefs);
+  PrefProxyConfigService::RegisterPrefs(user_prefs);
 #if defined(TOOLKIT_VIEWS)
   BrowserActionsContainer::RegisterUserPrefs(user_prefs);
 #elif defined(TOOLKIT_GTK)
@@ -153,7 +152,8 @@ void RegisterUserPrefs(PrefService* user_prefs) {
   TemplateURLModel::RegisterUserPrefs(user_prefs);
   InstantController::RegisterUserPrefs(user_prefs);
   NetPrefObserver::RegisterPrefs(user_prefs);
-  policy::ProfilePolicyContext::RegisterUserPrefs(user_prefs);
+  policy::ProfilePolicyConnector::RegisterPrefs(user_prefs);
+  ProtocolHandlerRegistry::RegisterPrefs(user_prefs);
 }
 
 void MigrateBrowserPrefs(PrefService* user_prefs, PrefService* local_state) {

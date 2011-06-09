@@ -166,17 +166,24 @@ class AllocationSequence : public talk_base::MessageHandler {
 // BasicPortAllocator
 
 BasicPortAllocator::BasicPortAllocator(
-    talk_base::NetworkManager* network_manager)
-    : network_manager_(network_manager), best_writable_phase_(-1) {
+    talk_base::NetworkManager* network_manager,
+    talk_base::PacketSocketFactory* socket_factory)
+    : network_manager_(network_manager),
+      socket_factory_(socket_factory),
+      best_writable_phase_(-1),
+      allow_tcp_listen_(true) {
+  ASSERT(socket_factory_ != NULL);
 }
 
 BasicPortAllocator::BasicPortAllocator(
     talk_base::NetworkManager* network_manager,
+    talk_base::PacketSocketFactory* socket_factory,
     const talk_base::SocketAddress& stun_address,
     const talk_base::SocketAddress& relay_address_udp,
     const talk_base::SocketAddress& relay_address_tcp,
     const talk_base::SocketAddress& relay_address_ssl)
     : network_manager_(network_manager),
+      socket_factory_(socket_factory),
       stun_address_(stun_address),
       relay_address_udp_(relay_address_udp),
       relay_address_tcp_(relay_address_tcp),
@@ -656,8 +663,11 @@ void AllocationSequence::CreateUDPPorts() {
     return;
   }
 
-  Port* port = UDPPort::Create(session_->network_thread(), NULL, network_,
-                               talk_base::SocketAddress(ip_, 0));
+  Port* port = UDPPort::Create(session_->network_thread(),
+                               session_->allocator()->socket_factory(),
+                               network_, ip_,
+                               session_->allocator()->min_port(),
+                               session_->allocator()->max_port());
   if (port)
     session_->AddAllocatedPort(port, this, PREF_LOCAL_UDP);
 }
@@ -668,8 +678,11 @@ void AllocationSequence::CreateTCPPorts() {
     return;
   }
 
-  Port* port = TCPPort::Create(session_->network_thread(), NULL, network_,
-                               talk_base::SocketAddress(ip_, 0),
+  Port* port = TCPPort::Create(session_->network_thread(),
+                               session_->allocator()->socket_factory(),
+                               network_, ip_,
+                               session_->allocator()->min_port(),
+                               session_->allocator()->max_port(),
                                session_->allocator()->allow_tcp_listen());
   if (port)
     session_->AddAllocatedPort(port, this, PREF_LOCAL_TCP);
@@ -690,8 +703,11 @@ void AllocationSequence::CreateStunPorts() {
     return;
   }
 
-  Port* port = StunPort::Create(session_->network_thread(), NULL, network_,
-                                talk_base::SocketAddress(ip_, 0),
+  Port* port = StunPort::Create(session_->network_thread(),
+                                session_->allocator()->socket_factory(),
+                                network_, ip_,
+                                session_->allocator()->min_port(),
+                                session_->allocator()->max_port(),
                                 config_->stun_address);
   if (port)
     session_->AddAllocatedPort(port, this, PREF_LOCAL_STUN);
@@ -715,9 +731,11 @@ void AllocationSequence::CreateRelayPorts() {
   PortConfiguration::RelayList::const_iterator relay;
   for (relay = config_->relays.begin();
        relay != config_->relays.end(); ++relay) {
-    RelayPort* port = RelayPort::Create(session_->network_thread(), NULL,
-                                        network_,
-                                        talk_base::SocketAddress(ip_, 0),
+    RelayPort* port = RelayPort::Create(session_->network_thread(),
+                                        session_->allocator()->socket_factory(),
+                                        network_, ip_,
+                                        session_->allocator()->min_port(),
+                                        session_->allocator()->max_port(),
                                         config_->username, config_->password,
                                         config_->magic_cookie);
     if (port) {

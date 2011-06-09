@@ -133,10 +133,6 @@ bool BaseTabStrip::IsAnimating() const {
   return bounds_animator_.IsAnimating();
 }
 
-BaseTab* BaseTabStrip::GetSelectedBaseTab() const {
-  return GetBaseTabAtModelIndex(controller_->GetSelectedIndex());
-}
-
 void BaseTabStrip::AddTabAt(int model_index,
                             bool foreground,
                             const TabRendererData& data) {
@@ -175,7 +171,6 @@ void BaseTabStrip::SetTabData(int model_index, const TabRendererData& data) {
   BaseTab* tab = GetBaseTabAtModelIndex(model_index);
   bool mini_state_changed = tab->data().mini != data.mini;
   tab->SetData(data);
-  tab->SchedulePaint();
 
   if (mini_state_changed) {
     if (GetWindow() && GetWindow()->IsVisible())
@@ -256,8 +251,8 @@ void BaseTabStrip::CloseTab(BaseTab* tab) {
     controller_->CloseTab(model_index);
 }
 
-void BaseTabStrip::ShowContextMenu(BaseTab* tab, const gfx::Point& p) {
-  controller_->ShowContextMenu(tab, p);
+void BaseTabStrip::ShowContextMenuForTab(BaseTab* tab, const gfx::Point& p) {
+  controller_->ShowContextMenuForTab(tab, p);
 }
 
 bool BaseTabStrip::IsTabSelected(const BaseTab* tab) const {
@@ -327,7 +322,7 @@ BaseTab* BaseTabStrip::GetTabAt(BaseTab* tab,
                                 const gfx::Point& tab_in_tab_coordinates) {
   gfx::Point local_point = tab_in_tab_coordinates;
   ConvertPointToView(tab, this, &local_point);
-  views::View* view = GetViewForPoint(local_point);
+  views::View* view = GetEventHandlerForPoint(local_point);
   if (!view)
     return NULL;  // No tab contains the point.
 
@@ -393,6 +388,10 @@ void BaseTabStrip::StartMiniTabAnimation() {
 
   GenerateIdealBounds();
   AnimateToIdealBounds();
+}
+
+bool BaseTabStrip::ShouldHighlightCloseButtonAfterRemove() {
+  return true;
 }
 
 void BaseTabStrip::RemoveAndDeleteTab(BaseTab* tab) {

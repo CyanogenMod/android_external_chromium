@@ -93,6 +93,9 @@ class InstantController : public InstantLoaderDelegate {
   // has not been created.
   void DestroyPreviewContents();
 
+  // Destroys the current loaders but remains active.
+  void DestroyPreviewContentsAndLeaveActive();
+
   // Returns true if we're showing the last URL passed to |Update|. If this is
   // false a commit does not result in committing the last url passed to update.
   // A return value of false happens if we're in the process of determining if
@@ -140,7 +143,7 @@ class InstantController : public InstantLoaderDelegate {
 
   // Returns true if the preview TabContents is ready to be displayed. In some
   // situations this may return false yet GetPreviewContents() returns non-NULL.
-  bool is_displayable() const { return is_displayable_; }
+  bool is_displayable() const { return displayable_loader_ != NULL; }
 
   // Returns the transition type of the last AutocompleteMatch passed to Update.
   PageTransition::Type last_transition_type() const {
@@ -169,22 +172,24 @@ class InstantController : public InstantLoaderDelegate {
   GURL GetCurrentURL();
 
   // InstantLoaderDelegate
-  virtual void ShowInstantLoader(InstantLoader* loader);
+  virtual void ShowInstantLoader(InstantLoader* loader) OVERRIDE;
   virtual void SetSuggestedTextFor(InstantLoader* loader,
-                                   const string16& text);
-  virtual gfx::Rect GetInstantBounds();
-  virtual bool ShouldCommitInstantOnMouseUp();
-  virtual void CommitInstantLoader(InstantLoader* loader);
-  virtual void InstantLoaderDoesntSupportInstant(InstantLoader* loader);
-  virtual void AddToBlacklist(InstantLoader* loader, const GURL& url);
+                                   const string16& text) OVERRIDE;
+  virtual gfx::Rect GetInstantBounds() OVERRIDE;
+  virtual bool ShouldCommitInstantOnMouseUp() OVERRIDE;
+  virtual void CommitInstantLoader(InstantLoader* loader) OVERRIDE;
+  virtual void InstantLoaderDoesntSupportInstant(
+      InstantLoader* loader) OVERRIDE;
+  virtual void AddToBlacklist(InstantLoader* loader,
+                              const GURL& url) OVERRIDE;
 
  private:
   friend class InstantTest;
 
   typedef std::set<std::string> HostBlacklist;
 
-  // Destroys the current loaders but remains actives.
-  void DestroyAndLeaveActive();
+  // Updates |displayable_loader_| and if necessary notifies the delegate.
+  void UpdateDisplayableLoader();
 
   // Returns the TabContents of the pending loader (or NULL). This is only used
   // for testing.
@@ -245,9 +250,8 @@ class InstantController : public InstantLoaderDelegate {
   // See description above getter for details.
   bool is_active_;
 
-  // Has notification been sent out that the preview TabContents is ready to be
-  // shown?
-  bool is_displayable_;
+  // The loader that is ready to be displayed.
+  InstantLoader* displayable_loader_;
 
   // See description above setter.
   gfx::Rect omnibox_bounds_;
@@ -266,6 +270,7 @@ class InstantController : public InstantLoaderDelegate {
   // reset/commit.
   std::set<TemplateURLID> blacklisted_ids_;
 
+  // Timer used to delay calls to |UpdateLoader|.
   base::OneShotTimer<InstantController> update_timer_;
 
   // Used by ScheduleForDestroy; see it for details.

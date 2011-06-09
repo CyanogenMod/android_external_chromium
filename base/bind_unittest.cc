@@ -212,18 +212,6 @@ class BindTest : public ::testing::Test {
 
 StrictMock<NoRef>* BindTest::static_func_mock_ptr;
 
-// Ensure we can create unbound callbacks. We need this to be able to store
-// them in class members that can be initialized later.
-TEST_F(BindTest, DefaultConstruction) {
-  Callback<void(void)> c0;
-  Callback<void(int)> c1;
-  Callback<void(int,int)> c2;
-  Callback<void(int,int,int)> c3;
-  Callback<void(int,int,int,int)> c4;
-  Callback<void(int,int,int,int,int)> c5;
-  Callback<void(int,int,int,int,int,int)> c6;
-}
-
 // Sanity check that we can instantiate a callback for each arity.
 TEST_F(BindTest, ArityTest) {
   Callback<int(void)> c0 = Bind(&Sum, 32, 16, 8, 4, 2, 1);
@@ -592,6 +580,27 @@ TEST_F(BindTest, NoCompile) {
   // ASSERT_EQ(&for_raw_ptr, ref_count_as_raw_ptr.Run());
 
 }
+
+#if defined(OS_WIN)
+int __fastcall FastCallFunc(int n) {
+  return n;
+}
+
+int __stdcall StdCallFunc(int n) {
+  return n;
+}
+
+// Windows specific calling convention support.
+//   - Can bind a __fastcall function.
+//   - Can bind a __stdcall function.
+TEST_F(BindTest, WindowsCallingConventions) {
+  Callback<int(void)> fastcall_cb = Bind(&FastCallFunc, 1);
+  EXPECT_EQ(1, fastcall_cb.Run());
+
+  Callback<int(void)> stdcall_cb = Bind(&StdCallFunc, 2);
+  EXPECT_EQ(2, stdcall_cb.Run());
+}
+#endif
 
 }  // namespace
 }  // namespace base

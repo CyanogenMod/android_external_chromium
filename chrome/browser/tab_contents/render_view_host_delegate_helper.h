@@ -9,8 +9,8 @@
 #include <map>
 
 #include "base/basictypes.h"
-#include "chrome/browser/dom_ui/web_ui_factory.h"
 #include "chrome/common/window_container_type.h"
+#include "content/browser/webui/web_ui_factory.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebPopupType.h"
 #include "ui/gfx/rect.h"
 #include "webkit/glue/webpreferences.h"
@@ -95,7 +95,7 @@ class RenderViewHostDelegateViewHelper {
 // RenderViewHostDelegate methods.
 class RenderViewHostDelegateHelper {
  public:
-  static WebPreferences GetWebkitPrefs(Profile* profile, bool is_dom_ui);
+  static WebPreferences GetWebkitPrefs(Profile* profile, bool is_web_ui);
 
   static void UpdateInspectorSetting(Profile* profile,
                                      const std::string& key,

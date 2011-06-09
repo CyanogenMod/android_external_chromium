@@ -24,6 +24,8 @@ cr.define('options', function() {
     this.managed = false;
   }
 
+  const SUBPAGE_SHEET_COUNT = 2;
+
   /**
    * Main level option pages.
    * @protected
@@ -73,10 +75,21 @@ cr.define('options', function() {
    * @private
    */
   OptionsPage.showPageByName = function(pageName, updateHistory) {
+    // Find the currently visible root-level page.
+    var rootPage = null;
+    for (var name in this.registeredPages) {
+      var page = this.registeredPages[name];
+      if (page.visible && !page.parentPage) {
+        rootPage = page;
+        break;
+      }
+    }
+
+    // Find the target page.
     var targetPage = this.registeredPages[pageName];
     if (!targetPage || !targetPage.canShowPage()) {
       // If it's not a page, try it as an overlay.
-      if (!targetPage && this.showOverlay_(pageName)) {
+      if (!targetPage && this.showOverlay_(pageName, rootPage)) {
         if (updateHistory)
           this.updateHistoryState_();
         return;
@@ -90,14 +103,6 @@ cr.define('options', function() {
     // Determine if the root page is 'sticky', meaning that it
     // shouldn't change when showing a sub-page.  This can happen for special
     // pages like Search.
-    var rootPage = null;
-    for (var name in this.registeredPages) {
-      var page = this.registeredPages[name];
-      if (page.visible && !page.parentPage) {
-        rootPage = page;
-        break;
-      }
-    }
     var isRootPageLocked =
         rootPage && rootPage.sticky && targetPage.parentPage;
 
@@ -117,13 +122,16 @@ cr.define('options', function() {
       if (!page.parentPage && isRootPageLocked)
         continue;
       page.visible = name == pageName ||
-          (document.documentElement.getAttribute('hide-menu') != 'true' &&
+          (!document.documentElement.classList.contains('hide-menu') &&
            page.isAncestorOfPage(targetPage));
     }
 
     // Update the history and current location.
     if (updateHistory)
       this.updateHistoryState_();
+
+    // Always update the page title.
+    document.title = targetPage.title;
 
     // Notify pages if they were shown.
     for (var name in this.registeredPages) {
@@ -133,6 +141,26 @@ cr.define('options', function() {
       if (page.didShowPage && (name == pageName ||
           page.isAncestorOfPage(targetPage)))
         page.didShowPage();
+    }
+  };
+
+  /**
+   * Updates the visibility and stacking order of the subpage backdrop
+   * according to which subpage is topmost and visible.
+   * @private
+   */
+  OptionsPage.updateSubpageBackdrop_ = function () {
+    var topmostPage = this.getTopmostVisibleNonOverlayPage_();
+    var nestingLevel = topmostPage ? topmostPage.nestingLevel : 0;
+
+    var subpageBackdrop = $('subpage-backdrop');
+    if (nestingLevel > 0) {
+      var container = $('subpage-sheet-container-' + nestingLevel);
+      subpageBackdrop.style.zIndex =
+          parseInt(window.getComputedStyle(container).zIndex) - 1;
+      subpageBackdrop.hidden = false;
+    } else {
+      subpageBackdrop.hidden = true;
     }
   };
 
@@ -166,14 +194,15 @@ cr.define('options', function() {
   /**
    * Shows a registered Overlay page. Does not update history.
    * @param {string} overlayName Page name.
+   * @param {OptionPage} rootPage The currently visible root-level page.
    * @return {boolean} whether we showed an overlay.
    */
-  OptionsPage.showOverlay_ = function(overlayName) {
+  OptionsPage.showOverlay_ = function(overlayName, rootPage) {
     var overlay = this.registeredOverlayPages[overlayName];
     if (!overlay || !overlay.canShowPage())
       return false;
 
-    if (overlay.parentPage)
+    if ((!rootPage || !rootPage.sticky) && overlay.parentPage)
       this.showPageByName(overlay.parentPage.name, false);
 
     this.registeredOverlayPages[overlayName].visible = true;
@@ -226,15 +255,11 @@ cr.define('options', function() {
   };
 
   /**
-   * Returns the topmost visible page, or null if no page is visible.
-   * @return {OptionPage} The topmost visible page.
+   * Returns the topmost visible page (overlays excluded).
+   * @return {OptionPage} The topmost visible page aside any overlay.
+   * @private
    */
-  OptionsPage.getTopmostVisiblePage = function() {
-    // Check overlays first since they're top-most if visible.
-    var overlay = this.getVisibleOverlay_();
-    if (overlay)
-      return overlay;
-
+  OptionsPage.getTopmostVisibleNonOverlayPage_ = function() {
     var topPage = null;
     for (var name in this.registeredPages) {
       var page = this.registeredPages[name];
@@ -244,6 +269,15 @@ cr.define('options', function() {
     }
 
     return topPage;
+  };
+
+  /**
+   * Returns the topmost visible page, or null if no page is visible.
+   * @return {OptionPage} The topmost visible page.
+   */
+  OptionsPage.getTopmostVisiblePage = function() {
+    // Check overlays first since they're top-most if visible.
+    return this.getVisibleOverlay_() || this.getTopmostVisibleNonOverlayPage_();
   };
 
   /**
@@ -411,19 +445,59 @@ cr.define('options', function() {
   };
 
   /**
+   * Freezes/unfreezes the scroll position of given level's page container.
+   * @param {boolean} freeze Whether the page should be frozen.
+   * @param {number} level The level to freeze/unfreeze.
+   * @private
+   */
+  OptionsPage.setPageFrozenAtLevel_ = function(freeze, level) {
+    var container = level == 0 ? $('toplevel-page-container')
+                               : $('subpage-sheet-container-' + level);
+
+    if (container.classList.contains('frozen') == freeze)
+      return;
+
+    if (freeze) {
+      var scrollPosition = document.body.scrollTop;
+      // Lock the width, since auto width computation may change.
+      container.style.width = window.getComputedStyle(container).width;
+      container.classList.add('frozen');
+      container.style.top = -scrollPosition + 'px';
+      this.updateFrozenElementHorizontalPosition_(container);
+    } else {
+      var scrollPosition = - parseInt(container.style.top, 10);
+      container.classList.remove('frozen');
+      container.style.top = '';
+      container.style.left = '';
+      container.style.right = '';
+      container.style.width = '';
+      // Restore the scroll position.
+      if (!container.hidden)
+        window.scroll(document.body.scrollLeft, scrollPosition);
+    }
+  };
+
+  /**
+   * Freezes/unfreezes the scroll position of visible pages based on the current
+   * page stack.
+   */
+  OptionsPage.updatePageFreezeStates = function() {
+    var topPage = OptionsPage.getTopmostVisiblePage();
+    if (!topPage)
+      return;
+    var nestingLevel = topPage.isOverlay ? 100 : topPage.nestingLevel;
+    for (var i = 0; i <= SUBPAGE_SHEET_COUNT; i++) {
+      this.setPageFrozenAtLevel_(i < nestingLevel, i);
+    }
+  };
+
+  /**
    * Initializes the complete options page.  This will cause all C++ handlers to
    * be invoked to do final setup.
    */
   OptionsPage.initialize = function() {
     chrome.send('coreOptionsInitialize');
     this.initialized_ = true;
-
-    // Set up the overlay sheets:
-    // Close nested sub-pages when clicking the visible part of an earlier page.
-    for (var level = 1; level <= 2; level++) {
-      var containerId = 'subpage-sheet-container-' + level;
-      $(containerId).onclick = this.subPageClosingClickHandler_(level);
-    }
 
     var self = this;
     // Close subpages if the user clicks on the html body. Listen in the
@@ -449,27 +523,38 @@ cr.define('options', function() {
 
     document.addEventListener('focus', this.manageFocusChange_.bind(this),
                               true);
+
+    document.addEventListener('scroll', this.handleScroll_.bind(this));
+    window.addEventListener('resize', this.handleResize_.bind(this));
+
+    // Calculate and store the horizontal locations of elements that may be
+    // frozen later.
+    var sidebarWidth =
+        parseInt(window.getComputedStyle($('mainview')).webkitPaddingStart, 10);
+    $('toplevel-page-container').horizontalOffset = sidebarWidth +
+        parseInt(window.getComputedStyle(
+            $('mainview-content')).webkitPaddingStart, 10);
+    for (var level = 1; level <= SUBPAGE_SHEET_COUNT; level++) {
+      var containerId = 'subpage-sheet-container-' + level;
+      $(containerId).horizontalOffset = sidebarWidth;
+    }
+    $('subpage-backdrop').horizontalOffset = sidebarWidth;
+    // Trigger the resize handler manually to set the initial state.
+    this.handleResize_(null);
   };
 
   /**
-   * Returns a function to handle clicks behind a subpage at level |level| by
-   * closing all subpages down to |level| - 1.
-   * @param {number} level The level of the subpage being handled.
-   * @return {Function} a function to handle clicks outside the given subpage.
+   * Does a bounds check for the element on the given x, y client coordinates.
+   * @param {Element} e The DOM element.
+   * @param {number} x The client X to check.
+   * @param {number} y The client Y to check.
+   * @return {boolean} True if the point falls within the element's bounds.
    * @private
    */
-  OptionsPage.subPageClosingClickHandler_ = function(level) {
-    var self = this;
-    return function(event) {
-      // Clicks on the narrow strip between the left of the subpage sheet and
-      // that shows part of the parent page should close the overlay, but
-      // not fall through to the parent page.
-      if (!$('subpage-sheet-' + level).contains(event.target)) {
-        self.closeSubPagesToLevel(level - 1);
-        event.stopPropagation();
-        event.preventDefault();
-      }
-    };
+  OptionsPage.elementContainsPoint_ = function(e, x, y) {
+    var clientRect = e.getBoundingClientRect();
+    return x >= clientRect.left && x <= clientRect.right &&
+        y >= clientRect.top && y <= clientRect.bottom;
   };
 
   /**
@@ -499,6 +584,70 @@ cr.define('options', function() {
   };
 
   /**
+   * Called when the page is scrolled; moves elements that are position:fixed
+   * but should only behave as if they are fixed for vertical scrolling.
+   * @param {Event} e The scroll event.
+   * @private
+   */
+  OptionsPage.handleScroll_ = function(e) {
+    var scrollHorizontalOffset = document.body.scrollLeft;
+    // position:fixed doesn't seem to work for horizontal scrolling in RTL mode,
+    // so only adjust in LTR mode (where scroll values will be positive).
+    if (scrollHorizontalOffset >= 0) {
+      $('navbar-container').style.left = -scrollHorizontalOffset + 'px';
+      var subpageBackdrop = $('subpage-backdrop');
+      subpageBackdrop.style.left = subpageBackdrop.horizontalOffset -
+          scrollHorizontalOffset + 'px';
+      this.updateAllFrozenElementPositions_();
+    }
+  };
+
+  /**
+   * Updates all frozen pages to match the horizontal scroll position.
+   * @private
+   */
+  OptionsPage.updateAllFrozenElementPositions_ = function() {
+    var frozenElements = document.querySelectorAll('.frozen');
+    for (var i = 0; i < frozenElements.length; i++) {
+      this.updateFrozenElementHorizontalPosition_(frozenElements[i]);
+    }
+  };
+
+  /**
+   * Updates the given frozen element to match the horizontal scroll position.
+   * @param {HTMLElement} e The frozen element to update
+   * @private
+   */
+  OptionsPage.updateFrozenElementHorizontalPosition_ = function(e) {
+    if (document.documentElement.dir == 'rtl')
+      e.style.right = e.horizontalOffset + 'px';
+    else
+      e.style.left = e.horizontalOffset - document.body.scrollLeft + 'px';
+  };
+
+  /**
+   * Called when the page is resized; adjusts the size of elements that depend
+   * on the veiwport.
+   * @param {Event} e The resize event.
+   * @private
+   */
+  OptionsPage.handleResize_ = function(e) {
+    // Set an explicit height equal to the viewport on all the subpage
+    // containers shorter than the viewport. This is used instead of
+    // min-height: 100% so that there is an explicit height for the subpages'
+    // min-height: 100%.
+    var viewportHeight = document.documentElement.clientHeight;
+    var subpageContainers =
+        document.querySelectorAll('.subpage-sheet-container');
+    for (var i = 0; i < subpageContainers.length; i++) {
+      if (subpageContainers[i].scrollHeight > viewportHeight)
+        subpageContainers[i].style.removeProperty('height');
+      else
+        subpageContainers[i].style.height = viewportHeight + 'px';
+    }
+  };
+
+  /**
    * A function to handle mouse events (mousedown or click) on the html body by
    * closing subpages and/or stopping event propagation.
    * @return {Event} a mousedown or click event.
@@ -514,18 +663,27 @@ cr.define('options', function() {
     if ($('navbar').contains(event.target))
       return;
 
-    // If the click was within a subpage, do nothing.
-    for (var level = 1; level <= 2; level++) {
-      if ($('subpage-sheet-container-' + level).contains(event.target))
+    // Figure out which page the click happened in.
+    for (var level = topPage.nestingLevel; level >= 0; level--) {
+      var clickIsWithinLevel = level == 0 ? true :
+          OptionsPage.elementContainsPoint_(
+              $('subpage-sheet-' + level), event.clientX, event.clientY);
+
+      if (!clickIsWithinLevel)
+        continue;
+
+      // Event was within the topmost page; do nothing.
+      if (topPage.nestingLevel == level)
         return;
+
+      // Block propgation of both clicks and mousedowns, but only close subpages
+      // on click.
+      if (event.type == 'click')
+        this.closeSubPagesToLevel(level);
+      event.stopPropagation();
+      event.preventDefault();
+      return;
     }
-
-    // Close all subpages on click.
-    if (event.type == 'click')
-      this.closeSubPagesToLevel(0);
-
-    event.stopPropagation();
-    event.preventDefault();
   };
 
   /**
@@ -614,11 +772,11 @@ cr.define('options', function() {
         }
       }
       if (hasManaged) {
-        bannerDiv.classList.remove('hidden');
+        bannerDiv.hidden = false;
         var height = window.getComputedStyle($('managed-prefs-banner')).height;
         $('subpage-backdrop').style.top = height;
       } else {
-        bannerDiv.classList.add('hidden');
+        bannerDiv.hidden = true;
         $('subpage-backdrop').style.top = '0';
       }
     },
@@ -639,39 +797,27 @@ cr.define('options', function() {
       if ((this.visible && visible) || (!this.visible && !visible))
         return;
 
+      this.setContainerVisibility_(visible);
       if (visible) {
         this.pageDiv.classList.remove('hidden');
-        if (this.isOverlay) {
-          $('overlay').classList.remove('hidden');
-        } else {
-          var nestingLevel = this.nestingLevel;
-          if (nestingLevel > 0) {
-            var containerId = 'subpage-sheet-container-' + nestingLevel;
-            $(containerId).classList.remove('hidden');
-            if (nestingLevel == 1)
-              $('subpage-backdrop').classList.remove('hidden');
-          }
-        }
 
-        if (this.tab) {
+        if (this.tab)
           this.tab.classList.add('navbar-item-selected');
-        }
       } else {
         this.pageDiv.classList.add('hidden');
-        if (this.isOverlay) {
-          $('overlay').classList.add('hidden');
-        } else if (this.parentPage) {
-          var nestingLevel = this.nestingLevel;
-          if (nestingLevel > 0) {
-            var containerId = 'subpage-sheet-container-' + nestingLevel;
-            $(containerId).classList.add('hidden');
-            if (nestingLevel == 1)
-              $('subpage-backdrop').classList.add('hidden');
-          }
-        }
 
-        if (this.tab) {
+        if (this.tab)
           this.tab.classList.remove('navbar-item-selected');
+      }
+
+      OptionsPage.updatePageFreezeStates();
+
+      // A subpage was shown or hidden.
+      if (!this.isOverlay && this.nestingLevel > 0) {
+        OptionsPage.updateSubpageBackdrop_();
+        if (visible) {
+          // Scroll to the top of the newly-opened subpage.
+          window.scroll(document.body.scrollLeft, 0)
         }
       }
 
@@ -681,6 +827,60 @@ cr.define('options', function() {
       OptionsPage.updateManagedBannerVisibility();
 
       cr.dispatchPropertyChange(this, 'visible', visible, !visible);
+    },
+
+    /**
+     * Shows or hides this page's container.
+     * @param {boolean} visible Whether the container should be visible or not.
+     * @private
+     */
+    setContainerVisibility_: function(visible) {
+      var container = null;
+      if (this.isOverlay) {
+        container = $('overlay');
+      } else {
+        var nestingLevel = this.nestingLevel;
+        if (nestingLevel > 0)
+          container = $('subpage-sheet-container-' + nestingLevel);
+      }
+      var isSubpage = !this.isOverlay;
+
+      if (!container || container.hidden != visible)
+        return;
+
+      if (visible) {
+        container.hidden = false;
+        if (isSubpage) {
+          var computedStyle = window.getComputedStyle(container);
+          container.style.WebkitPaddingStart =
+              parseInt(computedStyle.WebkitPaddingStart, 10) + 100 + 'px';
+        }
+        // Separate animating changes from the removal of display:none.
+        window.setTimeout(function() {
+          container.classList.remove('transparent');
+          if (isSubpage)
+            container.style.WebkitPaddingStart = '';
+        });
+      } else {
+        var self = this;
+        container.addEventListener('webkitTransitionEnd', function f(e) {
+          if (e.propertyName != 'opacity')
+            return;
+          container.removeEventListener('webkitTransitionEnd', f);
+          self.fadeCompleted_(container);
+        });
+        container.classList.add('transparent');
+      }
+    },
+
+    /**
+     * Called when a container opacity transition finishes.
+     * @param {HTMLElement} container The container element.
+     * @private
+     */
+    fadeCompleted_: function(container) {
+      if (container.classList.contains('transparent'))
+        container.hidden = true;
     },
 
     /**

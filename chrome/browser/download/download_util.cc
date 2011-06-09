@@ -24,7 +24,6 @@
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/win/windows_version.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/download/download_extensions.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_item_model.h"
@@ -35,12 +34,14 @@
 #include "chrome/browser/history/download_create_info.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/time_format.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/resource_dispatcher_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
@@ -52,6 +53,7 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/image.h"
 #include "ui/gfx/rect.h"
 
 #if defined(TOOLKIT_VIEWS)
@@ -112,8 +114,8 @@ bool IsShellIntegratedExtension(const string16& extension) {
   // See <http://www.juniper.net/security/auto/vulnerabilities/vuln2612.html>.
   // That vulnerability report is not exactly on point, but files become magical
   // if their end in a CLSID.  Here we block extensions that look like CLSIDs.
-  if (extension_lower.size() > 0 && extension_lower.at(0) == L'{' &&
-      extension_lower.at(extension_lower.length() - 1) == L'}')
+  if (!extension_lower.empty() && extension_lower[0] == L'{' &&
+      extension_lower[extension_lower.length() - 1] == L'}')
     return true;
 
   return false;
@@ -318,7 +320,8 @@ void OpenChromeExtension(Profile* profile,
       new CrxInstaller(service, new ExtensionInstallUI(profile)));
   installer->set_delete_source(true);
 
-  if (UserScript::HasUserScriptFileExtension(download_item.url())) {
+  if (UserScript::IsURLUserScript(download_item.url(),
+                                  download_item.mime_type())) {
     installer->InstallUserScript(download_item.full_path(),
                                  download_item.url());
     return;
@@ -503,7 +506,7 @@ int GetBigProgressIconOffset() {
 #if defined(TOOLKIT_VIEWS)
 // Download dragging
 void DragDownload(const DownloadItem* download,
-                  SkBitmap* icon,
+                  gfx::Image* icon,
                   gfx::NativeView view) {
   DCHECK(download);
 
@@ -512,7 +515,7 @@ void DragDownload(const DownloadItem* download,
 
   if (icon) {
     drag_utils::CreateDragImageForFile(
-        download->GetFileNameToReportUser(), icon, &data);
+        download->GetFileNameToReportUser(), *icon, &data);
   }
 
   const FilePath full_path = download->full_path();
@@ -524,8 +527,8 @@ void DragDownload(const DownloadItem* download,
 
   // Add URL so that we can load supported files when dragged to TabContents.
   if (net::IsSupportedMimeType(mime_type)) {
-    data.SetURL(GURL(WideToUTF8(full_path.ToWStringHack())),
-                     download->GetFileNameToReportUser().ToWStringHack());
+    data.SetURL(net::FilePathToFileURL(full_path),
+                download->GetFileNameToReportUser().LossyDisplayName());
   }
 
 #if defined(OS_WIN)
@@ -539,7 +542,9 @@ void DragDownload(const DownloadItem* download,
   GtkWidget* root = gtk_widget_get_toplevel(view);
   if (!root)
     return;
-  views::WidgetGtk* widget = views::WidgetGtk::GetViewForNative(root);
+
+  views::WidgetGtk* widget = static_cast<views::WidgetGtk*>(
+      views::NativeWidget::GetNativeWidgetForNativeView(root));
   if (!widget)
     return;
 
@@ -549,7 +554,7 @@ void DragDownload(const DownloadItem* download,
 }
 #elif defined(USE_X11)
 void DragDownload(const DownloadItem* download,
-                  SkBitmap* icon,
+                  gfx::Image* icon,
                   gfx::NativeView view) {
   DownloadItemDrag::BeginDrag(download, icon);
 }
@@ -565,11 +570,10 @@ DictionaryValue* CreateDownloadItemValue(DownloadItem* download, int id) {
   file_value->SetString("date_string",
       base::TimeFormatShortDate(download->start_time()));
   file_value->SetInteger("id", id);
-  file_value->SetString("file_path",
-      WideToUTF16Hack(download->GetTargetFilePath().ToWStringHack()));
+  file_value->Set("file_path",
+                  Value::CreateFilePathValue(download->GetTargetFilePath()));
   // Keep file names as LTR.
-  string16 file_name = WideToUTF16Hack(
-      download->GetFileNameToReportUser().ToWStringHack());
+  string16 file_name = download->GetFileNameToReportUser().LossyDisplayName();
   file_name = base::i18n::GetDisplayStringInLTRDirectionality(file_name);
   file_value->SetString("file_name", file_name);
   file_value->SetString("url", download->url().spec());
@@ -578,6 +582,12 @@ DictionaryValue* CreateDownloadItemValue(DownloadItem* download, int id) {
   if (download->state() == DownloadItem::IN_PROGRESS) {
     if (download->safety_state() == DownloadItem::DANGEROUS) {
       file_value->SetString("state", "DANGEROUS");
+      DCHECK(download->danger_type() == DownloadItem::DANGEROUS_FILE ||
+             download->danger_type() == DownloadItem::DANGEROUS_URL);
+      const char* danger_type_value =
+          download->danger_type() == DownloadItem::DANGEROUS_FILE ?
+          "DANGEROUS_FILE" : "DANGEROUS_URL";
+      file_value->SetString("danger_type", danger_type_value);
     } else if (download->is_paused()) {
       file_value->SetString("state", "PAUSED");
     } else {
@@ -687,7 +697,7 @@ void UpdateAppIconDownloadProgress(int download_count,
     else if (!progress_known)
       taskbar->SetProgressState(frame, TBPF_INDETERMINATE);
     else
-      taskbar->SetProgressValue(frame, (int)(progress * 100), 100);
+      taskbar->SetProgressValue(frame, static_cast<int>(progress * 100), 100);
   }
 #endif
 }
@@ -749,6 +759,18 @@ void CancelDownloadRequest(ResourceDispatcherHost* rdh,
   rdh->CancelRequest(render_process_id, request_id, false);
 }
 
+void NotifyDownloadInitiated(int render_process_id, int render_view_id) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  RenderViewHost* rvh = RenderViewHost::FromID(render_process_id,
+                                               render_view_id);
+  if (!rvh)
+    return;
+
+  NotificationService::current()->Notify(NotificationType::DOWNLOAD_INITIATED,
+                                         Source<RenderViewHost>(rvh),
+                                         NotificationService::NoDetails());
+}
+
 int GetUniquePathNumberWithCrDownload(const FilePath& path) {
   if (!file_util::PathExists(path) &&
       !file_util::PathExists(GetCrDownloadPath(path)))
@@ -801,22 +823,18 @@ FilePath GetCrDownloadPath(const FilePath& suggested_path) {
 bool IsDangerous(DownloadCreateInfo* info, Profile* profile, bool auto_open) {
   DownloadDangerLevel danger_level = GetFileDangerLevel(
       info->suggested_path.BaseName());
-
-  bool ret = false;
-  if (danger_level == Dangerous) {
-    ret = !(auto_open && info->has_user_gesture);
-  } else if (danger_level == AllowOnUserGesture && !info->has_user_gesture) {
-    ret = true;
-  } else if (info->is_extension_install) {
+  if (danger_level == Dangerous)
+    return !(auto_open && info->has_user_gesture);
+  if (danger_level == AllowOnUserGesture && !info->has_user_gesture)
+    return true;
+  if (info->is_extension_install) {
+    // Extensions that are not from the gallery are considered dangerous.
     ExtensionService* service = profile->GetExtensionService();
     if (!service ||
-        !service->IsDownloadFromGallery(info->url, info->referrer_url)) {
-      // Extensions that are not from the gallery are considered dangerous.
-      ret = true;
-    }
+        !service->IsDownloadFromGallery(info->url, info->referrer_url))
+      return true;
   }
-
-  return ret;
+  return false;
 }
 
 }  // namespace download_util

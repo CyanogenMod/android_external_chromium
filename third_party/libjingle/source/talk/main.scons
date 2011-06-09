@@ -92,6 +92,8 @@ win_env = root_env.Clone(
   CCPDBFLAGS = '',
   CCFLAGS_DEBUG = '',
   CCFLAGS_OPTIMIZED = '',
+  # We force a x86 target even when building on x64 Windows platforms.
+  TARGET_ARCH = 'x86',
 )
 
 win_env.Append(
@@ -186,7 +188,7 @@ win_dbg_env = win_env.Clone(
 )
 
 win_dbg_env.Prepend(
-  CCFLAGS=[
+  CCFLAGS = [
       '/ZI',     # enable debugging
       '/Od',     # disable optimizations
       '/MTd',    # link with LIBCMTD.LIB debug lib
@@ -195,6 +197,21 @@ win_dbg_env.Prepend(
 )
 
 envs.append(win_dbg_env)
+
+win_coverage_env = win_dbg_env.Clone(
+  tools = ['code_coverage'],
+  BUILD_TYPE = 'coverage',
+  BUILD_TYPE_DESCRIPTION = 'Windows code coverage build',
+  BUILD_GROUPS = ['all'],
+)
+
+win_coverage_env.Append(
+  CPPDEFINES = [
+    'COVERAGE_ENABLED',
+  ],
+)
+
+envs.append(win_coverage_env)
 
 win_opt_env = win_env.Clone(
   BUILD_TYPE = 'opt',
@@ -209,6 +226,9 @@ win_opt_env.Prepend(
       '/O1',     # optimize for size
       '/MT',     # link with LIBCMT.LIB (multi-threaded, static linked crt)
       '/GS',     # enable security checks
+  ],
+  LINKFLAGS = [
+    '/safeseh',
   ],
 )
 
@@ -230,7 +250,6 @@ posix_env.Append(
     '_REENTRANT',
   ],
   CCFLAGS = [
-    '-m32',
     '-Wall',
     '-Werror',
     '-Wno-switch',
@@ -240,9 +259,6 @@ posix_env.Append(
     '-Wno-non-virtual-dtor',
     '-Wno-ctor-dtor-privacy',
     '-fno-rtti',
-  ],
-  LINKFLAGS = [
-    '-m32',
   ],
 )
 
@@ -262,6 +278,7 @@ mac_env.Append(
     'MAC_OS_X_VERSION_MIN_REQUIRED=1040',
   ],
   CCFLAGS = [
+    '-m32',
     '-arch', 'i386',
     '-isysroot', '/Developer/SDKs/MacOSX10.5.sdk',
     '-fasm-blocks',
@@ -274,6 +291,7 @@ mac_env.Append(
     # TODO: consider only defining for libs that actually have objc.
     '-ObjC',
     '-arch', 'i386',
+    '-m32',
   ],
   FRAMEWORKS = [
     'CoreServices',
@@ -281,6 +299,11 @@ mac_env.Append(
     'Security',
     'SystemConfiguration',
     'OpenGL',
+    'CoreAudio',
+    'Quartz',
+    'QuickTime',
+    'Cocoa',
+    'QTKit',
   ]
 )
 
@@ -327,9 +350,7 @@ linux_common_env.Append(
   CPPDEFINES = [
     'LINUX',
     'HAVE_GLIB',
-    # TODO() Enable once we figure out multiple defines with gips lib
-    # Also consider other linux flags:  64bit, no-strict-aliasing, wrap, etc
-    #'USE_TALK_SOUND',
+#   'HAVE_DBUS_GLIB',
   ],
   CCFLAGS = [
     # TODO: Some or all of this may be desirable for Mac too.
@@ -373,6 +394,14 @@ linux_env = linux_common_env.Clone()
 # product would end up being broken on any computer with a different version
 # installed. So instead we build it ourself and statically link to it.
 linux_env.SetBits('use_static_openssl')
+linux_env.Append(
+  CCFLAGS = [
+    '-m32',
+  ],
+  LINKFLAGS = [
+    '-m32',
+  ],
+)
 
 linux_dbg_env = linux_env.Clone(
   BUILD_TYPE = 'dbg',
@@ -454,6 +483,7 @@ if win_env.Bit('vsproj'):
 
   # Solution and target projects
   s = vs_env.ComponentVSSolution(
+    # 'libjingle',  # Please uncomment this line if you build VS proj files.
     ['all_libraries', 'all_programs', 'all_test_programs'],
     projects = [p],
   )

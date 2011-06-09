@@ -142,7 +142,7 @@ IPC_MESSAGE_CONTROL3(GpuHostMsg_OnLogMessage,
 // Response from GPU to a GpuMsg_Synchronize message.
 IPC_MESSAGE_CONTROL0(GpuHostMsg_SynchronizeReply)
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) && !defined(TOUCH_UI)
 // Resize the window that is being drawn into. It's important that this
 // resize be synchronized with the swapping of the front and back buffers.
 IPC_SYNC_MESSAGE_CONTROL2_1(GpuHostMsg_ResizeXID,
@@ -172,6 +172,13 @@ IPC_MESSAGE_CONTROL2(GpuHostMsg_ScheduleComposite,
 //------------------------------------------------------------------------------
 // GPU Channel Messages
 // These are messages from a renderer process to the GPU process.
+
+// Initialize a channel between a renderer process and a GPU process. The
+// renderer passes its process handle to the GPU process, which gives gives the
+// GPU process the ability to map handles from the renderer process. This must
+// be the first message sent on a newly connected channel.
+IPC_MESSAGE_CONTROL1(GpuChannelMsg_Initialize,
+                     base::ProcessHandle /* renderer_process_for_gpu */)
 
 // Tells the GPU process to create a new command buffer that renders to an
 // offscreen frame buffer. If parent_route_id is not zero, the texture backing
@@ -212,9 +219,10 @@ IPC_SYNC_MESSAGE_CONTROL1_0(GpuChannelMsg_DestroyVideoDecoder,
 // Initialize a command buffer with the given number of command entries.
 // Returns the shared memory handle for the command buffer mapped to the
 // calling process.
-IPC_SYNC_MESSAGE_ROUTED1_1(GpuCommandBufferMsg_Initialize,
+IPC_SYNC_MESSAGE_ROUTED2_1(GpuCommandBufferMsg_Initialize,
+                           base::SharedMemoryHandle /* ring_buffer */,
                            int32 /* size */,
-                           base::SharedMemoryHandle /* ring_buffer */)
+                           bool /* result */)
 
 // Get the current state of the command buffer.
 IPC_SYNC_MESSAGE_ROUTED0_1(GpuCommandBufferMsg_GetState,
@@ -249,6 +257,13 @@ IPC_MESSAGE_ROUTED0(GpuCommandBufferMsg_SwapBuffers)
 // identify the transfer buffer from a comment.
 IPC_SYNC_MESSAGE_ROUTED1_1(GpuCommandBufferMsg_CreateTransferBuffer,
                            int32 /* size */,
+                           int32 /* id */)
+
+// Register an existing shared memory transfer buffer. Returns an id that can be
+// used to identify the transfer buffer from a command buffer.
+IPC_SYNC_MESSAGE_ROUTED2_1(GpuCommandBufferMsg_RegisterTransferBuffer,
+                           base::SharedMemoryHandle /* transfer_buffer */,
+                           size_t /* size */,
                            int32 /* id */)
 
 // Destroy a previously created transfer buffer.

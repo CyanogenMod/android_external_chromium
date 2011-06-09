@@ -50,34 +50,31 @@ void ComputeBuiltInPlugins(std::vector<PepperPluginInfo>* plugins) {
       PepperPluginInfo pdf;
       pdf.path = path;
       pdf.name = kPDFPluginName;
-      pdf.mime_types.push_back(kPDFPluginMimeType);
-      pdf.file_extensions = kPDFPluginExtension;
-      pdf.type_descriptions = kPDFPluginDescription;
+      webkit::npapi::WebPluginMimeType pdf_mime_type(kPDFPluginMimeType,
+                                                     kPDFPluginExtension,
+                                                     kPDFPluginDescription);
+      pdf.mime_types.push_back(pdf_mime_type);
       plugins->push_back(pdf);
 
       skip_pdf_file_check = true;
     }
   }
 
-  // Native client.
-  //
-  // Verify that we enable nacl on the command line. The name of the switch
-  // varies between the browser and renderer process.
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnableNaCl) &&
-      PathService::Get(chrome::FILE_NACL_PLUGIN, &path) &&
-      file_util::PathExists(path)) {
-    PepperPluginInfo nacl;
-    nacl.path = path;
-    nacl.name = kNaClPluginName;
-    nacl.mime_types.push_back(kNaClPluginMimeType);
+  // Handle the Native Client plugin just like the PDF plugin.
+  static bool skip_nacl_file_check = false;
+  if (PathService::Get(chrome::FILE_NACL_PLUGIN, &path)) {
+    if (skip_nacl_file_check || file_util::PathExists(path)) {
+      PepperPluginInfo nacl;
+      nacl.path = path;
+      nacl.name = kNaClPluginName;
+      webkit::npapi::WebPluginMimeType nacl_mime_type(kNaClPluginMimeType,
+                                                      kNaClPluginExtension,
+                                                      kNaClPluginDescription);
+      nacl.mime_types.push_back(nacl_mime_type);
+      plugins->push_back(nacl);
 
-    // TODO(bbudge) Remove this mime type after NaCl tree has been updated.
-    const char* kNaClPluginOldMimeType = "application/x-ppapi-nacl-srpc";
-    nacl.mime_types.push_back(kNaClPluginOldMimeType);
-
-    nacl.file_extensions = kNaClPluginExtension;
-    nacl.type_descriptions = kNaClPluginDescription;
-    plugins->push_back(nacl);
+      skip_nacl_file_check = true;
+    }
   }
 
   // Remoting.
@@ -87,7 +84,10 @@ void ComputeBuiltInPlugins(std::vector<PepperPluginInfo>* plugins) {
     PepperPluginInfo info;
     info.is_internal = true;
     info.path = FilePath(FILE_PATH_LITERAL("internal-chromoting"));
-    info.mime_types.push_back(kRemotingPluginMimeType);
+    webkit::npapi::WebPluginMimeType remoting_mime_type(kRemotingPluginMimeType,
+                                                        std::string(),
+                                                        std::string());
+    info.mime_types.push_back(remoting_mime_type);
     info.internal_entry_points.get_interface = remoting::PPP_GetInterface;
     info.internal_entry_points.initialize_module =
         remoting::PPP_InitializeModule;
@@ -111,8 +111,10 @@ void ComputePluginsFromCommandLine(std::vector<PepperPluginInfo>* plugins) {
 
   // FORMAT:
   // command-line = <plugin-entry> + *( LWS + "," + LWS + <plugin-entry> )
-  // plugin-entry = <file-path> + ["#" + <name> + ["#" + <description>]] +
-  //                *1( LWS + ";" + LWS + <mime-type> )
+  // plugin-entry =
+  //    <file-path> +
+  //    ["#" + <name> + ["#" + <description> + ["#" + <version>]]] +
+  //    *1( LWS + ";" + LWS + <mime-type> )
 
   std::vector<std::string> modules;
   base::SplitString(value, ',', &modules);
@@ -139,12 +141,16 @@ void ComputePluginsFromCommandLine(std::vector<PepperPluginInfo>* plugins) {
 #endif
     if (name_parts.size() > 1)
       plugin.name = name_parts[1];
-    if (name_parts.size() > 2) {
+    if (name_parts.size() > 2)
       plugin.description = name_parts[2];
-      plugin.type_descriptions = name_parts[2];
+    if (name_parts.size() > 3)
+      plugin.version = name_parts[3];
+    for (size_t j = 1; j < parts.size(); ++j) {
+      webkit::npapi::WebPluginMimeType mime_type(parts[j],
+                                                 std::string(),
+                                                 plugin.description);
+      plugin.mime_types.push_back(mime_type);
     }
-    for (size_t j = 1; j < parts.size(); ++j)
-      plugin.mime_types.push_back(parts[j]);
 
     plugins->push_back(plugin);
   }
@@ -213,13 +219,16 @@ void PepperPluginRegistry::AddLiveModule(const FilePath& path,
   live_modules_[path] = module;
 }
 
-void PepperPluginRegistry::PluginModuleDestroyed(
-    webkit::ppapi::PluginModule* destroyed_module) {
+void PepperPluginRegistry::PluginModuleDead(
+    webkit::ppapi::PluginModule* dead_module) {
+  // DANGER: Don't dereference the dead_module pointer! It may be in the
+  // process of being deleted.
+
   // Modules aren't destroyed very often and there are normally at most a
   // couple of them. So for now we just do a brute-force search.
   for (NonOwningModuleMap::iterator i = live_modules_.begin();
        i != live_modules_.end(); ++i) {
-    if (i->second == destroyed_module) {
+    if (i->second == dead_module) {
       live_modules_.erase(i);
       return;
     }

@@ -8,11 +8,11 @@
 #include "base/i18n/rtl.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/cancelable_request.h"
 #include "chrome/browser/favicon_service.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/cancelable_request.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -80,9 +80,8 @@ void PossibleURLModel::Reload(Profile *profile) {
 void PossibleURLModel::OnHistoryQueryComplete(HistoryService::Handle h,
                                               history::QueryResults* result) {
   results_.resize(result->size());
-  std::wstring languages = profile_ ?
-      UTF8ToWide(profile_->GetPrefs()->GetString(prefs::kAcceptLanguages)) :
-      std::wstring();
+  std::string languages = profile_ ?
+      profile_->GetPrefs()->GetString(prefs::kAcceptLanguages) : std::string();
   for (size_t i = 0; i < result->size(); ++i) {
     results_[i].url = (*result)[i].url();
     results_[i].index = i;

@@ -25,7 +25,7 @@ class BrowserFrameGtk : public BrowserFrame,
   // initialization function must be called after construction, it is
   // separate to avoid recursive calling of the frame from its
   // constructor.
-  virtual void Init();
+  virtual void InitBrowserFrame();
 
   // Overridden from BrowserFrame:
   virtual views::Window* GetWindow();
@@ -40,7 +40,6 @@ class BrowserFrameGtk : public BrowserFrame,
 
   // Overridden from views::Widget:
   virtual ui::ThemeProvider* GetThemeProvider() const;
-  virtual ui::ThemeProvider* GetDefaultThemeProvider() const;
   virtual void IsActiveChanged();
   virtual void SetInitialFocus();
 

@@ -8,16 +8,16 @@
 #include "base/json/json_writer.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/remoting/remoting_resources_source.h"
 #include "chrome/browser/remoting/setup_flow_login_step.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "ui/base/l10n/l10n_font_util.h"
@@ -171,8 +171,8 @@ void SetupFlow::GetDialogSize(gfx::Size* size) const {
 
   // TODO(pranavk) Replace the following SYNC resources with REMOTING Resources.
   *size = ui::GetLocalizedContentsSizeForFont(
-      IDS_SYNC_SETUP_WIZARD_WIDTH_CHARS,
-      IDS_SYNC_SETUP_WIZARD_HEIGHT_LINES,
+      IDS_REMOTING_SETUP_WIZARD_WIDTH_CHARS,
+      IDS_REMOTING_SETUP_WIZARD_HEIGHT_LINES,
       approximate_web_font);
 }
 

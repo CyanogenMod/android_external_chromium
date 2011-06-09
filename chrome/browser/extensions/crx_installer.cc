@@ -18,7 +18,6 @@
 #include "base/utf_string_conversions.h"
 #include "base/version.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/convert_user_script.h"
 #include "chrome/browser/extensions/convert_web_app.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -30,6 +29,7 @@
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
+#include "content/browser/browser_thread.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -38,12 +38,6 @@
 #include "ui/base/resource/resource_bundle.h"
 
 namespace {
-
-// Helper function to delete files. This is used to avoid ugly casts which
-// would be necessary with PostMessage since file_util::Delete is overloaded.
-static void DeleteFileHelper(const FilePath& path, bool recursive) {
-  file_util::Delete(path, recursive);
-}
 
 struct WhitelistedInstallData {
   WhitelistedInstallData() {}
@@ -100,13 +94,15 @@ CrxInstaller::~CrxInstaller() {
   if (!temp_dir_.value().empty()) {
     BrowserThread::PostTask(
         BrowserThread::FILE, FROM_HERE,
-        NewRunnableFunction(&DeleteFileHelper, temp_dir_, true));
+        NewRunnableFunction(
+            &extension_file_util::DeleteFile, temp_dir_, true));
   }
 
   if (delete_source_) {
     BrowserThread::PostTask(
         BrowserThread::FILE, FROM_HERE,
-        NewRunnableFunction(&DeleteFileHelper, source_file_, false));
+        NewRunnableFunction(
+            &extension_file_util::DeleteFile, source_file_, false));
   }
 
   // Make sure the UI is deleted on the ui thread.
@@ -378,7 +374,11 @@ void CrxInstaller::CompleteInstall() {
   // lazily and based on the Extension's root path at that moment.
   std::string error;
   extension_ = extension_file_util::LoadExtension(
-      version_dir, install_source_, true, &error);
+      version_dir,
+      install_source_,
+      true,  // Require key
+      false,  // Disable strict error checks
+      &error);
   CHECK(error.empty()) << error;
 
   ReportSuccessFromFileThread();

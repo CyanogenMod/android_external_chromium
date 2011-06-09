@@ -13,17 +13,17 @@
 #include "chrome/browser/chromeos/wm_overview_fav_icon.h"
 #include "chrome/browser/chromeos/wm_overview_snapshot.h"
 #include "chrome/browser/chromeos/wm_overview_title.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_widget_host.h"
-#include "chrome/browser/renderer_host/render_widget_host_view.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tab_contents/thumbnail_generator.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "chrome/common/notification_service.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_widget_host.h"
+#include "content/browser/renderer_host/render_widget_host_view.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_view.h"
+#include "content/common/notification_service.h"
 #include "views/widget/root_view.h"
 #include "views/widget/widget_gtk.h"
 #include "views/window/window.h"
@@ -77,7 +77,7 @@ class BrowserListener : public TabStripModelObserver {
   virtual void TabChangedAt(TabContentsWrapper* contents, int index,
                             TabStripModelObserver::TabChangeType change_type);
   virtual void TabStripEmpty();
-  virtual void TabDeselectedAt(TabContentsWrapper* contents, int index) {}
+  virtual void TabDeselected(TabContentsWrapper* contents) {}
   virtual void TabSelectedAt(TabContentsWrapper* old_contents,
                              TabContentsWrapper* new_contents,
                              int index,
@@ -253,6 +253,9 @@ void BrowserListener::TabSelectedAt(TabContentsWrapper* old_contents,
                                     TabContentsWrapper* new_contents,
                                     int index,
                                     bool user_gesture) {
+  if (old_contents == new_contents)
+    return;
+
   UpdateSelectedIndex(index);
 }
 
@@ -424,8 +427,9 @@ void BrowserListener::InsertSnapshot(int index) {
   node.fav_icon->SetFavIcon(browser_->GetTabContentsAt(index)->GetFavIcon());
 
   node.title = new WmOverviewTitle;
-  node.title->Init(gfx::Size(cell_size.width() -
-                             WmOverviewFavIcon::kIconSize - kFavIconPadding,
+  node.title->Init(gfx::Size(std::max(0, cell_size.width() -
+                                      WmOverviewFavIcon::kIconSize -
+                                      kFavIconPadding),
                              kTitleHeight), node.snapshot);
   node.title->SetTitle(browser_->GetTabContentsAt(index)->GetTitle());
 

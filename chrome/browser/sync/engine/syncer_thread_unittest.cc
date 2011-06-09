@@ -82,6 +82,7 @@ class SyncerThreadWithSyncerTest : public testing::Test,
     listeners.push_back(this);
     context_ = new SyncSessionContext(connection_.get(), metadb_.manager(),
                                       this, listeners);
+    context_->set_account_name(metadb_.name());
     syncer_thread_ = new SyncerThread(context_);
     syncer_thread_->SetConnected(true);
     syncable::ModelTypeBitSet expected_types;
@@ -833,6 +834,7 @@ TEST_F(SyncerThreadWithSyncerTest, NudgeWithPayloads) {
   // immediately (5ms).
   sessions::TypePayloadMap nudge_types;
   nudge_types[syncable::BOOKMARKS] = "test";
+  connection()->ExpectGetUpdatesRequestPayloads(nudge_types);
 
   // Paused so we can verify the nudge types safely.
   syncer_thread()->RequestPause();
@@ -885,6 +887,7 @@ TEST_F(SyncerThreadWithSyncerTest, NudgeWithPayloadsCoalesced) {
   // Reset BOOKMARKS for expectations.
   nudge_types[syncable::BOOKMARKS] = "books";
   EXPECT_TRUE(CompareNudgeTypesToVault(nudge_types));
+  connection()->ExpectGetUpdatesRequestPayloads(nudge_types);
 
   syncer_thread()->RequestResume();
 

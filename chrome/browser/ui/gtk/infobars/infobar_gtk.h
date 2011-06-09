@@ -12,8 +12,8 @@
 #include "chrome/browser/ui/gtk/infobars/infobar_arrow_model.h"
 #include "chrome/browser/ui/gtk/owned_widget_gtk.h"
 #include "chrome/browser/ui/gtk/slide_animator_gtk.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "third_party/skia/include/core/SkPaint.h"
 #include "ui/base/gtk/gtk_signal.h"
 
@@ -87,6 +87,11 @@ class InfoBar : public SlideAnimatorGtk::Delegate,
   static const int kInfoBarHeight;
 
  protected:
+  // Spacing after message (and before buttons).
+  static const int kEndOfLabelSpacing;
+  // Spacing between buttons.
+  static const int kButtonButtonSpacing;
+
   // Removes our associated InfoBarDelegate from the associated TabContents.
   // (Will lead to this InfoBar being closed).
   void RemoveInfoBar() const;

@@ -23,11 +23,11 @@
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/page_navigator.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/tab_contents/page_navigator.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/app_strings.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -40,7 +40,7 @@
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "views/drag_utils.h"
 #include "views/events/event.h"
-#include "views/widget/root_view.h"
+#include "views/widget/native_widget.h"
 #include "views/widget/widget.h"
 #elif defined(TOOLKIT_GTK)
 #include "chrome/browser/ui/gtk/custom_drag.h"
@@ -331,16 +331,17 @@ void DragBookmarks(Profile* profile,
   BookmarkNodeData drag_data(nodes);
   drag_data.Write(profile, &data);
 
-  views::RootView* root_view =
-      views::Widget::GetWidgetFromNativeView(view)->GetRootView();
-
   // Allow nested message loop so we get DnD events as we drag this around.
   bool was_nested = MessageLoop::current()->IsNested();
   MessageLoop::current()->SetNestableTasksAllowed(true);
 
-  root_view->StartDragForViewFromMouseEvent(NULL, data,
-      ui::DragDropTypes::DRAG_COPY | ui::DragDropTypes::DRAG_MOVE |
-      ui::DragDropTypes::DRAG_LINK);
+  views::NativeWidget* native_widget =
+      views::NativeWidget::GetNativeWidgetForNativeView(view);
+  if (native_widget) {
+    native_widget->GetWidget()->RunShellDrag(NULL, data,
+        ui::DragDropTypes::DRAG_COPY | ui::DragDropTypes::DRAG_MOVE |
+        ui::DragDropTypes::DRAG_LINK);
+  }
 
   MessageLoop::current()->SetNestableTasksAllowed(was_nested);
 #elif defined(OS_MACOSX)

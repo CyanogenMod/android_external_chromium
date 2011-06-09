@@ -32,7 +32,7 @@ class BrowserFrameWin : public BrowserFrame, public views::WindowWin {
 
   // This initialization function must be called after construction, it is
   // separate to avoid recursive calling of the frame from its constructor.
-  void Init();
+  void InitBrowserFrame();
 
   BrowserView* browser_view() const { return browser_view_; }
 
@@ -64,7 +64,6 @@ class BrowserFrameWin : public BrowserFrame, public views::WindowWin {
   virtual LRESULT OnNCHitTest(const CPoint& pt);
   virtual void OnWindowPosChanged(WINDOWPOS* window_pos);
   virtual ui::ThemeProvider* GetThemeProvider() const;
-  virtual ui::ThemeProvider* GetDefaultThemeProvider() const;
   virtual void OnScreenReaderDetected();
 
   // Overridden from views::Window:

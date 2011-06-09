@@ -9,11 +9,11 @@
 #include <vector>
 
 #include "base/string16.h"
-#include "chrome/browser/cancelable_request.h"
 #include "chrome/browser/history/history.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
+#include "content/browser/cancelable_request.h"
+#include "content/browser/tab_contents/navigation_entry.h"
 #include "googleurl/src/gurl.h"
-#include "ui/gfx/native_widget_types.h"
+#include "ui/gfx/image.h"
 
 class PrefService;
 class Profile;
@@ -35,6 +35,8 @@ class PageInfoModel {
     SECTION_INFO_FIRST_VISIT,
   };
 
+  // NOTE: ICON_STATE_OK ... ICON_STATE_ERROR must be listed in increasing
+  // order of severity.  Code may depend on this order.
   enum SectionStateIcon {
     // No icon.
     ICON_NONE = -1,
@@ -86,7 +88,7 @@ class PageInfoModel {
   SectionInfo GetSectionInfo(int index);
 
   // Returns the native image type for an icon with the given id.
-  gfx::NativeImage GetIconImage(SectionStateIcon icon_id);
+  gfx::Image* GetIconImage(SectionStateIcon icon_id);
 
   // Callback from history service with number of visits to url.
   void OnGotVisitCountToHost(HistoryService::Handle handle,
@@ -101,16 +103,12 @@ class PageInfoModel {
   // Shared initialization for default and testing constructor.
   void Init();
 
-  // Wrapper for ResourceBundle::GetNativeImage() so that Mac can retain its
-  // icons.
-  gfx::NativeImage GetBitmapNamed(int resource_id);
-
   PageInfoModelObserver* observer_;
 
   std::vector<SectionInfo> sections_;
 
   // All possible icons that go next to the text descriptions to indicate state.
-  std::vector<gfx::NativeImage> icons_;
+  std::vector<gfx::Image*> icons_;
 
   // Used to request number of visits.
   CancelableRequestConsumer request_consumer_;

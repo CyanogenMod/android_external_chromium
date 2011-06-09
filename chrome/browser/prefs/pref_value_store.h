@@ -14,8 +14,8 @@
 #include "base/gtest_prod_util.h"
 #include "base/ref_counted.h"
 #include "base/values.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/common/pref_store.h"
+#include "content/browser/browser_thread.h"
 
 class FilePath;
 class PrefNotifier;
@@ -97,6 +97,10 @@ class PrefValueStore {
   // Check whether a Preference value is modifiable by the user, i.e. whether
   // there is no higher-priority source controlling it.
   bool PrefValueUserModifiable(const char* name) const;
+
+  // Check whether a Preference value is modifiable by an extension, i.e.
+  // whether there is no higher-priority source controlling it.
+  bool PrefValueExtensionModifiable(const char* name) const;
 
  private:
   // PrefStores must be listed here in order from highest to lowest priority.

@@ -12,11 +12,12 @@
 #include "base/nix/xdg_util.h"
 #include "base/task.h"
 #include "chrome/browser/background_mode_manager.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/shell_integration.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
+#include "chrome/common/auto_start_linux.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/chrome_version_info.h"
+#include "content/browser/browser_thread.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -31,23 +32,6 @@ class EnableLaunchOnStartupTask : public Task {
  public:
   virtual void Run();
 };
-
-static const FilePath::CharType kAutostart[] = "autostart";
-static const FilePath::CharType kConfig[] = ".config";
-static const char kXdgConfigHome[] = "XDG_CONFIG_HOME";
-
-FilePath GetAutostartDirectory(base::Environment* environment) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
-  FilePath result =
-      base::nix::GetXDGDirectory(environment, kXdgConfigHome, kConfig);
-  result = result.Append(kAutostart);
-  return result;
-}
-
-FilePath GetAutostartFilename(base::Environment* environment) {
-  FilePath directory = GetAutostartDirectory(environment);
-  return directory.Append(ShellIntegration::GetDesktopName(environment));
-}
 
 }  // namespace
 
@@ -66,44 +50,38 @@ void BackgroundModeManager::EnableLaunchOnStartup(bool should_launch) {
 
 void DisableLaunchOnStartupTask::Run() {
   scoped_ptr<base::Environment> environment(base::Environment::Create());
-  if (!file_util::Delete(GetAutostartFilename(environment.get()), false)) {
+  if (!AutoStart::Remove(ShellIntegration::GetDesktopName(environment.get()))) {
     NOTREACHED() << "Failed to deregister launch on login.";
   }
 }
 
 // TODO(rickcam): Bug 56280: Share implementation with ShellIntegration
 void EnableLaunchOnStartupTask::Run() {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
   scoped_ptr<base::Environment> environment(base::Environment::Create());
   scoped_ptr<chrome::VersionInfo> version_info(new chrome::VersionInfo());
-  FilePath autostart_directory = GetAutostartDirectory(environment.get());
-  FilePath autostart_file = GetAutostartFilename(environment.get());
-  if (!file_util::DirectoryExists(autostart_directory) &&
-      !file_util::CreateDirectory(autostart_directory)) {
-    NOTREACHED()
-      << "Failed to register launch on login.  No autostart directory.";
-    return;
-  }
+
   std::string wrapper_script;
   if (!environment->GetVar("CHROME_WRAPPER", &wrapper_script)) {
     LOG(WARNING)
         << "Failed to register launch on login.  CHROME_WRAPPER not set.";
     return;
   }
-  std::string autostart_file_contents =
-      "[Desktop Entry]\n"
-      "Type=Application\n"
-      "Terminal=false\n"
-      "Exec=" + wrapper_script +
-      " --enable-background-mode --no-startup-window\n"
-      "Name=" + version_info->Name() + "\n";
-  std::string::size_type content_length = autostart_file_contents.length();
-  if (file_util::WriteFile(autostart_file, autostart_file_contents.c_str(),
-                           content_length) !=
-      static_cast<int>(content_length)) {
-    NOTREACHED() << "Failed to register launch on login.  Failed to write "
-                 << autostart_file.value();
-    file_util::Delete(GetAutostartFilename(environment.get()), false);
+  std::string command_line =
+      wrapper_script + " --no-startup-window";
+  if (!AutoStart::AddApplication(
+          ShellIntegration::GetDesktopName(environment.get()),
+          version_info->Name(),
+          command_line,
+          false)) {
+    NOTREACHED() << "Failed to register launch on login.";
   }
+}
+
+void BackgroundModeManager::DisplayAppInstalledNotification(
+    const Extension* extension) {
+  // TODO(atwilson): Display a platform-appropriate notification here.
+  // http://crbug.com/74970
 }
 
 string16 BackgroundModeManager::GetPreferencesMenuLabel() {

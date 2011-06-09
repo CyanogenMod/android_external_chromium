@@ -46,9 +46,9 @@
 #include <utility>
 #include <vector>
 
-#include <gmock/internal/gmock-internal-utils.h>
-#include <gmock/internal/gmock-port.h>
-#include <gtest/gtest.h>
+#include "gmock/internal/gmock-internal-utils.h"
+#include "gmock/internal/gmock-port.h"
+#include "gtest/gtest.h"
 
 namespace testing {
 
@@ -250,8 +250,9 @@ class MatcherBase {
 template <typename T>
 class Matcher : public internal::MatcherBase<T> {
  public:
-  // Constructs a null matcher.  Needed for storing Matcher objects in
-  // STL containers.
+  // Constructs a null matcher.  Needed for storing Matcher objects in STL
+  // containers.  A default-constructed matcher is not yet initialized.  You
+  // cannot use it until a valid value has been assigned to it.
   Matcher() {}
 
   // Constructs a matcher from its implementation.
@@ -461,6 +462,16 @@ inline void PrintIfNotEmpty(const internal::string& explanation,
   }
 }
 
+// Returns true if the given type name is easy to read by a human.
+// This is used to decide whether printing the type of a value might
+// be helpful.
+inline bool IsReadableTypeName(const string& type_name) {
+  // We consider a type name readable if it's short or doesn't contain
+  // a template or function type.
+  return (type_name.length() <= 20 ||
+          type_name.find_first_of("<(") == string::npos);
+}
+
 // Matches the value against the given matcher, prints the value and explains
 // the match result to the listener. Returns the match result.
 // 'listener' must not be NULL.
@@ -479,6 +490,11 @@ bool MatchPrintAndExplain(Value& value, const Matcher<T>& matcher,
   const bool match = matcher.MatchAndExplain(value, &inner_listener);
 
   UniversalPrint(value, listener->stream());
+#if GTEST_HAS_RTTI
+  const string& type_name = GetTypeName<Value>();
+  if (IsReadableTypeName(type_name))
+    *listener->stream() << " (of type " << type_name << ")";
+#endif
   PrintIfNotEmpty(inner_listener.str(), listener->stream());
 
   return match;
@@ -2527,41 +2543,13 @@ class ElementsAreArrayMatcher {
   GTEST_DISALLOW_ASSIGN_(ElementsAreArrayMatcher);
 };
 
-// Constants denoting interpolations in a matcher description string.
-const int kTupleInterpolation = -1;    // "%(*)s"
-const int kPercentInterpolation = -2;  // "%%"
-const int kInvalidInterpolation = -3;  // "%" followed by invalid text
-
-// Records the location and content of an interpolation.
-struct Interpolation {
-  Interpolation(const char* start, const char* end, int param)
-      : start_pos(start), end_pos(end), param_index(param) {}
-
-  // Points to the start of the interpolation (the '%' character).
-  const char* start_pos;
-  // Points to the first character after the interpolation.
-  const char* end_pos;
-  // 0-based index of the interpolated matcher parameter;
-  // kTupleInterpolation for "%(*)s"; kPercentInterpolation for "%%".
-  int param_index;
-};
-
-typedef ::std::vector<Interpolation> Interpolations;
-
-// Parses a matcher description string and returns a vector of
-// interpolations that appear in the string; generates non-fatal
-// failures iff 'description' is an invalid matcher description.
-// 'param_names' is a NULL-terminated array of parameter names in the
-// order they appear in the MATCHER_P*() parameter list.
-Interpolations ValidateMatcherDescription(
-    const char* param_names[], const char* description);
-
-// Returns the actual matcher description, given the matcher name,
-// user-supplied description template string, interpolations in the
-// string, and the printed values of the matcher parameters.
-string FormatMatcherDescription(
-    const char* matcher_name, const char* description,
-    const Interpolations& interp, const Strings& param_values);
+// Returns the description for a matcher defined using the MATCHER*()
+// macro where the user-supplied description string is "", if
+// 'negation' is false; otherwise returns the description of the
+// negation of the matcher.  'param_values' contains a list of strings
+// that are the print-out of the matcher's parameters.
+string FormatMatcherDescription(bool negation, const char* matcher_name,
+                                const Strings& param_values);
 
 }  // namespace internal
 
@@ -2915,82 +2903,6 @@ inline internal::Ne2Matcher Ne() { return internal::Ne2Matcher(); }
 template <typename InnerMatcher>
 inline internal::NotMatcher<InnerMatcher> Not(InnerMatcher m) {
   return internal::NotMatcher<InnerMatcher>(m);
-}
-
-// Creates a matcher that matches any value that matches all of the
-// given matchers.
-//
-// For now we only support up to 5 matchers.  Support for more
-// matchers can be added as needed, or the user can use nested
-// AllOf()s.
-template <typename Matcher1, typename Matcher2>
-inline internal::BothOfMatcher<Matcher1, Matcher2>
-AllOf(Matcher1 m1, Matcher2 m2) {
-  return internal::BothOfMatcher<Matcher1, Matcher2>(m1, m2);
-}
-
-template <typename Matcher1, typename Matcher2, typename Matcher3>
-inline internal::BothOfMatcher<Matcher1,
-           internal::BothOfMatcher<Matcher2, Matcher3> >
-AllOf(Matcher1 m1, Matcher2 m2, Matcher3 m3) {
-  return AllOf(m1, AllOf(m2, m3));
-}
-
-template <typename Matcher1, typename Matcher2, typename Matcher3,
-          typename Matcher4>
-inline internal::BothOfMatcher<Matcher1,
-           internal::BothOfMatcher<Matcher2,
-               internal::BothOfMatcher<Matcher3, Matcher4> > >
-AllOf(Matcher1 m1, Matcher2 m2, Matcher3 m3, Matcher4 m4) {
-  return AllOf(m1, AllOf(m2, m3, m4));
-}
-
-template <typename Matcher1, typename Matcher2, typename Matcher3,
-          typename Matcher4, typename Matcher5>
-inline internal::BothOfMatcher<Matcher1,
-           internal::BothOfMatcher<Matcher2,
-               internal::BothOfMatcher<Matcher3,
-                   internal::BothOfMatcher<Matcher4, Matcher5> > > >
-AllOf(Matcher1 m1, Matcher2 m2, Matcher3 m3, Matcher4 m4, Matcher5 m5) {
-  return AllOf(m1, AllOf(m2, m3, m4, m5));
-}
-
-// Creates a matcher that matches any value that matches at least one
-// of the given matchers.
-//
-// For now we only support up to 5 matchers.  Support for more
-// matchers can be added as needed, or the user can use nested
-// AnyOf()s.
-template <typename Matcher1, typename Matcher2>
-inline internal::EitherOfMatcher<Matcher1, Matcher2>
-AnyOf(Matcher1 m1, Matcher2 m2) {
-  return internal::EitherOfMatcher<Matcher1, Matcher2>(m1, m2);
-}
-
-template <typename Matcher1, typename Matcher2, typename Matcher3>
-inline internal::EitherOfMatcher<Matcher1,
-           internal::EitherOfMatcher<Matcher2, Matcher3> >
-AnyOf(Matcher1 m1, Matcher2 m2, Matcher3 m3) {
-  return AnyOf(m1, AnyOf(m2, m3));
-}
-
-template <typename Matcher1, typename Matcher2, typename Matcher3,
-          typename Matcher4>
-inline internal::EitherOfMatcher<Matcher1,
-           internal::EitherOfMatcher<Matcher2,
-               internal::EitherOfMatcher<Matcher3, Matcher4> > >
-AnyOf(Matcher1 m1, Matcher2 m2, Matcher3 m3, Matcher4 m4) {
-  return AnyOf(m1, AnyOf(m2, m3, m4));
-}
-
-template <typename Matcher1, typename Matcher2, typename Matcher3,
-          typename Matcher4, typename Matcher5>
-inline internal::EitherOfMatcher<Matcher1,
-           internal::EitherOfMatcher<Matcher2,
-               internal::EitherOfMatcher<Matcher3,
-                   internal::EitherOfMatcher<Matcher4, Matcher5> > > >
-AnyOf(Matcher1 m1, Matcher2 m2, Matcher3 m3, Matcher4 m4, Matcher5 m5) {
-  return AnyOf(m1, AnyOf(m2, m3, m4, m5));
 }
 
 // Returns a matcher that matches anything that satisfies the given

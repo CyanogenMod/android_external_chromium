@@ -5,15 +5,15 @@
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_controller.h"
 
 #include "base/mac/mac_util.h"
+#include "base/metrics/histogram.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_editor.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_view.h"
 #import "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
@@ -33,19 +33,23 @@
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/event_utils.h"
 #import "chrome/browser/ui/cocoa/fullscreen_controller.h"
-#import "chrome/browser/ui/cocoa/importer/import_settings_dialog.h"
+#import "chrome/browser/ui/cocoa/importer/import_dialog_cocoa.h"
 #import "chrome/browser/ui/cocoa/menu_button.h"
 #import "chrome/browser/ui/cocoa/themed_window.h"
 #import "chrome/browser/ui/cocoa/toolbar/toolbar_controller.h"
 #import "chrome/browser/ui/cocoa/view_id_util.h"
 #import "chrome/browser/ui/cocoa/view_resizer.h"
+#include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_view.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "skia/ext/skia_utils_mac.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/image.h"
 
 // Bookmark bar state changing and animations
 //
@@ -115,6 +119,16 @@ const CGFloat kBookmarkBarOverlap = 3.0;
 
 // Duration of the bookmark bar animations.
 const NSTimeInterval kBookmarkBarAnimationDuration = 0.12;
+
+void RecordAppLaunch(Profile* profile, GURL url) {
+  DCHECK(profile->GetExtensionService());
+  if (!profile->GetExtensionService()->IsInstalledApp(url))
+    return;
+
+  UMA_HISTOGRAM_ENUMERATION(extension_misc::kAppLaunchHistogram,
+                            extension_misc::APP_LAUNCH_BOOKMARK_BAR,
+                            extension_misc::APP_LAUNCH_BUCKET_BOUNDARY);
+}
 
 }  // namespace
 
@@ -318,6 +332,7 @@ const NSTimeInterval kBookmarkBarAnimationDuration = 0.12;
 
   // Complete init of the "off the side" button, as much as we can.
   [offTheSideButton_ setDraggable:NO];
+  [offTheSideButton_ setActsOnMouseDown:YES];
 
   // We are enabled by default.
   barIsEnabled_ = YES;
@@ -524,29 +539,34 @@ const NSTimeInterval kBookmarkBarAnimationDuration = 0.12;
   const BookmarkNode* node = [sender bookmarkNode];
   WindowOpenDisposition disposition =
       event_utils::WindowOpenDispositionFromNSEvent([NSApp currentEvent]);
+  RecordAppLaunch(browser_->profile(), node->GetURL());
   [self openURL:node->GetURL() disposition:disposition];
 }
 
-// Redirect to our logic shared with BookmarkBarFolderController.
-- (IBAction)openBookmarkFolderFromButton:(id)sender {
-  if (sender != offTheSideButton_) {
-    // Toggle presentation of bar folder menus.
-    showFolderMenus_ = !showFolderMenus_;
-    [folderTarget_ openBookmarkFolderFromButton:sender];
-  } else {
-    // Off-the-side requires special handling.
-    [self openOffTheSideFolderFromButton:sender];
-  }
-}
-
-// The button that sends this one is special; the "off the side"
-// button (chevron) opens like a folder button but isn't exactly a
-// parent folder.
-- (IBAction)openOffTheSideFolderFromButton:(id)sender {
+// Common function to open a bookmark folder of any type.
+- (void)openBookmarkFolder:(id)sender {
   DCHECK([sender isKindOfClass:[BookmarkButton class]]);
   DCHECK([[sender cell] isKindOfClass:[BookmarkButtonCell class]]);
-  [[sender cell] setStartingChildIndex:displayedButtonCount_];
+
+  showFolderMenus_ = !showFolderMenus_;
+
+  if (sender == offTheSideButton_)
+    [[sender cell] setStartingChildIndex:displayedButtonCount_];
+
+  // Toggle presentation of bar folder menus.
   [folderTarget_ openBookmarkFolderFromButton:sender];
+}
+
+
+// Click on a bookmark folder button.
+- (IBAction)openBookmarkFolderFromButton:(id)sender {
+  [self openBookmarkFolder:sender];
+}
+
+// Click on the "off the side" button (chevron), which opens like a folder
+// button but isn't exactly a parent folder.
+- (IBAction)openOffTheSideFolderFromButton:(id)sender {
+  [self openBookmarkFolder:sender];
 }
 
 - (IBAction)openBookmarkInNewForegroundTab:(id)sender {
@@ -712,7 +732,7 @@ const NSTimeInterval kBookmarkBarAnimationDuration = 0.12;
 }
 
 - (IBAction)importBookmarks:(id)sender {
-  [ImportSettingsDialogController showImportSettingsDialogForProfile:
+  [ImportDialogController showImportSettingsDialogForProfile:
       browser_->profile()];
 }
 
@@ -999,12 +1019,14 @@ const NSTimeInterval kBookmarkBarAnimationDuration = 0.12;
     [item setTarget:self];
     [item setAction:@selector(openBookmarkMenuItem:)];
     [item setTag:[self menuTagFromNodeId:child->id()]];
-    // Add a tooltip
-    std::string url_string = child->GetURL().possibly_invalid_spec();
-    NSString* tooltip = [NSString stringWithFormat:@"%@\n%s",
-                         base::SysUTF16ToNSString(child->GetTitle()),
-                         url_string.c_str()];
-    [item setToolTip:tooltip];
+    if (child->is_url()) {
+      // Add a tooltip
+      std::string url_string = child->GetURL().possibly_invalid_spec();
+      NSString* tooltip = [NSString stringWithFormat:@"%@\n%s",
+                           base::SysUTF16ToNSString(child->GetTitle()),
+                           url_string.c_str()];
+      [item setToolTip:tooltip];
+    }
   }
 }
 
@@ -1118,16 +1140,19 @@ const NSTimeInterval kBookmarkBarAnimationDuration = 0.12;
   if (node->is_folder()) {
     [button setTarget:self];
     [button setAction:@selector(openBookmarkFolderFromButton:)];
+    [button setActsOnMouseDown:YES];
   } else {
     // Make the button do something
     [button setTarget:self];
     [button setAction:@selector(openBookmark:)];
-    // Add a tooltip.
-    NSString* title = base::SysUTF16ToNSString(node->GetTitle());
-    std::string url_string = node->GetURL().possibly_invalid_spec();
-    NSString* tooltip = [NSString stringWithFormat:@"%@\n%s", title,
-                         url_string.c_str()];
-    [button setToolTip:tooltip];
+    if (node->is_url()) {
+      // Add a tooltip.
+      NSString* title = base::SysUTF16ToNSString(node->GetTitle());
+      std::string url_string = node->GetURL().possibly_invalid_spec();
+      NSString* tooltip = [NSString stringWithFormat:@"%@\n%s", title,
+                           url_string.c_str()];
+      [button setToolTip:tooltip];
+    }
   }
   return [[button.get() retain] autorelease];
 }
@@ -1180,6 +1205,7 @@ const NSTimeInterval kBookmarkBarAnimationDuration = 0.12;
   frame.origin.x -= bookmarks::kBookmarkHorizontalPadding;
   BookmarkButton* button = [[BookmarkButton alloc] initWithFrame:frame];
   [button setDraggable:NO];
+  [button setActsOnMouseDown:YES];
   otherBookmarksButton_.reset(button);
   view_id_util::SetID(button, VIEW_ID_OTHER_BOOKMARKS);
 
@@ -1532,12 +1558,12 @@ const NSTimeInterval kBookmarkBarAnimationDuration = 0.12;
   CGFloat delta = desiredSize - frame.size.width;
   if (delta) {
     frame.size.width = desiredSize;
-    [button setFrame:frame];
+    [[button animator] setFrame:frame];
     for (NSButton* button in buttons_.get()) {
       NSRect buttonFrame = [button frame];
       if (buttonFrame.origin.x > frame.origin.x) {
         buttonFrame.origin.x += delta;
-        [button setFrame:buttonFrame];
+        [[button animator] setFrame:buttonFrame];
       }
     }
   }
@@ -1639,7 +1665,7 @@ const NSTimeInterval kBookmarkBarAnimationDuration = 0.12;
       // - right-click (and unclick) on it to open context menu
       // - move mouse to window titlebar then click-drag it by the titlebar
       // http://crbug.com/49333
-      return YES;
+      return NO;
     default:
       break;
   }
@@ -2043,6 +2069,11 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
   }
 }
 
+- (void)bookmarkDragDidEnd:(BookmarkButton*)button {
+  [self closeFolderAndStopTrackingMenus];
+}
+
+
 #pragma mark BookmarkButtonControllerProtocol
 
 // Close all bookmark folders.  "Folder" here is the fake menu for
@@ -2297,7 +2328,7 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
       BookmarkButton* button = [buttons_ objectAtIndex:i];
       NSPoint buttonOrigin = [button frame].origin;
       buttonOrigin.x += xOffset;
-      [button setFrameOrigin:buttonOrigin];
+      [[button animator] setFrameOrigin:buttonOrigin];
     }
     ++displayedButtonCount_;
     [buttons_ insertObject:newButton atIndex:buttonIndex];
@@ -2382,7 +2413,7 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
           BookmarkButton* button = [buttons_ objectAtIndex:i];
           NSRect frame = [button frame];
           frame.origin.x -= xOffset;
-          [button setFrameOrigin:frame.origin];
+          [[button animator] setFrameOrigin:frame.origin];
         }
       } else {
         // Move the button from right to left within the bar.
@@ -2392,7 +2423,7 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
           BookmarkButton* button = [buttons_ objectAtIndex:i];
           NSRect buttonFrame = [button frame];
           buttonFrame.origin.x += xOffset;
-          [button setFrameOrigin:buttonFrame.origin];
+          [[button animator] setFrameOrigin:buttonFrame.origin];
         }
       }
       [buttons_ insertObject:movedButton atIndex:toIndex];
@@ -2447,7 +2478,7 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
       BookmarkButton* button = [buttons_ objectAtIndex:i];
       NSRect buttonFrame = [button frame];
       buttonFrame.origin.x -= xOffset;
-      [button setFrame:buttonFrame];
+      [[button animator] setFrame:buttonFrame];
       // If this button is showing its menu then we need to move the menu, too.
       if (button == [folderController_ parentButton])
         [folderController_ offsetFolderMenuWindow:NSMakeSize(xOffset, 0.0)];

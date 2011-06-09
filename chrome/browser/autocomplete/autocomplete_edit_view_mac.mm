@@ -15,15 +15,16 @@
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_view_mac.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/cocoa/event_utils.h"
 #include "chrome/browser/ui/toolbar/toolbar_model.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "net/base/escape.h"
 #import "third_party/mozilla/NSPasteboard+Utils.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/image.h"
 #include "ui/gfx/rect.h"
 
 // Focus-handling between |field_| and |model_| is a bit subtle.
@@ -206,6 +207,14 @@ AutocompleteEditViewMac::~AutocompleteEditViewMac() {
   [field_ setObserver:NULL];
 }
 
+AutocompleteEditModel* AutocompleteEditViewMac::model() {
+  return model_.get();
+}
+
+const AutocompleteEditModel* AutocompleteEditViewMac::model() const {
+  return model_.get();
+}
+
 void AutocompleteEditViewMac::SaveStateToTab(TabContents* tab) {
   DCHECK(tab);
 
@@ -320,7 +329,7 @@ void AutocompleteEditViewMac::SetUserText(const string16& text,
   if (update_popup) {
     UpdatePopup();
   }
-  controller_->OnChanged();
+  model_->OnChanged();
 }
 
 NSRange AutocompleteEditViewMac::GetSelectedRange() const {
@@ -406,7 +415,7 @@ void AutocompleteEditViewMac::SelectAll(bool reversed) {
 void AutocompleteEditViewMac::RevertAll() {
   ClosePopup();
   model_->Revert();
-  controller_->OnChanged();
+  model_->OnChanged();
   [field_ clearUndoChain];
 }
 
@@ -421,15 +430,20 @@ void AutocompleteEditViewMac::UpdatePopup() {
   //   * The caret/selection isn't at the end of the text
   //   * The user has just pasted in something that replaced all the text
   //   * The user is trying to compose something in an IME
-  model_->StartAutocomplete(GetSelectedRange().length != 0,
-                            IsImeComposing() || !IsCaretAtEnd());
+  bool prevent_inline_autocomplete = IsImeComposing();
+  NSTextView* editor = (NSTextView*)[field_ currentEditor];
+  if (editor) {
+    if (NSMaxRange([editor selectedRange]) <
+        [[editor textStorage] length] - suggest_text_length_)
+      prevent_inline_autocomplete = true;
+  }
+
+  model_->StartAutocomplete([editor selectedRange].length != 0,
+                            prevent_inline_autocomplete);
 }
 
 void AutocompleteEditViewMac::ClosePopup() {
-  if (popup_view_->GetModel()->IsOpen())
-    controller_->OnAutocompleteWillClosePopup();
-
-  popup_view_->GetModel()->StopAutocomplete();
+  model_->StopAutocomplete();
 }
 
 void AutocompleteEditViewMac::SetFocus() {
@@ -452,7 +466,7 @@ void AutocompleteEditViewMac::SetTextInternal(
   [field_ setAttributedStringValue:as];
 
   // TODO(shess): This may be an appropriate place to call:
-  //   controller_->OnChanged();
+  //   model_->OnChanged();
   // In the current implementation, this tells LocationBarViewMac to
   // mess around with |model_| and update |field_|.  Unfortunately,
   // when I look at our peer implementations, it's not entirely clear
@@ -582,7 +596,7 @@ void AutocompleteEditViewMac::OnTemporaryTextMaybeChanged(
 
   suggest_text_length_ = 0;
   SetWindowTextAndCaretPos(display_text, display_text.size());
-  controller_->OnChanged();
+  model_->OnChanged();
   [field_ clearUndoChain];
 }
 
@@ -605,7 +619,7 @@ bool AutocompleteEditViewMac::OnInlineAutocompleteTextMaybeChanged(
   const NSRange range =
       NSMakeRange(user_text_length, display_text.size() - user_text_length);
   SetTextAndSelectedRange(display_text, range);
-  controller_->OnChanged();
+  model_->OnChanged();
   [field_ clearUndoChain];
 
   return true;
@@ -673,7 +687,7 @@ bool AutocompleteEditViewMac::OnAfterPossibleChange() {
   // fails for us in case you copy the URL and paste the identical URL
   // back (we'll lose the styling).
   EmphasizeURLComponents();
-  controller_->OnChanged();
+  model_->OnChanged();
 
   delete_was_pressed_ = false;
 
@@ -729,7 +743,9 @@ bool AutocompleteEditViewMac::IsImeComposing() const {
 void AutocompleteEditViewMac::OnDidBeginEditing() {
   // We should only arrive here when the field is focussed.
   DCHECK([field_ currentEditor]);
+}
 
+void AutocompleteEditViewMac::OnBeforeChange() {
   // Capture the current state.
   OnBeforePossibleChange();
 }
@@ -737,9 +753,6 @@ void AutocompleteEditViewMac::OnDidBeginEditing() {
 void AutocompleteEditViewMac::OnDidChange() {
   // Figure out what changed and notify the model_.
   OnAfterPossibleChange();
-
-  // Then capture the new state.
-  OnBeforePossibleChange();
 }
 
 void AutocompleteEditViewMac::OnDidEndEditing() {
@@ -779,7 +792,7 @@ bool AutocompleteEditViewMac::OnDoCommandBySelector(SEL cmd) {
     // Only commit suggested text if the cursor is all the way to the right and
     // there is no selection.
     if (suggest_text_length_ > 0 && IsCaretAtEnd()) {
-      controller_->OnCommitSuggestedText(true);
+      model_->CommitSuggestedText(true);
       return true;
     }
   }
@@ -804,7 +817,7 @@ bool AutocompleteEditViewMac::OnDoCommandBySelector(SEL cmd) {
       return model_->AcceptKeyword();
 
     if (suggest_text_length_ > 0) {
-      controller_->OnCommitSuggestedText(true);
+      model_->CommitSuggestedText(true);
       return true;
     }
 
@@ -816,7 +829,7 @@ bool AutocompleteEditViewMac::OnDoCommandBySelector(SEL cmd) {
       return true;
     }
 
-    if (controller_->AcceptCurrentInstantPreview())
+    if (model_->AcceptCurrentInstantPreview())
       return true;
   }
 
@@ -863,17 +876,13 @@ bool AutocompleteEditViewMac::OnDoCommandBySelector(SEL cmd) {
   if (cmd == @selector(deleteForward:)) {
     const NSUInteger modifiers = [[NSApp currentEvent] modifierFlags];
     if ((modifiers & NSShiftKeyMask) != 0) {
-      if (popup_view_->IsOpen()) {
-        popup_view_->GetModel()->TryDeletingCurrentItem();
+      if (model_->popup_model()->IsOpen()) {
+        model_->popup_model()->TryDeletingCurrentItem();
         return true;
       }
     }
   }
 
-  // Capture the state before the operation changes the content.
-  // TODO(shess): Determine if this is always redundent WRT the call
-  // in -controlTextDidChange:.
-  OnBeforePossibleChange();
   return false;
 }
 
@@ -884,7 +893,7 @@ void AutocompleteEditViewMac::OnSetFocus(bool control_down) {
 
 void AutocompleteEditViewMac::OnKillFocus() {
   // Tell the model to reset itself.
-  controller_->OnAutocompleteLosingFocus(NULL);
+  model_->OnWillKillFocus(NULL);
   model_->OnKillFocus();
   controller_->OnKillFocus();
 }
@@ -978,7 +987,7 @@ void AutocompleteEditViewMac::OnFrameChanged() {
   model_->PopupBoundsChangedTo(popup_view_->GetTargetBounds());
 
   // Give controller a chance to rearrange decorations.
-  controller_->OnChanged();
+  model_->OnChanged();
 }
 
 bool AutocompleteEditViewMac::OnBackspacePressed() {

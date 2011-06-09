@@ -4,10 +4,9 @@
 
 #include "chrome/browser/printing/cloud_print/cloud_print_setup_message_handler.h"
 
-#include "base/scoped_ptr.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
-#include "chrome/browser/dom_ui/web_ui_util.h"
+#include "base/scoped_ptr.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_setup_flow.h"
 
 WebUIMessageHandler* CloudPrintSetupMessageHandler::Attach(WebUI* web_ui) {
@@ -26,10 +25,13 @@ void CloudPrintSetupMessageHandler::RegisterMessages() {
 }
 
 void CloudPrintSetupMessageHandler::HandleSubmitAuth(const ListValue* args) {
-  std::string json(web_ui_util::GetJsonResponseFromFirstArgumentInList(args));
+  std::string json;
+  args->GetString(0, &json);
   std::string username, password, captcha;
-  if (json.empty())
+  if (json.empty()) {
+    NOTREACHED() << "Empty json string";
     return;
+  }
 
   scoped_ptr<Value> parsed_value(base::JSONReader::Read(json, false));
   if (!parsed_value.get() || !parsed_value->IsType(Value::TYPE_DICTIONARY)) {

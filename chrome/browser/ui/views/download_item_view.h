@@ -23,10 +23,10 @@
 #include "base/scoped_ptr.h"
 #include "base/time.h"
 #include "base/timer.h"
-#include "chrome/browser/cancelable_request.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/icon_manager.h"
+#include "content/browser/cancelable_request.h"
 #include "ui/base/animation/animation_delegate.h"
 #include "ui/gfx/font.h"
 #include "views/events/event.h"
@@ -37,6 +37,10 @@ class BaseDownloadItemModel;
 class DownloadShelfView;
 class SkBitmap;
 class DownloadShelfContextMenuWin;
+
+namespace gfx {
+class Image;
+}
 
 namespace ui {
 class SlideAnimation;
@@ -64,7 +68,7 @@ class DownloadItemView : public views::ButtonListener,
 
   // View overrides
   virtual void Layout();
-  virtual void Paint(gfx::Canvas* canvas);
+  virtual void OnPaint(gfx::Canvas* canvas);
   virtual gfx::Size GetPreferredSize();
   virtual void OnMouseExited(const views::MouseEvent& event);
   virtual void OnMouseMoved(const views::MouseEvent& event);
@@ -88,7 +92,7 @@ class DownloadItemView : public views::ButtonListener,
   void StopDownloadProgress();
 
   // IconManager::Client interface.
-  void OnExtractIconComplete(IconManager::Handle handle, SkBitmap* icon_bitmap);
+  void OnExtractIconComplete(IconManager::Handle handle, gfx::Image* icon);
 
   // Returns the DownloadItem model object belonging to this item.
   DownloadItem* download() const { return download_; }
@@ -179,7 +183,7 @@ class DownloadItemView : public views::ButtonListener,
   DropDownImageSet pushed_drop_down_image_set_;
 
   // The warning icon showns for dangerous downloads.
-  SkBitmap* warning_icon_;
+  const SkBitmap* warning_icon_;
 
   // The model we query for display information
   DownloadItem* download_;

@@ -8,17 +8,17 @@
 #include "base/values.h"
 #include "base/version.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/plugin_service.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/tab_contents/infobar_delegate.h"
-#include "chrome/browser/tab_contents/interstitial_page.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/tab_contents/confirm_infobar_delegate.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/pepper_plugin_registry.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/plugin_service.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/interstitial_page.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/browser_resources.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -81,10 +81,10 @@ class PDFEnableAdobeReaderConfirmInfoBarDelegate
     switch (button) {
       case BUTTON_OK:
         return l10n_util::GetStringUTF16(
-            IDS_CONFIRM_MESSAGEBOX_NO_BUTTON_LABEL);
+            IDS_PDF_INFOBAR_NEVER_USE_READER_BUTTON);
       case BUTTON_CANCEL:
         return l10n_util::GetStringUTF16(
-            IDS_CONFIRM_MESSAGEBOX_YES_BUTTON_LABEL);
+            IDS_PDF_INFOBAR_ALWAYS_USE_READER_BUTTON);
       default:
         // All buttons are labeled above.
         NOTREACHED() << "Bad button id " << button;
@@ -325,13 +325,10 @@ class PDFUnsupportedFeatureConfirmInfoBarDelegate
     }
 
     InfoBarDelegate* bar = NULL;
-    // Don't show the enable Reader by default info bar for now.
-    /*
     if (tab_contents_->profile()->GetPrefs()->GetBoolean(
             prefs::kPluginsShowSetReaderDefaultInfobar)) {
       bar = new PDFEnableAdobeReaderConfirmInfoBarDelegate(tab_contents_);
     }
-    */
 
     if (bar) {
       OpenUsingReader(tab_contents_, reader_webplugininfo_, this, bar);

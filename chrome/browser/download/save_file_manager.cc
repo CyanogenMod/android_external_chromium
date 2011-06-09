@@ -12,15 +12,15 @@
 #include "base/string_util.h"
 #include "base/task.h"
 #include "base/threading/thread.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/download/save_file.h"
 #include "chrome/browser/download/save_package.h"
 #include "chrome/browser/platform_util.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/net/url_request_context_getter.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/resource_dispatcher_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/net_util.h"
 #include "net/base/io_buffer.h"
@@ -432,7 +432,6 @@ void SaveFileManager::SaveLocalFile(const GURL& original_file_url,
   SaveFile* save_file = LookupSaveFile(save_id);
   if (!save_file)
     return;
-  DCHECK(!save_file->path_renamed());
   // If it has finished, just return.
   if (!save_file->in_progress())
     return;
@@ -490,7 +489,7 @@ void SaveFileManager::RenameAllFiles(
     if (it != save_file_map_.end()) {
       SaveFile* save_file = it->second;
       DCHECK(!save_file->in_progress());
-      save_file->Rename(i->second, true);
+      save_file->Rename(i->second);
       delete save_file;
       save_file_map_.erase(it);
     }

@@ -17,7 +17,7 @@
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/ui/gtk/infobars/infobar_arrow_model.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_registrar.h"
 #include "ui/base/gtk/gtk_signal.h"
 #include "ui/base/x/active_window_watcher_x.h"
 #include "ui/base/x/x11_util.h"
@@ -90,7 +90,7 @@ class BrowserWindowGtk : public BrowserWindow,
   virtual void ConfirmAddSearchProvider(const TemplateURL* template_url,
                                         Profile* profile);
   virtual void ToggleBookmarkBar();
-  virtual views::Window* ShowAboutChromeDialog();
+  virtual void ShowAboutChromeDialog();
   virtual void ShowUpdateChromeDialog();
   virtual void ShowTaskManager();
   virtual void ShowBackgroundPages();

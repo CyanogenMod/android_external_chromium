@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 
 static const string16 kNameSplitChars = ASCIIToUTF16("-'. ");
 
-static const AutoFillFieldType kAutoFillContactInfoTypes[] = {
+static const AutofillFieldType kAutoFillContactInfoTypes[] = {
   NAME_FIRST,
   NAME_MIDDLE,
   NAME_LAST,
@@ -88,7 +88,7 @@ void ContactInfo::GetAvailableFieldTypes(FieldTypeSet* available_types) const {
     available_types->insert(COMPANY_NAME);
 }
 
-void ContactInfo::FindInfoMatches(const AutoFillType& type,
+void ContactInfo::FindInfoMatches(const AutofillType& type,
                                   const string16& info,
                                   std::vector<string16>* matched_text) const {
   DCHECK(matched_text);
@@ -104,8 +104,8 @@ void ContactInfo::FindInfoMatches(const AutoFillType& type,
   }
 }
 
-string16 ContactInfo::GetFieldText(const AutoFillType& type) const {
-  AutoFillFieldType field_type = type.field_type();
+string16 ContactInfo::GetFieldText(const AutofillType& type) const {
+  AutofillFieldType field_type = type.field_type();
   if (field_type == NAME_FIRST)
     return first();
 
@@ -133,9 +133,9 @@ string16 ContactInfo::GetFieldText(const AutoFillType& type) const {
   return string16();
 }
 
-void ContactInfo::SetInfo(const AutoFillType& type, const string16& value) {
-  AutoFillFieldType field_type = type.field_type();
-  DCHECK(type.group() == AutoFillType::CONTACT_INFO);
+void ContactInfo::SetInfo(const AutofillType& type, const string16& value) {
+  AutofillFieldType field_type = type.field_type();
+  DCHECK_EQ(AutofillType::CONTACT_INFO, type.group());
   if (field_type == NAME_FIRST)
     SetFirst(value);
   else if (field_type == NAME_MIDDLE || field_type == NAME_MIDDLE_INITIAL)
@@ -196,7 +196,7 @@ string16 ContactInfo::MiddleInitial() const {
   return initial;
 }
 
-bool ContactInfo::FindInfoMatchesHelper(const AutoFillFieldType& field_type,
+bool ContactInfo::FindInfoMatchesHelper(const AutofillFieldType& field_type,
                                         const string16& info,
                                         string16* match) const {
   if (match == NULL) {

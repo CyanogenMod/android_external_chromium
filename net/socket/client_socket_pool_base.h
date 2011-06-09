@@ -156,7 +156,7 @@ namespace internal {
 // ClientSocketPoolBase instead.
 class ClientSocketPoolBaseHelper
     : public ConnectJob::Delegate,
-      public NetworkChangeNotifier::Observer {
+      public NetworkChangeNotifier::IPAddressObserver {
  public:
   typedef uint32 Flags;
 
@@ -298,7 +298,7 @@ class ClientSocketPoolBaseHelper
   // ConnectJob::Delegate methods:
   virtual void OnConnectJobComplete(int result, ConnectJob* job);
 
-  // NetworkChangeNotifier::Observer methods:
+  // NetworkChangeNotifier::IPAddressObserver methods:
   virtual void OnIPAddressChanged();
 
  private:

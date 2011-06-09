@@ -544,7 +544,7 @@ X509Certificate* X509Certificate::CreateSelfSigned(
     cssm_subject_names.push_back(cssm_subject_name);
   }
 
-  if (cssm_subject_names.size() == 0) {
+  if (cssm_subject_names.empty()) {
     DLOG(ERROR) << "cssm_subject_names.size() == 0. Input: " << subject;
     return NULL;
   }
@@ -1128,7 +1128,7 @@ bool X509Certificate::GetSSLClientCertificates(
     // Make sure the issuer matches valid_issuers, if given.
     // But an explicit cert preference overrides this.
     if (!is_preferred &&
-        valid_issuers.size() > 0 &&
+        !valid_issuers.empty() &&
         !cert->IsIssuedBy(valid_issuers))
       continue;
 

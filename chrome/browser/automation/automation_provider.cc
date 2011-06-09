@@ -40,7 +40,6 @@
 #include "chrome/browser/bookmarks/bookmark_storage.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/browsing_data_remover.h"
 #include "chrome/browser/character_encoding.h"
@@ -67,19 +66,14 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/printing/print_job.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/ssl/ssl_manager.h"
 #include "chrome/browser/ssl/ssl_blocking_page.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/ui/app_modal_dialogs/app_modal_dialog.h"
 #include "chrome/browser/ui/app_modal_dialogs/app_modal_dialog_queue.h"
 #include "chrome/browser/ui/find_bar/find_bar.h"
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
-#include "chrome/browser/ui/find_bar/find_manager.h"
 #include "chrome/browser/ui/find_bar/find_notification_details.h"
+#include "chrome/browser/ui/find_bar/find_tab_helper.h"
 #include "chrome/browser/ui/login/login_prompt.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
@@ -95,6 +89,12 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/automation/tab_proxy.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/navigation_entry.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_view.h"
 #include "net/proxy/proxy_service.h"
 #include "net/proxy/proxy_config_service_fixed.h"
 #include "net/url_request/url_request_context.h"
@@ -110,6 +110,7 @@ using base::Time;
 AutomationProvider::AutomationProvider(Profile* profile)
     : profile_(profile),
       reply_message_(NULL),
+      reinitialize_on_channel_error_(false),
       is_connected_(false),
       initial_loads_complete_(false) {
   TRACE_EVENT_BEGIN("AutomationProvider::AutomationProvider", 0, "");
@@ -146,6 +147,7 @@ AutomationProvider::~AutomationProvider() {
 bool AutomationProvider::InitializeChannel(const std::string& channel_id) {
   TRACE_EVENT_BEGIN("AutomationProvider::InitializeChannel", 0, "");
 
+  channel_id_ = channel_id;
   std::string effective_channel_id = channel_id;
 
   // If the channel_id starts with kNamedInterfacePrefix, create a named IPC
@@ -157,6 +159,8 @@ bool AutomationProvider::InitializeChannel(const std::string& channel_id) {
         strlen(automation::kNamedInterfacePrefix));
     if (effective_channel_id.length() <= 0)
       return false;
+
+    reinitialize_on_channel_error_ = true;
   }
 
   if (!automation_resource_message_filter_.get()) {
@@ -432,7 +436,21 @@ void AutomationProvider::HandleUnused(const IPC::Message& message, int handle) {
   }
 }
 
+bool AutomationProvider::ReinitializeChannel() {
+  base::ThreadRestrictions::ScopedAllowIO allow_io;
+
+  // Make sure any old channels are cleaned up before starting up a new one.
+  channel_.reset();
+  return InitializeChannel(channel_id_);
+}
+
 void AutomationProvider::OnChannelError() {
+  if (reinitialize_on_channel_error_) {
+    VLOG(1) << "AutomationProxy disconnected, resetting AutomationProvider.";
+    if (ReinitializeChannel())
+      return;
+    VLOG(1) << "Error reinitializing AutomationProvider channel.";
+  }
   VLOG(1) << "AutomationProxy went away, shutting down app.";
   AutomationProviderList::GetInstance()->RemoveProvider(this);
 }
@@ -494,7 +512,7 @@ void AutomationProvider::SendFindRequest(
   TabContentsWrapper* wrapper =
       TabContentsWrapper::GetCurrentWrapperForContents(tab_contents);
   if (wrapper)
-    wrapper->GetFindManager()->set_current_find_request_id(request_id);
+    wrapper->find_tab_helper()->set_current_find_request_id(request_id);
 
   tab_contents->render_view_host()->StartFinding(
       FindInPageNotificationObserver::kFindInPageRequestId,
@@ -820,7 +838,7 @@ void AutomationProvider::GetEnabledExtensions(
 
 void AutomationProvider::WaitForExtensionTestResult(
     IPC::Message* reply_message) {
-  DCHECK(reply_message_ == NULL);
+  DCHECK(!reply_message_);
   reply_message_ = reply_message;
   // Call MaybeSendResult, because the result might have come in before
   // we were waiting on it.

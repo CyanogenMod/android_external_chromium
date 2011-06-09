@@ -8,8 +8,6 @@
 
 #include "chrome/browser/ui/views/infobars/translate_infobar_base.h"
 
-class InfoBarTextButton;
-
 class TranslateMessageInfoBar : public TranslateInfoBarBase {
  public:
   explicit TranslateMessageInfoBar(TranslateInfoBarDelegate* delegate);
@@ -19,10 +17,12 @@ class TranslateMessageInfoBar : public TranslateInfoBarBase {
 
   // TranslateInfoBarBase:
   virtual void Layout();
+  virtual void ViewHierarchyChanged(bool is_add, View* parent, View* child);
   virtual void ButtonPressed(views::Button* sender, const views::Event& event);
+  virtual int ContentMinimumWidth() const;
 
   views::Label* label_;
-  InfoBarTextButton* button_;
+  views::TextButton* button_;
 
   DISALLOW_COPY_AND_ASSIGN(TranslateMessageInfoBar);
 };

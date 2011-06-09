@@ -8,6 +8,7 @@
 #include "base/scoped_nsobject.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
+#import "chrome/browser/ui/cocoa/animation_utils.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_constants.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_controller.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_folder_button_cell.h"
@@ -256,7 +257,7 @@ TEST_F(BookmarkBarFolderControllerTest, BasicPosition) {
                    parentController:nil
                       barController:bar_]);
   [bbfc window];
-  NSPoint pt = [bbfc windowTopLeftForWidth:0];  // screen coords
+  NSPoint pt = [bbfc windowTopLeftForWidth:0 height:100];  // screen coords
   NSPoint buttonOriginInScreen =
       [[parentButton window]
         convertBaseToScreen:[parentButton
@@ -268,8 +269,8 @@ TEST_F(BookmarkBarFolderControllerTest, BasicPosition) {
             bookmarks::kBookmarkMenuOverlap+1);
 
   // Make sure we see the window shift left if it spills off the screen
-  pt = [bbfc windowTopLeftForWidth:0];
-  NSPoint shifted = [bbfc windowTopLeftForWidth:9999999];
+  pt = [bbfc windowTopLeftForWidth:0 height:100];
+  NSPoint shifted = [bbfc windowTopLeftForWidth:9999999 height:100];
   EXPECT_LT(shifted.x, pt.x);
 
   // If parent is a BookmarkBarFolderController, grow right.
@@ -279,7 +280,7 @@ TEST_F(BookmarkBarFolderControllerTest, BasicPosition) {
                     parentController:bbfc.get()
                        barController:bar_]);
   [bbfc2 window];
-  pt = [bbfc2 windowTopLeftForWidth:0];
+  pt = [bbfc2 windowTopLeftForWidth:0 height:100];
   // We're now overlapping the window a bit.
   EXPECT_EQ(pt.x, NSMaxX([[bbfc.get() window] frame]) -
             bookmarks::kBookmarkMenuOverlap);
@@ -678,6 +679,7 @@ class BookmarkBarFolderControllerMenuTest : public CocoaTest {
 };
 
 TEST_F(BookmarkBarFolderControllerMenuTest, DragMoveBarBookmarkToFolder) {
+  WithNoAnimation at_all;
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
   const std::string model_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b "

@@ -9,14 +9,14 @@
 #include "chrome/browser/extensions/extension_process_manager.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/tab_contents/infobar_delegate.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/tab_contents/confirm_infobar_delegate.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/result_codes.h"
 #include "chrome/test/ui_test_utils.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
 
 class ExtensionCrashRecoveryTest : public ExtensionBrowserTest {
  protected:
@@ -407,8 +407,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest,
   CheckExtensionConsistency(size_before);
 }
 
+// Marked as flaky due to http://crbug.com/75134
 IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest,
-                       TwoExtensionsReloadIndependently) {
+                       FLAKY_TwoExtensionsReloadIndependently) {
   const size_t size_before = GetExtensionService()->extensions()->size();
   LoadTestExtension();
   LoadSecondExtension();
@@ -435,6 +436,26 @@ IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest,
     CheckExtensionConsistency(size_before);
     CheckExtensionConsistency(size_before + 1);
   }
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest, CrashAndUninstall) {
+  const size_t size_before = GetExtensionService()->extensions()->size();
+  const size_t crash_size_before =
+      GetExtensionService()->terminated_extensions()->size();
+  LoadTestExtension();
+  LoadSecondExtension();
+  CrashExtension(size_before);
+  ASSERT_EQ(size_before + 1, GetExtensionService()->extensions()->size());
+  ASSERT_EQ(crash_size_before + 1,
+            GetExtensionService()->terminated_extensions()->size());
+
+  UninstallExtension(first_extension_id_);
+
+  SCOPED_TRACE("after uninstalling");
+  ASSERT_EQ(size_before + 1, GetExtensionService()->extensions()->size());
+  ASSERT_EQ(crash_size_before,
+            GetExtensionService()->terminated_extensions()->size());
+  ASSERT_EQ(0U, browser()->GetSelectedTabContents()->infobar_count());
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionCrashRecoveryTest, CrashAndUnloadAll) {

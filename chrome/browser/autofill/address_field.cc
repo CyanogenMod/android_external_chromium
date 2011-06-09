@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,14 +14,13 @@
 #include "ui/base/l10n/l10n_util.h"
 
 bool AddressField::GetFieldInfo(FieldTypeMap* field_type_map) const {
-  AutoFillFieldType address_company;
-  AutoFillFieldType address_line1;
-  AutoFillFieldType address_line2;
-  AutoFillFieldType address_appt_num;
-  AutoFillFieldType address_city;
-  AutoFillFieldType address_state;
-  AutoFillFieldType address_zip;
-  AutoFillFieldType address_country;
+  AutofillFieldType address_company;
+  AutofillFieldType address_line1;
+  AutofillFieldType address_line2;
+  AutofillFieldType address_city;
+  AutofillFieldType address_state;
+  AutofillFieldType address_zip;
+  AutofillFieldType address_country;
 
   switch (type_) {
     case kShippingAddress:
@@ -30,7 +29,6 @@ bool AddressField::GetFieldInfo(FieldTypeMap* field_type_map) const {
       address_company = COMPANY_NAME;
       address_line1 = ADDRESS_HOME_LINE1;
       address_line2 = ADDRESS_HOME_LINE2;
-      address_appt_num = ADDRESS_HOME_APT_NUM;
       address_city = ADDRESS_HOME_CITY;
       address_state = ADDRESS_HOME_STATE;
       address_zip = ADDRESS_HOME_ZIP;
@@ -41,7 +39,6 @@ bool AddressField::GetFieldInfo(FieldTypeMap* field_type_map) const {
       address_company = COMPANY_NAME;
       address_line1 = ADDRESS_BILLING_LINE1;
       address_line2 = ADDRESS_BILLING_LINE2;
-      address_appt_num = ADDRESS_BILLING_APT_NUM;
       address_city = ADDRESS_BILLING_CITY;
       address_state = ADDRESS_BILLING_STATE;
       address_zip = ADDRESS_BILLING_ZIP;
@@ -54,19 +51,19 @@ bool AddressField::GetFieldInfo(FieldTypeMap* field_type_map) const {
   }
 
   bool ok;
-  ok = Add(field_type_map, company_, AutoFillType(address_company));
+  ok = Add(field_type_map, company_, AutofillType(address_company));
   DCHECK(ok);
-  ok = ok && Add(field_type_map, address1_, AutoFillType(address_line1));
+  ok = ok && Add(field_type_map, address1_, AutofillType(address_line1));
   DCHECK(ok);
-  ok = ok && Add(field_type_map, address2_, AutoFillType(address_line2));
+  ok = ok && Add(field_type_map, address2_, AutofillType(address_line2));
   DCHECK(ok);
-  ok = ok && Add(field_type_map, city_, AutoFillType(address_city));
+  ok = ok && Add(field_type_map, city_, AutofillType(address_city));
   DCHECK(ok);
-  ok = ok && Add(field_type_map, state_, AutoFillType(address_state));
+  ok = ok && Add(field_type_map, state_, AutofillType(address_state));
   DCHECK(ok);
-  ok = ok && Add(field_type_map, zip_, AutoFillType(address_zip));
+  ok = ok && Add(field_type_map, zip_, AutofillType(address_zip));
   DCHECK(ok);
-  ok = ok && Add(field_type_map, country_, AutoFillType(address_country));
+  ok = ok && Add(field_type_map, country_, AutofillType(address_country));
   DCHECK(ok);
 
   return ok;
@@ -77,14 +74,14 @@ FormFieldType AddressField::GetFormFieldType() const {
 }
 
 AddressField* AddressField::Parse(
-    std::vector<AutoFillField*>::const_iterator* iter,
+    std::vector<AutofillField*>::const_iterator* iter,
     bool is_ecml) {
   DCHECK(iter);
   if (!iter)
     return NULL;
 
   scoped_ptr<AddressField> address_field(new AddressField);
-  std::vector<AutoFillField*>::const_iterator q = *iter;
+  std::vector<AutofillField*>::const_iterator q = *iter;
   string16 pattern;
 
   // The ECML standard uses 2 letter country codes.  So we will
@@ -170,7 +167,7 @@ AddressField::AddressField()
 
 // static
 bool AddressField::ParseCompany(
-    std::vector<AutoFillField*>::const_iterator* iter,
+    std::vector<AutofillField*>::const_iterator* iter,
     bool is_ecml, AddressField* address_field) {
   if (address_field->company_ && !address_field->company_->IsEmpty())
     return false;
@@ -190,7 +187,7 @@ bool AddressField::ParseCompany(
 
 // static
 bool AddressField::ParseAddressLines(
-    std::vector<AutoFillField*>::const_iterator* iter,
+    std::vector<AutofillField*>::const_iterator* iter,
     bool is_ecml, AddressField* address_field) {
   // We only match the string "address" in page text, not in element names,
   // because sometimes every element in a group of address fields will have
@@ -251,7 +248,7 @@ bool AddressField::ParseAddressLines(
 
 // static
 bool AddressField::ParseCountry(
-    std::vector<AutoFillField*>::const_iterator* iter,
+    std::vector<AutofillField*>::const_iterator* iter,
     bool is_ecml, AddressField* address_field) {
   // Parse a country.  The occasional page (e.g.
   // Travelocity_New Member Information1.html) calls this a "location".
@@ -273,7 +270,7 @@ bool AddressField::ParseCountry(
 
 // static
 bool AddressField::ParseZipCode(
-    std::vector<AutoFillField*>::const_iterator* iter,
+    std::vector<AutofillField*>::const_iterator* iter,
     bool is_ecml, AddressField* address_field) {
   // Parse a zip code.  On some UK pages (e.g. The China Shop2.html) this
   // is called a "post code".
@@ -328,7 +325,7 @@ bool AddressField::ParseZipCode(
 
 // static
 bool AddressField::ParseCity(
-    std::vector<AutoFillField*>::const_iterator* iter,
+    std::vector<AutofillField*>::const_iterator* iter,
     bool is_ecml, AddressField* address_field) {
   // Parse a city name.  Some UK pages (e.g. The China Shop2.html) use
   // the term "town".
@@ -349,7 +346,7 @@ bool AddressField::ParseCity(
 
 // static
 bool AddressField::ParseState(
-    std::vector<AutoFillField*>::const_iterator* iter,
+    std::vector<AutofillField*>::const_iterator* iter,
     bool is_ecml, AddressField* address_field) {
   if (address_field->state_)
     return false;

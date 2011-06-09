@@ -11,13 +11,14 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/win/scoped_handle.h"
-#include "chrome/browser/browser_child_process_host.h"
-#include "chrome/browser/browser_thread.h"
-#include "chrome/browser/renderer_host/backing_store_manager.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
+#include "base/win/windows_version.h"
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/browser_child_process_host.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/backing_store_manager.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/tab_contents/navigation_entry.h"
 #include "grit/chromium_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -71,10 +72,8 @@ void MemoryDetails::CollectProcessData(
   for (unsigned int index = 0; index < process_data_.size(); index++)
     process_data_[index].processes.clear();
 
-  SYSTEM_INFO system_info;
-  GetNativeSystemInfo(&system_info);
-  bool is_64bit_os =
-      system_info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64;
+  base::win::WindowsArchitecture windows_architecture =
+      base::win::GetWindowsArchitecture();
 
   base::win::ScopedHandle snapshot(
       ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
@@ -89,19 +88,15 @@ void MemoryDetails::CollectProcessData(
   }
   do {
     base::ProcessId pid = process_entry.th32ProcessID;
-    base::win::ScopedHandle handle(::OpenProcess(
+    base::win::ScopedHandle process_handle(::OpenProcess(
         PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid));
-    if (!handle.Get())
+    if (!process_handle.Get())
       continue;
-    bool is_64bit_process = false;
-    // IsWow64Process() returns FALSE for a 32bit process on a 32bit OS.
-    // We need to check if the real OS is 64bit.
-    if (is_64bit_os) {
-      BOOL is_wow64 = FALSE;
-      // IsWow64Process() is supported by Windows XP SP2 or later.
-      IsWow64Process(handle, &is_wow64);
-      is_64bit_process = !is_wow64;
-    }
+    bool is_64bit_process =
+        ((windows_architecture == base::win::X64_ARCHITECTURE) ||
+         (windows_architecture == base::win::IA64_ARCHITECTURE)) &&
+        (base::win::GetWOW64StatusForProcess(process_handle) ==
+            base::win::WOW64_DISABLED);
     for (unsigned int index2 = 0; index2 < process_data_.size(); index2++) {
       if (_wcsicmp(process_data_[index2].process_name.c_str(),
                    process_entry.szExeFile) != 0)
@@ -117,7 +112,7 @@ void MemoryDetails::CollectProcessData(
         info.type = ChildProcessInfo::UNKNOWN_PROCESS;
 
       scoped_ptr<base::ProcessMetrics> metrics;
-      metrics.reset(base::ProcessMetrics::CreateProcessMetrics(handle));
+      metrics.reset(base::ProcessMetrics::CreateProcessMetrics(process_handle));
       metrics->GetCommittedKBytes(&info.committed);
       metrics->GetWorkingSetKBytes(&info.working_set);
 
@@ -136,7 +131,8 @@ void MemoryDetails::CollectProcessData(
           info.type = child_info[child].type;
           break;
         }
-      } else if (GetModuleFileNameEx(handle, NULL, name, MAX_PATH - 1)) {
+      } else if (GetModuleFileNameEx(process_handle, NULL, name,
+                                     MAX_PATH - 1)) {
         std::wstring str_name(name);
         scoped_ptr<FileVersionInfo> version_info(
             FileVersionInfo::CreateFileVersionInfo(FilePath(str_name)));

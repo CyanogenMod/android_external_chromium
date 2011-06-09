@@ -13,6 +13,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/test/testing_browser_process_test.h"
 #include "chrome/test/testing_pref_service.h"
 #include "chrome/test/testing_profile.h"
 #include "googleurl/src/gurl.h"
@@ -30,7 +31,7 @@ bool SettingsEqual(const ContentSettings& settings1,
   return true;
 }
 
-class HostContentSettingsMapTest : public testing::Test {
+class HostContentSettingsMapTest : public TestingBrowserProcessTest {
  public:
   HostContentSettingsMapTest() : ui_thread_(BrowserThread::UI, &message_loop_) {
   }
@@ -121,6 +122,8 @@ TEST_F(HostContentSettingsMapTest, DefaultValues) {
       CONTENT_SETTING_ASK;
   desired_settings.settings[CONTENT_SETTINGS_TYPE_NOTIFICATIONS] =
       CONTENT_SETTING_ASK;
+  desired_settings.settings[CONTENT_SETTINGS_TYPE_PRERENDER] =
+      CONTENT_SETTING_ALLOW;
   ContentSettings settings =
       host_content_settings_map->GetContentSettings(host);
   EXPECT_TRUE(SettingsEqual(desired_settings, settings));
@@ -422,6 +425,8 @@ TEST_F(HostContentSettingsMapTest, NestedSettings) {
       CONTENT_SETTING_ASK;
   desired_settings.settings[CONTENT_SETTINGS_TYPE_NOTIFICATIONS] =
       CONTENT_SETTING_ASK;
+  desired_settings.settings[CONTENT_SETTINGS_TYPE_PRERENDER] =
+      CONTENT_SETTING_ALLOW;
   ContentSettings settings =
       host_content_settings_map->GetContentSettings(host);
   EXPECT_TRUE(SettingsEqual(desired_settings, settings));

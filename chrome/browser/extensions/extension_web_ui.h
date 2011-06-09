@@ -9,11 +9,11 @@
 #include <string>
 
 #include "base/scoped_ptr.h"
-#include "chrome/browser/dom_ui/web_ui.h"
 #include "chrome/browser/extensions/extension_bookmark_manager_api.h"
 #include "chrome/browser/extensions/extension_function_dispatcher.h"
 #include "chrome/browser/favicon_service.h"
 #include "chrome/common/extensions/extension.h"
+#include "content/browser/webui/web_ui.h"
 
 class GURL;
 class ListValue;

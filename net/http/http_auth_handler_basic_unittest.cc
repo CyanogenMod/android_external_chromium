@@ -5,6 +5,7 @@
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/scoped_ptr.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "net/base/net_errors.h"
@@ -43,6 +44,56 @@ TEST(HttpAuthHandlerBasicTest, GenerateAuthToken) {
                                       NULL, &auth_token);
     EXPECT_EQ(OK, rv);
     EXPECT_STREQ(tests[i].expected_credentials, auth_token.c_str());
+  }
+}
+
+TEST(HttpAuthHandlerBasicTest, HandleAnotherChallenge) {
+  static const struct {
+    const char* challenge;
+    HttpAuth::AuthorizationResult expected_rv;
+  } tests[] = {
+    // The handler is initialized using this challenge.  The first
+    // time HandleAnotherChallenge is called with it should cause it
+    // to treat the second challenge as a rejection since it is for
+    // the same realm.
+    {
+      "Basic realm=\"First\"",
+      HttpAuth::AUTHORIZATION_RESULT_REJECT
+    },
+
+    // A challenge for a different realm.
+    {
+      "Basic realm=\"Second\"",
+      HttpAuth::AUTHORIZATION_RESULT_DIFFERENT_REALM
+    },
+
+    // Although RFC 2617 isn't explicit about this case, if there is
+    // more than one realm directive, we pick the last one.  So this
+    // challenge should be treated as being for "First" realm.
+    {
+      "Basic realm=\"Second\",realm=\"First\"",
+      HttpAuth::AUTHORIZATION_RESULT_REJECT
+    },
+
+    // And this one should be treated as if it was for "Second."
+    {
+      "basic realm=\"First\",realm=\"Second\"",
+      HttpAuth::AUTHORIZATION_RESULT_DIFFERENT_REALM
+    }
+  };
+
+  GURL origin("http://www.example.com");
+  HttpAuthHandlerBasic::Factory factory;
+  scoped_ptr<HttpAuthHandler> basic;
+  EXPECT_EQ(OK, factory.CreateAuthHandlerFromString(
+      tests[0].challenge, HttpAuth::AUTH_SERVER, origin,
+      BoundNetLog(), &basic));
+
+  for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
+    std::string challenge(tests[i].challenge);
+    HttpAuth::ChallengeTokenizer tok(challenge.begin(),
+                                     challenge.end());
+    EXPECT_EQ(tests[i].expected_rv, basic->HandleAnotherChallenge(&tok));
   }
 }
 
@@ -111,6 +162,14 @@ TEST(HttpAuthHandlerBasicTest, InitFromChallenge) {
       "Negotiate",
       ERR_INVALID_RESPONSE,
       ""
+    },
+
+    // Although RFC 2617 isn't explicit about this case, if there is
+    // more than one realm directive, we pick the last one.
+    {
+      "Basic realm=\"foo\",realm=\"bar\"",
+      OK,
+      "bar",
     },
   };
   HttpAuthHandlerBasic::Factory factory;

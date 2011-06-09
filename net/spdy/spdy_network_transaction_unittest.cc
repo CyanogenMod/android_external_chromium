@@ -40,6 +40,7 @@ class SpdyNetworkTransactionTest
     EnableCompression(false);
     google_get_request_initialized_ = false;
     google_post_request_initialized_ = false;
+    google_chunked_post_request_initialized_ = false;
   }
 
   virtual void TearDown() {
@@ -177,10 +178,11 @@ class SpdyNetworkTransactionTest
         EXPECT_EQ(request_.url.SchemeIs("https"),
                   response->was_npn_negotiated);
       }
+      EXPECT_EQ("192.0.2.33", response->socket_address.host());
+      EXPECT_EQ(0, response->socket_address.port());
       output_.status_line = response->headers->GetStatusLine();
       output_.response_info = *response;  // Make a copy so we can verify.
       output_.rv = ReadTransaction(trans_.get(), &output_.response_data);
-      return;
     }
 
     // Most tests will want to call this function. In particular, the MockReads
@@ -349,6 +351,21 @@ class SpdyNetworkTransactionTest
     return google_post_request_;
   }
 
+  const HttpRequestInfo& CreateChunkedPostRequest() {
+    if (!google_chunked_post_request_initialized_) {
+      google_chunked_post_request_.method = "POST";
+      google_chunked_post_request_.url = GURL(kDefaultURL);
+      google_chunked_post_request_.upload_data = new UploadData();
+      google_chunked_post_request_.upload_data->set_is_chunked(true);
+      google_chunked_post_request_.upload_data->AppendChunk(
+          kUploadData, kUploadDataSize, false);
+      google_chunked_post_request_.upload_data->AppendChunk(
+          kUploadData, kUploadDataSize, true);
+      google_chunked_post_request_initialized_ = true;
+    }
+    return google_chunked_post_request_;
+  }
+
   // Read the result of a particular transaction, knowing that we've got
   // multiple transactions in the read pipeline; so as we read, we may have
   // to skip over data destined for other transactions while we consume
@@ -392,8 +409,7 @@ class SpdyNetworkTransactionTest
     const scoped_refptr<HttpNetworkSession>& session = helper.session();
     SpdySessionPool* pool(session->spdy_session_pool());
     EXPECT_TRUE(pool->HasSession(pair));
-    scoped_refptr<SpdySession> spdy_session(
-        pool->Get(pair, session->mutable_spdy_settings(), log));
+    scoped_refptr<SpdySession> spdy_session(pool->Get(pair, log));
     ASSERT_TRUE(spdy_session.get() != NULL);
     EXPECT_EQ(0u, spdy_session->num_active_streams());
     EXPECT_EQ(0u, spdy_session->num_unclaimed_pushed_streams());
@@ -454,8 +470,10 @@ class SpdyNetworkTransactionTest
  private:
   bool google_get_request_initialized_;
   bool google_post_request_initialized_;
+  bool google_chunked_post_request_initialized_;
   HttpRequestInfo google_get_request_;
   HttpRequestInfo google_post_request_;
+  HttpRequestInfo google_chunked_post_request_;
   HttpRequestInfo google_get_push_request_;
 };
 
@@ -579,9 +597,10 @@ TEST_P(SpdyNetworkTransactionTest, ThreeGets) {
   scoped_ptr<spdy::SpdyFrame> body3(ConstructSpdyBodyFrame(5, false));
   scoped_ptr<spdy::SpdyFrame> fbody3(ConstructSpdyBodyFrame(5, true));
 
-  MockWrite writes[] = { CreateMockWrite(*req),
-                         CreateMockWrite(*req2),
-                         CreateMockWrite(*req3),
+  MockWrite writes[] = {
+    CreateMockWrite(*req),
+    CreateMockWrite(*req2),
+    CreateMockWrite(*req3),
   };
   MockRead reads[] = {
     CreateMockRead(*resp, 1),
@@ -655,6 +674,193 @@ TEST_P(SpdyNetworkTransactionTest, ThreeGets) {
   EXPECT_EQ(OK, out.rv);
   EXPECT_EQ("HTTP/1.1 200 OK", out.status_line);
   EXPECT_EQ("hello!hello!", out.response_data);
+}
+
+TEST_P(SpdyNetworkTransactionTest, TwoGetsLateBinding) {
+  scoped_ptr<spdy::SpdyFrame> req(ConstructSpdyGet(NULL, 0, false, 1, LOWEST));
+  scoped_ptr<spdy::SpdyFrame> resp(ConstructSpdyGetSynReply(NULL, 0, 1));
+  scoped_ptr<spdy::SpdyFrame> body(ConstructSpdyBodyFrame(1, false));
+  scoped_ptr<spdy::SpdyFrame> fbody(ConstructSpdyBodyFrame(1, true));
+
+  scoped_ptr<spdy::SpdyFrame> req2(ConstructSpdyGet(NULL, 0, false, 3, LOWEST));
+  scoped_ptr<spdy::SpdyFrame> resp2(ConstructSpdyGetSynReply(NULL, 0, 3));
+  scoped_ptr<spdy::SpdyFrame> body2(ConstructSpdyBodyFrame(3, false));
+  scoped_ptr<spdy::SpdyFrame> fbody2(ConstructSpdyBodyFrame(3, true));
+
+  MockWrite writes[] = {
+    CreateMockWrite(*req),
+    CreateMockWrite(*req2),
+  };
+  MockRead reads[] = {
+    CreateMockRead(*resp, 1),
+    CreateMockRead(*body),
+    CreateMockRead(*resp2, 4),
+    CreateMockRead(*body2),
+    CreateMockRead(*fbody),
+    CreateMockRead(*fbody2),
+    MockRead(true, 0, 0),  // EOF
+  };
+  scoped_refptr<OrderedSocketData> data(
+      new OrderedSocketData(reads, arraysize(reads),
+                            writes, arraysize(writes)));
+
+  MockConnect never_finishing_connect(true, ERR_IO_PENDING);
+
+  scoped_refptr<OrderedSocketData> data_placeholder(
+      new OrderedSocketData(NULL, 0, NULL, 0));
+  data_placeholder->set_connect_data(never_finishing_connect);
+
+  BoundNetLog log;
+  TransactionHelperResult out;
+  NormalSpdyTransactionHelper helper(CreateGetRequest(),
+                                     BoundNetLog(), GetParam());
+  helper.RunPreTestSetup();
+  helper.AddData(data.get());
+  // We require placeholder data because two get requests are sent out, so
+  // there needs to be two sets of SSL connection data.
+  helper.AddData(data_placeholder.get());
+  scoped_ptr<HttpNetworkTransaction> trans1(
+      new HttpNetworkTransaction(helper.session()));
+  scoped_ptr<HttpNetworkTransaction> trans2(
+      new HttpNetworkTransaction(helper.session()));
+
+  TestCompletionCallback callback1;
+  TestCompletionCallback callback2;
+
+  HttpRequestInfo httpreq1 = CreateGetRequest();
+  HttpRequestInfo httpreq2 = CreateGetRequest();
+
+  out.rv = trans1->Start(&httpreq1, &callback1, log);
+  ASSERT_EQ(ERR_IO_PENDING, out.rv);
+  out.rv = trans2->Start(&httpreq2, &callback2, log);
+  ASSERT_EQ(ERR_IO_PENDING, out.rv);
+
+  out.rv = callback1.WaitForResult();
+  ASSERT_EQ(OK, out.rv);
+  out.rv = callback2.WaitForResult();
+  ASSERT_EQ(OK, out.rv);
+
+  const HttpResponseInfo* response1 = trans1->GetResponseInfo();
+  EXPECT_TRUE(response1->headers != NULL);
+  EXPECT_TRUE(response1->was_fetched_via_spdy);
+  out.status_line = response1->headers->GetStatusLine();
+  out.response_info = *response1;
+  out.rv = ReadTransaction(trans1.get(), &out.response_data);
+  EXPECT_EQ(OK, out.rv);
+  EXPECT_EQ("HTTP/1.1 200 OK", out.status_line);
+  EXPECT_EQ("hello!hello!", out.response_data);
+
+  const HttpResponseInfo* response2 = trans2->GetResponseInfo();
+  EXPECT_TRUE(response2->headers != NULL);
+  EXPECT_TRUE(response2->was_fetched_via_spdy);
+  out.status_line = response2->headers->GetStatusLine();
+  out.response_info = *response2;
+  out.rv = ReadTransaction(trans2.get(), &out.response_data);
+  EXPECT_EQ(OK, out.rv);
+  EXPECT_EQ("HTTP/1.1 200 OK", out.status_line);
+  EXPECT_EQ("hello!hello!", out.response_data);
+
+  helper.VerifyDataConsumed();
+}
+
+TEST_P(SpdyNetworkTransactionTest, TwoGetsLateBindingFromPreconnect) {
+  scoped_ptr<spdy::SpdyFrame> req(ConstructSpdyGet(NULL, 0, false, 1, LOWEST));
+  scoped_ptr<spdy::SpdyFrame> resp(ConstructSpdyGetSynReply(NULL, 0, 1));
+  scoped_ptr<spdy::SpdyFrame> body(ConstructSpdyBodyFrame(1, false));
+  scoped_ptr<spdy::SpdyFrame> fbody(ConstructSpdyBodyFrame(1, true));
+
+  scoped_ptr<spdy::SpdyFrame> req2(ConstructSpdyGet(NULL, 0, false, 3, LOWEST));
+  scoped_ptr<spdy::SpdyFrame> resp2(ConstructSpdyGetSynReply(NULL, 0, 3));
+  scoped_ptr<spdy::SpdyFrame> body2(ConstructSpdyBodyFrame(3, false));
+  scoped_ptr<spdy::SpdyFrame> fbody2(ConstructSpdyBodyFrame(3, true));
+
+  MockWrite writes[] = {
+    CreateMockWrite(*req),
+    CreateMockWrite(*req2),
+  };
+  MockRead reads[] = {
+    CreateMockRead(*resp, 1),
+    CreateMockRead(*body),
+    CreateMockRead(*resp2, 4),
+    CreateMockRead(*body2),
+    CreateMockRead(*fbody),
+    CreateMockRead(*fbody2),
+    MockRead(true, 0, 0),  // EOF
+  };
+  scoped_refptr<OrderedSocketData> preconnect_data(
+      new OrderedSocketData(reads, arraysize(reads),
+                            writes, arraysize(writes)));
+
+  MockConnect never_finishing_connect(true, ERR_IO_PENDING);
+
+  scoped_refptr<OrderedSocketData> data_placeholder(
+      new OrderedSocketData(NULL, 0, NULL, 0));
+  data_placeholder->set_connect_data(never_finishing_connect);
+
+  BoundNetLog log;
+  TransactionHelperResult out;
+  NormalSpdyTransactionHelper helper(CreateGetRequest(),
+                                     BoundNetLog(), GetParam());
+  helper.RunPreTestSetup();
+  helper.AddData(preconnect_data.get());
+  // We require placeholder data because 3 connections are attempted (first is
+  // the preconnect, 2nd and 3rd are the never finished connections.
+  helper.AddData(data_placeholder.get());
+  helper.AddData(data_placeholder.get());
+
+  scoped_ptr<HttpNetworkTransaction> trans1(
+      new HttpNetworkTransaction(helper.session()));
+  scoped_ptr<HttpNetworkTransaction> trans2(
+      new HttpNetworkTransaction(helper.session()));
+
+  TestCompletionCallback callback1;
+  TestCompletionCallback callback2;
+
+  HttpRequestInfo httpreq = CreateGetRequest();
+
+  // Preconnect the first.
+  SSLConfig preconnect_ssl_config;
+  helper.session()->ssl_config_service()->GetSSLConfig(&preconnect_ssl_config);
+  HttpStreamFactory* http_stream_factory =
+      helper.session()->http_stream_factory();
+  if (http_stream_factory->next_protos()) {
+    preconnect_ssl_config.next_protos = *http_stream_factory->next_protos();
+  }
+
+  http_stream_factory->PreconnectStreams(
+      1, httpreq, preconnect_ssl_config, log);
+
+  out.rv = trans1->Start(&httpreq, &callback1, log);
+  ASSERT_EQ(ERR_IO_PENDING, out.rv);
+  out.rv = trans2->Start(&httpreq, &callback2, log);
+  ASSERT_EQ(ERR_IO_PENDING, out.rv);
+
+  out.rv = callback1.WaitForResult();
+  ASSERT_EQ(OK, out.rv);
+  out.rv = callback2.WaitForResult();
+  ASSERT_EQ(OK, out.rv);
+
+  const HttpResponseInfo* response1 = trans1->GetResponseInfo();
+  EXPECT_TRUE(response1->headers != NULL);
+  EXPECT_TRUE(response1->was_fetched_via_spdy);
+  out.status_line = response1->headers->GetStatusLine();
+  out.response_info = *response1;
+  out.rv = ReadTransaction(trans1.get(), &out.response_data);
+  EXPECT_EQ(OK, out.rv);
+  EXPECT_EQ("HTTP/1.1 200 OK", out.status_line);
+  EXPECT_EQ("hello!hello!", out.response_data);
+
+  const HttpResponseInfo* response2 = trans2->GetResponseInfo();
+  EXPECT_TRUE(response2->headers != NULL);
+  EXPECT_TRUE(response2->was_fetched_via_spdy);
+  out.status_line = response2->headers->GetStatusLine();
+  out.response_info = *response2;
+  out.rv = ReadTransaction(trans2.get(), &out.response_data);
+  EXPECT_EQ(OK, out.rv);
+  EXPECT_EQ("HTTP/1.1 200 OK", out.status_line);
+  EXPECT_EQ("hello!hello!", out.response_data);
+
+  helper.VerifyDataConsumed();
 }
 
 // Similar to ThreeGets above, however this test adds a SETTINGS
@@ -1335,6 +1541,38 @@ TEST_P(SpdyNetworkTransactionTest, Post) {
   EXPECT_EQ(OK, out.rv);
   EXPECT_EQ("HTTP/1.1 200 OK", out.status_line);
   EXPECT_EQ("hello!", out.response_data);
+}
+
+// Test that a chunked POST works.
+TEST_P(SpdyNetworkTransactionTest, ChunkedPost) {
+  UploadDataStream::set_merge_chunks(false);
+  scoped_ptr<spdy::SpdyFrame> req(ConstructChunkedSpdyPost(NULL, 0));
+  scoped_ptr<spdy::SpdyFrame> chunk1(ConstructSpdyBodyFrame(1, false));
+  scoped_ptr<spdy::SpdyFrame> chunk2(ConstructSpdyBodyFrame(1, true));
+  MockWrite writes[] = {
+    CreateMockWrite(*req),
+    CreateMockWrite(*chunk1),
+    CreateMockWrite(*chunk2),
+  };
+
+  scoped_ptr<spdy::SpdyFrame> resp(ConstructSpdyPostSynReply(NULL, 0));
+  MockRead reads[] = {
+    CreateMockRead(*resp),
+    CreateMockRead(*chunk1),
+    CreateMockRead(*chunk2),
+    MockRead(true, 0, 0)  // EOF
+  };
+
+  scoped_refptr<DelayedSocketData> data(
+      new DelayedSocketData(2, reads, arraysize(reads),
+                            writes, arraysize(writes)));
+  NormalSpdyTransactionHelper helper(CreateChunkedPostRequest(),
+                                     BoundNetLog(), GetParam());
+  helper.RunToCompletion(data.get());
+  TransactionHelperResult out = helper.output();
+  EXPECT_EQ(OK, out.rv);
+  EXPECT_EQ("HTTP/1.1 200 OK", out.status_line);
+  EXPECT_EQ("hello!hello!", out.response_data);
 }
 
 // Test that a POST without any post data works.
@@ -4015,7 +4253,8 @@ TEST_P(SpdyNetworkTransactionTest, SettingsSaved) {
 
   // Verify that no settings exist initially.
   HostPortPair host_port_pair("www.google.com", helper.port());
-  EXPECT_TRUE(helper.session()->spdy_settings().Get(host_port_pair).empty());
+  SpdySessionPool* spdy_session_pool = helper.session()->spdy_session_pool();
+  EXPECT_TRUE(spdy_session_pool->spdy_settings().Get(host_port_pair).empty());
 
   // Construct the request.
   scoped_ptr<spdy::SpdyFrame> req(ConstructSpdyGet(NULL, 0, false, 1, LOWEST));
@@ -4077,7 +4316,7 @@ TEST_P(SpdyNetworkTransactionTest, SettingsSaved) {
   {
     // Verify we had two persisted settings.
     spdy::SpdySettings saved_settings =
-        helper.session()->spdy_settings().Get(host_port_pair);
+        spdy_session_pool->spdy_settings().Get(host_port_pair);
     ASSERT_EQ(2u, saved_settings.size());
 
     // Verify the first persisted setting.
@@ -4123,7 +4362,8 @@ TEST_P(SpdyNetworkTransactionTest, SettingsPlayback) {
 
   // Verify that no settings exist initially.
   HostPortPair host_port_pair("www.google.com", helper.port());
-  EXPECT_TRUE(helper.session()->spdy_settings().Get(host_port_pair).empty());
+  SpdySessionPool* spdy_session_pool = helper.session()->spdy_session_pool();
+  EXPECT_TRUE(spdy_session_pool->spdy_settings().Get(host_port_pair).empty());
 
   unsigned int kSampleId1 = 0x1;
   unsigned int kSampleValue1 = 0x0a0a0a0a;
@@ -4142,14 +4382,14 @@ TEST_P(SpdyNetworkTransactionTest, SettingsPlayback) {
     setting.set_id(kSampleId2);
     settings.push_back(std::make_pair(setting, kSampleValue2));
 
-    helper.session()->mutable_spdy_settings()->Set(host_port_pair, settings);
+    spdy_session_pool->mutable_spdy_settings()->Set(host_port_pair, settings);
   }
 
-  EXPECT_EQ(2u, helper.session()->spdy_settings().Get(host_port_pair).size());
+  EXPECT_EQ(2u, spdy_session_pool->spdy_settings().Get(host_port_pair).size());
 
   // Construct the SETTINGS frame.
   const spdy::SpdySettings& settings =
-      helper.session()->spdy_settings().Get(host_port_pair);
+      spdy_session_pool->spdy_settings().Get(host_port_pair);
   scoped_ptr<spdy::SpdyFrame> settings_frame(ConstructSpdySettings(settings));
 
   // Construct the request.
@@ -4189,7 +4429,7 @@ TEST_P(SpdyNetworkTransactionTest, SettingsPlayback) {
   {
     // Verify we had two persisted settings.
     spdy::SpdySettings saved_settings =
-        helper.session()->spdy_settings().Get(host_port_pair);
+        spdy_session_pool->spdy_settings().Get(host_port_pair);
     ASSERT_EQ(2u, saved_settings.size());
 
     // Verify the first persisted setting.

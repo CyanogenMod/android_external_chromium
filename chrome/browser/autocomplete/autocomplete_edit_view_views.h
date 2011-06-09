@@ -27,10 +27,11 @@ class TabContents;
 // Views-implementation of AutocompleteEditView. This is based on
 // gtk implementation. The following features are not yet supported.
 //
-// IME supoprt.
+// IME support.
 // LTR support.
 // Selection behavior.
 // Cut,copy and paste behavior.
+// Drag and drop behavior.
 // URL styles (strikestrough insecure scheme, emphasize host).
 // Custom context menu for omnibox.
 // Instant.
@@ -116,6 +117,7 @@ class AutocompleteEditViewViews : public views::View,
   virtual int TextWidth() const;
   virtual bool IsImeComposing() const;
   virtual views::View* AddToView(views::View* parent);
+  virtual int OnPerformDrop(const views::DropTargetEvent& event);
 
   // Overridden from NotificationObserver:
   virtual void Observe(NotificationType type,
@@ -147,6 +149,9 @@ class AutocompleteEditViewViews : public views::View,
 
   // Selects the text given by |caret| and |end|.
   void SelectRange(size_t caret, size_t end);
+
+  AutocompletePopupView* CreatePopupView(Profile* profile,
+                                         const View* location_bar);
 
   views::Textfield* textfield_;
 

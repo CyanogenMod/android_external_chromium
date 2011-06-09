@@ -12,14 +12,14 @@
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "net/test/test_server.h"
 
 namespace {
@@ -247,7 +247,7 @@ class DevToolsExtensionDebugTest : public DevToolsSanityTest,
 };
 
 // Tests heap profiler.
-IN_PROC_BROWSER_TEST_F(DevToolsSanityTest, TestHeapProfiler) {
+IN_PROC_BROWSER_TEST_F(DevToolsSanityTest, FAILS_TestHeapProfiler) {
   RunTest("testHeapProfiler", kHeapProfilerPage);
 }
 
@@ -290,7 +290,8 @@ IN_PROC_BROWSER_TEST_F(DevToolsSanityTest, TestPauseWhenLoadingDevTools) {
 
 // Tests that pressing 'Pause' will pause script execution if the script
 // is already running.
-IN_PROC_BROWSER_TEST_F(DevToolsSanityTest, TestPauseWhenScriptIsRunning) {
+// Marked as DISABLED due to http://crbug.com/74923
+IN_PROC_BROWSER_TEST_F(DevToolsSanityTest, DISABLED_TestPauseWhenScriptIsRunning) {
   RunTest("testPauseWhenScriptIsRunning", kPauseWhenScriptIsRunning);
 }
 

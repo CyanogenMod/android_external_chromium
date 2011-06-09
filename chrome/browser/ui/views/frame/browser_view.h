@@ -171,7 +171,7 @@ class BrowserView : public BrowserBubbleHost,
   bool ShouldShowOffTheRecordAvatar() const;
 
   // Handle the specified |accelerator| being pressed.
-  bool AcceleratorPressed(const views::Accelerator& accelerator);
+  virtual bool AcceleratorPressed(const views::Accelerator& accelerator);
 
   // Provides the containing frame with the accelerator for the specified
   // command id. This can be used to provide menu item shortcut hints etc.
@@ -228,7 +228,7 @@ class BrowserView : public BrowserBubbleHost,
   bool IsPositionInWindowCaption(const gfx::Point& point);
 
   // Returns whether the fullscreen bubble is visible or not.
-  bool IsFullscreenBubbleVisible() const;
+  virtual bool IsFullscreenBubbleVisible() const;
 
   // Invoked from the frame when the full screen state changes. This is only
   // used on Linux.
@@ -286,7 +286,7 @@ class BrowserView : public BrowserBubbleHost,
   virtual void ConfirmAddSearchProvider(const TemplateURL* template_url,
                                         Profile* profile);
   virtual void ToggleBookmarkBar();
-  virtual views::Window* ShowAboutChromeDialog();
+  virtual void ShowAboutChromeDialog();
   virtual void ShowUpdateChromeDialog();
   virtual void ShowTaskManager();
   virtual void ShowBackgroundPages();
@@ -348,7 +348,7 @@ class BrowserView : public BrowserBubbleHost,
 
   // Overridden from TabStripModelObserver:
   virtual void TabDetachedAt(TabContentsWrapper* contents, int index);
-  virtual void TabDeselectedAt(TabContentsWrapper* contents, int index);
+  virtual void TabDeselected(TabContentsWrapper* contents);
   virtual void TabSelectedAt(TabContentsWrapper* old_contents,
                              TabContentsWrapper* new_contents,
                              int index,
@@ -438,6 +438,8 @@ class BrowserView : public BrowserBubbleHost,
 
  private:
   friend class BrowserViewLayout;
+  FRIEND_TEST_ALL_PREFIXES(BrowserViewsAccessibilityTest,
+                           TestAboutChromeViewAccObj);
 
 #if defined(OS_WIN)
   // Creates the system menu.
@@ -530,6 +532,9 @@ class BrowserView : public BrowserBubbleHost,
 
   // Exposes resize corner size to BrowserViewLayout.
   gfx::Size GetResizeCornerSize() const;
+
+  // Shows the about chrome modal dialog and returns the Window object.
+  views::Window* DoShowAboutChromeDialog();
 
   // Last focused view that issued a tab traversal.
   int last_focused_view_storage_id_;

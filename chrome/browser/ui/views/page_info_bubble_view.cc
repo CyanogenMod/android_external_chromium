@@ -6,16 +6,17 @@
 
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/cert_store.h"
-#include "chrome/browser/certificate_viewer.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/info_bubble.h"
 #include "chrome/browser/ui/views/toolbar_view.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/certificate_viewer.h"
+#include "content/browser/cert_store.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/image.h"
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
 #include "views/controls/separator.h"
@@ -142,7 +143,7 @@ void PageInfoBubbleView::LayoutSections() {
   for (int i = 0; i < count; ++i) {
     PageInfoModel::SectionInfo info = model_.GetSectionInfo(i);
     layout->StartRow(0, 0);
-    const SkBitmap* icon = model_.GetIconImage(info.icon_id);
+    const SkBitmap* icon = *model_.GetIconImage(info.icon_id);
     layout->AddView(new Section(this, info, icon, cert_id_ > 0));
 
     // Add separator after all sections.
@@ -168,7 +169,7 @@ gfx::Size PageInfoBubbleView::GetPreferredSize() {
   int count = model_.GetSectionCount();
   for (int i = 0; i < count; ++i) {
     PageInfoModel::SectionInfo info = model_.GetSectionInfo(i);
-    const SkBitmap* icon = model_.GetIconImage(info.icon_id);
+    const SkBitmap* icon = *model_.GetIconImage(info.icon_id);
     Section section(this, info, icon, cert_id_ > 0);
     size.Enlarge(0, section.GetHeightForWidth(size.width()));
   }
@@ -204,6 +205,18 @@ void PageInfoBubbleView::ModelChanged() {
   LayoutSections();
   resize_animation_.SetSlideDuration(kPageInfoSlideDuration);
   resize_animation_.Show();
+}
+
+bool PageInfoBubbleView::CloseOnEscape() {
+  return true;
+}
+
+bool PageInfoBubbleView::FadeInOnShow() {
+  return false;
+}
+
+std::wstring PageInfoBubbleView::accessible_name() {
+  return L"PageInfoBubble";
 }
 
 void PageInfoBubbleView::LinkActivated(views::Link* source, int event_flags) {

@@ -260,7 +260,7 @@ int ComputeCandidateColumnWidth(
 
   // Compute the max width in candidate labels.
   // We'll create temporary candidate labels, and choose the largest width.
-  for (size_t i = 0; i < lookup_table.candidates.size(); ++i) {
+  for (size_t i = 0; i + start_from < lookup_table.candidates.size(); ++i) {
     const size_t index = start_from + i;
 
     candidate_label->SetText(
@@ -288,7 +288,7 @@ int ComputeAnnotationColumnWidth(
 
   // Compute max width in annotation labels.
   // We'll create temporary annotation labels, and choose the largest width.
-  for (size_t i = 0; i < lookup_table.annotations.size(); ++i) {
+  for (size_t i = 0; i + start_from < lookup_table.annotations.size(); ++i) {
     const size_t index = start_from + i;
 
     annotation_label->SetText(
@@ -423,8 +423,8 @@ class CandidateWindowView : public views::View {
   // Override View::VisibilityChanged()
   virtual void VisibilityChanged(View* starting_from, bool is_visible);
 
-  // Override View::VisibleBoundsInRootChanged()
-  virtual void VisibleBoundsInRootChanged();
+  // Override View::OnBoundsChanged()
+  virtual void OnBoundsChanged();
 
  private:
   // Initializes the candidate views if needed.
@@ -757,7 +757,6 @@ CandidateWindowView::CandidateWindowView(
       previous_candidate_column_width_(0),
       previous_annotation_column_width_(0),
       mouse_is_pressed_(false) {
-  SetNotifyWhenVisibleBoundsInRootChanges(true);
 }
 
 void CandidateWindowView::Init() {
@@ -1189,8 +1188,7 @@ void CandidateWindowView::ResizeAndMoveParentFrame() {
 void CandidateWindowView::ResizeParentFrame() {
   // Resize the parent frame, with the current candidate window size.
   gfx::Size size = GetPreferredSize();
-  gfx::Rect bounds;
-  parent_frame_->GetBounds(&bounds, false);
+  gfx::Rect bounds = parent_frame_->GetClientAreaScreenBounds();
   // SetBounds() is not cheap. Only call this when the size is changed.
   if (bounds.size() != size) {
     bounds.set_size(size);
@@ -1204,9 +1202,7 @@ void CandidateWindowView::MoveParentFrame() {
   const int height = cursor_location_.height();
   const int horizontal_offset = GetHorizontalOffset();
 
-  gfx::Rect frame_bounds;
-  parent_frame_->GetBounds(&frame_bounds, false);
-
+  gfx::Rect frame_bounds = parent_frame_->GetClientAreaScreenBounds();
   gfx::Rect screen_bounds = views::Screen::GetMonitorWorkAreaNearestWindow(
       parent_frame_->GetNativeView());
 
@@ -1252,9 +1248,10 @@ void CandidateWindowView::VisibilityChanged(View* starting_from,
   }
 }
 
-void CandidateWindowView::VisibleBoundsInRootChanged() {
+void CandidateWindowView::OnBoundsChanged() {
   // If the bounds(size) of candidate window is changed,
   // we should move the frame to the right position.
+  View::OnBoundsChanged();
   MoveParentFrame();
 }
 

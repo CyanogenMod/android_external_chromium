@@ -10,10 +10,10 @@
 #include "chrome/browser/autofill/autofill_manager.h"
 #include "chrome/browser/autofill/data_driven_test.h"
 #include "chrome/browser/autofill/form_structure.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "googleurl/src/gurl.h"
 
 namespace {
@@ -59,9 +59,9 @@ void FormStructureBrowserTest::GenerateResults(const std::string& input,
   ASSERT_NO_FATAL_FAILURE(ui_test_utils::NavigateToURL(browser(),
                                                        HTMLToDataURI(input)));
 
-  AutoFillManager* autofill_manager =
+  AutofillManager* autofill_manager =
       browser()->GetSelectedTabContents()->autofill_manager();
-  ASSERT_NE(static_cast<AutoFillManager*>(NULL), autofill_manager);
+  ASSERT_NE(static_cast<AutofillManager*>(NULL), autofill_manager);
   std::vector<FormStructure*> forms = autofill_manager->form_structures_.get();
   *output = FormStructureBrowserTest::FormStructuresToString(forms);
 }
@@ -73,14 +73,14 @@ std::string FormStructureBrowserTest::FormStructuresToString(
        iter != forms.end();
        ++iter) {
 
-    for (std::vector<AutoFillField*>::const_iterator field_iter =
+    for (std::vector<AutofillField*>::const_iterator field_iter =
             (*iter)->begin();
          field_iter != (*iter)->end();
          ++field_iter) {
       // The field list is NULL-terminated.  Exit loop when at the end.
       if (!*field_iter)
         break;
-      forms_string += AutoFillType::FieldTypeToString((*field_iter)->type());
+      forms_string += AutofillType::FieldTypeToString((*field_iter)->type());
       forms_string += "\n";
     }
   }

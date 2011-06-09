@@ -38,11 +38,19 @@
 // TODO: re-evaluate this include
 #include "talk/session/phone/audiomonitor.h"
 
+namespace talk_base {
+class Buffer;
+}
+
 namespace flute {
-  class MagicCamVideoRenderer;
+class MagicCamVideoRenderer;
 }
 
 namespace cricket {
+
+const size_t kMinRtpPacketLen = 12;
+const size_t kMinRtcpPacketLen = 4;
+const size_t kMaxRtpPacketLen = 2048;
 
 enum VoiceMediaChannelOptions {
   OPT_CONFERENCE = 0x10000,   // tune the audio stream for conference mode
@@ -53,6 +61,8 @@ enum VoiceMediaChannelOptions {
 };
 
 enum VideoMediaChannelOptions {
+  OPT_INTERPOLATE = 0x10000   // Increase the output framerate by 2x by
+                              // interpolating frames
 };
 
 class MediaChannel : public sigslot::has_slots<> {
@@ -60,8 +70,8 @@ class MediaChannel : public sigslot::has_slots<> {
   class NetworkInterface {
    public:
     enum SocketType { ST_RTP, ST_RTCP };
-    virtual int SendPacket(const void *data, size_t len) = 0;
-    virtual int SendRtcp(const void *data, size_t len) = 0;
+    virtual bool SendPacket(talk_base::Buffer* packet) = 0;
+    virtual bool SendRtcp(talk_base::Buffer* packet) = 0;
     virtual int SetOption(SocketType type, talk_base::Socket::Option opt,
                           int option) = 0;
     virtual ~NetworkInterface() {}
@@ -77,9 +87,9 @@ class MediaChannel : public sigslot::has_slots<> {
   }
 
   // Called when a RTP packet is received.
-  virtual void OnPacketReceived(const void *data, int len) = 0;
+  virtual void OnPacketReceived(talk_base::Buffer* packet) = 0;
   // Called when a RTCP packet is received.
-  virtual void OnRtcpReceived(const void *data, int len) = 0;
+  virtual void OnRtcpReceived(talk_base::Buffer* packet) = 0;
   // Sets the SSRC to be used for outgoing data.
   virtual void SetSendSsrc(uint32 id) = 0;
   // Set the CNAME of RTCP
@@ -101,28 +111,100 @@ enum SendFlags {
   SEND_MICROPHONE
 };
 
-struct MediaInfo {
-  int fraction_lost;
-  int cum_lost;
-  int ext_max;
-  int jitter;
-  int RTT;
-  int bytesSent;
-  int packetsSent;
-  int bytesReceived;
-  int packetsReceived;
+struct VoiceSenderInfo {
+  uint32 ssrc;
+  int bytes_sent;
+  int packets_sent;
+  int packets_lost;
+  float fraction_lost;
+  int ext_seqnum;
+  int rtt_ms;
+  int jitter_ms;
+  int audio_level;
 };
 
-struct VoiceMediaInfo : MediaInfo {
+struct VoiceReceiverInfo {
+  uint32 ssrc;
+  int bytes_rcvd;
+  int packets_rcvd;
+  int packets_lost;
+  float fraction_lost;
+  int ext_seqnum;
+  int jitter_ms;
+  int audio_level;
 };
 
-struct VideoMediaInfo : MediaInfo {
-  int receive_framerate;
-  int send_framerate;
+struct VideoSenderInfo {
+  uint32 ssrc;
+  int bytes_sent;
+  int packets_sent;
+  int packets_cached;
+  int packets_lost;
+  float fraction_lost;
+  int firs_rcvd;
+  int nacks_rcvd;
+  int rtt_ms;
+  int frame_width;
+  int frame_height;
+  int framerate_input;
+  int framerate_sent;
+};
+
+struct VideoReceiverInfo {
+  uint32 ssrc;
+  int bytes_rcvd;
+  // vector<int> layer_bytes_rcvd;
+  int packets_rcvd;
+  int packets_lost;
+  int packets_concealed;
+  float fraction_lost;
+  int firs_sent;
+  int nacks_sent;
+  int frame_width;
+  int frame_height;
+  int framerate_rcvd;
+  int framerate_decoded;
+  int framerate_output;
+};
+
+struct VoiceMediaInfo {
+  void Clear() {
+    senders.clear();
+    receivers.clear();
+  }
+  std::vector<VoiceSenderInfo> senders;
+  std::vector<VoiceReceiverInfo> receivers;
+};
+
+struct VideoMediaInfo {
+  void Clear() {
+    senders.clear();
+    receivers.clear();
+  }
+  std::vector<VideoSenderInfo> senders;
+  std::vector<VideoReceiverInfo> receivers;
 };
 
 class VoiceMediaChannel : public MediaChannel {
  public:
+  enum Error {
+    ERROR_NONE = 0,                       // No error.
+    ERROR_OTHER,                          // Other errors.
+    ERROR_REC_DEVICE_OPEN_FAILED = 100,   // Could not open mic.
+    ERROR_REC_DEVICE_MUTED,               // Mic was muted by OS.
+    ERROR_REC_DEVICE_SILENT,              // No background noise picked up.
+    ERROR_REC_DEVICE_SATURATION,          // Mic input is clipping.
+    ERROR_REC_DEVICE_REMOVED,             // Mic was removed while active.
+    ERROR_REC_RUNTIME_ERROR,              // Processing is encountering errors.
+    ERROR_REC_SRTP_ERROR,                 // Generic SRTP failure.
+    ERROR_PLAY_DEVICE_OPEN_FAILED = 200,  // Could not open playout.
+    ERROR_PLAY_DEVICE_MUTED,              // Playout muted by OS.
+    ERROR_PLAY_DEVICE_REMOVED,            // Playout removed while active.
+    ERROR_PLAY_RUNTIME_ERROR,             // Errors in voice processing.
+    ERROR_PLAY_SRTP_ERROR,                // Generic SRTP failure.
+    ERROR_PLAY_SRTP_AUTH_FAILED,          // Failed to authenticate packets.
+  };
+
   VoiceMediaChannel() {}
   virtual ~VoiceMediaChannel() {}
   // Sets the codecs/payload types to be used for incoming media.
@@ -149,6 +231,16 @@ class VoiceMediaChannel : public MediaChannel {
   virtual bool PressDTMF(int event, bool playout) = 0;
   // Gets quality stats for the channel.
   virtual bool GetStats(VoiceMediaInfo* info) = 0;
+  // Gets last reported error for this media channel.
+  virtual void GetLastMediaError(uint32* ssrc,
+                                 VoiceMediaChannel::Error* error) {
+    ASSERT(error != NULL);
+    *error = ERROR_NONE;
+  }
+
+  // Signal errors from MediaChannel.  Arguments are:
+  //     ssrc(uint32), and error(VoiceMediaChannel::Error).
+  sigslot::signal2<uint32, VoiceMediaChannel::Error> SignalMediaError;
 };
 
 // Represents a YUV420 (a.k.a. I420) video frame.
@@ -195,7 +287,7 @@ class VideoFrame {
   // nothing is written.
   virtual size_t CopyToBuffer(uint8 *buffer, size_t size) const = 0;
 
-  // Converts the I420 data to RGB of a certain type such as BGRA and RGBA.
+  // Converts the I420 data to RGB of a certain type such as ARGB and ABGR.
   // Returns the frame's actual size, regardless of whether it was written or
   // not (like snprintf). Parameters size and pitch_rgb are in units of bytes.
   // If there is insufficient space, nothing is written.
@@ -326,6 +418,18 @@ class NullVideoRenderer : public VideoRenderer {
 
 class VideoMediaChannel : public MediaChannel {
  public:
+  enum Error {
+    ERROR_NONE = 0,                       // No error.
+    ERROR_OTHER,                          // Other errors.
+    ERROR_REC_DEVICE_OPEN_FAILED = 100,   // Could not open camera.
+    ERROR_REC_DEVICE_NO_DEVICE,           // No camera.
+    ERROR_REC_DEVICE_IN_USE,              // Device is in already use.
+    ERROR_REC_DEVICE_REMOVED,             // Device is removed.
+    ERROR_REC_SRTP_ERROR,                 // Generic sender SRTP failure.
+    ERROR_PLAY_SRTP_ERROR = 200,          // Generic receiver SRTP failure.
+    ERROR_PLAY_SRTP_AUTH_FAILED,          // Failed to authenticate packets.
+  };
+
   VideoMediaChannel() { renderer_ = NULL; }
   virtual ~VideoMediaChannel() {}
   // Sets the codecs/payload types to be used for incoming media.
@@ -351,6 +455,7 @@ class VideoMediaChannel : public MediaChannel {
   // Reuqest each of the remote senders to send an intra frame.
   virtual bool RequestIntraFrame() = 0;
 
+  sigslot::signal2<uint32, Error> SignalMediaError;
 
  protected:
   VideoRenderer *renderer_;

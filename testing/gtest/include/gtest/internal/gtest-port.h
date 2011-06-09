@@ -88,6 +88,7 @@
 //   GTEST_OS_CYGWIN   - Cygwin
 //   GTEST_OS_LINUX    - Linux
 //   GTEST_OS_MAC      - Mac OS X
+//   GTEST_OS_NACL     - Google Native Client (NaCl)
 //   GTEST_OS_SOLARIS  - Sun Solaris
 //   GTEST_OS_SYMBIAN  - Symbian
 //   GTEST_OS_WINDOWS  - Windows (Desktop, MinGW, or Mobile)
@@ -230,6 +231,8 @@
 #define GTEST_OS_SOLARIS 1
 #elif defined(_AIX)
 #define GTEST_OS_AIX 1
+#elif defined __native_client__
+#define GTEST_OS_NACL 1
 #endif  // __CYGWIN__
 
 // Brings in definitions for functions used in the testing::internal::posix
@@ -240,7 +243,12 @@
 // is not the case, we need to include headers that provide the functions
 // mentioned above.
 #include <unistd.h>
-#include <strings.h>
+#if !GTEST_OS_NACL
+// TODO(vladl@google.com): Remove this condition when Native Client SDK adds
+// strings.h (tracked in
+// http://code.google.com/p/nativeclient/issues/detail?id=1175).
+#include <strings.h>  // Native Client doesn't provide strings.h.
+#endif
 #elif !GTEST_OS_WINDOWS_MOBILE
 #include <direct.h>
 #include <io.h>
@@ -911,25 +919,29 @@ inline void FlushInfoLog() { fflush(NULL); }
 
 // INTERNAL IMPLEMENTATION - DO NOT USE IN USER CODE.
 //
-// Use implicit_cast as a safe version of static_cast for upcasting in
+// Use ImplicitCast_ as a safe version of static_cast for upcasting in
 // the type hierarchy (e.g. casting a Foo* to a SuperclassOfFoo* or a
-// const Foo*).  When you use implicit_cast, the compiler checks that
-// the cast is safe.  Such explicit implicit_casts are necessary in
+// const Foo*).  When you use ImplicitCast_, the compiler checks that
+// the cast is safe.  Such explicit ImplicitCast_s are necessary in
 // surprisingly many situations where C++ demands an exact type match
 // instead of an argument type convertable to a target type.
 //
-// The syntax for using implicit_cast is the same as for static_cast:
+// The syntax for using ImplicitCast_ is the same as for static_cast:
 //
-//   implicit_cast<ToType>(expr)
+//   ImplicitCast_<ToType>(expr)
 //
-// implicit_cast would have been part of the C++ standard library,
+// ImplicitCast_ would have been part of the C++ standard library,
 // but the proposal was submitted too late.  It will probably make
 // its way into the language in the future.
+//
+// This relatively ugly name is intentional. It prevents clashes with
+// similar functions users may have (e.g., implicit_cast). The internal
+// namespace alone is not enough because the function can be found by ADL.
 template<typename To>
-inline To implicit_cast(To x) { return x; }
+inline To ImplicitCast_(To x) { return x; }
 
 // When you upcast (that is, cast a pointer from type Foo to type
-// SuperclassOfFoo), it's fine to use implicit_cast<>, since upcasts
+// SuperclassOfFoo), it's fine to use ImplicitCast_<>, since upcasts
 // always succeed.  When you downcast (that is, cast a pointer from
 // type Foo to type SubclassOfFoo), static_cast<> isn't safe, because
 // how do you know the pointer is really of type SubclassOfFoo?  It
@@ -945,15 +957,19 @@ inline To implicit_cast(To x) { return x; }
 //    if (dynamic_cast<Subclass1>(foo)) HandleASubclass1Object(foo);
 //    if (dynamic_cast<Subclass2>(foo)) HandleASubclass2Object(foo);
 // You should design the code some other way not to need this.
-template<typename To, typename From>  // use like this: down_cast<T*>(foo);
-inline To down_cast(From* f) {  // so we only accept pointers
+//
+// This relatively ugly name is intentional. It prevents clashes with
+// similar functions users may have (e.g., down_cast). The internal
+// namespace alone is not enough because the function can be found by ADL.
+template<typename To, typename From>  // use like this: DownCast_<T*>(foo);
+inline To DownCast_(From* f) {  // so we only accept pointers
   // Ensures that To is a sub-type of From *.  This test is here only
   // for compile-time type checking, and has no overhead in an
   // optimized build at run-time, as it will be optimized away
   // completely.
   if (false) {
     const To to = NULL;
-    ::testing::internal::implicit_cast<From*>(to);
+    ::testing::internal::ImplicitCast_<From*>(to);
   }
 
 #if GTEST_HAS_RTTI
@@ -1453,6 +1469,9 @@ inline bool IsSpace(char ch) {
 }
 inline bool IsUpper(char ch) {
   return isupper(static_cast<unsigned char>(ch)) != 0;
+}
+inline bool IsXDigit(char ch) {
+  return isxdigit(static_cast<unsigned char>(ch)) != 0;
 }
 
 inline char ToLower(char ch) {

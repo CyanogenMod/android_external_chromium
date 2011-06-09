@@ -161,6 +161,8 @@ class RequestInfoParameters : public NetLog::EventParameters {
     dict->SetInteger("address_family",
                      static_cast<int>(info_.address_family()));
     dict->SetBoolean("allow_cached_response", info_.allow_cached_response());
+    dict->SetBoolean("only_use_cached_response",
+                     info_.only_use_cached_response());
     dict->SetBoolean("is_speculative", info_.is_speculative());
     dict->SetInteger("priority", info_.priority());
 
@@ -175,7 +177,7 @@ class RequestInfoParameters : public NetLog::EventParameters {
   const NetLog::Source source_;
 };
 
-// Parameters associated with the creation of a HostResolveImpl::Job.
+// Parameters associated with the creation of a HostResolverImpl::Job.
 class JobCreationParameters : public NetLog::EventParameters {
  public:
   JobCreationParameters(const std::string& host, const NetLog::Source& source)
@@ -926,7 +928,7 @@ HostResolverImpl::HostResolverImpl(
   if (HaveOnlyLoopbackAddresses())
     additional_resolver_flags_ |= HOST_RESOLVER_LOOPBACK_ONLY;
 #endif
-  NetworkChangeNotifier::AddObserver(this);
+  NetworkChangeNotifier::AddIPAddressObserver(this);
 }
 
 HostResolverImpl::~HostResolverImpl() {
@@ -940,7 +942,7 @@ HostResolverImpl::~HostResolverImpl() {
   if (cur_completing_job_)
     cur_completing_job_->Cancel();
 
-  NetworkChangeNotifier::RemoveObserver(this);
+  NetworkChangeNotifier::RemoveIPAddressObserver(this);
 
   // Delete the job pools.
   for (size_t i = 0u; i < arraysize(job_pools_); ++i)
@@ -1029,6 +1031,16 @@ int HostResolverImpl::Resolve(const RequestInfo& info,
 
       return net_error;
     }
+  }
+
+  if (info.only_use_cached_response()) {  // Not allowed to do a real lookup.
+    OnFinishRequest(source_net_log,
+                    request_net_log,
+                    request_id,
+                    info,
+                    ERR_NAME_NOT_RESOLVED,
+                    0);
+    return ERR_NAME_NOT_RESOLVED;
   }
 
   // If no callback was specified, do a synchronous resolution.

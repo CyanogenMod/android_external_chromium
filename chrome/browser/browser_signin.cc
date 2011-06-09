@@ -13,23 +13,22 @@
 #include "base/singleton.h"
 #include "base/string_util.h"
 #include "base/values.h"
-#include "chrome/browser/browser_thread.h"
-#include "chrome/browser/dom_ui/chrome_url_data_manager.h"
-#include "chrome/browser/dom_ui/constrained_html_ui.h"
-#include "chrome/browser/dom_ui/html_dialog_ui.h"
-#include "chrome/browser/dom_ui/web_ui_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_setup_flow.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/ui/webui/chrome_url_data_manager.h"
+#include "chrome/browser/ui/webui/constrained_html_ui.h"
+#include "chrome/browser/ui/webui/html_dialog_ui.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/browser_resources.h"
 #include "ui/base/resource/resource_bundle.h"
 
@@ -194,7 +193,10 @@ void BrowserSigninHtml::HandleSigninInit(const ListValue* args) {
 }
 
 void BrowserSigninHtml::HandleSubmitAuth(const ListValue* args) {
-  std::string json(web_ui_util::GetJsonResponseFromFirstArgumentInList(args));
+  std::string json;
+  if (!args->GetString(0, &json))
+    NOTREACHED() << "Could not read JSON argument";
+
   scoped_ptr<DictionaryValue> result(static_cast<DictionaryValue*>(
       base::JSONReader::Read(json, false)));
   std::string username;

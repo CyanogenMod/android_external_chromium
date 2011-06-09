@@ -25,6 +25,8 @@ class MockNetworkLibrary : public NetworkLibrary {
   MOCK_METHOD1(RemoveObserverForAllNetworks, void(NetworkObserver*));
   MOCK_METHOD1(AddCellularDataPlanObserver, void(CellularDataPlanObserver*));
   MOCK_METHOD1(RemoveCellularDataPlanObserver, void(CellularDataPlanObserver*));
+  MOCK_METHOD1(AddUserActionObserver, void(UserActionObserver*));
+  MOCK_METHOD1(RemoveUserActionObserver, void(UserActionObserver*));
   MOCK_METHOD0(Lock, void(void));
   MOCK_METHOD0(Unlock, void(void));
   MOCK_METHOD0(IsLocked, bool(void));
@@ -40,6 +42,10 @@ class MockNetworkLibrary : public NetworkLibrary {
   MOCK_CONST_METHOD0(cellular_connecting, bool(void));
   MOCK_CONST_METHOD0(cellular_connected, bool(void));
 
+  MOCK_CONST_METHOD0(virtual_network, const VirtualNetwork*(void));
+  MOCK_CONST_METHOD0(virtual_network_connecting, bool(void));
+  MOCK_CONST_METHOD0(virtual_network_connected, bool(void));
+
   MOCK_CONST_METHOD0(Connected, bool(void));
   MOCK_CONST_METHOD0(Connecting, bool(void));
 
@@ -47,13 +53,26 @@ class MockNetworkLibrary : public NetworkLibrary {
   MOCK_CONST_METHOD0(wifi_networks, const WifiNetworkVector&(void));
   MOCK_CONST_METHOD0(remembered_wifi_networks, const WifiNetworkVector&(void));
   MOCK_CONST_METHOD0(cellular_networks, const CellularNetworkVector&(void));
+  MOCK_CONST_METHOD0(virtual_networks, const VirtualNetworkVector&(void));
 
-  MOCK_METHOD1(FindWifiNetworkByPath, WifiNetwork*(const std::string&));
-  MOCK_METHOD1(FindCellularNetworkByPath, CellularNetwork*(const std::string&));
+  MOCK_CONST_METHOD1(FindNetworkDeviceByPath,
+                     NetworkDevice*(const std::string&));
+  MOCK_CONST_METHOD1(FindWifiNetworkByPath,
+                     WifiNetwork*(const std::string&));
+  MOCK_CONST_METHOD1(FindCellularNetworkByPath,
+                     CellularNetwork*(const std::string&));
+  MOCK_CONST_METHOD1(GetDataPlans,
+                     CellularDataPlanVector*(const std::string&));
+  MOCK_CONST_METHOD1(GetSignificantDataPlan,
+                     CellularDataPlan*(const std::string&));
 
   MOCK_METHOD0(RequestWifiScan, void(void));
   MOCK_METHOD1(GetWifiAccessPoints, bool(WifiAccessPointVector*));
   MOCK_METHOD4(ConnectToWifiNetwork, bool(WifiNetwork*,
+                                          const std::string&,
+                                          const std::string&,
+                                          const std::string&));
+  MOCK_METHOD4(ConnectToWifiNetwork, bool(const std::string&,
                                           const std::string&,
                                           const std::string&,
                                           const std::string&));
@@ -69,8 +88,6 @@ class MockNetworkLibrary : public NetworkLibrary {
   MOCK_METHOD0(HasRecentCellularPlanPayment, bool(void));
 
   MOCK_METHOD1(DisconnectFromWirelessNetwork, void(const WirelessNetwork*));
-  MOCK_METHOD1(SaveCellularNetwork, void(const CellularNetwork*));
-  MOCK_METHOD1(SaveWifiNetwork, void(const WifiNetwork*));
   MOCK_METHOD1(ForgetWifiNetwork, void(const std::string&));
 
   MOCK_CONST_METHOD0(ethernet_available, bool(void));

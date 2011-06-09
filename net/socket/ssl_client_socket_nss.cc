@@ -237,6 +237,13 @@ BOOL WINAPI ClientCertFindCallback(PCCERT_CONTEXT cert_context,
   if (CertVerifyTimeValidity(NULL, cert_context->pCertInfo) != 0)
     return FALSE;
 
+  // Verify private key metadata is associated with this certificate.
+  DWORD size = 0;
+  if (!CertGetCertificateContextProperty(
+          cert_context, CERT_KEY_PROV_INFO_PROP_ID, NULL, &size)) {
+    return FALSE;
+  }
+
   return TRUE;
 }
 
@@ -665,8 +672,6 @@ void SSLClientSocketNSS::Disconnect() {
   // buffer_recv_callback, or handshake_io_callback_).
   verifier_.reset();
   transport_->socket()->Disconnect();
-
-  CHECK(CalledOnValidThread());
 
   // TODO(wtc): Send SSL close_notify alert.
   if (nss_fd_ != NULL) {

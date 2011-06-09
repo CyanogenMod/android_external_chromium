@@ -34,7 +34,9 @@ class WifiConfigView : public views::View,
                        public views::Combobox::Listener,
                        public SelectFileDialog::Listener {
  public:
-  WifiConfigView(NetworkConfigView* parent, const WifiNetwork* wifi);
+  // Wifi login dialog for wifi network |wifi|
+  WifiConfigView(NetworkConfigView* parent, WifiNetwork* wifi);
+  // Wifi login dialog for "Joining other network..."
   explicit WifiConfigView(NetworkConfigView* parent);
   virtual ~WifiConfigView();
 
@@ -57,9 +59,6 @@ class WifiConfigView : public views::View,
   // Login to network. Returns false if the dialog should remain open.
   virtual bool Login();
 
-  // Save network information.
-  virtual bool Save();
-
   // Cancel the dialog.
   virtual void Cancel();
 
@@ -68,39 +67,31 @@ class WifiConfigView : public views::View,
   // Get the typed in passphrase.
   const std::string GetPassphrase() const;
 
-  // Returns true if the textfields are non-empty and we can login.
-  bool can_login() const { return can_login_; }
+  // Returns whether or not we can login.
+  bool CanLogin();
 
  private:
-   class SecurityComboboxModel : public ui::ComboboxModel {
-   public:
-    SecurityComboboxModel() {}
-    virtual ~SecurityComboboxModel() {}
-    virtual int GetItemCount();
-    virtual string16 GetItemAt(int index);
-   private:
-    DISALLOW_COPY_AND_ASSIGN(SecurityComboboxModel);
-  };
-
   // Initializes UI.
   void Init();
 
   // Updates state of the Login button.
-  void UpdateCanLogin();
+  void UpdateDialogButtons();
 
   // Updates the error text label.
   void UpdateErrorLabel(bool failed);
 
   NetworkConfigView* parent_;
 
-  // Whether or not we can log in. This gets recalculated when textfield
-  // contents change.
-  bool can_login_;
+  // Whether or not it is an 802.1x network.
+  bool is_8021x_;
 
-  scoped_ptr<WifiNetwork> wifi_;
+  WifiNetwork* wifi_;
 
   views::Textfield* ssid_textfield_;
+  views::Combobox* eap_method_combobox_;
+  views::Combobox* phase_2_auth_combobox_;
   views::Textfield* identity_textfield_;
+  views::Textfield* identity_anonymous_textfield_;
   views::NativeButton* certificate_browse_button_;
   scoped_refptr<SelectFileDialog> select_file_dialog_;
   std::string certificate_path_;

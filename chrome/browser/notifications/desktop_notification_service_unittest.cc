@@ -7,13 +7,13 @@
 #include "base/message_loop.h"
 #include "base/ref_counted.h"
 #include "base/synchronization/waitable_event.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/notifications/notifications_prefs_cache.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/prefs/scoped_pref_update.h"
-#include "chrome/browser/renderer_host/test/test_render_view_host.h"
+#include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/testing_profile.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/test_render_view_host.h"
 #include "grit/generated_resources.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebNotificationPresenter.h"
@@ -166,7 +166,7 @@ TEST_F(DesktopNotificationServiceTest, PrefChangesSentToCache) {
       prefs->GetMutableList(prefs::kDesktopNotificationAllowedOrigins);
   {
     allowed_sites->Append(new StringValue(GURL("http://allowed.com").spec()));
-    ScopedPrefUpdate updateAllowed(
+    ScopedUserPrefUpdate updateAllowed(
         prefs, prefs::kDesktopNotificationAllowedOrigins);
   }
 
@@ -174,7 +174,7 @@ TEST_F(DesktopNotificationServiceTest, PrefChangesSentToCache) {
       prefs->GetMutableList(prefs::kDesktopNotificationDeniedOrigins);
   {
     denied_sites->Append(new StringValue(GURL("http://denied.com").spec()));
-    ScopedPrefUpdate updateDenied(
+    ScopedUserPrefUpdate updateDenied(
         prefs, prefs::kDesktopNotificationDeniedOrigins);
   }
 

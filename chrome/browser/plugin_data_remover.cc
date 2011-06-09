@@ -8,10 +8,10 @@
 #include "base/message_loop_proxy.h"
 #include "base/metrics/histogram.h"
 #include "base/version.h"
-#include "chrome/browser/browser_thread.h"
-#include "chrome/browser/plugin_service.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/plugin_messages.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/plugin_service.h"
 #include "webkit/plugins/npapi/plugin_group.h"
 #include "webkit/plugins/npapi/plugin_list.h"
 
@@ -21,9 +21,8 @@
 
 namespace {
 const char* kFlashMimeType = "application/x-shockwave-flash";
-// TODO(bauerb): Update minimum required Flash version as soon as there is one
-// implementing the API.
-const char* kMinFlashVersion = "100";
+// The minimum Flash Player version that implements NPP_ClearSiteData.
+const char* kMinFlashVersion = "10.3";
 const int64 kRemovalTimeoutMs = 10000;
 const uint64 kClearAllData = 0;
 }  // namespace

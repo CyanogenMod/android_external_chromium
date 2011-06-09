@@ -28,14 +28,14 @@
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/safe_browsing/protocol_manager.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/in_process_browser_test.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/resource_dispatcher_host.h"
 #include "base/test/test_timeouts.h"
 #include "chrome/test/ui_test_utils.h"
 #include "net/base/host_resolver.h"
@@ -350,7 +350,7 @@ class SafeBrowsingServiceTestHelper
     EXPECT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::IO));
     EXPECT_TRUE(safe_browsing_test_->is_checked_url_in_db());
     safe_browsing_test_->set_is_checked_url_safe(
-        result == SafeBrowsingService::URL_SAFE);
+        result == SafeBrowsingService::SAFE);
     BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
                             NewRunnableMethod(this,
                             &SafeBrowsingServiceTestHelper::OnCheckUrlDone));

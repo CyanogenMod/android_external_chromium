@@ -13,9 +13,9 @@
 #include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension_constants.h"
-#include "chrome/common/notification_details.h"
-#include "chrome/common/notification_observer_mock.h"
-#include "chrome/common/notification_source.h"
+#include "content/common/notification_details.h"
+#include "content/common/notification_observer_mock.h"
+#include "content/common/notification_source.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::Time;
@@ -550,6 +550,57 @@ class ExtensionPrefsAppLaunchIndex : public ExtensionPrefsTest {
 };
 TEST_F(ExtensionPrefsAppLaunchIndex, ExtensionPrefsAppLaunchIndex) {}
 
+class ExtensionPrefsPageIndex : public ExtensionPrefsTest {
+ public:
+  virtual void Initialize() {
+    extension_id_ = prefs_.AddExtensionAndReturnId("page_index");
+
+    int page_index = prefs()->GetPageIndex(extension_id_);
+    // Extension should not have been assigned a page
+    EXPECT_EQ(page_index, -1);
+
+    // Set the page index
+    prefs()->SetPageIndex(extension_id_, 2);
+  }
+
+  virtual void Verify() {
+    // Verify the page index.
+    int page_index = prefs()->GetPageIndex(extension_id_);
+    EXPECT_EQ(page_index, 2);
+
+    // This extension doesn't exist, so it should return -1.
+    EXPECT_EQ(-1, prefs()->GetPageIndex("foo"));
+  }
+
+ private:
+  std::string extension_id_;
+};
+TEST_F(ExtensionPrefsPageIndex, ExtensionPrefsPageIndex) {}
+
+class ExtensionPrefsAppDraggedByUser : public ExtensionPrefsTest {
+ public:
+  virtual void Initialize() {
+    extension_ = prefs_.AddExtension("on_extension_installed");
+    EXPECT_FALSE(prefs()->WasAppDraggedByUser(extension_->id()));
+    prefs()->OnExtensionInstalled(extension_.get(),
+        Extension::ENABLED, false);
+  }
+
+  virtual void Verify() {
+    // Set the flag and see if it persisted.
+    prefs()->SetAppDraggedByUser(extension_->id());
+    EXPECT_TRUE(prefs()->WasAppDraggedByUser(extension_->id()));
+
+    // Make sure it doesn't change on consecutive calls.
+    prefs()->SetAppDraggedByUser(extension_->id());
+    EXPECT_TRUE(prefs()->WasAppDraggedByUser(extension_->id()));
+  }
+
+ private:
+  scoped_refptr<Extension> extension_;
+};
+TEST_F(ExtensionPrefsAppDraggedByUser, ExtensionPrefsAppDraggedByUser) {}
+
 namespace keys = extension_manifest_keys;
 
 class ExtensionPrefsPreferencesBase : public ExtensionPrefsTest {
@@ -568,13 +619,13 @@ class ExtensionPrefsPreferencesBase : public ExtensionPrefsTest {
 
     ext1_scoped_ = Extension::Create(
         prefs_.temp_dir().AppendASCII("ext1_"), Extension::EXTERNAL_PREF,
-        simple_dict, false, &error);
+        simple_dict, false, true, &error);
     ext2_scoped_ = Extension::Create(
         prefs_.temp_dir().AppendASCII("ext2_"), Extension::EXTERNAL_PREF,
-        simple_dict, false, &error);
+        simple_dict, false, true, &error);
     ext3_scoped_ = Extension::Create(
         prefs_.temp_dir().AppendASCII("ext3_"), Extension::EXTERNAL_PREF,
-        simple_dict, false, &error);
+        simple_dict, false, true, &error);
 
     ext1_ = ext1_scoped_.get();
     ext2_ = ext2_scoped_.get();

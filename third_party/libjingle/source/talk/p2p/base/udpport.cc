@@ -27,6 +27,7 @@
 
 #include "talk/p2p/base/udpport.h"
 
+#include "talk/base/asyncpacketsocket.h"
 #include "talk/base/logging.h"
 #include "talk/p2p/base/common.h"
 
@@ -34,21 +35,20 @@ namespace cricket {
 
 const std::string LOCAL_PORT_TYPE("local");
 
-UDPPort::UDPPort(talk_base::Thread* thread, talk_base::SocketFactory* factory,
-                 talk_base::Network* network)
-    : Port(thread, LOCAL_PORT_TYPE, factory, network),
-      socket_(NULL), error_(0) {
+UDPPort::UDPPort(talk_base::Thread* thread,
+                 talk_base::PacketSocketFactory* factory,
+                 talk_base::Network* network,
+                 uint32 ip, int min_port, int max_port)
+    : Port(thread, LOCAL_PORT_TYPE, factory, network, ip, min_port, max_port),
+      socket_(NULL),
+      error_(0) {
 }
 
-bool UDPPort::Init(const talk_base::SocketAddress& local_addr) {
-  socket_ = CreatePacketSocket(PROTO_UDP);
+bool UDPPort::Init() {
+  socket_ =  factory_->CreateUdpSocket(
+      talk_base::SocketAddress(ip_, 0), min_port_, max_port_);
   if (!socket_) {
     LOG_J(LS_WARNING, this) << "UDP socket creation failed";
-    return false;
-  }
-  if (socket_->Bind(local_addr) < 0) {
-    LOG_J(LS_WARNING, this) << "UDP bind failed with error "
-                            << socket_->GetError();
     return false;
   }
   socket_->SignalReadPacket.connect(this, &UDPPort::OnReadPacket);
@@ -60,7 +60,13 @@ UDPPort::~UDPPort() {
 }
 
 void UDPPort::PrepareAddress() {
-  AddAddress(socket_->GetLocalAddress(), "udp", true);
+  bool allocated;
+  talk_base::SocketAddress address = socket_->GetLocalAddress(&allocated);
+  if (allocated) {
+    AddAddress(address, "udp", true);
+  } else {
+    socket_->SignalAddressReady.connect(this, &UDPPort::OnAddresReady);
+  }
 }
 
 Connection* UDPPort::CreateConnection(const Candidate& address,
@@ -80,7 +86,7 @@ int UDPPort::SendTo(const void* data, size_t size,
     error_ = socket_->GetError();
     LOG_J(LS_ERROR, this) << "UDP send of " << size
                           << " bytes failed with error " << error_;
-  }  
+  }
   return sent;
 }
 
@@ -92,9 +98,14 @@ int UDPPort::GetError() {
   return error_;
 }
 
+void UDPPort::OnAddresReady(talk_base::AsyncPacketSocket* socket,
+                            const talk_base::SocketAddress& address) {
+  AddAddress(address, "udp", true);
+}
+
 void UDPPort::OnReadPacket(
-    const char* data, size_t size, const talk_base::SocketAddress& remote_addr,
-    talk_base::AsyncPacketSocket* socket) {
+    talk_base::AsyncPacketSocket* socket, const char* data, size_t size,
+    const talk_base::SocketAddress& remote_addr) {
   ASSERT(socket == socket_);
   if (Connection* conn = GetConnection(remote_addr)) {
     conn->OnReadPacket(data, size);

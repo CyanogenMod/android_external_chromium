@@ -4,6 +4,11 @@
 
 #include "base/message_loop.h"
 
+#if defined(OS_POSIX) && !defined(OS_MACOSX)
+#include <gdk/gdk.h>
+#include <gdk/gdkx.h>
+#endif
+
 #include <algorithm>
 
 #include "base/compiler_specific.h"
@@ -669,7 +674,17 @@ void MessageLoopForUI::DidProcessMessage(const MSG& message) {
 }
 #endif  // defined(OS_WIN)
 
+<<<<<<< HEAD
 #if !defined(OS_MACOSX) && !defined(OS_NACL) && !defined(ANDROID)
+=======
+#if defined(USE_X11)
+Display* MessageLoopForUI::GetDisplay() {
+  return gdk_x11_get_default_xdisplay();
+}
+#endif  // defined(USE_X11)
+
+#if !defined(OS_MACOSX) && !defined(OS_NACL)
+>>>>>>> chromium.org at r11.0.696.0
 void MessageLoopForUI::AddObserver(Observer* observer) {
   pump_ui()->AddObserver(observer);
 }

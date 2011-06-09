@@ -41,30 +41,30 @@ class RequestContext : public URLRequestContext {
  public:
   RequestContext() {
     ProxyConfig no_proxy;
-    host_resolver_ =
+    set_host_resolver(
         CreateSystemHostResolver(HostResolver::kDefaultParallelism,
-                                      NULL, NULL);
-    cert_verifier_ = new CertVerifier;
-    proxy_service_ = ProxyService::CreateFixed(no_proxy);
-    ssl_config_service_ = new SSLConfigServiceDefaults;
+                                      NULL, NULL));
+    set_cert_verifier(new CertVerifier);
+    set_proxy_service(ProxyService::CreateFixed(no_proxy));
+    set_ssl_config_service(new SSLConfigServiceDefaults);
 
     HttpNetworkSession::Params params;
-    params.host_resolver = host_resolver_;
-    params.cert_verifier = cert_verifier_;
-    params.proxy_service = proxy_service_;
-    params.ssl_config_service = ssl_config_service_;
+    params.host_resolver = host_resolver();
+    params.cert_verifier = cert_verifier();
+    params.proxy_service = proxy_service();
+    params.ssl_config_service = ssl_config_service();
     scoped_refptr<HttpNetworkSession> network_session(
         new HttpNetworkSession(params));
-    http_transaction_factory_ = new HttpCache(
+    set_http_transaction_factory(new HttpCache(
         network_session,
-        HttpCache::DefaultBackend::InMemory(0));
+        HttpCache::DefaultBackend::InMemory(0)));
   }
 
  private:
   ~RequestContext() {
-    delete http_transaction_factory_;
-    delete cert_verifier_;
-    delete host_resolver_;
+    delete http_transaction_factory();
+    delete cert_verifier();
+    delete host_resolver();
   }
 };
 
@@ -337,6 +337,44 @@ TEST_F(ProxyScriptFetcherImplTest, Encodings) {
     EXPECT_EQ(ERR_IO_PENDING, result);
     EXPECT_EQ(OK, callback.WaitForResult());
     EXPECT_EQ(ASCIIToUTF16("This was encoded as UTF-16BE.\n"), text);
+  }
+}
+
+TEST_F(ProxyScriptFetcherImplTest, DataURLs) {
+  scoped_refptr<URLRequestContext> context(new RequestContext);
+  ProxyScriptFetcherImpl pac_fetcher(context);
+
+  const char kEncodedUrl[] =
+      "data:application/x-ns-proxy-autoconfig;base64,ZnVuY3Rpb24gRmluZFByb3h5R"
+      "m9yVVJMKHVybCwgaG9zdCkgewogIGlmIChob3N0ID09ICdmb29iYXIuY29tJykKICAgIHJl"
+      "dHVybiAnUFJPWFkgYmxhY2tob2xlOjgwJzsKICByZXR1cm4gJ0RJUkVDVCc7Cn0=";
+  const char kPacScript[] =
+      "function FindProxyForURL(url, host) {\n"
+      "  if (host == 'foobar.com')\n"
+      "    return 'PROXY blackhole:80';\n"
+      "  return 'DIRECT';\n"
+      "}";
+
+  // Test fetching a "data:"-url containing a base64 encoded PAC script.
+  {
+    GURL url(kEncodedUrl);
+    string16 text;
+    TestCompletionCallback callback;
+    int result = pac_fetcher.Fetch(url, &text, &callback);
+    EXPECT_EQ(OK, result);
+    EXPECT_EQ(ASCIIToUTF16(kPacScript), text);
+  }
+
+  const char kEncodedUrlBroken[] =
+      "data:application/x-ns-proxy-autoconfig;base64,ZnVuY3Rpb24gRmluZFByb3h5R";
+
+  // Test a broken "data:"-url containing a base64 encoded PAC script.
+  {
+    GURL url(kEncodedUrlBroken);
+    string16 text;
+    TestCompletionCallback callback;
+    int result = pac_fetcher.Fetch(url, &text, &callback);
+    EXPECT_EQ(ERR_FAILED, result);
   }
 }
 

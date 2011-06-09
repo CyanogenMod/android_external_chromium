@@ -12,9 +12,9 @@
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
 #include "base/task.h"
-#include "chrome/browser/browser_child_process_host.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/common/extensions/update_manifest.h"
+#include "content/browser/browser_child_process_host.h"
+#include "content/browser/browser_thread.h"
 
 class DictionaryValue;
 class IndexedDBKey;
@@ -89,6 +89,12 @@ class UtilityProcessHost : public BrowserChildProcessHost {
     // StartIDBKeysFromValuesAndKeyPath.
     virtual void OnIDBKeysFromValuesAndKeyPathFailed(int id) {}
 
+    // Called when an IDBKey was injected into a
+    // SerializedScriptValue. If injection failed, SerializedScriptValue is
+    // empty.
+    virtual void OnInjectIDBKeyFinished(
+        const SerializedScriptValue& new_value) {}
+
    protected:
     friend class base::RefCountedThreadSafe<Client>;
 
@@ -131,6 +137,12 @@ class UtilityProcessHost : public BrowserChildProcessHost {
   bool StartIDBKeysFromValuesAndKeyPath(
       int id, const std::vector<SerializedScriptValue>& serialized_values,
       const string16& key_path);
+
+  // Starts injecting |key| into |value| via |key_path|, and replies with the
+  // updated value via OnInjectIDBKeyFinished.
+  bool StartInjectIDBKey(const IndexedDBKey& key,
+                         const SerializedScriptValue& value,
+                         const string16& key_path);
 
   // Starts utility process in batch mode. Caller must call EndBatchMode()
   // to finish the utility process.

@@ -17,7 +17,6 @@
 #include "chrome/browser/bookmarks/bookmark_codec.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/history/history_notifications.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
@@ -25,7 +24,9 @@
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/test/model_test_utils.h"
+#include "chrome/test/testing_browser_process_test.h"
 #include "chrome/test/testing_profile.h"
+#include "content/browser/browser_thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/models/tree_node_model.h"
 #include "ui/base/models/tree_node_iterator.h"
@@ -48,7 +49,8 @@ void SwapDateAdded(BookmarkNode* n1, BookmarkNode* n2) {
 
 }  // anonymous namespace
 
-class BookmarkModelTest : public testing::Test, public BookmarkModelObserver {
+class BookmarkModelTest : public TestingBrowserProcessTest,
+                          public BookmarkModelObserver {
  public:
   struct ObserverDetails {
     ObserverDetails() {
@@ -648,7 +650,7 @@ static void PopulateBookmarkNode(TestNode* parent,
 }  // namespace
 
 // Test class that creates a BookmarkModel with a real history backend.
-class BookmarkModelTestWithProfile : public testing::Test,
+class BookmarkModelTestWithProfile : public TestingBrowserProcessTest,
                                      public BookmarkModelObserver {
  public:
   BookmarkModelTestWithProfile()

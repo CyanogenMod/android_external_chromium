@@ -27,7 +27,7 @@ const char kFieldSeparator[] = ": ";
 const char kProfileSeparator[] = "---";
 const size_t kFieldOffset = arraysize(kFieldSeparator) - 1;
 
-const AutoFillFieldType kProfileFieldTypes[] = {
+const AutofillFieldType kProfileFieldTypes[] = {
   NAME_FIRST,
   NAME_MIDDLE,
   NAME_LAST,
@@ -50,10 +50,10 @@ std::string SerializeProfiles(const std::vector<AutoFillProfile*>& profiles) {
     result += kProfileSeparator;
     result += "\n";
     for (size_t j = 0; j < arraysize(kProfileFieldTypes); ++j) {
-      AutoFillFieldType type = kProfileFieldTypes[j];
-      result += AutoFillType::FieldTypeToString(type);
+      AutofillFieldType type = kProfileFieldTypes[j];
+      result += AutofillType::FieldTypeToString(type);
       result += kFieldSeparator;
-      result += UTF16ToUTF8(profiles[i]->GetFieldText(AutoFillType(type)));
+      result += UTF16ToUTF8(profiles[i]->GetFieldText(AutofillType(type)));
       result += "\n";
     }
   }
@@ -195,10 +195,10 @@ void AutoFillMergeTest::MergeProfiles(const std::string& profiles,
       for (size_t i = 0; i < form_structure.field_count(); ++i) {
         // Set the heuristic type for each field, which is currently serialized
         // into the field's name.
-        AutoFillField* field =
-            const_cast<AutoFillField*>(form_structure.field(i));
-        AutoFillFieldType type =
-            AutoFillType::StringToFieldType(UTF16ToUTF8(field->name()));
+        AutofillField* field =
+            const_cast<AutofillField*>(form_structure.field(i));
+        AutofillFieldType type =
+            AutofillType::StringToFieldType(UTF16ToUTF8(field->name()));
         field->set_heuristic_type(type);
       }
       std::vector<const FormStructure*> form_structures(1, &form_structure);

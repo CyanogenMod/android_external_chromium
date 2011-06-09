@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -14,22 +14,22 @@
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_operation_notification_details.h"
-#include "chrome/browser/dom_ui/new_tab_ui.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/malware_details.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
-#include "chrome/browser/tab_contents/navigation_controller.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/browser/tab_contents/tab_util.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/ui/webui/new_tab_ui.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/tab_contents/navigation_controller.h"
+#include "content/browser/tab_contents/navigation_entry.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/browser_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
@@ -128,8 +128,7 @@ SafeBrowsingBlockingPage::SafeBrowsingBlockingPage(
                        unsafe_resources[0].url),
       sb_service_(sb_service),
       is_main_frame_(IsMainPage(unsafe_resources)),
-      unsafe_resources_(unsafe_resources),
-      malware_details_(NULL) {
+      unsafe_resources_(unsafe_resources) {
   RecordUserAction(SHOW);
   if (!is_main_frame_) {
     navigation_entry_index_to_remove_ =
@@ -147,7 +146,8 @@ SafeBrowsingBlockingPage::SafeBrowsingBlockingPage(
       unsafe_resources[0].threat_type == SafeBrowsingService::URL_MALWARE &&
       malware_details_ == NULL &&
       CanShowMalwareDetailsOption()) {
-    malware_details_ = new MalwareDetails(tab(), unsafe_resources[0]);
+    malware_details_ = MalwareDetails::NewMalwareDetails(
+        tab(), unsafe_resources[0]);
   }
 }
 

@@ -7,28 +7,28 @@
 #include "base/metrics/histogram.h"
 #include "base/threading/thread.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_child_process_host.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_object_proxy.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/notifications/notifications_prefs_cache.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/prefs/scoped_pref_update.h"
+#include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/site_instance.h"
-#include "chrome/browser/tab_contents/infobar_delegate.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/worker_host/worker_process_host.h"
+#include "chrome/browser/tab_contents/confirm_infobar_delegate.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/render_messages_params.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/browser_child_process_host.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/site_instance.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/worker_host/worker_process_host.h"
 #include "grit/browser_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -462,11 +462,11 @@ void DesktopNotificationService::PersistPermissionChange(
   // list that changed.
   if (allowed_changed || denied_changed) {
     if (allowed_changed) {
-      ScopedPrefUpdate update_allowed(
+      ScopedUserPrefUpdate update_allowed(
           prefs, prefs::kDesktopNotificationAllowedOrigins);
     }
     if (denied_changed) {
-      ScopedPrefUpdate updateDenied(
+      ScopedUserPrefUpdate updateDenied(
           prefs, prefs::kDesktopNotificationDeniedOrigins);
     }
     prefs->ScheduleSavePersistentPrefs();
@@ -541,7 +541,7 @@ void DesktopNotificationService::ResetAllowedOrigin(const GURL& origin) {
     StringValue value(origin.spec());
     int removed_index = allowed_sites->Remove(value);
     DCHECK_NE(-1, removed_index) << origin << " was not allowed";
-    ScopedPrefUpdate update_allowed(
+    ScopedUserPrefUpdate update_allowed(
         prefs, prefs::kDesktopNotificationAllowedOrigins);
   }
   prefs->ScheduleSavePersistentPrefs();
@@ -560,7 +560,7 @@ void DesktopNotificationService::ResetBlockedOrigin(const GURL& origin) {
     StringValue value(origin.spec());
     int removed_index = denied_sites->Remove(value);
     DCHECK_NE(-1, removed_index) << origin << " was not blocked";
-    ScopedPrefUpdate update_allowed(
+    ScopedUserPrefUpdate update_allowed(
         prefs, prefs::kDesktopNotificationDeniedOrigins);
   }
   prefs->ScheduleSavePersistentPrefs();

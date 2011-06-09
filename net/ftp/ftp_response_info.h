@@ -7,16 +7,14 @@
 #pragma once
 
 #include "base/time.h"
+#include "net/base/host_port_pair.h"
 
 namespace net {
 
 class FtpResponseInfo {
  public:
-  FtpResponseInfo()
-      : needs_auth(false),
-        expected_content_size(-1),
-        is_directory_listing(false) {
-  }
+  FtpResponseInfo();
+  ~FtpResponseInfo();
 
   // True if authentication failed and valid authentication credentials are
   // needed.
@@ -36,6 +34,9 @@ class FtpResponseInfo {
 
   // True if the response data is of a directory listing.
   bool is_directory_listing;
+
+  // Remote address of the socket which fetched this resource.
+  HostPortPair socket_address;
 };
 
 }  // namespace net

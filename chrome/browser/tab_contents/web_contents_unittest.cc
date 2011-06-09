@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,17 +6,8 @@
 
 #include "base/logging.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/pref_value_store.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_widget_host_view.h"
-#include "chrome/browser/renderer_host/site_instance.h"
-#include "chrome/browser/renderer_host/test/test_render_view_host.h"
-#include "chrome/browser/tab_contents/interstitial_page.h"
-#include "chrome/browser/tab_contents/navigation_controller.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
-#include "chrome/browser/tab_contents/test_tab_contents.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
@@ -24,9 +15,20 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/test/testing_pref_service.h"
 #include "chrome/test/testing_profile.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_widget_host_view.h"
+#include "content/browser/renderer_host/test_render_view_host.h"
+#include "content/browser/site_instance.h"
+#include "content/browser/tab_contents/constrained_window.h"
+#include "content/browser/tab_contents/interstitial_page.h"
+#include "content/browser/tab_contents/navigation_controller.h"
+#include "content/browser/tab_contents/navigation_entry.h"
+#include "content/browser/tab_contents/test_tab_contents.h"
 #include "ipc/ipc_channel.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/message_box_flags.h"
+#include "webkit/glue/webkit_glue.h"
 
 using webkit_glue::PasswordForm;
 
@@ -46,6 +48,7 @@ static void InitNavigateParams(ViewHostMsg_FrameNavigate_Params* params,
   params->gesture = NavigationGestureUser;
   params->was_within_same_page = false;
   params->is_post = false;
+  params->content_state = webkit_glue::CreateHistoryStateForURL(GURL(url));
 }
 
 class TestInterstitialPage : public InterstitialPage {
@@ -209,8 +212,6 @@ class TabContentsTest : public RenderViewHostTestHarness {
     pref_services->SetUserPref(prefs::kWebKitTextAreasAreResizable,
                                Value::CreateBooleanValue(false));
     pref_services->SetUserPref(prefs::kWebKitUsesUniversalDetector,
-                               Value::CreateBooleanValue(true));
-    pref_services->SetUserPref(prefs::kWebKitStandardFontIsSerif,
                                Value::CreateBooleanValue(true));
     pref_services->SetUserPref("webkit.webprefs.foo",
                                Value::CreateStringValue("bar"));
@@ -1616,4 +1617,37 @@ TEST_F(TabContentsTest, CopyStateFromAndPruneTargetInterstitial) {
 
   // And the interstitial should do a reload on don't proceed.
   EXPECT_TRUE(other_contents->interstitial_page()->reload_on_dont_proceed());
+}
+
+class ConstrainedWindowCloseTest : public ConstrainedWindow {
+ public:
+  explicit ConstrainedWindowCloseTest(TabContents* tab_contents)
+      : tab_contents_(tab_contents) {
+  }
+
+  virtual void ShowConstrainedWindow() {}
+  virtual void FocusConstrainedWindow() {}
+  virtual ~ConstrainedWindowCloseTest() {}
+
+  virtual void CloseConstrainedWindow() {
+    tab_contents_->WillClose(this);
+    close_count++;
+  }
+
+  int close_count;
+  TabContents* tab_contents_;
+};
+
+TEST_F(TabContentsTest, ConstrainedWindows) {
+  TabContents* tab_contents = CreateTestTabContents();
+  ConstrainedWindowCloseTest window(tab_contents);
+  window.close_count = 0;
+
+  const int kWindowCount = 4;
+  for (int i = 0; i < kWindowCount; i++) {
+    tab_contents->AddConstrainedDialog(&window);
+  }
+  EXPECT_EQ(window.close_count, 0);
+  delete tab_contents;
+  EXPECT_EQ(window.close_count, kWindowCount);
 }

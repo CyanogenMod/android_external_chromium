@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "base/string16.h"
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "ui/gfx/native_widget_types.h"
@@ -16,13 +17,26 @@
 
 namespace chromeos {
 
+// Delegate to be used while user removing.
+class RemoveUserDelegate {
+ public:
+  // Called right before actual user removal process is initiated.
+  virtual void OnBeforeUserRemoved(const std::string& username) = 0;
+
+  // Called right after user removal process has been initiated.
+  virtual void OnUserRemoved(const std::string& username) = 0;
+};
+
 // An abstract class that defines login UI implementation.
-class LoginDisplay {
+class LoginDisplay : public RemoveUserDelegate {
  public:
   class Delegate {
    public:
     // Create new Google account.
     virtual void CreateAccount() = 0;
+
+    // Returns name of the currently connected network.
+    virtual string16 GetConnectedNetworkName() = 0;
 
     // Users decides to sign in into captive portal.
     virtual void FixCaptivePortal() = 0;
@@ -37,9 +51,6 @@ class LoginDisplay {
 
     // Called when existing user pod is selected in the UI.
     virtual void OnUserSelected(const std::string& username) = 0;
-
-    // Completely removes user (from the list of users and cryptohome).
-    virtual void RemoveUser(const std::string& username) = 0;
    protected:
     virtual ~Delegate() {}
   };
@@ -57,15 +68,10 @@ class LoginDisplay {
                     bool show_guest,
                     bool show_new_user) = 0;
 
-  // Called right before actual user removal process is initiated.
-  virtual void OnBeforeUserRemoved(const std::string& username) = 0;
 
   // Called when user image has been changed.
   // |user| contains updated user.
   virtual void OnUserImageChanged(UserManager::User* user) = 0;
-
-  // Called right after user removal process has been initiated.
-  virtual void OnUserRemoved(const std::string& username) = 0;
 
   // After this call login display should be ready to be smoothly destroyed
   // (e.g. hide throbber, etc.).

@@ -44,8 +44,8 @@ StunServer::~StunServer() {
 }
 
 void StunServer::OnPacket(
-    const char* buf, size_t size, const talk_base::SocketAddress& remote_addr,
-    talk_base::AsyncPacketSocket* socket) {
+    talk_base::AsyncPacketSocket* socket, const char* buf, size_t size,
+    const talk_base::SocketAddress& remote_addr) {
 
   // TODO: If appropriate, look for the magic cookie before parsing.
 
@@ -97,7 +97,12 @@ void StunServer::OnBindingRequest(
   response.AddAttribute(mapped_addr);
 
   // Tell the user the address that we are sending the response from.
-  talk_base::SocketAddress local_addr = socket_->GetLocalAddress();
+  // This method should not be called if socket address is not
+  // allocated yet.
+  bool allocated;
+  talk_base::SocketAddress local_addr = socket_->GetLocalAddress(&allocated);
+  ASSERT(allocated);
+
   StunAddressAttribute* source_addr =
       StunAttribute::CreateAddress(STUN_ATTR_SOURCE_ADDRESS);
   source_addr->SetFamily(1);

@@ -19,7 +19,6 @@
 #include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "build/build_config.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extension_pref_store.h"
 #include "chrome/browser/policy/configuration_policy_pref_store.h"
 #include "chrome/browser/prefs/command_line_pref_store.h"
@@ -29,6 +28,7 @@
 #include "chrome/browser/prefs/pref_value_store.h"
 #include "chrome/common/json_pref_store.h"
 #include "chrome/common/notification_service.h"
+#include "content/browser/browser_thread.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -355,20 +355,16 @@ std::string PrefService::GetString(const char* path) const {
 FilePath PrefService::GetFilePath(const char* path) const {
   DCHECK(CalledOnValidThread());
 
-  FilePath::StringType result;
+  FilePath result;
 
   const Preference* pref = FindPreference(path);
   if (!pref) {
     NOTREACHED() << "Trying to read an unregistered pref: " << path;
     return FilePath(result);
   }
-  bool rv = pref->GetValue()->GetAsString(&result);
+  bool rv = pref->GetValue()->GetAsFilePath(&result);
   DCHECK(rv);
-#if defined(OS_POSIX)
-  // We store filepaths as UTF8, so convert it back to the system type.
-  result = base::SysWideToNativeMB(UTF8ToWide(result));
-#endif
-  return FilePath(result);
+  return result;
 }
 
 bool PrefService::HasPrefPath(const char* path) const {
@@ -522,16 +518,7 @@ void PrefService::SetString(const char* path, const std::string& value) {
 }
 
 void PrefService::SetFilePath(const char* path, const FilePath& value) {
-#if defined(OS_POSIX)
-  // Value::SetString only knows about UTF8 strings, so convert the path from
-  // the system native value to UTF8.
-  std::string path_utf8 = WideToUTF8(base::SysNativeMBToWide(value.value()));
-  Value* new_value = Value::CreateStringValue(path_utf8);
-#else
-  Value* new_value = Value::CreateStringValue(value.value());
-#endif
-
-  SetUserPrefValue(path, new_value);
+  SetUserPrefValue(path, Value::CreateFilePathValue(value));
 }
 
 void PrefService::SetInt64(const char* path, int64 value) {
@@ -620,6 +607,10 @@ ListValue* PrefService::GetMutableList(const char* path) {
   return list;
 }
 
+void PrefService::ReportValueChanged(const std::string& key) {
+  user_pref_store_->ReportValueChanged(key);
+}
+
 void PrefService::SetUserPrefValue(const char* path, Value* new_value) {
   DCHECK(CalledOnValidThread());
   DLOG_IF(WARNING, IsManagedPreference(path)) <<
@@ -698,4 +689,8 @@ bool PrefService::Preference::IsDefaultValue() const {
 
 bool PrefService::Preference::IsUserModifiable() const {
   return pref_value_store()->PrefValueUserModifiable(name_.c_str());
+}
+
+bool PrefService::Preference::IsExtensionModifiable() const {
+  return pref_value_store()->PrefValueExtensionModifiable(name_.c_str());
 }

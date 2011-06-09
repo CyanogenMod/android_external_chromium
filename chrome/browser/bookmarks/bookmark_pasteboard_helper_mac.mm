@@ -224,9 +224,9 @@ void WriteToClipboardPrivate(
     const std::vector<BookmarkNodeData::Element>& elements,
     NSPasteboard* pb,
     FilePath::StringType profile_path) {
-  if (elements.size() == 0) {
+  if (elements.empty())
     return;
-  }
+
   NSArray* types = [NSArray arrayWithObjects:kBookmarkDictionaryListPboardType,
                                              kWebURLsWithTitlesPboardType,
                                              NSStringPboardType,

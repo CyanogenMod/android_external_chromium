@@ -1,13 +1,13 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/command_line.h"
 #include "base/mac/mac_util.h"
 #include "chrome/browser/background_mode_manager.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/common/app_mode_common_mac.h"
 #include "chrome/common/chrome_switches.h"
+#include "content/browser/browser_thread.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -71,6 +71,12 @@ void BackgroundModeManager::EnableLaunchOnStartup(bool should_launch) {
     BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
                             new DisableLaunchOnStartupTask());
   }
+}
+
+void BackgroundModeManager::DisplayAppInstalledNotification(
+    const Extension* extension) {
+  // TODO(atwilson): Display a platform-appropriate notification here.
+  // http://crbug.com/74970
 }
 
 string16 BackgroundModeManager::GetPreferencesMenuLabel() {

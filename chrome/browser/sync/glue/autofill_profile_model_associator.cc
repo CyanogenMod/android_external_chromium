@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "chrome/browser/sync/glue/do_optimistic_refresh_task.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/webdata/web_database.h"
+#include "chrome/common/guid.h"
 
 using sync_api::ReadNode;
 namespace browser_sync {
@@ -35,7 +36,14 @@ AutofillProfileModelAssociator::~AutofillProfileModelAssociator() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
 }
 
-AutofillProfileModelAssociator::AutofillProfileModelAssociator() {}
+AutofillProfileModelAssociator::AutofillProfileModelAssociator()
+    : sync_service_(NULL),
+      web_database_(NULL),
+      personal_data_(NULL),
+      autofill_node_id_(0),
+      abort_association_pending_(false),
+      number_of_profiles_created_(0) {
+}
 
 bool AutofillProfileModelAssociator::TraverseAndAssociateChromeAutoFillProfiles(
     sync_api::WriteTransaction* write_trans,
@@ -46,16 +54,16 @@ bool AutofillProfileModelAssociator::TraverseAndAssociateChromeAutoFillProfiles(
     std::vector<AutoFillProfile*>* new_profiles,
     std::vector<std::string>* profiles_to_delete) {
 
-  if (VLOG_IS_ON(1)) {
-    VLOG(1) << "[AUTOFILL MIGRATION]"
+  if (VLOG_IS_ON(2)) {
+    VLOG(2) << "[AUTOFILL MIGRATION]"
             << "Printing profiles from web db";
 
     for (std::vector<AutoFillProfile*>::const_iterator ix =
         all_profiles_from_db.begin(); ix != all_profiles_from_db.end(); ++ix) {
       AutoFillProfile* p = *ix;
-      VLOG(1) << "[AUTOFILL MIGRATION]  "
-              << p->GetFieldText(AutoFillType(NAME_FIRST))
-              << p->GetFieldText(AutoFillType(NAME_LAST))
+      VLOG(2) << "[AUTOFILL MIGRATION]  "
+              << p->GetFieldText(AutofillType(NAME_FIRST))
+              << p->GetFieldText(AutofillType(NAME_LAST))
               << p->guid();
     }
   }
@@ -69,6 +77,10 @@ bool AutofillProfileModelAssociator::TraverseAndAssociateChromeAutoFillProfiles(
       ix != profiles.end();
       ++ix) {
     std::string guid((*ix)->guid());
+    if (guid::IsValidGUID(guid) == false) {
+      DCHECK(false) << "Guid in the web db is invalid " << guid;
+      continue;
+    }
 
     ReadNode node(write_trans);
     if (node.InitByClientTagLookup(syncable::AUTOFILL_PROFILE, guid) &&
@@ -76,11 +88,10 @@ bool AutofillProfileModelAssociator::TraverseAndAssociateChromeAutoFillProfiles(
         // associated with another profile. That could happen if the user has
         // the same profile duplicated.
         current_profiles->find(guid) == current_profiles->end()) {
-
-      VLOG(1) << "[AUTOFILL MIGRATION]"
+      VLOG(2) << "[AUTOFILL MIGRATION]"
               << " Found in sync db: "
-              << (*ix)->GetFieldText(AutoFillType(NAME_FIRST))
-              << (*ix)->GetFieldText(AutoFillType(NAME_LAST))
+              << (*ix)->GetFieldText(AutofillType(NAME_FIRST))
+              << (*ix)->GetFieldText(AutofillType(NAME_LAST))
               << (*ix)->guid()
               << " so associating with node id " << node.GetId();
       const sync_pb::AutofillProfileSpecifics& autofill(
@@ -188,6 +199,7 @@ bool AutofillProfileModelAssociator::AssociateModels() {
 }
 
 bool AutofillProfileModelAssociator::DisassociateModels() {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   id_map_.clear();
   id_map_inverse_.clear();
   return true;
@@ -196,11 +208,11 @@ bool AutofillProfileModelAssociator::DisassociateModels() {
 // Helper to compare the local value and cloud value of a field, merge into
 // the local value if they differ, and return whether the merge happened.
 bool AutofillProfileModelAssociator::MergeField(FormGroup* f,
-    AutoFillFieldType t,
+    AutofillFieldType t,
     const std::string& specifics_field) {
-  if (UTF16ToUTF8(f->GetFieldText(AutoFillType(t))) == specifics_field)
+  if (UTF16ToUTF8(f->GetFieldText(AutofillType(t))) == specifics_field)
     return false;
-  f->SetInfo(AutoFillType(t), UTF8ToUTF16(specifics_field));
+  f->SetInfo(AutofillType(t), UTF8ToUTF16(specifics_field));
   return true;
 }
 bool AutofillProfileModelAssociator::SyncModelHasUserCreatedNodes(
@@ -298,31 +310,40 @@ bool AutofillProfileModelAssociator::MakeNewAutofillProfileSyncNodeIfNeeded(
     }
     const sync_pb::AutofillProfileSpecifics& autofill_specifics(
         read_node.GetAutofillProfileSpecifics());
+    if (guid::IsValidGUID(autofill_specifics.guid()) == false) {
+      NOTREACHED() << "Guid in the web db is invalid " <<
+          autofill_specifics.guid();
+      return false;
+    }
     AutoFillProfile* p = new AutoFillProfile(autofill_specifics.guid());
     OverwriteProfileWithServerData(p, autofill_specifics);
     new_profiles->push_back(p);
     std::string guid = autofill_specifics.guid();
     Associate(&guid, sync_node_id);
     current_profiles->insert(autofill_specifics.guid());
-    VLOG(1) << "[AUTOFILL MIGRATION]"
+    VLOG(2) << "[AUTOFILL MIGRATION]"
             << "Found in sync db but with a different guid: "
-            << UTF16ToUTF8(profile.GetFieldText(AutoFillType(NAME_FIRST)))
-            << UTF16ToUTF8(profile.GetFieldText(AutoFillType(NAME_LAST)))
+            << UTF16ToUTF8(profile.GetFieldText(AutofillType(NAME_FIRST)))
+            << UTF16ToUTF8(profile.GetFieldText(AutofillType(NAME_LAST)))
             << "New guid " << autofill_specifics.guid() << " sync node id "
             << sync_node_id << " so associating. Profile to be deleted "
             << profile.guid();
   } else {
     sync_api::WriteNode node(trans);
+
+    // The profile.guid() is expected to be a valid guid. The caller is expected
+    // to pass in a valid profile object with a valid guid. Having to check in
+    // 2 places(the caller and here) is not optimal.
     if (!node.InitUniqueByCreation(
              syncable::AUTOFILL_PROFILE, autofill_root, profile.guid())) {
       LOG(ERROR) << "Failed to create autofill sync node.";
       return false;
     }
     node.SetTitle(UTF8ToWide(profile.guid()));
-    VLOG(1) << "[AUTOFILL MIGRATION]"
+    VLOG(2) << "[AUTOFILL MIGRATION]"
             << "NOT Found in sync db  "
-            << UTF16ToUTF8(profile.GetFieldText(AutoFillType(NAME_FIRST)))
-            << UTF16ToUTF8(profile.GetFieldText(AutoFillType(NAME_LAST)))
+            << UTF16ToUTF8(profile.GetFieldText(AutofillType(NAME_FIRST)))
+            << UTF16ToUTF8(profile.GetFieldText(AutofillType(NAME_LAST)))
             << profile.guid()
             << " so creating a new sync node. Sync node id "
             << node.GetId();
@@ -331,7 +352,6 @@ bool AutofillProfileModelAssociator::MakeNewAutofillProfileSyncNodeIfNeeded(
     std::string guid = profile.guid();
     Associate(&guid, node.GetId());
     number_of_profiles_created_++;
-
   }
   return true;
 }
@@ -367,7 +387,7 @@ void AutofillProfileModelAssociator::AddNativeProfileIfNeeded(
     const sync_api::ReadNode& node) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
 
-  VLOG(1) << "[AUTOFILL MIGRATION] "
+  VLOG(2) << "[AUTOFILL MIGRATION] "
           << "Trying to lookup "
           << profile.name_first()
           << " "
@@ -376,6 +396,11 @@ void AutofillProfileModelAssociator::AddNativeProfileIfNeeded(
           << " Guid " << profile.guid()
           << " in the web db";
 
+  if (guid::IsValidGUID(profile.guid()) == false) {
+    DCHECK(false) << "Guid in the sync db is invalid " << profile.guid();
+    return;
+  }
+
   if (bundle->current_profiles.find(profile.guid()) ==
       bundle->current_profiles.end()) {
     std::string guid(profile.guid());
@@ -383,10 +408,10 @@ void AutofillProfileModelAssociator::AddNativeProfileIfNeeded(
     AutoFillProfile* p = new AutoFillProfile(profile.guid());
     OverwriteProfileWithServerData(p, profile);
     bundle->new_profiles.push_back(p);
-    VLOG(1) << "[AUTOFILL MIGRATION] "
+    VLOG(2) << "[AUTOFILL MIGRATION] "
             << " Did not find one so creating it on web db";
   } else {
-    VLOG(1) << "[AUTOFILL MIGRATION] "
+    VLOG(2) << "[AUTOFILL MIGRATION] "
             << " Found it on web db. Moving on ";
   }
 }

@@ -9,11 +9,10 @@
 #include <string>
 #include <vector>
 
-#include "build/build_config.h"
-
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
+#include "build/build_config.h"
 #include "chrome/browser/bookmarks/bookmark_model_observer.h"
 #include "chrome/browser/importer/importer_data_types.h"
 #include "chrome/browser/importer/importer_list.h"
@@ -23,30 +22,25 @@
 #include "chrome/common/notification_registrar.h"
 #include "ui/gfx/native_widget_types.h"
 
-using importer::ImportItem;
-using importer::ProfileInfo;
-
 class ExternalProcessImporterClient;
+class FirefoxProfileLock;
+class GURL;
+class Importer;
 class ImporterBridge;
 class InProcessImporterBridge;
-class GURL;
 class Profile;
 class Task;
 class TemplateURL;
-
 struct IE7PasswordInfo;
 
 namespace history {
-struct ImportedFavIconUsage;
 class URLRow;
+struct ImportedFavIconUsage;
 }
 
 namespace webkit_glue {
 struct PasswordForm;
 }
-
-class FirefoxProfileLock;
-class Importer;
 
 // This class hosts the importers. It enumerates profiles from other
 // browsers dynamically, and controls the process of importing. When
@@ -472,32 +466,5 @@ class Importer : public base::RefCountedThreadSafe<Importer> {
 
   DISALLOW_COPY_AND_ASSIGN(Importer);
 };
-
-// An interface an object that calls StartImportingWithUI can call to be
-// notified about the state of the import operation.
-class ImportObserver {
- public:
-  virtual ~ImportObserver() {}
-  // The import operation was canceled by the user.
-  // TODO (4164): this is never invoked, either rip it out or invoke it.
-  virtual void ImportCanceled() = 0;
-
-  // The import operation was completed successfully.
-  virtual void ImportComplete() = 0;
-};
-
-
-// Shows a UI for importing and begins importing the specified items from
-// source_profile to target_profile. observer is notified when the process is
-// complete, can be NULL. parent is the window to parent the UI to, can be NULL
-// if there's nothing to parent to. first_run is true if it's invoked in the
-// first run UI.
-void StartImportingWithUI(gfx::NativeWindow parent_window,
-                          uint16 items,
-                          ImporterHost* coordinator,
-                          const importer::ProfileInfo& source_profile,
-                          Profile* target_profile,
-                          ImportObserver* observer,
-                          bool first_run);
 
 #endif  // CHROME_BROWSER_IMPORTER_IMPORTER_H_

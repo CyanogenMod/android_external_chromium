@@ -18,6 +18,7 @@
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
 #include "base/threading/thread.h"
+<<<<<<< HEAD
 #ifndef ANDROID
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/diagnostics/sqlite_diagnostics.h"
@@ -45,6 +46,11 @@ base::Thread* getDbThread()
   return dbThread;
 }
 #endif
+=======
+#include "chrome/browser/diagnostics/sqlite_diagnostics.h"
+#include "content/browser/browser_thread.h"
+#include "googleurl/src/gurl.h"
+>>>>>>> chromium.org at r11.0.696.0
 
 using base::Time;
 
@@ -243,6 +249,8 @@ bool SQLitePersistentCookieStore::Backend::Load(
 #endif
     scoped_ptr<net::CookieMonster::CanonicalCookie> cc(
         new net::CookieMonster::CanonicalCookie(
+            // The "source" URL is not used with persisted cookies.
+            GURL(),                                         // Source
             smt.ColumnString(2),                            // name
             smt.ColumnString(3),                            // value
             smt.ColumnString(1),                            // domain

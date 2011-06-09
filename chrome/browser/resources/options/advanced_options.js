@@ -56,7 +56,7 @@ var OptionsPage = options.OptionsPage;
       }
 
       $('fontSettingsCustomizeFontsButton').onclick = function(event) {
-        OptionsPage.navigateToPage('fontSettings');
+        OptionsPage.navigateToPage('fonts');
         chrome.send('coreOptionsUserMetricsAction', ['Options_FontSettings']);
       };
       $('defaultFontSize').onchange = function(event) {
@@ -64,7 +64,7 @@ var OptionsPage = options.OptionsPage;
             [String(event.target.options[event.target.selectedIndex].value)]);
       };
       $('language-button').onclick = function(event) {
-        OptionsPage.navigateToPage('language');
+        OptionsPage.navigateToPage('languages');
         chrome.send('coreOptionsUserMetricsAction',
             ['Options_LanuageAndSpellCheckSettings']);
       };
@@ -75,7 +75,7 @@ var OptionsPage = options.OptionsPage;
         };
       } else {
         $('certificatesManageButton').onclick = function(event) {
-          OptionsPage.navigateToPage('certificateManager');
+          OptionsPage.navigateToPage('certificates');
           OptionsPage.showTab($('personal-certs-nav-tab'));
           chrome.send('coreOptionsUserMetricsAction',
                       ['Options_ManageSSLCertificates']);
@@ -88,6 +88,10 @@ var OptionsPage = options.OptionsPage;
         };
         $('downloadLocationChangeButton').onclick = function(event) {
           chrome.send('selectDownloadLocation');
+        };
+        $('promptForDownload').onclick = function(event) {
+          chrome.send('promptForDownloadAction',
+              [String($('promptForDownload').checked)]);
         };
 
         // Remove Windows-style accelerators from the Browse button label.
@@ -124,8 +128,7 @@ var OptionsPage = options.OptionsPage;
 
       // 'cloudPrintProxyEnabled' is true for Chrome branded builds on
       // certain platforms, or could be enabled by a lab.
-      if (!cr.isChromeOS &&
-          localStrings.getString('enable-cloud-print-proxy') == 'true') {
+      if (!cr.isChromeOS) {
         $('cloudPrintProxySetupButton').onclick = function(event) {
           if ($('cloudPrintProxyManageButton').style.display == 'none') {
             // Disable the button, set it's text to the intermediate state.
@@ -200,9 +203,20 @@ var OptionsPage = options.OptionsPage;
   };
 
   // Set the download path.
-  AdvancedOptions.SetDownloadLocationPath = function(path) {
+  AdvancedOptions.SetDownloadLocationPath = function(path, disabled) {
     if (!cr.isChromeOS)
       $('downloadLocationPath').value = path;
+      $('downloadLocationChangeButton').disabled = disabled;
+  };
+
+  // Set the prompt for download checkbox.
+  AdvancedOptions.SetPromptForDownload = function(checked, disabled) {
+    $('promptForDownload').checked = checked;
+    $('promptForDownload').disabled = disabled;
+    if (disabled)
+      $('promptForDownloadLabel').className = 'informational-text';
+    else
+      $('promptForDownloadLabel').className = '';
   };
 
   // Set the enabled state for the autoOpenFileTypesResetToDefault button.

@@ -26,9 +26,6 @@ class TabStripController {
   // Returns true if |index| is a valid model index.
   virtual bool IsValidIndex(int index) const = 0;
 
-  // Returns the selected index, in terms of the model.
-  virtual int GetSelectedIndex() const = 0;
-
   // Returns true if the selected index is selected.
   virtual bool IsTabSelected(int index) const = 0;
 
@@ -48,7 +45,7 @@ class TabStripController {
   virtual void CloseTab(int index) = 0;
 
   // Shows a context menu for the tab at the specified point in screen coords.
-  virtual void ShowContextMenu(BaseTab* tab, const gfx::Point& p) = 0;
+  virtual void ShowContextMenuForTab(BaseTab* tab, const gfx::Point& p) = 0;
 
   // Updates the loading animations of all the tabs.
   virtual void UpdateLoadingAnimations() = 0;

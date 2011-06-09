@@ -7,9 +7,9 @@
 #include "base/command_line.h"
 #include "base/hash_tables.h"
 #include "base/message_loop.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/common/chrome_switches.h"
+#include "content/browser/browser_thread.h"
 
 namespace chromeos {
 
@@ -68,11 +68,11 @@ class CryptohomeLibraryImpl : public CryptohomeLibrary {
                   const bool create_if_missing,
                   Delegate* d) {
     return CacheCallback(
-        chromeos::CryptohomeAsyncMount(user_email.c_str(),
-                                       passhash.c_str(),
-                                       create_if_missing,
-                                       "",
-                                       std::vector<std::string>()),
+        chromeos::CryptohomeAsyncMountSafe(user_email.c_str(),
+                                           passhash.c_str(),
+                                           create_if_missing,
+                                           false,
+                                           NULL),
         d,
         "Couldn't initiate async mount of cryptohome.");
   }
@@ -107,7 +107,27 @@ class CryptohomeLibraryImpl : public CryptohomeLibrary {
   }
 
   CryptohomeBlob GetSystemSalt() {
-    return chromeos::CryptohomeGetSystemSalt();
+    CryptohomeBlob system_salt;
+    char* salt_buf;
+    int salt_len;
+    bool result = chromeos::CryptohomeGetSystemSaltSafe(&salt_buf, &salt_len);
+    if (result) {
+      system_salt.resize(salt_len);
+      if ((int)system_salt.size() == salt_len) {
+        memcpy(&system_salt[0], static_cast<const void*>(salt_buf),
+               salt_len);
+      } else {
+        system_salt.clear();
+      }
+    }
+    return system_salt;
+  }
+
+  bool AsyncDoAutomaticFreeDiskSpaceControl(Delegate* d) {
+    return CacheCallback(
+        chromeos::CryptohomeAsyncDoAutomaticFreeDiskSpaceControl(),
+        d,
+        "Couldn't do automatic free disk space control.");
   }
 
   bool TpmIsReady() {
@@ -127,7 +147,11 @@ class CryptohomeLibraryImpl : public CryptohomeLibrary {
   }
 
   bool TpmGetPassword(std::string* password) {
-    return chromeos::CryptohomeTpmGetPassword(password);
+    char *password_buf;
+    bool result = chromeos::CryptohomeTpmGetPasswordSafe(&password_buf);
+    *password = password_buf;
+    chromeos::CryptohomeFreeString(password_buf);
+    return result;
   }
 
   void TpmCanAttemptOwnership() {
@@ -151,13 +175,14 @@ class CryptohomeLibraryImpl : public CryptohomeLibrary {
   }
 
   void Dispatch(const chromeos::CryptohomeAsyncCallStatus& event) {
-    if (!callback_map_[event.async_id]) {
+    const CallbackMap::iterator callback = callback_map_.find(event.async_id);
+    if (callback == callback_map_.end()) {
       LOG(ERROR) << "Received signal for unknown async_id " << event.async_id;
       return;
     }
-    callback_map_[event.async_id]->OnComplete(event.return_status,
-                                              event.return_code);
-    callback_map_[event.async_id] = NULL;
+    if (callback->second)
+      callback->second->OnComplete(event.return_status, event.return_code);
+    callback_map_.erase(callback);
   }
 
   bool CacheCallback(int async_id, Delegate* d, const char* error) {
@@ -273,6 +298,13 @@ class CryptohomeLibraryStubImpl : public CryptohomeLibrary {
     return salt;
   }
 
+  bool AsyncDoAutomaticFreeDiskSpaceControl(Delegate* callback) {
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
+        NewRunnableFunction(&DoStubCallback, callback));
+    return true;
+  }
+
   // Tpm begin ready after 20-th call.
   bool TpmIsReady() {
     static int counter = 0;
@@ -302,7 +334,8 @@ class CryptohomeLibraryStubImpl : public CryptohomeLibrary {
 
  private:
   static void DoStubCallback(Delegate* callback) {
-    callback->OnComplete(true, kCryptohomeMountErrorNone);
+    if (callback)
+      callback->OnComplete(true, kCryptohomeMountErrorNone);
   }
   DISALLOW_COPY_AND_ASSIGN(CryptohomeLibraryStubImpl);
 };

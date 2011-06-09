@@ -14,11 +14,11 @@
 #include "chrome/browser/content_setting_bubble_model.h"
 #include "chrome/browser/plugin_updater.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/views/browser_dialogs.h"
 #include "chrome/browser/ui/views/info_bubble.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "views/controls/button/native_button.h"
@@ -283,7 +283,8 @@ void ContentSettingBubbleContents::InitControlLayout() {
   // Insert a column set to indent the domain list.
   views::ColumnSet* indented_single_column_set =
       layout->AddColumnSet(indented_single_column_set_id);
-  indented_single_column_set->AddPaddingColumn(0, kPanelHorizIndentation);
+  indented_single_column_set->AddPaddingColumn(
+      0, views::kPanelHorizIndentation);
   indented_single_column_set->AddColumn(GridLayout::LEADING, GridLayout::FILL,
                                         1, GridLayout::USE_PREF, 0, 0);
   for (std::vector<ContentSettingBubbleModel::DomainList>::const_iterator i =

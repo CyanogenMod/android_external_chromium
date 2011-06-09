@@ -103,7 +103,7 @@ gfx::Rect BorderContents::GetMonitorBounds(const gfx::Rect& rect) {
   return monitor_provider->GetMonitorWorkAreaMatching(rect);
 }
 
-void BorderContents::Paint(gfx::Canvas* canvas) {
+void BorderContents::OnPaint(gfx::Canvas* canvas) {
   // The border of this view creates an anti-aliased round-rect region for the
   // contents, which we need to fill with the background color.
   // NOTE: This doesn't handle an arrow location of "NONE", which has square top
@@ -124,7 +124,7 @@ void BorderContents::Paint(gfx::Canvas* canvas) {
   // Now we paint the border, so it will be alpha-blended atop the contents.
   // This looks slightly better in the corners than drawing the contents atop
   // the border.
-  PaintBorder(canvas);
+  OnPaintBorder(canvas);
 }
 
 void BorderContents::MirrorArrowIfOffScreen(
@@ -239,6 +239,12 @@ LRESULT BorderWidget::OnMouseActivate(HWND window,
 }
 #endif
 
+// InfoBubbleDelegate ---------------------------------------------------------
+
+std::wstring InfoBubbleDelegate::accessible_name() {
+  return L"";
+}
+
 // InfoBubble -----------------------------------------------------------------
 
 // static
@@ -247,10 +253,10 @@ InfoBubble* InfoBubble::Show(views::Widget* parent,
                              BubbleBorder::ArrowLocation arrow_location,
                              views::View* contents,
                              InfoBubbleDelegate* delegate) {
-  InfoBubble* window = new InfoBubble;
-  window->Init(parent, position_relative_to, arrow_location,
-               contents, delegate);
-  return window;
+  InfoBubble* bubble = new InfoBubble;
+  bubble->InitBubble(parent, position_relative_to, arrow_location,
+                     contents, delegate);
+  return bubble;
 }
 
 #if defined(OS_CHROMEOS)
@@ -262,11 +268,11 @@ InfoBubble* InfoBubble::ShowFocusless(
     views::View* contents,
     InfoBubbleDelegate* delegate,
     bool show_while_screen_is_locked) {
-  InfoBubble* window = new InfoBubble(views::WidgetGtk::TYPE_POPUP,
+  InfoBubble* bubble = new InfoBubble(views::WidgetGtk::TYPE_POPUP,
                                       show_while_screen_is_locked);
-  window->Init(parent, position_relative_to, arrow_location,
-               contents, delegate);
-  return window;
+  bubble->InitBubble(parent, position_relative_to, arrow_location,
+                     contents, delegate);
+  return bubble;
 }
 #endif
 
@@ -347,11 +353,11 @@ InfoBubble::InfoBubble(views::WidgetGtk::Type type,
 InfoBubble::~InfoBubble() {
 }
 
-void InfoBubble::Init(views::Widget* parent,
-                      const gfx::Rect& position_relative_to,
-                      BubbleBorder::ArrowLocation arrow_location,
-                      views::View* contents,
-                      InfoBubbleDelegate* delegate) {
+void InfoBubble::InitBubble(views::Widget* parent,
+                            const gfx::Rect& position_relative_to,
+                            BubbleBorder::ArrowLocation arrow_location,
+                            views::View* contents,
+                            InfoBubbleDelegate* delegate) {
   delegate_ = delegate;
   position_relative_to_ = position_relative_to;
   arrow_location_ = arrow_location;

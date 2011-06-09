@@ -9,10 +9,10 @@
 #include "base/file_path.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/file_path_watcher/file_path_watcher.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
+#include "content/browser/browser_thread.h"
 #include "googleurl/src/gurl.h"
 
 class UserStyleSheetLoader;
@@ -25,7 +25,6 @@ class UserStyleSheetWatcher
       public NotificationObserver {
  public:
   explicit UserStyleSheetWatcher(const FilePath& profile_path);
-  virtual ~UserStyleSheetWatcher();
 
   void Init();
 
@@ -37,6 +36,11 @@ class UserStyleSheetWatcher
                        const NotificationDetails& details);
 
  private:
+  friend struct BrowserThread::DeleteOnThread<BrowserThread::UI>;
+  friend class DeleteTask<UserStyleSheetWatcher>;
+
+  virtual ~UserStyleSheetWatcher();
+
   // The directory containing User StyleSheets/Custom.css.
   FilePath profile_path_;
 

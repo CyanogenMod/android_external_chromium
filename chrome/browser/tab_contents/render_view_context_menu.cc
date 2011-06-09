@@ -19,7 +19,6 @@
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/child_process_security_policy.h"
 #include "chrome/browser/debugger/devtools_manager.h"
 #include "chrome/browser/debugger/devtools_window.h"
 #include "chrome/browser/download/download_manager.h"
@@ -33,13 +32,10 @@
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/spellcheck_host.h"
 #include "chrome/browser/spellchecker_platform_engine.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/translate/translate_prefs.h"
 #include "chrome/browser/translate/translate_manager.h"
 #include "chrome/common/chrome_constants.h"
@@ -47,6 +43,10 @@
 #include "chrome/common/content_restriction.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/child_process_security_policy.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/navigation_entry.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/generated_resources.h"
 #include "net/base/escape.h"
 #include "net/url_request/url_request.h"
@@ -362,7 +362,7 @@ void RenderViewContextMenu::RecursivelyAppendExtensionItems(
       ExtensionMenuItem::List children =
           GetRelevantExtensionItems(item->children(), params_,
                                     profile_, can_cross_incognito);
-      if (children.size() == 0) {
+      if (children.empty()) {
         menu_model->AddItem(menu_id, title);
       } else {
         ui::SimpleMenuModel* submenu = new ui::SimpleMenuModel(this);
@@ -715,12 +715,12 @@ void RenderViewContextMenu::AppendEditableItems() {
     menu_model_.AddItem(IDC_SPELLCHECK_SUGGESTION_0 + static_cast<int>(i),
                         params_.dictionary_suggestions[i]);
   }
-  if (params_.dictionary_suggestions.size() > 0)
+  if (!params_.dictionary_suggestions.empty())
     menu_model_.AddSeparator();
 
   // If word is misspelled, give option for "Add to dictionary"
   if (!params_.misspelled_word.empty()) {
-    if (params_.dictionary_suggestions.size() == 0) {
+    if (params_.dictionary_suggestions.empty()) {
       menu_model_.AddItem(0,
           l10n_util::GetStringUTF16(
               IDS_CONTENT_CONTEXT_NO_SPELLING_SUGGESTIONS));

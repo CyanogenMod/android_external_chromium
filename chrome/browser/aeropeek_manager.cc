@@ -18,18 +18,18 @@
 #include "chrome/browser/app_icon_win.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_thread.h"
-#include "chrome/browser/renderer_host/backing_store.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_delegate.h"
-#include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tab_contents/thumbnail_generator.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/installer/util/browser_distribution.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/backing_store.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_delegate.h"
+#include "content/browser/tab_contents/tab_contents_view.h"
 #include "skia/ext/image_operations.h"
 #include "skia/ext/platform_canvas.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -1034,6 +1034,19 @@ void AeroPeekManager::DeleteAeroPeekWindow(int tab_id) {
     }
   }
 }
+
+void AeroPeekManager::DeleteAeroPeekWindowForTab(TabContentsWrapper* tab) {
+  // Delete the AeroPeekWindow object associated with this tab and all its
+  // resources. (AeroPeekWindow::Destory() also removes this tab from the tab
+  // list of Windows.)
+  AeroPeekWindow* window = GetAeroPeekWindow(GetTabID(tab->tab_contents()));
+  if (!window)
+    return;
+
+  window->Destroy();
+  DeleteAeroPeekWindow(GetTabID(tab->tab_contents()));
+}
+
 AeroPeekWindow* AeroPeekManager::GetAeroPeekWindow(int tab_id) const {
   size_t size = tab_list_.size();
   for (std::list<AeroPeekWindow*>::const_iterator i = tab_list_.begin();
@@ -1043,6 +1056,21 @@ AeroPeekWindow* AeroPeekManager::GetAeroPeekWindow(int tab_id) const {
       return window;
   }
   return NULL;
+}
+
+void AeroPeekManager::CreateAeroPeekWindowIfNecessary(TabContentsWrapper* tab,
+                                                      bool foreground) {
+  if (GetAeroPeekWindow(GetTabID(tab->tab_contents())))
+    return;
+
+  AeroPeekWindow* window =
+      new AeroPeekWindow(application_window_,
+                         this,
+                         GetTabID(tab->tab_contents()),
+                         foreground,
+                         tab->tab_contents()->GetTitle(),
+                         tab->tab_contents()->GetFavIcon());
+  tab_list_.push_back(window);
 }
 
 TabContents* AeroPeekManager::GetTabContents(int tab_id) const {
@@ -1069,60 +1097,26 @@ void AeroPeekManager::TabInsertedAt(TabContentsWrapper* contents,
   if (!contents)
     return;
 
-  // If there are not any AeroPeekWindow objects associated with the given
-  // tab, Create a new AeroPeekWindow object and add it to the list.
-  if (GetAeroPeekWindow(GetTabID(contents->tab_contents())))
-    return;
-
-  AeroPeekWindow* window =
-      new AeroPeekWindow(application_window_,
-                         this,
-                         GetTabID(contents->tab_contents()),
-                         foreground,
-                         contents->tab_contents()->GetTitle(),
-                         contents->tab_contents()->GetFavIcon());
-  if (!window)
-    return;
-
-  tab_list_.push_back(window);
-}
-
-void AeroPeekManager::TabClosingAt(TabStripModel* tab_strip_model,
-                                   TabContentsWrapper* contents,
-                                   int index) {
-  if (!contents)
-    return;
-
-  // |tab_strip_model| is NULL when this is being called from TabDetachedAt
-  // below.
-  // Delete the AeroPeekWindow object associated with this tab and all its
-  // resources. (AeroPeekWindow::Destory() also removes this tab from the tab
-  // list of Windows.)
-  AeroPeekWindow* window =
-      GetAeroPeekWindow(GetTabID(contents->tab_contents()));
-  if (!window)
-    return;
-
-  window->Destroy();
-  DeleteAeroPeekWindow(GetTabID(contents->tab_contents()));
+  CreateAeroPeekWindowIfNecessary(contents, foreground);
 }
 
 void AeroPeekManager::TabDetachedAt(TabContentsWrapper* contents, int index) {
   if (!contents)
     return;
 
-  // Same as TabClosingAt(), we remove this tab from the tab list and delete
-  // its AeroPeekWindow.
   // Chrome will call TabInsertedAt() when this tab is inserted to another
   // TabStrip. We will re-create an AeroPeekWindow object for this tab and
   // re-add it to the tab list there.
-  TabClosingAt(NULL, contents, index);
+  DeleteAeroPeekWindowForTab(contents);
 }
 
 void AeroPeekManager::TabSelectedAt(TabContentsWrapper* old_contents,
                                     TabContentsWrapper* new_contents,
                                     int index,
                                     bool user_gesture) {
+  if (old_contents == new_contents)
+    return;
+
   // Deactivate the old window in the thumbnail list and activate the new one
   // to synchronize the thumbnail list with TabStrip.
   if (old_contents) {
@@ -1138,6 +1132,18 @@ void AeroPeekManager::TabSelectedAt(TabContentsWrapper* old_contents,
     if (new_window)
       new_window->Activate();
   }
+}
+
+void AeroPeekManager::TabReplacedAt(TabStripModel* tab_strip_model,
+                                    TabContentsWrapper* old_contents,
+                                    TabContentsWrapper* new_contents,
+                                    int index) {
+  DeleteAeroPeekWindowForTab(old_contents);
+
+  CreateAeroPeekWindowIfNecessary(new_contents,
+                                  (index == tab_strip_model->selected_index()));
+  // We don't need to update the selection as if |new_contents| is selected the
+  // TabStripModel will send TabSelectedAt.
 }
 
 void AeroPeekManager::TabMoved(TabContentsWrapper* contents,

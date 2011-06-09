@@ -33,11 +33,7 @@ namespace cricket {
 // TODO: according to thaloun, HAVE_GIPSVIDEO will always
 // be false, so we can get rid of it.
 
-MediaEngine* MediaEngine::Create(
-#ifdef USE_TALK_SOUND
-    SoundSystemFactory *factory
-#endif
-    ) {
+MediaEngine* MediaEngine::Create() {
   return new NullMediaEngine();
 }
 

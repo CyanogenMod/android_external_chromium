@@ -12,13 +12,15 @@
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
 #include "chrome/browser/command_updater.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/views/autocomplete/autocomplete_popup_contents_view.h"
+#include "chrome/browser/ui/views/autocomplete/touch_autocomplete_popup_contents_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/common/notification_service.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "googleurl/src/gurl.h"
 #include "grit/generated_resources.h"
 #include "net/base/escape.h"
+#include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/font.h"
 #include "views/border.h"
@@ -39,26 +41,26 @@ class AutocompleteTextfield : public views::Textfield {
   }
 
   // views::View implementation
-  virtual void DidGainFocus() {
-    views::Textfield::DidGainFocus();
+  virtual void OnFocus() OVERRIDE {
+    views::Textfield::OnFocus();
     autocomplete_edit_view_->HandleFocusIn();
   }
 
-  virtual void WillLoseFocus() {
-    views::Textfield::WillLoseFocus();
+  virtual void OnBlur() OVERRIDE {
+    views::Textfield::OnBlur();
     autocomplete_edit_view_->HandleFocusOut();
   }
 
-  virtual bool OnKeyPressed(const views::KeyEvent& e) {
+  virtual bool OnKeyPressed(const views::KeyEvent& e) OVERRIDE {
     bool handled = views::Textfield::OnKeyPressed(e);
     return autocomplete_edit_view_->HandleAfterKeyEvent(e, handled) || handled;
   }
 
-  virtual bool OnKeyReleased(const views::KeyEvent& e) {
+  virtual bool OnKeyReleased(const views::KeyEvent& e) OVERRIDE {
     return autocomplete_edit_view_->HandleKeyReleaseEvent(e);
   }
 
-  virtual bool IsFocusable() const {
+  virtual bool IsFocusable() const OVERRIDE {
     // Bypass Textfield::IsFocusable. The omnibox in popup window requires
     // focus in order for text selection to work.
     return views::View::IsFocusable();
@@ -110,8 +112,7 @@ AutocompleteEditViewViews::AutocompleteEditViewViews(
     bool popup_window_mode,
     const views::View* location_bar)
     : model_(new AutocompleteEditModel(this, controller, profile)),
-      popup_view_(new AutocompletePopupContentsView(
-          gfx::Font(), this, model_.get(), profile, location_bar)),
+      popup_view_(CreatePopupView(profile, location_bar)),
       controller_(controller),
       toolbar_model_(toolbar_model),
       command_updater_(command_updater),
@@ -119,7 +120,6 @@ AutocompleteEditViewViews::AutocompleteEditViewViews(
       security_level_(ToolbarModel::NONE),
       delete_was_pressed_(false),
       delete_at_end_pressed_(false) {
-  model_->SetPopupModel(popup_view_->GetModel());
   set_border(views::Border::CreateEmptyBorder(kAutocompleteVerticalMargin, 0,
                                               kAutocompleteVerticalMargin, 0));
 }
@@ -184,9 +184,8 @@ bool AutocompleteEditViewViews::HandleAfterKeyEvent(
     // If shift+del didn't change the text, we let this delete an entry from
     // the popup.  We can't check to see if the IME handled it because even if
     // nothing is selected, the IME or the TextView still report handling it.
-    AutocompletePopupModel* popup_model = popup_view_->GetModel();
-    if (popup_model->IsOpen())
-      popup_model->TryDeletingCurrentItem();
+    if (model_->popup_model()->IsOpen())
+      model_->popup_model()->TryDeletingCurrentItem();
   } else if (!handled && event.key_code() == ui::VKEY_UP) {
     model_->OnUpOrDownKeyPressed(-1);
     handled = true;
@@ -243,7 +242,7 @@ void AutocompleteEditViewViews::HandleFocusIn() {
 void AutocompleteEditViewViews::HandleFocusOut() {
   // TODO(oshima): we don't have native view. This requires
   // further refactoring.
-  controller_->OnAutocompleteLosingFocus(NULL);
+  model_->OnWillKillFocus(NULL);
   // Close the popup.
   ClosePopup();
   // Tell the model to reset itself.
@@ -432,10 +431,7 @@ void AutocompleteEditViewViews::UpdatePopup() {
 }
 
 void AutocompleteEditViewViews::ClosePopup() {
-  if (popup_view_->GetModel()->IsOpen())
-    controller_->OnAutocompleteWillClosePopup();
-
-  popup_view_->GetModel()->StopAutocomplete();
+  model_->StopAutocomplete();
 }
 
 void AutocompleteEditViewViews::SetFocus() {
@@ -512,7 +508,7 @@ bool AutocompleteEditViewViews::OnAfterPossibleChange() {
   bool something_changed = model_->OnAfterPossibleChange(new_text,
       selection_differs, text_changed_, just_deleted_text, at_end_of_edit);
 
-  // If only selection was changed, we don't need to call |controller_|'s
+  // If only selection was changed, we don't need to call |model_|'s
   // OnChanged() method, which is called in TextChanged().
   // But we still need to call EmphasizeURLComponents() to make sure the text
   // attributes are updated correctly.
@@ -522,7 +518,7 @@ bool AutocompleteEditViewViews::OnAfterPossibleChange() {
     EmphasizeURLComponents();
   } else if (delete_was_pressed_ && at_end_of_edit) {
     delete_at_end_pressed_ = true;
-    controller_->OnChanged();
+    model_->OnChanged();
   }
   delete_was_pressed_ = false;
 
@@ -559,6 +555,12 @@ views::View* AutocompleteEditViewViews::AddToView(views::View* parent) {
   parent->AddChildView(this);
   AddChildView(textfield_);
   return this;
+}
+
+int AutocompleteEditViewViews::OnPerformDrop(
+    const views::DropTargetEvent& event) {
+  NOTIMPLEMENTED();
+  return ui::DragDropTypes::DRAG_NONE;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -623,7 +625,7 @@ void AutocompleteEditViewViews::EmphasizeURLComponents() {
 
 void AutocompleteEditViewViews::TextChanged() {
   EmphasizeURLComponents();
-  controller_->OnChanged();
+  model_->OnChanged();
 }
 
 void AutocompleteEditViewViews::SetTextAndSelectedRange(
@@ -642,4 +644,15 @@ string16 AutocompleteEditViewViews::GetSelectedText() const {
 void AutocompleteEditViewViews::SelectRange(size_t caret, size_t end) {
   const views::TextRange range(caret, end);
   textfield_->SelectRange(range);
+}
+
+AutocompletePopupView* AutocompleteEditViewViews::CreatePopupView(
+    Profile* profile,
+    const View* location_bar) {
+#if defined(TOUCH_UI)
+  return new TouchAutocompletePopupContentsView(
+#else
+  return new AutocompletePopupContentsView(
+#endif
+      gfx::Font(), this, model_.get(), profile, location_bar);
 }

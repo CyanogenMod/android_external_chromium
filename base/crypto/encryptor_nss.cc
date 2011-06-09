@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,9 @@
 
 namespace base {
 
-Encryptor::Encryptor() {
+Encryptor::Encryptor()
+    : key_(NULL),
+      mode_(CBC) {
   EnsureNSSInit();
 }
 
@@ -83,7 +85,7 @@ bool Encryptor::Encrypt(const std::string& plaintext, std::string* ciphertext) {
 }
 
 bool Encryptor::Decrypt(const std::string& ciphertext, std::string* plaintext) {
-  if (ciphertext.size() == 0)
+  if (ciphertext.empty())
     return false;
 
   ScopedPK11Context context(PK11_CreateContextBySymKey(CKM_AES_CBC_PAD,

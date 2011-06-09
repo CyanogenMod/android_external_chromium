@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,19 +11,21 @@
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/navigation_controller.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/chromeos/cros/cros_library.h"
+#include "chrome/browser/chromeos/cros/network_library.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/jstemplate_builder.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/tab_contents/navigation_controller.h"
+#include "content/browser/tab_contents/navigation_entry.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 #include "grit/browser_resources.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -53,7 +55,10 @@ void OfflineLoadPage::Show(int process_host_id, int render_view_id,
   } else {
     TabContents* tab_contents =
         tab_util::GetTabContentsByID(process_host_id, render_view_id);
-    DCHECK(tab_contents);
+    // There is a chance that the tab is closed after we decided to show
+    // offline and before we actually show the offline page.
+    if (!tab_contents)
+      return;
     (new OfflineLoadPage(tab_contents, url, delegate))->Show();
   }
 }
@@ -72,10 +77,6 @@ OfflineLoadPage::OfflineLoadPage(TabContents* tab_contents,
 
 std::string OfflineLoadPage::GetHTMLContents() {
   DictionaryValue strings;
-  // Toggle Cancel button.
-  strings.SetString("display_cancel",
-                    tab()->controller().CanGoBack() ? "inline" : "none");
-
   int64 time_to_wait = std::max(
       static_cast<int64>(0),
       kMaxBlankPeriod -
@@ -83,11 +84,16 @@ std::string OfflineLoadPage::GetHTMLContents() {
   // Set the timeout to show the page.
   strings.SetInteger("timeToWait", static_cast<int>(time_to_wait));
   // Button labels
-  SetString(&strings, "load_button", IDS_OFFLINE_LOAD_BUTTON);
-  SetString(&strings, "cancel_button", IDS_OFFLINE_CANCEL_BUTTON);
-
   SetString(&strings, "heading", IDS_OFFLINE_LOAD_HEADLINE);
+  SetString(&strings, "try_loading", IDS_OFFLINE_TRY_LOADING);
   SetString(&strings, "network_settings", IDS_OFFLINE_NETWORK_SETTINGS);
+
+  // Activation
+  SetString(&strings, "activation_heading", IDS_OFFLINE_ACTIVATION_HEADLINE);
+  SetString(&strings, "activation_msg", IDS_OFFLINE_ACTIVATION_MESSAGE);
+  SetString(&strings, "activation_button", IDS_OFFLINE_ACTIVATION_BUTTON);
+  strings.SetString("display_activation",
+                    ShowActivationMessage() ? "block" : "none");
 
   bool rtl = base::i18n::IsRTL();
   strings.SetString("textdirection", rtl ? "rtl" : "ltr");
@@ -170,6 +176,10 @@ void OfflineLoadPage::CommandReceived(const std::string& cmd) {
     Browser* browser = BrowserList::GetLastActive();
     DCHECK(browser);
     browser->ShowOptionsTab(chrome::kInternetOptionsSubPage);
+  } else if (command == "open_activate_broadband") {
+    Browser* browser = BrowserList::GetLastActive();
+    DCHECK(browser);
+    browser->OpenMobilePlanTabAndActivate();
   } else {
     LOG(WARNING) << "Unknown command:" << cmd;
   }
@@ -207,6 +217,22 @@ void OfflineLoadPage::Observe(NotificationType type,
   } else {
     InterstitialPage::Observe(type, source, details);
   }
+}
+
+bool OfflineLoadPage::ShowActivationMessage() {
+  CrosLibrary* cros = CrosLibrary::Get();
+  if (!cros || !cros->GetNetworkLibrary()->cellular_available())
+    return false;
+
+  const CellularNetworkVector& cell_networks =
+      cros->GetNetworkLibrary()->cellular_networks();
+  for (size_t i = 0; i < cell_networks.size(); ++i) {
+    chromeos::ActivationState activation_state =
+        cell_networks[i]->activation_state();
+    if (activation_state == ACTIVATION_STATE_ACTIVATED)
+      return false;
+  }
+  return true;
 }
 
 }  // namespace chromeos

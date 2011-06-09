@@ -205,9 +205,6 @@ class BackendImpl : public Backend {
   void OnRead(int bytes);
   void OnWrite(int bytes);
 
-  // Keeps track of the time needed to complete some IO operations.
-  void OnOperationCompleted(base::TimeDelta elapsed_time);
-
   // Timer callback to calculate usage statistics.
   void OnStatsTimer();
 
@@ -236,9 +233,6 @@ class BackendImpl : public Backend {
   // Runs the provided task on the cache thread. The task will be automatically
   // deleted after it runs.
   int RunTaskForTest(Task* task, CompletionCallback* callback);
-
-  // Starts or stops throttling requests.
-  void ThrottleRequestsForTest(bool throttle);
 
   // Trims an entry (all if |empty| is true) from the list of deleted
   // entries. This method should be called directly on the cache thread.
@@ -282,9 +276,9 @@ class BackendImpl : public Backend {
   void RestartCache(bool failure);
   void PrepareForRestart();
 
-  // Creates a new entry object and checks to see if it is dirty. Returns zero
-  // on success, or a disk_cache error on failure.
-  int NewEntry(Addr address, EntryImpl** entry, bool* dirty);
+  // Creates a new entry object. Returns zero on success, or a disk_cache error
+  // on failure.
+  int NewEntry(Addr address, EntryImpl** entry);
 
   // Returns a given entry from the cache. The entry to match is determined by
   // key and hash, and the returned entry may be the matched one or it's parent
@@ -313,7 +307,6 @@ class BackendImpl : public Backend {
   EntryImpl* ResurrectEntry(EntryImpl* deleted_entry);
 
   void DestroyInvalidEntry(EntryImpl* entry);
-  void DestroyInvalidEntryFromEnumeration(EntryImpl* entry);
 
   // Handles the used storage count.
   void AddStorageSize(int32 bytes);

@@ -38,11 +38,12 @@ class TouchTab : public BaseTab {
   static gfx::Size GetMinimumUnselectedSize();
 
  protected:
-  virtual const gfx::Rect& title_bounds() const { return title_bounds_; }
+  virtual const gfx::Rect& GetTitleBounds() const;
+  virtual const gfx::Rect& GetIconBounds() const;
 
  private:
   // Overridden from views::View:
-  virtual void Paint(gfx::Canvas* canvas);
+  virtual void OnPaint(gfx::Canvas* canvas);
   virtual void Layout();
   virtual bool HasHitTestMask() const;
   virtual void GetHitTestMask(gfx::Path* path) const;

@@ -11,9 +11,9 @@
 #include "base/basictypes.h"
 #include "base/crypto/rsa_private_key.h"
 #include "base/file_path.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/login_library.h"
 #include "chrome/browser/chromeos/login/owner_key_utils.h"
+#include "content/browser/browser_thread.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -24,11 +24,6 @@ namespace chromeos {
 class MockKeyUtils : public OwnerKeyUtils {
  public:
   MockKeyUtils() {}
-  MOCK_METHOD0(GenerateKeyPair, RSAPrivateKey*());
-  MOCK_METHOD2(ExportPublicKeyViaDbus, bool(RSAPrivateKey* pair,
-                                            LoginLibrary::Delegate*));
-  MOCK_METHOD2(ExportPublicKeyToFile, bool(RSAPrivateKey* pair,
-                                           const FilePath& key_file));
   MOCK_METHOD2(ImportPublicKey, bool(const FilePath& key_file,
                                      std::vector<uint8>* output));
   MOCK_METHOD3(Verify, bool(const std::string& data,
@@ -39,29 +34,8 @@ class MockKeyUtils : public OwnerKeyUtils {
                           base::RSAPrivateKey* key));
   MOCK_METHOD1(FindPrivateKey, RSAPrivateKey*(const std::vector<uint8>& key));
   MOCK_METHOD0(GetOwnerKeyFilePath, FilePath());
-
-  // To simulate doing a LoginLibrary::SetOwnerKey call
-  static void SetOwnerKeyCallback(LoginLibrary::Delegate* callback,
-                                  bool value) {
-    callback->OnComplete(value);
-  }
-
-  static bool ExportPublicKeyViaDbusWin(RSAPrivateKey* key,
-                                        LoginLibrary::Delegate* d) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        NewRunnableFunction(&SetOwnerKeyCallback, d, true));
-    return true;
-  }
-
-  static bool ExportPublicKeyViaDbusFail(RSAPrivateKey* key,
-                                         LoginLibrary::Delegate* d) {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        NewRunnableFunction(&SetOwnerKeyCallback, d, false));
-    return false;
-  }
-
+  MOCK_METHOD2(ExportPublicKeyToFile, bool(base::RSAPrivateKey* pair,
+                                           const FilePath& key_file));
  protected:
   virtual ~MockKeyUtils() {}
 

@@ -13,14 +13,14 @@
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_options_menu_model.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/ui/views/bubble_border.h"
 #include "chrome/browser/ui/views/notifications/balloon_view_host.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_widget_host_view.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "ui/base/animation/slide_animation.h"
@@ -211,7 +211,7 @@ void BalloonViewImpl::RepositionToBalloon() {
   anim_frame_end_ = gfx::Rect(
       balloon_->GetPosition().x(), balloon_->GetPosition().y(),
       GetTotalWidth(), GetTotalHeight());
-  frame_container_->GetBounds(&anim_frame_start_, false);
+  anim_frame_start_ = frame_container_->GetClientAreaScreenBounds();
   animation_.reset(new ui::SlideAnimation(this));
   animation_->Show();
 }
@@ -333,7 +333,7 @@ void BalloonViewImpl::Show(Balloon* balloon) {
                                                Widget::AcceptEvents,
                                                Widget::DeleteOnDestroy,
                                                Widget::DontMirrorOriginInRTL);
-  frame_container_->SetWidgetDelegate(this);
+  frame_container_->set_widget_delegate(this);
   frame_container_->SetAlwaysOnTop(true);
   frame_container_->Init(NULL, balloon_rect);
   frame_container_->SetContentsView(this);
@@ -464,15 +464,14 @@ gfx::Rect BalloonViewImpl::GetContentsRectangle() const {
 
   gfx::Size content_size = balloon_->content_size();
   gfx::Point offset = GetContentsOffset();
-  gfx::Rect frame_rect;
-  frame_container_->GetBounds(&frame_rect, true);
+  gfx::Rect frame_rect = frame_container_->GetWindowScreenBounds();
   return gfx::Rect(frame_rect.x() + offset.x(),
                    frame_rect.y() + GetShelfHeight() + offset.y(),
                    content_size.width(),
                    content_size.height());
 }
 
-void BalloonViewImpl::Paint(gfx::Canvas* canvas) {
+void BalloonViewImpl::OnPaint(gfx::Canvas* canvas) {
   DCHECK(canvas);
   // Paint the menu bar area white, with proper rounded corners.
   gfx::Path path;
@@ -490,8 +489,8 @@ void BalloonViewImpl::Paint(gfx::Canvas* canvas) {
   canvas->FillRectInt(kControlBarSeparatorLineColor,
       kLeftMargin, 1 + GetShelfHeight(), line_width, 1);
 
-  View::Paint(canvas);
-  PaintBorder(canvas);
+  View::OnPaint(canvas);
+  OnPaintBorder(canvas);
 }
 
 void BalloonViewImpl::Observe(NotificationType type,

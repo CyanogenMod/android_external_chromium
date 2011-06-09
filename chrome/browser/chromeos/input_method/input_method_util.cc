@@ -271,37 +271,6 @@ struct CompareLanguageCodesByLanguageName
   icu::Collator* collator_;
 };
 
-// The comparator is used for sorting input method ids by their
-// corresponding language names, using the ICU collator.
-struct CompareInputMethodIdsByLanguageName
-    : std::binary_function<const std::string&, const std::string&, bool> {
-  CompareInputMethodIdsByLanguageName(
-      icu::Collator* collator,
-      const std::map<std::string, std::string>& id_to_language_code_map)
-      : comparator_(collator),
-        id_to_language_code_map_(id_to_language_code_map) {
-  }
-
-  bool operator()(const std::string& s1, const std::string& s2) const {
-    std::string language_code_1;
-    std::map<std::string, std::string>::const_iterator iter =
-        id_to_language_code_map_.find(s1);
-    if (iter != id_to_language_code_map_.end()) {
-      language_code_1 = iter->second;
-    }
-    std::string language_code_2;
-    iter = id_to_language_code_map_.find(s2);
-    if (iter != id_to_language_code_map_.end()) {
-      language_code_2 = iter->second;
-    }
-    return comparator_(language_code_1, language_code_2);
-  }
-
- private:
-  const CompareLanguageCodesByLanguageName comparator_;
-  const std::map<std::string, std::string>& id_to_language_code_map_;
-};
-
 bool GetLocalizedString(
     const std::string& english_string, string16 *out_string) {
   DCHECK(out_string);
@@ -515,29 +484,6 @@ void SortLanguageCodesByNames(std::vector<std::string>* language_codes) {
             CompareLanguageCodesByLanguageName(collator.get()));
 }
 
-void SortInputMethodIdsByNames(std::vector<std::string>* input_method_ids) {
-  SortInputMethodIdsByNamesInternal(
-      *(IdMaps::GetInstance()->id_to_language_code), input_method_ids);
-}
-
-void SortInputMethodIdsByNamesInternal(
-    const std::map<std::string, std::string>& id_to_language_code_map,
-    std::vector<std::string>* input_method_ids) {
-  if (!g_browser_process) {
-    return;
-  }
-  UErrorCode error = U_ZERO_ERROR;
-  icu::Locale locale(g_browser_process->GetApplicationLocale().c_str());
-  scoped_ptr<icu::Collator> collator(
-      icu::Collator::createInstance(locale, error));
-  if (U_FAILURE(error)) {
-    collator.reset();
-  }
-  std::stable_sort(input_method_ids->begin(), input_method_ids->end(),
-                   CompareInputMethodIdsByLanguageName(
-                       collator.get(), id_to_language_code_map));
-}
-
 bool GetInputMethodIdsFromLanguageCode(
     const std::string& normalized_language_code,
     InputMethodType type,
@@ -573,28 +519,113 @@ bool GetInputMethodIdsFromLanguageCodeInternal(
   return result;
 }
 
+void GetFirstLoginInputMethodIds(
+    const std::string& language_code,
+    const InputMethodDescriptor& current_input_method,
+    std::vector<std::string>* out_input_method_ids) {
+  out_input_method_ids->clear();
+
+  // First, add the current keyboard layout (one used on the login screen).
+  out_input_method_ids->push_back(current_input_method.id);
+
+  // Second, find the most popular input method associated with the
+  // current UI language. The input method IDs returned from
+  // GetInputMethodIdsFromLanguageCode() are sorted by popularity, hence
+  // our basic strategy is to pick the first one, but it's a bit more
+  // complicated as shown below.
+  std::string most_popular_id;
+  std::vector<std::string> input_method_ids;
+  // This returns the input methods sorted by popularity.
+  input_method::GetInputMethodIdsFromLanguageCode(
+      language_code, input_method::kAllInputMethods, &input_method_ids);
+  for (size_t i = 0; i < input_method_ids.size(); ++i) {
+    const std::string& input_method_id = input_method_ids[i];
+    // Pick the first one.
+    if (most_popular_id.empty())
+      most_popular_id = input_method_id;
+
+    // Check if there is one that matches the current keyboard layout, but
+    // not the current keyboard itself. This is useful if there are
+    // multiple keyboard layout choices for one input method. For
+    // instance, Mozc provides three choices: mozc (US keyboard), mozc-jp
+    // (JP keyboard), mozc-dv (Dvorak).
+    const InputMethodDescriptor* descriptor =
+        GetInputMethodDescriptorFromId(input_method_id);
+    if (descriptor &&
+        descriptor->id != current_input_method.id &&
+        descriptor->keyboard_layout == current_input_method.keyboard_layout) {
+      most_popular_id = input_method_id;
+      break;
+    }
+  }
+  // Add the most popular input method ID, if it's different from the
+  // current input method.
+  if (most_popular_id != current_input_method.id) {
+    out_input_method_ids->push_back(most_popular_id);
+  }
+}
+
+void GetLanguageCodesFromInputMethodIds(
+    const std::vector<std::string>& input_method_ids,
+    std::vector<std::string>* out_language_codes) {
+  out_language_codes->clear();
+
+  for (size_t i = 0; i < input_method_ids.size(); ++i) {
+    const std::string& input_method_id = input_method_ids[i];
+    const InputMethodDescriptor* input_method =
+        GetInputMethodDescriptorFromId(input_method_id);
+    if (!input_method) {
+      LOG(ERROR) << "Unknown input method ID: " << input_method_ids[i];
+      continue;
+    }
+    const std::string language_code =
+        GetLanguageCodeFromDescriptor(*input_method);
+    // Add it if it's not already present.
+    if (std::count(out_language_codes->begin(), out_language_codes->end(),
+                   language_code) == 0) {
+      out_language_codes->push_back(language_code);
+    }
+  }
+}
+
 void EnableInputMethods(const std::string& language_code, InputMethodType type,
                         const std::string& initial_input_method_id) {
+  std::vector<std::string> candidates;
+  // Add input methods associated with the language.
+  GetInputMethodIdsFromLanguageCode(language_code, type, &candidates);
+  // Add the hardware keyboard as well. We should always add this so users
+  // can use the hardware keyboard on the login screen and the screen locker.
+  candidates.push_back(GetHardwareInputMethodId());
+
   std::vector<std::string> input_method_ids;
-  GetInputMethodIdsFromLanguageCode(language_code, type, &input_method_ids);
-
-  // Add the hardware keyboard.
-  const std::string keyboard = GetHardwareInputMethodId();
-  if (std::count(input_method_ids.begin(), input_method_ids.end(),
-                 keyboard) == 0) {
-    input_method_ids.push_back(keyboard);
+  // First, add the initial input method ID, if it's requested, to
+  // input_method_ids, so it appears first on the list of active input
+  // methods at the input language status menu.
+  if (!initial_input_method_id.empty()) {
+    input_method_ids.push_back(initial_input_method_id);
   }
-  // First, sort the vector by input method id, then by its display name.
-  std::sort(input_method_ids.begin(), input_method_ids.end());
-  SortInputMethodIdsByNames(&input_method_ids);
 
-  // Update ibus-daemon setting.
+  // Add candidates to input_method_ids, while skipping duplicates.
+  for (size_t i = 0; i < candidates.size(); ++i) {
+    const std::string& candidate = candidates[i];
+    // Not efficient, but should be fine, as the two vectors are very
+    // short (2-5 items).
+    if (std::count(input_method_ids.begin(), input_method_ids.end(),
+                   candidate) == 0) {
+      input_method_ids.push_back(candidate);
+    }
+  }
+
+  // Update ibus-daemon setting. Here, we don't save the input method list
+  // in the user's preferences.
   ImeConfigValue value;
   value.type = ImeConfigValue::kValueTypeStringList;
   value.string_list_value = input_method_ids;
   InputMethodLibrary* library = CrosLibrary::Get()->GetInputMethodLibrary();
   library->SetImeConfig(language_prefs::kGeneralSectionName,
                         language_prefs::kPreloadEnginesConfigName, value);
+
+  // Finaly, change to the initial input method, as needed.
   if (!initial_input_method_id.empty()) {
     library->ChangeInputMethod(initial_input_method_id);
   }

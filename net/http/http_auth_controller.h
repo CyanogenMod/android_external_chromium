@@ -73,6 +73,12 @@ class HttpAuthController : public base::RefCounted<HttpAuthController>,
   virtual void DisableAuthScheme(HttpAuth::Scheme scheme);
 
  private:
+  // Actions for InvalidateCurrentHandler()
+  enum InvalidateHandlerAction {
+    INVALIDATE_HANDLER_AND_CACHED_CREDENTIALS,
+    INVALIDATE_HANDLER
+  };
+
   // So that we can mock this object.
   friend class base::RefCounted<HttpAuthController>;
 
@@ -83,8 +89,10 @@ class HttpAuthController : public base::RefCounted<HttpAuthController>,
   // cache entry's data and returns true.
   bool SelectPreemptiveAuth(const BoundNetLog& net_log);
 
-  // Invalidates the current handler, including cache.
-  void InvalidateCurrentHandler();
+  // Invalidates the current handler.  If |action| is
+  // INVALIDATE_HANDLER_AND_CACHED_CREDENTIALS, then also invalidate
+  // the cached credentials used by the handler.
+  void InvalidateCurrentHandler(InvalidateHandlerAction action);
 
   // Invalidates any auth cache entries after authentication has failed.
   // The identity that was rejected is |identity_|.

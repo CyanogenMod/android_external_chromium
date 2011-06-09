@@ -12,9 +12,9 @@
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/timer.h"
-#include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/profiles/profile_io_data.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_impl_io_data.h"
 #include "chrome/browser/spellcheck_host_observer.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
@@ -27,6 +27,7 @@ class PrefService;
 #if defined(OS_CHROMEOS)
 namespace chromeos {
 class Preferences;
+class LocaleChangeGuard;
 }
 #endif
 
@@ -62,7 +63,7 @@ class ProfileImpl : public Profile,
   virtual ExtensionProcessManager* GetExtensionProcessManager();
   virtual ExtensionMessageService* GetExtensionMessageService();
   virtual ExtensionEventRouter* GetExtensionEventRouter();
-  virtual ExtensionIOEventRouter* GetExtensionIOEventRouter();
+  virtual ExtensionSpecialStoragePolicy* GetExtensionSpecialStoragePolicy();
   virtual FaviconService* GetFaviconService(ServiceAccessType sat);
   virtual HistoryService* GetHistoryService(ServiceAccessType sat);
   virtual HistoryService* GetHistoryServiceWithoutCreating();
@@ -103,6 +104,7 @@ class ProfileImpl : public Profile,
   virtual bool HasProfileSyncService() const;
   virtual bool DidLastSessionExitCleanly();
   virtual BookmarkModel* GetBookmarkModel();
+  virtual ProtocolHandlerRegistry* GetProtocolHandlerRegistry();
   virtual bool IsSameProfile(Profile* profile);
   virtual base::Time GetStartTime() const;
   virtual TabRestoreService* GetTabRestoreService();
@@ -115,7 +117,8 @@ class ProfileImpl : public Profile,
   virtual StatusTray* GetStatusTray();
   virtual void MarkAsCleanShutdown();
   virtual void InitExtensions();
-  virtual void InitWebResources();
+  virtual void InitPromoResources();
+  virtual void InitRegisteredProtocolHandlers();
   virtual NTPResourceCache* GetNTPResourceCache();
   virtual FilePath last_selected_directory();
   virtual void set_last_selected_directory(const FilePath& path);
@@ -130,17 +133,19 @@ class ProfileImpl : public Profile,
   virtual ExtensionInfoMap* GetExtensionInfoMap();
   virtual PromoCounter* GetInstantPromoCounter();
   virtual BrowserSignin* GetBrowserSignin();
-  virtual policy::ProfilePolicyContext* GetPolicyContext();
+  virtual policy::ProfilePolicyConnector* GetPolicyConnector();
   virtual ChromeURLDataManager* GetChromeURLDataManager();
 
 #if defined(OS_CHROMEOS)
   virtual void ChangeAppLocale(const std::string& locale, AppLocaleChangedVia);
+  virtual void OnLogin();
   virtual chromeos::ProxyConfigServiceImpl* GetChromeOSProxyConfigServiceImpl();
   virtual void SetupChromeOSEnterpriseExtensionObserver();
+  virtual void InitChromeOSPreferences();
 #endif  // defined(OS_CHROMEOS)
 
   virtual PrefProxyConfigTracker* GetProxyConfigTracker();
-  virtual PrerenderManager* GetPrerenderManager();
+  virtual prerender::PrerenderManager* GetPrerenderManager();
 
   // NotificationObserver implementation.
   virtual void Observe(NotificationType type,
@@ -197,18 +202,20 @@ class ProfileImpl : public Profile,
   scoped_ptr<ExtensionProcessManager> extension_process_manager_;
   scoped_refptr<ExtensionMessageService> extension_message_service_;
   scoped_ptr<ExtensionEventRouter> extension_event_router_;
-  scoped_refptr<ExtensionIOEventRouter> extension_io_event_router_;
+  scoped_refptr<ExtensionSpecialStoragePolicy>
+      extension_special_storage_policy_;
   scoped_ptr<SSLHostState> ssl_host_state_;
   scoped_refptr<net::TransportSecurityState>
       transport_security_state_;
   scoped_refptr<TransportSecurityPersister>
       transport_security_persister_;
-  scoped_ptr<policy::ProfilePolicyContext> profile_policy_context_;
+  scoped_ptr<policy::ProfilePolicyConnector> profile_policy_connector_;
   scoped_ptr<NetPrefObserver> net_pref_observer_;
   scoped_ptr<TemplateURLFetcher> template_url_fetcher_;
   scoped_ptr<TemplateURLModel> template_url_model_;
   scoped_ptr<BookmarkModel> bookmark_bar_model_;
-  scoped_refptr<WebResourceService> web_resource_service_;
+  scoped_refptr<PromoResourceService> promo_resource_service_;
+  scoped_refptr<ProtocolHandlerRegistry> protocol_handler_registry_;
   scoped_ptr<NTPResourceCache> ntp_resource_cache_;
 
   scoped_ptr<TokenService> token_service_;
@@ -216,7 +223,7 @@ class ProfileImpl : public Profile,
   scoped_ptr<ProfileSyncService> sync_service_;
   scoped_refptr<CloudPrintProxyService> cloud_print_proxy_service_;
 
-  ProfileIOData::Handle io_data_;
+  ProfileImplIOData::Handle io_data_;
 
   scoped_ptr<SSLConfigServiceManager> ssl_config_service_manager_;
 
@@ -301,11 +308,13 @@ class ProfileImpl : public Profile,
 
   scoped_ptr<chromeos::EnterpriseExtensionObserver>
       chromeos_enterprise_extension_observer_;
+
+  scoped_ptr<chromeos::LocaleChangeGuard> locale_change_guard_;
 #endif
 
   scoped_refptr<PrefProxyConfigTracker> pref_proxy_config_tracker_;
 
-  scoped_refptr<PrerenderManager> prerender_manager_;
+  scoped_refptr<prerender::PrerenderManager> prerender_manager_;
 
   scoped_ptr<ChromeURLDataManager> chrome_url_data_manager_;
 

@@ -26,7 +26,6 @@
 #include "ui/gfx/rect.h"
 #include "webkit/glue/window_open_disposition.h"
 
-class AccessibleWidgetHelper;
 class AutocompleteEditController;
 class AutocompleteEditModel;
 class AutocompletePopupView;
@@ -75,7 +74,7 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
                           CommandUpdater* command_updater,
                           bool popup_window_mode,
 #if defined(TOOLKIT_VIEWS)
-                          const views::View* location_bar
+                          views::View* location_bar
 #else
                           GtkWidget* location_bar
 #endif
@@ -147,9 +146,7 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
 
 #if defined(TOOLKIT_VIEWS)
   virtual views::View* AddToView(views::View* parent);
-
-  // Enables accessibility on AutocompleteEditView.
-  void EnableAccessibility();
+  virtual int OnPerformDrop(const views::DropTargetEvent& event);
 
   // A factory method to create an AutocompleteEditView instance initialized for
   // linux_views.  This currently returns an instance of
@@ -160,7 +157,7 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
                                       Profile* profile,
                                       CommandUpdater* command_updater,
                                       bool popup_window_mode,
-                                      const views::View* location_bar);
+                                      views::View* location_bar);
 #endif
 
   // Overridden from NotificationObserver:
@@ -275,6 +272,9 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
                              guint info);
 
   void HandleCopyOrCutClipboard(bool copy);
+
+  // Common implementation for performing a drop on the edit view.
+  bool OnPerformDropImpl(const string16& text);
 
   // Returns the font used in |text_view_|.
   gfx::Font GetFont();
@@ -460,7 +460,9 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
   bool text_view_focused_before_button_press_;
 #endif
 
-#if !defined(TOOLKIT_VIEWS)
+#if defined(TOOLKIT_VIEWS)
+  views::View* location_bar_view_;
+#else
   // Supplies colors, et cetera.
   GtkThemeProvider* theme_provider_;
 
@@ -540,10 +542,6 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
   GtkWidget* going_to_focus_;
 
   ui::GtkSignalRegistrar signals_;
-
-#if defined(TOOLKIT_VIEWS)
-  scoped_ptr<AccessibleWidgetHelper> accessible_widget_helper_;
-#endif
 
   DISALLOW_COPY_AND_ASSIGN(AutocompleteEditViewGtk);
 };

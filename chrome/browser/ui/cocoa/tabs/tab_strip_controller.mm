@@ -22,14 +22,10 @@
 #include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/browser/sidebar/sidebar_container.h"
 #include "chrome/browser/sidebar/sidebar_manager.h"
-#include "chrome/browser/tab_contents/navigation_controller.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_navigator.h"
-#include "chrome/browser/ui/find_bar/find_manager.h"
+#include "chrome/browser/ui/find_bar/find_tab_helper.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/constrained_window_mac.h"
 #import "chrome/browser/ui/cocoa/new_tab_button.h"
@@ -38,9 +34,14 @@
 #import "chrome/browser/ui/cocoa/tabs/tab_strip_view.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_view.h"
 #import "chrome/browser/ui/cocoa/tabs/throbber_view.h"
+#import "chrome/browser/ui/cocoa/tracking_area.h"
 #include "chrome/browser/ui/find_bar/find_bar.h"
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
+#include "content/browser/tab_contents/navigation_controller.h"
+#include "content/browser/tab_contents/navigation_entry.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_view.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -48,6 +49,7 @@
 #import "third_party/GTM/AppKit/GTMNSAnimation+Duration.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/image.h"
 
 NSString* const kTabStripNumberOfTabsChanged = @"kTabStripNumberOfTabsChanged";
 
@@ -122,7 +124,6 @@ private:
 }  // namespace
 
 @interface TabStripController (Private)
-- (void)installTrackingArea;
 - (void)addSubviewToPermanentList:(NSView*)aView;
 - (void)regenerateSubviewList;
 - (NSInteger)indexForContentsView:(NSView*)view;
@@ -296,6 +297,7 @@ private:
     bridge_.reset(new TabStripModelObserverBridge(tabStripModel_, self));
     tabContentsArray_.reset([[NSMutableArray alloc] init]);
     tabArray_.reset([[NSMutableArray alloc] init]);
+    NSWindow* browserWindow = [view window];
 
     // Important note: any non-tab subviews not added to |permanentSubviews_|
     // (see |-addSubviewToPermanentList:|) will be wiped out.
@@ -321,11 +323,13 @@ private:
         app::mac::GetCachedImageWithName(kNewTabPressedImage)];
     newTabButtonShowingHoverImage_ = NO;
     newTabTrackingArea_.reset(
-        [[NSTrackingArea alloc] initWithRect:[newTabButton_ bounds]
+        [[CrTrackingArea alloc] initWithRect:[newTabButton_ bounds]
                                      options:(NSTrackingMouseEnteredAndExited |
                                               NSTrackingActiveAlways)
-                                       owner:self
+                                proxiedOwner:self
                                     userInfo:nil]);
+    if (browserWindow)  // Nil for Browsers without a tab strip (e.g. popups).
+      [newTabTrackingArea_ clearOwnerWhenWindowWillClose:browserWindow];
     [newTabButton_ addTrackingArea:newTabTrackingArea_.get()];
     targetFrames_.reset([[NSMutableDictionary alloc] init]);
 
@@ -350,14 +354,16 @@ private:
                name:NSViewFrameDidChangeNotification
              object:tabStripView_];
 
-    trackingArea_.reset([[NSTrackingArea alloc]
+    trackingArea_.reset([[CrTrackingArea alloc]
         initWithRect:NSZeroRect  // Ignored by NSTrackingInVisibleRect
              options:NSTrackingMouseEnteredAndExited |
                      NSTrackingMouseMoved |
                      NSTrackingActiveAlways |
                      NSTrackingInVisibleRect
-               owner:self
+        proxiedOwner:self
             userInfo:nil]);
+    if (browserWindow)  // Nil for Browsers without a tab strip (e.g. popups).
+      [trackingArea_ clearOwnerWhenWindowWillClose:browserWindow];
     [tabStripView_ addTrackingArea:trackingArea_.get()];
 
     // Check to see if the mouse is currently in our bounds so we can
@@ -1032,7 +1038,7 @@ private:
   // Take closing tabs into account.
   NSInteger index = [self indexFromModelIndex:modelIndex];
 
-  if (oldContents) {
+  if (oldContents && oldContents != newContents) {
     int oldModelIndex =
         browser_->GetIndexOfController(&(oldContents->controller()));
     if (oldModelIndex != -1) {  // When closing a tab, the old tab may be gone.
@@ -1070,7 +1076,7 @@ private:
     newContents->tab_contents()->DidBecomeSelected();
     newContents->view()->RestoreFocus();
 
-    if (newContents->GetFindManager()->find_ui_active())
+    if (newContents->find_tab_helper()->find_ui_active())
       browser_->GetFindBarController()->find_bar()->SetFocusAndSelection();
   }
 }

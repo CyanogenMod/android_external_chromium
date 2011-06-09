@@ -23,13 +23,12 @@
 #include "base/string16.h"
 #include "base/weak_ptr.h"
 #include "chrome/browser/autofill/field_types.h"
-#include "chrome/browser/browser_thread.h"
-#include "chrome/browser/cancelable_request.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/common/automation_constants.h"
 #include "chrome/common/content_settings.h"
 #include "chrome/common/notification_observer.h"
-#include "ipc/ipc_message.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/cancelable_request.h"
+#include "content/browser/tab_contents/navigation_entry.h"
 #include "ipc/ipc_channel.h"
 
 #if defined(OS_WIN)
@@ -156,7 +155,7 @@ class AutomationProvider
   DictionaryValue* GetDictionaryFromDownloadItem(const DownloadItem* download);
 
  protected:
-  friend class BrowserThread;
+  friend struct BrowserThread::DeleteOnThread<BrowserThread::UI>;
   friend class DeleteTask<AutomationProvider>;
   virtual ~AutomationProvider();
 
@@ -211,8 +210,14 @@ class AutomationProvider
   scoped_refptr<AutomationResourceMessageFilter>
       automation_resource_message_filter_;
 
+  // True iff we should open a new automation IPC channel if it closes.
+  bool reinitialize_on_channel_error_;
+
  private:
   void OnUnhandledMessage();
+
+  // Clear and reinitialize the automation IPC channel.
+  bool ReinitializeChannel();
 
   // IPC Message callbacks.
   void WindowSimulateDrag(int handle,
@@ -395,6 +400,9 @@ class AutomationProvider
 
   // True iff browser finished loading initial set of tabs.
   bool initial_loads_complete_;
+
+  // ID of automation channel.
+  std::string channel_id_;
 
   DISALLOW_COPY_AND_ASSIGN(AutomationProvider);
 };

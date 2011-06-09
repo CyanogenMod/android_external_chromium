@@ -16,19 +16,19 @@
 #include "chrome/browser/accessibility/browser_accessibility_win.h"
 #include "chrome/browser/accessibility/browser_accessibility_manager.h"
 #include "chrome/browser/accessibility/browser_accessibility_state.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_trial.h"
-#include "chrome/browser/plugin_process_host.h"
-#include "chrome/browser/renderer_host/backing_store.h"
-#include "chrome/browser/renderer_host/backing_store_win.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_widget_host.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/native_web_keyboard_event.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/plugin_messages.h"
 #include "chrome/common/render_messages.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/plugin_process_host.h"
+#include "content/browser/renderer_host/backing_store.h"
+#include "content/browser/renderer_host/backing_store_win.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_widget_host.h"
 #include "grit/webkit_resources.h"
 #include "skia/ext/skia_utils_win.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebInputEvent.h"
@@ -268,6 +268,26 @@ void DrawDeemphasized(const SkColor& color,
                                           paint_rect.y(), NULL);
 }
 
+// The plugin wrapper window which lives in the browser process has this proc
+// as its window procedure. We only handle the WM_PARENTNOTIFY message sent by
+// windowed plugins for mouse input. This is forwarded off to the wrappers
+// parent which is typically the RVH window which turns on user gesture.
+LRESULT CALLBACK PluginWrapperWindowProc(HWND window, unsigned int message,
+                                         WPARAM wparam, LPARAM lparam) {
+  if (message == WM_PARENTNOTIFY) {
+    switch (LOWORD(wparam)) {
+      case WM_LBUTTONDOWN:
+      case WM_RBUTTONDOWN:
+      case WM_MBUTTONDOWN:
+        ::SendMessage(GetParent(window), message, wparam, lparam);
+        return 0;
+      default:
+        break;
+    }
+  }
+  return ::DefWindowProc(window, message, wparam, lparam);
+}
+
 }  // namespace
 
 // RenderWidgetHostView --------------------------------------------------------
@@ -482,7 +502,7 @@ HWND RenderWidgetHostViewWin::ReparentWindow(HWND window) {
     WNDCLASSEX wcex;
     wcex.cbSize         = sizeof(WNDCLASSEX);
     wcex.style          = CS_DBLCLKS;
-    wcex.lpfnWndProc    = ::DefWindowProc;
+    wcex.lpfnWndProc    = PluginWrapperWindowProc;
     wcex.cbClsExtra     = 0;
     wcex.cbWndExtra     = 0;
     wcex.hInstance      = GetModuleHandle(NULL);
@@ -841,6 +861,12 @@ LRESULT RenderWidgetHostViewWin::OnCreate(CREATESTRUCT* create_struct) {
   props_.push_back(views::SetWindowSupportsRerouteMouseWheel(m_hWnd));
   props_.push_back(new ViewProp(m_hWnd, kRenderWidgetHostViewKey,
                                 static_cast<RenderWidgetHostView*>(this)));
+  // Save away our HWND in the parent window as a property so that the
+  // accessibility code can find it.
+  accessibility_prop_.reset(new ViewProp(GetParent(),
+                                         kViewsNativeHostPropForAccessibility,
+                                         m_hWnd));
+
   return 0;
 }
 
@@ -1545,7 +1571,7 @@ static LRESULT CALLBACK CompositorHostWindowProc(HWND hWnd, UINT message,
 // Creates a HWND within the RenderWidgetHostView that will serve as a host
 // for a HWND that the GPU process will create. The host window is used
 // to Z-position the GPU's window relative to other plugin windows.
-gfx::PluginWindowHandle RenderWidgetHostViewWin::GetCompositorHostWindow() {
+gfx::PluginWindowHandle RenderWidgetHostViewWin::AcquireCompositingSurface() {
   // If the window has been created, don't recreate it a second time
   if (compositor_host_window_)
     return compositor_host_window_;
@@ -1582,6 +1608,11 @@ gfx::PluginWindowHandle RenderWidgetHostViewWin::GetCompositorHostWindow() {
   DCHECK(compositor_host_window_);
 
   return static_cast<gfx::PluginWindowHandle>(compositor_host_window_);
+}
+
+void RenderWidgetHostViewWin::ReleaseCompositingSurface(
+    gfx::PluginWindowHandle surface) {
+  ShowCompositorHostWindow(false);
 }
 
 void RenderWidgetHostViewWin::ShowCompositorHostWindow(bool show) {
@@ -1691,6 +1722,25 @@ LRESULT RenderWidgetHostViewWin::OnGetObject(UINT message, WPARAM wparam,
 
   handled = false;
   return static_cast<LRESULT>(0L);
+}
+
+LRESULT RenderWidgetHostViewWin::OnParentNotify(UINT message, WPARAM wparam,
+                                                LPARAM lparam, BOOL& handled) {
+  handled = FALSE;
+
+  if (!render_widget_host_)
+    return 0;
+
+  switch (LOWORD(wparam)) {
+    case WM_LBUTTONDOWN:
+    case WM_RBUTTONDOWN:
+    case WM_MBUTTONDOWN:
+      render_widget_host_->StartUserGesture();
+      break;
+    default:
+      break;
+  }
+  return 0;
 }
 
 void RenderWidgetHostViewWin::OnFinalMessage(HWND window) {

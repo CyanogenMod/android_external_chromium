@@ -10,7 +10,11 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete_history_manager.h"
 #include "chrome/browser/webdata/web_data_service.h"
+#include "chrome/test/testing_browser_process.h"
+#include "chrome/test/testing_browser_process_test.h"
 #include "chrome/test/testing_profile.h"
+#include "content/browser/renderer_host/test_render_view_host.h"
+#include "content/browser/tab_contents/test_tab_contents.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webkit/glue/form_data.h"
@@ -24,19 +28,19 @@ class MockWebDataService : public WebDataService {
                void(const std::vector<webkit_glue::FormField>&));  // NOLINT
 };
 
-class AutocompleteHistoryManagerTest : public testing::Test {
+class AutocompleteHistoryManagerTest : public RenderViewHostTestHarness {
  protected:
   AutocompleteHistoryManagerTest()
-      : ui_thread_(BrowserThread::UI, &message_loop_) {
+      : ui_thread_(BrowserThread::UI, MessageLoopForUI::current()) {
   }
 
   virtual void SetUp() {
+    RenderViewHostTestHarness::SetUp();
     web_data_service_ = new MockWebDataService();
-    autocomplete_manager_.reset(
-        new AutocompleteHistoryManager(&profile_, web_data_service_));
+    autocomplete_manager_.reset(new AutocompleteHistoryManager(
+        contents(), &profile_, web_data_service_));
   }
 
-  MessageLoopForUI message_loop_;
   BrowserThread ui_thread_;
 
   TestingProfile profile_;

@@ -13,7 +13,6 @@
 typedef struct _GtkWidget GtkWidget;
 typedef struct _GtkWindow GtkWindow;
 
-class AccessibleWidgetHelper;
 class BrowsingDataRemover;
 class Profile;
 
@@ -26,8 +25,8 @@ class ClearBrowsingDataDialogGtk {
   ClearBrowsingDataDialogGtk(GtkWindow* parent, Profile* profile);
   ~ClearBrowsingDataDialogGtk();
 
-  // Handler to respond to Ok and Cancel responses from the dialog.
-  CHROMEGTK_CALLBACK_1(ClearBrowsingDataDialogGtk, void, OnDialogResponse, int);
+  // Handler to respond to OK and Cancel responses from the dialog.
+  CHROMEGTK_CALLBACK_1(ClearBrowsingDataDialogGtk, void, OnResponse, int);
 
   // Handler to respond to widget clicked actions from the dialog.
   CHROMEGTK_CALLBACK_0(ClearBrowsingDataDialogGtk, void, OnDialogWidgetClicked);
@@ -59,9 +58,6 @@ class ClearBrowsingDataDialogGtk {
   // If non-null it means removal is in progress. BrowsingDataRemover takes care
   // of deleting itself when done.
   BrowsingDataRemover* remover_;
-
-  // Helper object to manage accessibility metadata.
-  scoped_ptr<AccessibleWidgetHelper> accessible_widget_helper_;
 
   DISALLOW_COPY_AND_ASSIGN(ClearBrowsingDataDialogGtk);
 };

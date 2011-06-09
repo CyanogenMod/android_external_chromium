@@ -11,7 +11,6 @@
 #include "chrome/browser/ui/views/infobars/translate_infobar_base.h"
 #include "views/controls/menu/view_menu_delegate.h"
 
-class InfoBarTextButton;
 class TranslateInfoBarDelegate;
 namespace views {
 class Menu2;
@@ -29,6 +28,8 @@ class BeforeTranslateInfoBar : public TranslateInfoBarBase,
   // TranslateInfoBarBase:
   virtual void Layout();
   virtual void ButtonPressed(views::Button* sender, const views::Event& event);
+  virtual void ViewHierarchyChanged(bool is_add, View* parent, View* child);
+  virtual int ContentMinimumWidth() const;
   virtual void OriginalLanguageChanged();
 
   // views::ViewMenuDelegate:
@@ -42,17 +43,17 @@ class BeforeTranslateInfoBar : public TranslateInfoBarBase,
   views::Label* label_2_;
 
   views::MenuButton* language_menu_button_;
-  InfoBarTextButton* accept_button_;
-  InfoBarTextButton* deny_button_;
-  InfoBarTextButton* never_translate_button_;
-  InfoBarTextButton* always_translate_button_;
+  views::TextButton* accept_button_;
+  views::TextButton* deny_button_;
+  views::TextButton* never_translate_button_;
+  views::TextButton* always_translate_button_;
   views::MenuButton* options_menu_button_;
 
-  scoped_ptr<views::Menu2> languages_menu_;
   LanguagesMenuModel languages_menu_model_;
+  scoped_ptr<views::Menu2> languages_menu_;
 
-  scoped_ptr<views::Menu2> options_menu_;
   OptionsMenuModel options_menu_model_;
+  scoped_ptr<views::Menu2> options_menu_;
 
   DISALLOW_COPY_AND_ASSIGN(BeforeTranslateInfoBar);
 };

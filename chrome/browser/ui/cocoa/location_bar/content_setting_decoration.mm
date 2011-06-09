@@ -14,14 +14,15 @@
 #include "chrome/browser/content_setting_bubble_model.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #import "chrome/browser/ui/cocoa/content_settings/content_setting_bubble_cocoa.h"
 #import "chrome/browser/ui/cocoa/location_bar/location_bar_view_mac.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "net/base/net_util.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/image.h"
 
 namespace {
 
@@ -241,11 +242,21 @@ NSPoint ContentSettingDecoration::GetBubblePointInFrame(NSRect frame) {
                      NSMaxY(draw_frame) - kPopupPointYOffset);
 }
 
+bool ContentSettingDecoration::AcceptsMousePress() {
+  return true;
+}
+
 bool ContentSettingDecoration::OnMousePressed(NSRect frame) {
   // Get host. This should be shared on linux/win/osx medium-term.
   TabContents* tabContents =
       BrowserList::GetLastActive()->GetSelectedTabContents();
   if (!tabContents)
+    return true;
+
+  // Prerender icon does not include a bubble.
+  ContentSettingsType content_settings_type =
+      content_setting_image_model_->get_content_settings_type();
+  if (content_settings_type == CONTENT_SETTINGS_TYPE_PRERENDER)
     return true;
 
   GURL url = tabContents->GetURL();
@@ -268,8 +279,7 @@ bool ContentSettingDecoration::OnMousePressed(NSRect frame) {
   // Open bubble.
   ContentSettingBubbleModel* model =
       ContentSettingBubbleModel::CreateContentSettingBubbleModel(
-          tabContents, profile_,
-          content_setting_image_model_->get_content_settings_type());
+          tabContents, profile_, content_settings_type);
   [ContentSettingBubbleController showForModel:model
                                    parentWindow:[field window]
                                      anchoredAt:anchor];

@@ -15,8 +15,8 @@
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/icon_manager.h"
 #include "chrome/browser/ui/gtk/owned_widget_gtk.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "ui/base/animation/animation_delegate.h"
 #include "ui/base/gtk/gtk_signal.h"
 
@@ -26,6 +26,10 @@ class DownloadShelfGtk;
 class GtkThemeProvider;
 class NineBox;
 class SkBitmap;
+
+namespace gfx {
+class Image;
+}
 
 namespace ui {
 class SlideAnimation;
@@ -58,9 +62,9 @@ class DownloadItemGtk : public DownloadItem::Observer,
   // Called when the icon manager has finished loading the icon. We take
   // ownership of |icon_bitmap|.
   void OnLoadSmallIconComplete(IconManager::Handle handle,
-                               SkBitmap* icon_bitmap);
+                               gfx::Image* image);
   void OnLoadLargeIconComplete(IconManager::Handle handle,
-                               SkBitmap* icon_bitmap);
+                               gfx::Image* image);
 
   // Returns the DownloadItem model object belonging to this item.
   DownloadItem* get_download();
@@ -95,6 +99,9 @@ class DownloadItemGtk : public DownloadItem::Observer,
 
   // Sets the components of the danger warning.
   void UpdateDangerWarning();
+
+  // Sets the icon for the danger warning dialog.
+  void UpdateDangerIcon();
 
   static void InitNineBoxes();
 
@@ -187,7 +194,7 @@ class DownloadItemGtk : public DownloadItem::Observer,
   GtkWidget* dangerous_label_;
 
   // An hbox for holding components of the dangerous download dialog.
-  GtkWidget* dangerous_hbox_;
+  OwnedWidgetGtk dangerous_hbox_;
   int dangerous_hbox_start_width_;
   int dangerous_hbox_full_width_;
 
@@ -202,8 +209,9 @@ class DownloadItemGtk : public DownloadItem::Observer,
 
   // The file icon for the download. May be null. The small version is used
   // for display in the shelf; the large version is for use as a drag icon.
-  SkBitmap* icon_small_;
-  SkBitmap* icon_large_;
+  // These icons are owned by the IconManager (owned by the BrowserProcess).
+  gfx::Image* icon_small_;
+  gfx::Image* icon_large_;
 
   // The last download file path for which we requested an icon.
   FilePath icon_filepath_;

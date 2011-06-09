@@ -29,9 +29,9 @@ ViewHostMsg_FrameNavigate_Params::ViewHostMsg_FrameNavigate_Params()
       should_update_history(false),
       gesture(NavigationGestureUser),
       is_post(false),
-      is_content_filtered(false),
       was_within_same_page(false),
-      http_status_code(0) {
+      http_status_code(0),
+      was_fetched_via_proxy(false) {
 }
 
 ViewHostMsg_FrameNavigate_Params::~ViewHostMsg_FrameNavigate_Params() {
@@ -57,21 +57,6 @@ ViewMsg_ClosePage_Params::ViewMsg_ClosePage_Params()
 }
 
 ViewMsg_ClosePage_Params::~ViewMsg_ClosePage_Params() {
-}
-
-ViewHostMsg_Resource_Request::ViewHostMsg_Resource_Request()
-    : load_flags(0),
-      origin_pid(0),
-      resource_type(ResourceType::MAIN_FRAME),
-      request_context(0),
-      appcache_host_id(0),
-      download_to_file(false),
-      has_user_gesture(false),
-      host_renderer_id(0),
-      host_render_view_id(0) {
-}
-
-ViewHostMsg_Resource_Request::~ViewHostMsg_Resource_Request() {
 }
 
 ViewMsg_Print_Params::ViewMsg_Print_Params()
@@ -123,7 +108,7 @@ ViewMsg_PrintPages_Params::~ViewMsg_PrintPages_Params() {
 }
 
 ViewHostMsg_DidPreviewDocument_Params::ViewHostMsg_DidPreviewDocument_Params()
-    : data_size(0) {
+    : data_size(0), expected_pages_count(0) {
 #if defined(OS_WIN)
   // Initialize |metafile_data_handle| only on Windows because it maps
   // base::SharedMemoryHandle to HANDLE. We do not need to initialize this
@@ -272,6 +257,18 @@ ViewHostMsg_DomMessage_Params::ViewHostMsg_DomMessage_Params()
 ViewHostMsg_DomMessage_Params::~ViewHostMsg_DomMessage_Params() {
 }
 
+ViewHostMsg_MalwareDOMDetails_Node::ViewHostMsg_MalwareDOMDetails_Node() {
+}
+
+ViewHostMsg_MalwareDOMDetails_Node::~ViewHostMsg_MalwareDOMDetails_Node() {
+}
+
+ViewHostMsg_MalwareDOMDetails_Params::ViewHostMsg_MalwareDOMDetails_Params() {
+}
+
+ViewHostMsg_MalwareDOMDetails_Params::~ViewHostMsg_MalwareDOMDetails_Params() {
+}
+
 ViewMsg_ExtensionLoaded_Params::ViewMsg_ExtensionLoaded_Params() {
 }
 
@@ -315,10 +312,15 @@ scoped_refptr<Extension>
     ViewMsg_ExtensionLoaded_Params::ConvertToExtension() const {
   // Extensions that are loaded unpacked won't have a key.
   const bool kRequireKey = false;
+
+  // The extension may have been loaded in a way that does not require
+  // strict error checks to pass.  Do not do strict checks here.
+  const bool kStrictErrorChecks = false;
   std::string error;
 
   scoped_refptr<Extension> extension(
-      Extension::Create(path, location, *manifest, kRequireKey, &error));
+      Extension::Create(path, location, *manifest, kRequireKey,
+                        kStrictErrorChecks, &error));
   if (!extension.get())
     LOG(ERROR) << "Error deserializing extension: " << error;
 
@@ -370,46 +372,6 @@ struct ParamTraits<ViewMsg_Navigate_Params::NavigationType> {
         break;
     }
     LogParam(event, l);
-  }
-};
-
-template <>
-struct ParamTraits<ResourceType::Type> {
-  typedef ResourceType::Type param_type;
-  static void Write(Message* m, const param_type& p) {
-    m->WriteInt(p);
-  }
-  static bool Read(const Message* m, void** iter, param_type* p) {
-    int type;
-    if (!m->ReadInt(iter, &type) || !ResourceType::ValidType(type))
-      return false;
-    *p = ResourceType::FromInt(type);
-    return true;
-  }
-  static void Log(const param_type& p, std::string* l) {
-    std::string type;
-    switch (p) {
-      case ResourceType::MAIN_FRAME:
-        type = "MAIN_FRAME";
-        break;
-      case ResourceType::SUB_FRAME:
-        type = "SUB_FRAME";
-        break;
-      case ResourceType::SUB_RESOURCE:
-        type = "SUB_RESOURCE";
-        break;
-      case ResourceType::OBJECT:
-        type = "OBJECT";
-        break;
-      case ResourceType::MEDIA:
-        type = "MEDIA";
-        break;
-      default:
-        type = "UNKNOWN";
-        break;
-    }
-
-    LogParam(type, l);
   }
 };
 
@@ -757,9 +719,11 @@ void ParamTraits<ViewHostMsg_FrameNavigate_Params>::Write(Message* m,
   WriteParam(m, p.gesture);
   WriteParam(m, p.contents_mime_type);
   WriteParam(m, p.is_post);
-  WriteParam(m, p.is_content_filtered);
   WriteParam(m, p.was_within_same_page);
   WriteParam(m, p.http_status_code);
+  WriteParam(m, p.socket_address);
+  WriteParam(m, p.was_fetched_via_proxy);
+  WriteParam(m, p.content_state);
 }
 
 bool ParamTraits<ViewHostMsg_FrameNavigate_Params>::Read(const Message* m,
@@ -780,9 +744,11 @@ bool ParamTraits<ViewHostMsg_FrameNavigate_Params>::Read(const Message* m,
       ReadParam(m, iter, &p->gesture) &&
       ReadParam(m, iter, &p->contents_mime_type) &&
       ReadParam(m, iter, &p->is_post) &&
-      ReadParam(m, iter, &p->is_content_filtered) &&
       ReadParam(m, iter, &p->was_within_same_page) &&
-      ReadParam(m, iter, &p->http_status_code);
+      ReadParam(m, iter, &p->http_status_code) &&
+      ReadParam(m, iter, &p->socket_address) &&
+      ReadParam(m, iter, &p->was_fetched_via_proxy) &&
+      ReadParam(m, iter, &p->content_state);
 }
 
 void ParamTraits<ViewHostMsg_FrameNavigate_Params>::Log(const param_type& p,
@@ -816,11 +782,13 @@ void ParamTraits<ViewHostMsg_FrameNavigate_Params>::Log(const param_type& p,
   l->append(", ");
   LogParam(p.is_post, l);
   l->append(", ");
-  LogParam(p.is_content_filtered, l);
-  l->append(", ");
   LogParam(p.was_within_same_page, l);
   l->append(", ");
   LogParam(p.http_status_code, l);
+  l->append(", ");
+  LogParam(p.socket_address, l);
+  l->append(", ");
+  LogParam(p.was_fetched_via_proxy, l);
   l->append(")");
 }
 
@@ -914,83 +882,6 @@ void ParamTraits<ViewMsg_ClosePage_Params>::Log(const param_type& p,
   l->append(")");
 }
 
-void ParamTraits<ViewHostMsg_Resource_Request>::Write(Message* m,
-                                                      const param_type& p) {
-  WriteParam(m, p.method);
-  WriteParam(m, p.url);
-  WriteParam(m, p.first_party_for_cookies);
-  WriteParam(m, p.referrer);
-  WriteParam(m, p.frame_origin);
-  WriteParam(m, p.main_frame_origin);
-  WriteParam(m, p.headers);
-  WriteParam(m, p.load_flags);
-  WriteParam(m, p.origin_pid);
-  WriteParam(m, p.resource_type);
-  WriteParam(m, p.request_context);
-  WriteParam(m, p.appcache_host_id);
-  WriteParam(m, p.upload_data);
-  WriteParam(m, p.download_to_file);
-  WriteParam(m, p.has_user_gesture);
-  WriteParam(m, p.host_renderer_id);
-  WriteParam(m, p.host_render_view_id);
-}
-
-bool ParamTraits<ViewHostMsg_Resource_Request>::Read(const Message* m,
-                                                     void** iter,
-                                                     param_type* r) {
-  return
-      ReadParam(m, iter, &r->method) &&
-      ReadParam(m, iter, &r->url) &&
-      ReadParam(m, iter, &r->first_party_for_cookies) &&
-      ReadParam(m, iter, &r->referrer) &&
-      ReadParam(m, iter, &r->frame_origin) &&
-      ReadParam(m, iter, &r->main_frame_origin) &&
-      ReadParam(m, iter, &r->headers) &&
-      ReadParam(m, iter, &r->load_flags) &&
-      ReadParam(m, iter, &r->origin_pid) &&
-      ReadParam(m, iter, &r->resource_type) &&
-      ReadParam(m, iter, &r->request_context) &&
-      ReadParam(m, iter, &r->appcache_host_id) &&
-      ReadParam(m, iter, &r->upload_data) &&
-      ReadParam(m, iter, &r->download_to_file) &&
-      ReadParam(m, iter, &r->has_user_gesture) &&
-      ReadParam(m, iter, &r->host_renderer_id) &&
-      ReadParam(m, iter, &r->host_render_view_id);
-}
-
-void ParamTraits<ViewHostMsg_Resource_Request>::Log(const param_type& p,
-                                                    std::string* l) {
-  l->append("(");
-  LogParam(p.method, l);
-  l->append(", ");
-  LogParam(p.url, l);
-  l->append(", ");
-  LogParam(p.referrer, l);
-  l->append(", ");
-  LogParam(p.frame_origin, l);
-  l->append(", ");
-  LogParam(p.main_frame_origin, l);
-  l->append(", ");
-  LogParam(p.load_flags, l);
-  l->append(", ");
-  LogParam(p.origin_pid, l);
-  l->append(", ");
-  LogParam(p.resource_type, l);
-  l->append(", ");
-  LogParam(p.request_context, l);
-  l->append(", ");
-  LogParam(p.appcache_host_id, l);
-  l->append(", ");
-  LogParam(p.download_to_file, l);
-  l->append(", ");
-  LogParam(p.has_user_gesture, l);
-  l->append(", ");
-  LogParam(p.host_renderer_id, l);
-  l->append(", ");
-  LogParam(p.host_render_view_id, l);
-  l->append(")");
-}
-
 void ParamTraits<ViewMsg_Print_Params>::Write(Message* m, const param_type& p) {
   WriteParam(m, p.page_size);
   WriteParam(m, p.printable_size);
@@ -1067,6 +958,7 @@ void ParamTraits<ViewHostMsg_DidPreviewDocument_Params>::Write(Message* m,
   WriteParam(m, p.metafile_data_handle);
   WriteParam(m, p.data_size);
   WriteParam(m, p.document_cookie);
+  WriteParam(m, p.expected_pages_count);
 }
 
 bool ParamTraits<ViewHostMsg_DidPreviewDocument_Params>::Read(const Message* m,
@@ -1074,7 +966,8 @@ bool ParamTraits<ViewHostMsg_DidPreviewDocument_Params>::Read(const Message* m,
                                                         param_type* p) {
   return ReadParam(m, iter, &p->metafile_data_handle) &&
       ReadParam(m, iter, &p->data_size) &&
-      ReadParam(m, iter, &p->document_cookie);
+      ReadParam(m, iter, &p->document_cookie) &&
+      ReadParam(m, iter, &p->expected_pages_count);
 }
 
 void ParamTraits<ViewHostMsg_DidPreviewDocument_Params>::Log(
@@ -1597,32 +1490,6 @@ void ParamTraits<ViewHostMsg_DomMessage_Params>::Log(const param_type& p,
   l->append(")");
 }
 
-void ParamTraits<base::FileUtilProxy::Entry>::Write(
-    Message* m,
-    const param_type& p) {
-  WriteParam(m, p.name);
-  WriteParam(m, p.is_directory);
-}
-
-bool ParamTraits<base::FileUtilProxy::Entry>::Read(
-    const Message* m,
-    void** iter,
-    param_type* p) {
-  return
-      ReadParam(m, iter, &p->name) &&
-      ReadParam(m, iter, &p->is_directory);
-}
-
-void ParamTraits<base::FileUtilProxy::Entry>::Log(
-    const param_type& p,
-    std::string* l) {
-  l->append("(");
-  LogParam(p.name, l);
-  l->append(", ");
-  LogParam(p.is_directory, l);
-  l->append(")");
-}
-
 void ParamTraits<ViewHostMsg_AccessibilityNotification_Params>::Write(
     Message* m,
     const param_type& p) {
@@ -1646,6 +1513,61 @@ void ParamTraits<ViewHostMsg_AccessibilityNotification_Params>::Log(
   LogParam(p.notification_type, l);
   l->append(", ");
   LogParam(p.acc_obj, l);
+  l->append(")");
+}
+
+void ParamTraits<ViewHostMsg_MalwareDOMDetails_Params>::Write(
+    Message* m,
+    const param_type& p) {
+  WriteParam(m, p.nodes);
+}
+
+bool ParamTraits<ViewHostMsg_MalwareDOMDetails_Params>::Read(
+    const Message* m,
+    void** iter,
+    param_type* p) {
+  return ReadParam(m, iter, &p->nodes);
+}
+
+void ParamTraits<ViewHostMsg_MalwareDOMDetails_Params>::Log(
+    const param_type& p,
+    std::string* l) {
+  l->append("(");
+  LogParam(p.nodes, l);
+  l->append(")");
+}
+
+void ParamTraits<ViewHostMsg_MalwareDOMDetails_Node>::Write(
+    Message* m,
+    const param_type& p) {
+  WriteParam(m, p.url);
+  WriteParam(m, p.tag_name);
+  WriteParam(m, p.parent);
+  WriteParam(m, p.children);
+}
+
+bool ParamTraits<ViewHostMsg_MalwareDOMDetails_Node>::Read(
+    const Message* m,
+    void** iter,
+    param_type* p) {
+  return
+      ReadParam(m, iter, &p->url) &&
+      ReadParam(m, iter, &p->tag_name) &&
+      ReadParam(m, iter, &p->parent) &&
+      ReadParam(m, iter, &p->children);
+}
+
+void ParamTraits<ViewHostMsg_MalwareDOMDetails_Node>::Log(
+    const param_type& p,
+    std::string* l) {
+  l->append("(");
+  LogParam(p.url, l);
+  l->append(", ");
+  LogParam(p.tag_name, l);
+  l->append(", ");
+  LogParam(p.parent, l);
+  l->append(", ");
+  LogParam(p.children, l);
   l->append(")");
 }
 

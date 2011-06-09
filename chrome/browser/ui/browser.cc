@@ -28,15 +28,12 @@
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_shutdown.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/browser_url_handler.h"
+#include "chrome/browser/browser_window.h"
 #include "chrome/browser/character_encoding.h"
 #include "chrome/browser/debugger/devtools_manager.h"
 #include "chrome/browser/debugger/devtools_toggle_action.h"
 #include "chrome/browser/debugger/devtools_window.h"
-#include "chrome/browser/dom_ui/bug_report_ui.h"
-#include "chrome/browser/dom_ui/filebrowse_ui.h"
-#include "chrome/browser/dom_ui/options/content_settings_handler.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_manager.h"
@@ -48,12 +45,11 @@
 #include "chrome/browser/extensions/extension_disabled_infobar_delegate.h"
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_prefs.h"
-#include "chrome/browser/extensions/extension_tabs_module.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_tabs_module.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/google/google_url_tracker.h"
 #include "chrome/browser/google/google_util.h"
-#include "chrome/browser/host_zoom_map.h"
 #include "chrome/browser/instant/instant_controller.h"
 #include "chrome/browser/instant/instant_unload_handler.h"
 #include "chrome/browser/metrics/user_metrics.h"
@@ -63,30 +59,28 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_setup_flow.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/sessions/session_types.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/tab_closeable_state_watcher.h"
-#include "chrome/browser/tab_contents/interstitial_page.h"
-#include "chrome/browser/tab_contents/navigation_controller.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_view.h"
+#include "chrome/browser/tab_contents/simple_alert_infobar_delegate.h"
+#include "chrome/browser/tabs/tab_finder.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/find_bar/find_bar.h"
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
-#include "chrome/browser/ui/find_bar/find_manager.h"
+#include "chrome/browser/ui/find_bar/find_tab_helper.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
 #include "chrome/browser/ui/options/options_window.h"
+#include "chrome/browser/ui/search_engines/search_engine_tab_helper.h"
 #include "chrome/browser/ui/status_bubble.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/browser/ui/tabs/dock_info.h"
 #include "chrome/browser/ui/tabs/tab_menu_model.h"
+#include "chrome/browser/ui/webui/bug_report_ui.h"
+#include "chrome/browser/ui/webui/filebrowse_ui.h"
+#include "chrome/browser/ui/webui/options/content_settings_handler.h"
 #include "chrome/browser/ui/window_sizer.h"
 #include "chrome/browser/upgrade_detector.h"
 #include "chrome/browser/web_applications/web_app.h"
@@ -94,12 +88,21 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/content_restriction.h"
 #include "chrome/common/extensions/extension.h"
+#include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/page_transition_types.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/profiling.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/web_apps.h"
+#include "content/browser/host_zoom_map.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/site_instance.h"
+#include "content/browser/tab_contents/interstitial_page.h"
+#include "content/browser/tab_contents/navigation_controller.h"
+#include "content/browser/tab_contents/navigation_entry.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_view.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
@@ -117,10 +120,9 @@
 #if defined(OS_WIN)
 #include "app/win/shell.h"
 #include "chrome/browser/autofill/autofill_ie_toolbar_import_win.h"
-#include "chrome/browser/browser_child_process_host.h"
 #include "chrome/browser/download/save_package.h"
-#include "chrome/browser/ssl/ssl_error_info.h"
 #include "chrome/browser/shell_integration.h"
+#include "chrome/browser/ssl/ssl_error_info.h"
 #include "chrome/browser/task_manager/task_manager.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
@@ -212,6 +214,8 @@ Browser::Browser(Type type, Profile* profile)
                  NotificationService::AllSources());
   registrar_.Add(this, NotificationType::EXTENSION_UNLOADED,
                  NotificationService::AllSources());
+  registrar_.Add(this, NotificationType::EXTENSION_UNINSTALLED,
+                 NotificationService::AllSources());
   registrar_.Add(this, NotificationType::EXTENSION_PROCESS_TERMINATED,
                  NotificationService::AllSources());
   registrar_.Add(this, NotificationType::BROWSER_THEME_CHANGED,
@@ -257,6 +261,10 @@ Browser::Browser(Type type, Profile* profile)
     profile_->GetProfileSyncService()->AddObserver(this);
 
   CreateInstantIfNecessary();
+
+  // Make sure TabFinder has been created. This does nothing if TabFinder is
+  // not enabled.
+  TabFinder::GetInstance();
 }
 
 Browser::~Browser() {
@@ -487,26 +495,6 @@ void Browser::OpenURLOffTheRecord(Profile* profile, const GURL& url) {
 }
 
 // static
-// TODO(erikkay): There are multiple reasons why this could fail.  Should
-// this function return an error reason as well so that callers can show
-// reasonable errors?
-TabContents* Browser::OpenApplication(Profile* profile,
-                                      const std::string& app_id,
-                                      TabContents* existing_tab) {
-  ExtensionService* extensions_service = profile->GetExtensionService();
-
-  // If the extension with |app_id| could't be found, most likely because it
-  // was uninstalled.
-  const Extension* extension =
-      extensions_service->GetExtensionById(app_id, false);
-  if (!extension)
-    return NULL;
-
-  return OpenApplication(profile, extension, extension->launch_container(),
-                         existing_tab);
-}
-
-// static
 TabContents* Browser::OpenApplication(
     Profile* profile,
     const Extension* extension,
@@ -546,7 +534,7 @@ TabContents* Browser::OpenApplicationWindow(
       DCHECK(extension->web_extent().ContainsURL(url_input));
     url = url_input;
   } else {
-    DCHECK(extension);
+    DCHECK(extension);  // Empty url and no extension.  Nothing to open.
     url = extension->GetFullLaunchURL();
   }
 
@@ -710,7 +698,7 @@ void Browser::OpenHelpWindow(Profile* profile) {
 // static
 void Browser::OpenOptionsWindow(Profile* profile) {
   Browser* browser = Browser::Create(profile);
-  browser->ShowOptionsTab(chrome::kDefaultOptionsSubPage);
+  browser->OpenOptionsDialog();
   browser->window()->Show();
 }
 
@@ -823,7 +811,7 @@ string16 Browser::GetWindowTitleForCurrentTab() const {
     FormatTitleForDisplay(&title);
   }
   if (title.empty())
-    title = TabContents::GetDefaultTitle();
+    title = TabContentsWrapper::GetDefaultTitle();
 
 #if defined(OS_MACOSX) || defined(OS_CHROMEOS)
   // On Mac or ChromeOS, we don't want to suffix the page title with
@@ -1109,11 +1097,16 @@ bool Browser::NavigateToIndexWithDisposition(int index,
   return true;
 }
 
-void Browser::ShowSingletonTab(const GURL& url, bool ignore_path) {
+browser::NavigateParams Browser::GetSingletonTabNavigateParams(
+    const GURL& url) {
   browser::NavigateParams params(this, url, PageTransition::AUTO_BOOKMARK);
   params.disposition = SINGLETON_TAB;
   params.show_window = true;
-  params.ignore_path = ignore_path;
+  return params;
+}
+
+void Browser::ShowSingletonTab(const GURL& url) {
+  browser::NavigateParams params(GetSingletonTabNavigateParams(url));
   browser::Navigate(&params);
 }
 
@@ -1314,6 +1307,17 @@ void Browser::OpenCurrentURL() {
     return;
 
   GURL url(WideToUTF8(location_bar->GetInputString()));
+
+  if (open_disposition == CURRENT_TAB && TabFinder::IsEnabled()) {
+    Browser* existing_browser = NULL;
+    TabContents* existing_tab = TabFinder::GetInstance()->FindTab(
+        this, url, &existing_browser);
+    if (existing_tab) {
+      existing_browser->ActivateContents(existing_tab);
+      return;
+    }
+  }
+
   browser::NavigateParams params(this, url, location_bar->GetPageTransition());
   params.disposition = open_disposition;
   // Use ADD_INHERIT_OPENER so that all pages opened by the omnibox at least
@@ -1323,6 +1327,13 @@ void Browser::OpenCurrentURL() {
   params.tabstrip_add_types =
       TabStripModel::ADD_FORCE_INDEX | TabStripModel::ADD_INHERIT_OPENER;
   browser::Navigate(&params);
+
+  DCHECK(profile_->GetExtensionService());
+  if (profile_->GetExtensionService()->IsInstalledApp(url)) {
+    UMA_HISTOGRAM_ENUMERATION(extension_misc::kAppLaunchHistogram,
+                              extension_misc::APP_LAUNCH_OMNIBOX_LOCATION,
+                              extension_misc::APP_LAUNCH_BUCKET_BOUNDARY);
+  }
 }
 
 void Browser::Stop() {
@@ -1811,27 +1822,27 @@ void Browser::ShowAppMenu() {
 
 void Browser::ShowBookmarkManagerTab() {
   UserMetrics::RecordAction(UserMetricsAction("ShowBookmarks"), profile_);
-  ShowSingletonTab(GURL(chrome::kChromeUIBookmarksURL), false);
+  ShowSingletonTab(GURL(chrome::kChromeUIBookmarksURL));
 }
 
 void Browser::ShowHistoryTab() {
   UserMetrics::RecordAction(UserMetricsAction("ShowHistory"), profile_);
-  ShowSingletonTab(GURL(chrome::kChromeUIHistoryURL), false);
+  ShowSingletonTab(GURL(chrome::kChromeUIHistoryURL));
 }
 
 void Browser::ShowDownloadsTab() {
   UserMetrics::RecordAction(UserMetricsAction("ShowDownloads"), profile_);
-  ShowSingletonTab(GURL(chrome::kChromeUIDownloadsURL), false);
+  ShowSingletonTab(GURL(chrome::kChromeUIDownloadsURL));
 }
 
 void Browser::ShowExtensionsTab() {
   UserMetrics::RecordAction(UserMetricsAction("ShowExtensions"), profile_);
-  ShowSingletonTab(GURL(chrome::kChromeUIExtensionsURL), false);
+  ShowSingletonTab(GURL(chrome::kChromeUIExtensionsURL));
 }
 
 void Browser::ShowAboutConflictsTab() {
   UserMetrics::RecordAction(UserMetricsAction("AboutConflicts"), profile_);
-  ShowSingletonTab(GURL(chrome::kChromeUIConflictsURL), false);
+  ShowSingletonTab(GURL(chrome::kChromeUIConflictsURL));
 }
 
 void Browser::ShowBrokenPageTab(TabContents* contents) {
@@ -1846,12 +1857,14 @@ void Browser::ShowBrokenPageTab(TabContents* contents) {
   subst.push_back(page_url);
   std::string report_page_url =
       ReplaceStringPlaceholders(kBrokenPageUrl, subst, NULL);
-  ShowSingletonTab(GURL(report_page_url), false);
+  ShowSingletonTab(GURL(report_page_url));
 }
 
 void Browser::ShowOptionsTab(const std::string& sub_page) {
   GURL url(chrome::kChromeUISettingsURL + sub_page);
-  ShowSingletonTab(url, true);
+  browser::NavigateParams params(GetSingletonTabNavigateParams(url));
+  params.path_behavior = browser::NavigateParams::IGNORE_AND_NAVIGATE;
+  browser::Navigate(&params);
 }
 
 void Browser::OpenClearBrowsingDataDialog() {
@@ -1869,7 +1882,10 @@ void Browser::OpenOptionsDialog() {
   UserMetrics::RecordAction(UserMetricsAction("ShowOptions"), profile_);
   if (!CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kDisableTabbedOptions)) {
-    ShowOptionsTab(chrome::kDefaultOptionsSubPage);
+    GURL url(chrome::kChromeUISettingsURL);
+    browser::NavigateParams params(GetSingletonTabNavigateParams(url));
+    params.path_behavior = browser::NavigateParams::IGNORE_AND_STAY_PUT;
+    browser::Navigate(&params);
   } else {
     ShowOptionsWindow(OPTIONS_PAGE_DEFAULT, OPTIONS_GROUP_NONE, profile_);
   }
@@ -1907,7 +1923,7 @@ void Browser::OpenSyncMyBookmarksDialog() {
 void Browser::OpenAboutChromeDialog() {
   UserMetrics::RecordAction(UserMetricsAction("AboutChrome"), profile_);
 #if defined(OS_CHROMEOS)
-  ShowSingletonTab(GURL(chrome::kChromeUIAboutURL), false);
+  ShowSingletonTab(GURL(chrome::kChromeUIAboutURL));
 #else
   window_->ShowAboutChromeDialog();
 #endif
@@ -2662,8 +2678,7 @@ bool Browser::LargeIconsPermitted() const {
 void Browser::TabInsertedAt(TabContentsWrapper* contents,
                             int index,
                             bool foreground) {
-  contents->set_delegate(this);
-  contents->tab_contents()->set_delegate(this);
+  SetAsDelegate(contents, this);
   contents->controller().SetWindowID(session_id());
 
   SyncHistoryWithTabs(index);
@@ -2687,15 +2702,14 @@ void Browser::TabClosingAt(TabStripModel* tab_strip_model,
       NotificationService::NoDetails());
 
   // Sever the TabContents' connection back to us.
-  contents->set_delegate(NULL);
-  contents->tab_contents()->set_delegate(NULL);
+  SetAsDelegate(contents, NULL);
 }
 
 void Browser::TabDetachedAt(TabContentsWrapper* contents, int index) {
   TabDetachedAtImpl(contents, index, DETACH_TYPE_DETACH);
 }
 
-void Browser::TabDeselectedAt(TabContentsWrapper* contents, int index) {
+void Browser::TabDeselected(TabContentsWrapper* contents) {
   if (instant())
     instant()->DestroyPreviewContents();
 
@@ -2708,7 +2722,8 @@ void Browser::TabSelectedAt(TabContentsWrapper* old_contents,
                             TabContentsWrapper* new_contents,
                             int index,
                             bool user_gesture) {
-  DCHECK(old_contents != new_contents);
+  if (old_contents == new_contents)
+    return;
 
   // On some platforms we want to automatically reload tabs that are
   // killed when the user selects them.
@@ -2740,7 +2755,7 @@ void Browser::TabSelectedAt(TabContentsWrapper* old_contents,
     status_bubble->Hide();
 
     // Show the loading state (if any).
-    status_bubble->SetStatus(GetSelectedTabContents()->GetStatusText());
+    status_bubble->SetStatus(GetSelectedTabContentsWrapper()->GetStatusText());
   }
 
   if (HasFindBarController()) {
@@ -2911,7 +2926,8 @@ void Browser::LoadingStateChanged(TabContents* source) {
   if (source == selected_contents) {
     UpdateReloadStopState(source->is_loading(), false);
     if (GetStatusBubble()) {
-      GetStatusBubble()->SetStatus(GetSelectedTabContents()->GetStatusText());
+      GetStatusBubble()->SetStatus(
+          GetSelectedTabContentsWrapper()->GetStatusText());
     }
 
     if (!source->is_loading() &&
@@ -3167,18 +3183,6 @@ void Browser::OnStartDownload(DownloadItem* download, TabContents* tab) {
   }
 }
 
-void Browser::ConfirmSetDefaultSearchProvider(
-    TabContents* tab_contents,
-    TemplateURL* template_url,
-    TemplateURLModel* template_url_model) {
-  window()->ConfirmSetDefaultSearchProvider(tab_contents, template_url,
-                                            template_url_model);
-}
-void Browser::ConfirmAddSearchProvider(const TemplateURL* template_url,
-                                       Profile* profile) {
-  window()->ConfirmAddSearchProvider(template_url, profile);
-}
-
 void Browser::ShowPageInfo(Profile* profile,
                            const GURL& url,
                            const NavigationEntry::SSLStatus& ssl,
@@ -3273,12 +3277,36 @@ void Browser::ContentRestrictionsChanged(TabContents* source) {
   UpdateCommandsForContentRestrictionState();
 }
 
+void Browser::WorkerCrashed() {
+  TabContents* tab_contents = GetSelectedTabContents();
+  if (!tab_contents)
+    return;
+  tab_contents->AddInfoBar(new SimpleAlertInfoBarDelegate(tab_contents, NULL,
+      l10n_util::GetStringUTF16(IDS_WEBWORKER_CRASHED_PROMPT), true));
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Browser, TabContentsWrapperDelegate implementation:
 
 void Browser::URLStarredChanged(TabContentsWrapper* source, bool starred) {
   if (source == GetSelectedTabContentsWrapper())
     window_->SetStarredState(starred);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Browser, SearchEngineTabHelperDelegate implementation:
+
+void Browser::ConfirmSetDefaultSearchProvider(
+    TabContents* tab_contents,
+    TemplateURL* template_url,
+    TemplateURLModel* template_url_model) {
+  window()->ConfirmSetDefaultSearchProvider(tab_contents, template_url,
+                                            template_url_model);
+}
+
+void Browser::ConfirmAddSearchProvider(const TemplateURL* template_url,
+                                       Profile* profile) {
+  window()->ConfirmAddSearchProvider(template_url, profile);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -3366,6 +3394,18 @@ void Browser::Observe(NotificationType type,
       break;
     }
 
+    case NotificationType::EXTENSION_UNINSTALLED: {
+      window()->GetLocationBar()->UpdatePageActions();
+
+      // If any "This extension has crashed" InfoBarDelegates are around for
+      // this extension, it means that it has been uninstalled
+      // so just remove the remaining CrashedExtensionInfoBarDelegate objects.
+      const UninstalledExtensionInfo* uninstalled_extension =
+          Details<const UninstalledExtensionInfo>(details).ptr();
+      RemoveCrashedExtensionInfoBar(uninstalled_extension->extension_id);
+      break;
+    }
+
     case NotificationType::EXTENSION_LOADED: {
       window()->GetLocationBar()->UpdatePageActions();
 
@@ -3373,18 +3413,7 @@ void Browser::Observe(NotificationType type,
       // this extension, it means that it has been reloaded in another window
       // so just remove the remaining CrashedExtensionInfoBarDelegate objects.
       const Extension* extension = Details<const Extension>(details).ptr();
-      TabStripModel* model = tab_handler_->GetTabStripModel();
-      for (int m = 0; m < model->count(); ++m) {
-        TabContents* tab_contents = model->GetTabContentsAt(m)->tab_contents();
-        for (size_t i = 0; i < tab_contents->infobar_count(); ) {
-          CrashedExtensionInfoBarDelegate* delegate = tab_contents->
-              GetInfoBarDelegateAt(i)->AsCrashedExtensionInfoBarDelegate();
-          if (delegate && delegate->extension_id() == extension->id())
-            tab_contents->RemoveInfoBar(delegate);
-          else
-            ++i;
-        }
-      }
+      RemoveCrashedExtensionInfoBar(extension->id());
       break;
     }
 
@@ -3450,6 +3479,21 @@ void Browser::Observe(NotificationType type,
   }
 }
 
+void Browser::RemoveCrashedExtensionInfoBar(const std::string& extension_id) {
+  TabStripModel* model = tab_handler_->GetTabStripModel();
+  for (int m = 0; m < model->count(); ++m) {
+    TabContents* tab_contents = model->GetTabContentsAt(m)->tab_contents();
+    for (size_t i = 0; i < tab_contents->infobar_count(); ) {
+      CrashedExtensionInfoBarDelegate* delegate = tab_contents->
+          GetInfoBarDelegateAt(i)->AsCrashedExtensionInfoBarDelegate();
+      if (delegate && delegate->extension_id() == extension_id)
+        tab_contents->RemoveInfoBar(delegate);
+      else
+        ++i;
+    }
+  }
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Browser, ProfileSyncServiceObserver implementation:
 
@@ -3495,6 +3539,14 @@ void Browser::CommitInstant(TabContentsWrapper* preview_contents) {
           index, preview_contents);
   // InstantUnloadHandler takes ownership of old_contents.
   instant_unload_handler_->RunUnloadListenersOrDestroy(old_contents, index);
+
+  GURL url = preview_contents->tab_contents()->GetURL();
+  DCHECK(profile_->GetExtensionService());
+  if (profile_->GetExtensionService()->IsInstalledApp(url)) {
+    UMA_HISTOGRAM_ENUMERATION(extension_misc::kAppLaunchHistogram,
+                              extension_misc::APP_LAUNCH_OMNIBOX_INSTANT,
+                              extension_misc::APP_LAUNCH_BUCKET_BOUNDARY);
+  }
 }
 
 void Browser::SetSuggestedText(const string16& text) {
@@ -3867,8 +3919,10 @@ void Browser::ProcessPendingUIUpdates() {
         window()->GetLocationBar()->UpdatePageActions();
 
       // Updating the URL happens synchronously in ScheduleUIUpdate.
-      if (flags & TabContents::INVALIDATE_LOAD && GetStatusBubble())
-        GetStatusBubble()->SetStatus(contents->GetStatusText());
+      if (flags & TabContents::INVALIDATE_LOAD && GetStatusBubble()) {
+        GetStatusBubble()->SetStatus(
+            GetSelectedTabContentsWrapper()->GetStatusText());
+      }
 
       if (flags & (TabContents::INVALIDATE_TAB |
                    TabContents::INVALIDATE_TITLE)) {
@@ -4158,6 +4212,12 @@ Browser* Browser::GetOrCreateTabbedBrowser(Profile* profile) {
   return browser;
 }
 
+void Browser::SetAsDelegate(TabContentsWrapper* tab, Browser* delegate) {
+  tab->tab_contents()->set_delegate(delegate);
+  tab->set_delegate(delegate);
+  tab->search_engine_tab_helper()->set_delegate(delegate);
+}
+
 void Browser::FindInPage(bool find_next, bool forward_direction) {
   ShowFindBar();
   if (find_next) {
@@ -4167,9 +4227,9 @@ void Browser::FindInPage(bool find_next, bool forward_direction) {
     find_text = GetFindPboardText();
 #endif
     GetSelectedTabContentsWrapper()->
-        GetFindManager()->StartFinding(find_text,
-                                       forward_direction,
-                                       false);  // Not case sensitive.
+        find_tab_helper()->StartFinding(find_text,
+                                        forward_direction,
+                                        false);  // Not case sensitive.
   }
 }
 
@@ -4191,8 +4251,7 @@ void Browser::TabDetachedAtImpl(TabContentsWrapper* contents, int index,
       SyncHistoryWithTabs(0);
   }
 
-  contents->set_delegate(NULL);
-  contents->tab_contents()->set_delegate(NULL);
+  SetAsDelegate(contents, NULL);
   RemoveScheduledUpdatesFor(contents->tab_contents());
 
   if (find_bar_controller_.get() &&

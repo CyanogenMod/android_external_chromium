@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -163,6 +163,14 @@ int Tab::GetMiniWidth() {
 ////////////////////////////////////////////////////////////////////////////////
 // Tab, protected:
 
+const gfx::Rect& Tab::GetTitleBounds() const {
+  return title_bounds_;
+}
+
+const gfx::Rect& Tab::GetIconBounds() const {
+  return favicon_bounds_;
+}
+
 void Tab::DataChanged(const TabRendererData& old) {
   if (data().blocked == old.blocked)
     return;
@@ -176,7 +184,7 @@ void Tab::DataChanged(const TabRendererData& old) {
 ////////////////////////////////////////////////////////////////////////////////
 // Tab, views::View overrides:
 
-void Tab::Paint(gfx::Canvas* canvas) {
+void Tab::OnPaint(gfx::Canvas* canvas) {
   // Don't paint if we're narrower than we can render correctly. (This should
   // only happen during animations).
   if (width() < GetMinimumUnselectedSize().width() && !data().mini)
@@ -227,23 +235,17 @@ void Tab::Layout() {
   showing_icon_ = ShouldShowIcon();
   if (showing_icon_) {
     // Use the size of the favicon as apps use a bigger favicon size.
-    int favicon_size =
-        !data().favicon.empty() ? data().favicon.width() : kFavIconSize;
-    int favicon_top = kTopPadding + content_height / 2 - favicon_size / 2;
+    int favicon_top = kTopPadding + content_height / 2 - kFavIconSize / 2;
     int favicon_left = lb.x();
-    if (favicon_size != kFavIconSize) {
-      favicon_left -= (favicon_size - kFavIconSize) / 2;
-      favicon_top -= kAppTapFaviconVerticalAdjustment;
-    }
     favicon_bounds_.SetRect(favicon_left, favicon_top,
-                            favicon_size, favicon_size);
+                            kFavIconSize, kFavIconSize);
     if (data().mini && width() < kMiniTabRendererAsNormalTabWidth) {
       // Adjust the location of the favicon when transitioning from a normal
       // tab to a mini-tab.
       int mini_delta = kMiniTabRendererAsNormalTabWidth - GetMiniWidth();
       int ideal_delta = width() - GetMiniWidth();
       if (ideal_delta < mini_delta) {
-        int ideal_x = (GetMiniWidth() - favicon_size) / 2;
+        int ideal_x = (GetMiniWidth() - kFavIconSize) / 2;
         int x = favicon_bounds_.x() + static_cast<int>(
             (1 - static_cast<float>(ideal_delta) /
              static_cast<float>(mini_delta)) *
@@ -296,8 +298,8 @@ void Tab::Layout() {
 
   // Certain UI elements within the Tab (the favicon, etc.) are not represented
   // as child Views (which is the preferred method).  Instead, these UI elements
-  // are drawn directly on the canvas from within Tab::Paint(). The Tab's child
-  // Views (for example, the Tab's close button which is a views::Button
+  // are drawn directly on the canvas from within Tab::OnPaint(). The Tab's
+  // child Views (for example, the Tab's close button which is a views::Button
   // instance) are automatically mirrored by the mirroring infrastructure in
   // views. The elements Tab draws directly on the canvas need to be manually
   // mirrored if the View's layout is right-to-left.
@@ -306,6 +308,10 @@ void Tab::Layout() {
 
 void Tab::OnThemeChanged() {
   LoadTabImages();
+}
+
+std::string Tab::GetClassName() const {
+  return kViewClassName;
 }
 
 bool Tab::HasHitTestMask() const {
@@ -339,7 +345,7 @@ void Tab::GetHitTestMask(gfx::Path* path) const {
 }
 
 bool Tab::GetTooltipTextOrigin(const gfx::Point& p, gfx::Point* origin) {
-  origin->set_x(title_bounds().x() + 10);
+  origin->set_x(title_bounds_.x() + 10);
   origin->set_y(-views::TooltipManager::GetTooltipHeight() - 4);
   return true;
 }
@@ -353,10 +359,6 @@ void Tab::OnMouseMoved(const views::MouseEvent& e) {
 
 ////////////////////////////////////////////////////////////////////////////////
 // Tab, private
-
-void Tab::PaintIcon(gfx::Canvas* canvas) {
-  BaseTab::PaintIcon(canvas, favicon_bounds_.x(), favicon_bounds_.y());
-}
 
 void Tab::PaintTabBackground(gfx::Canvas* canvas) {
   if (IsSelected()) {
@@ -443,7 +445,7 @@ void Tab::PaintInactiveTabBackground(gfx::Canvas* canvas) {
 
   int tab_id;
   if (GetWidget() &&
-      GetWidget()->GetWindow()->GetNonClientView()->UseNativeFrame()) {
+      GetWidget()->GetWindow()->non_client_view()->UseNativeFrame()) {
     tab_id = IDR_THEME_TAB_BACKGROUND_V;
   } else {
     tab_id = is_otr ? IDR_THEME_TAB_BACKGROUND_INCOGNITO :

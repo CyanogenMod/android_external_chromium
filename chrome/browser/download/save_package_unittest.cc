@@ -10,8 +10,8 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/download/save_package.h"
 #include "chrome/browser/net/url_request_mock_http_job.h"
-#include "chrome/browser/renderer_host/test/test_render_view_host.h"
-#include "chrome/browser/tab_contents/test_tab_contents.h"
+#include "content/browser/renderer_host/test_render_view_host.h"
+#include "content/browser/tab_contents/test_tab_contents.h"
 #include "googleurl/src/gurl.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -351,7 +351,7 @@ static const struct SuggestedSaveNameTestCase {
 TEST_F(SavePackageTest, TestSuggestedSaveNames) {
   for (size_t i = 0; i < arraysize(kSuggestedSaveNames); ++i) {
     scoped_refptr<SavePackage> save_package(
-        new SavePackage(NULL, FilePath(), FilePath()));
+        new SavePackage(contents(), FilePath(), FilePath()));
     save_package->page_url_ = GURL(kSuggestedSaveNames[i].page_url);
     save_package->title_ = kSuggestedSaveNames[i].page_title;
 

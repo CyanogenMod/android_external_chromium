@@ -58,7 +58,7 @@ void DevToolsRemoteListenSocket::StartNextField() {
       state_ = HEADERS;
       break;
     case HEADERS:
-      if (protocol_field_.size() == 0) {  // empty line - end of headers
+      if (protocol_field_.empty()) {  // empty line - end of headers
         const std::string& payload_length_string = GetHeader(
             DevToolsRemoteMessageHeaders::kContentLength, "0");
         base::StringToInt(payload_length_string, &remaining_payload_length_);
@@ -164,7 +164,7 @@ void DevToolsRemoteListenSocket::DispatchField() {
       }
       break;
     case HEADERS: {
-      if (protocol_field_.size() > 0) {  // not end-of-headers
+      if (!protocol_field_.empty()) {  // not end-of-headers
         std::string::size_type colon_pos = protocol_field_.find_first_of(":");
         if (colon_pos == std::string::npos) {
           // TODO(apavlov): handle the error (malformed header)

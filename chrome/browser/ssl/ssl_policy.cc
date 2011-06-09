@@ -9,18 +9,17 @@
 #include "base/singleton.h"
 #include "base/string_piece.h"
 #include "base/string_util.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/ssl/ssl_cert_error_handler.h"
 #include "chrome/browser/ssl/ssl_error_info.h"
 #include "chrome/browser/ssl/ssl_request_info.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/time_format.h"
 #include "chrome/common/url_constants.h"
-#include "grit/browser_resources.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/site_instance.h"
+#include "content/browser/tab_contents/navigation_entry.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/generated_resources.h"
 #include "net/base/cert_status_flags.h"
 #include "net/base/ssl_info.h"
@@ -103,41 +102,9 @@ void SSLPolicy::OnRequestStarted(SSLRequestInfo* info) {
   // TODO(abarth): This mechanism is wrong.  What we should be doing is sending
   // this information back through WebKit and out some FrameLoaderClient
   // methods.
-  //
-  // The behavior for HTTPS resources with cert errors should be as follows:
-  //   1) If we don't know anything about this host (the one hosting the
-  //      resource), the resource load just fails.
-  //   2) If the user has previously approved the same certificate error for
-  //      this host in a full-page interstitial, then we'll proceed with the
-  //      load.
-  //   3) If we proceed with the load, we should treat the resources as if they
-  //      were loaded over HTTP, w.r.t. the display vs. run distinction above.
-  //
-  // However, right now we don't have the proper context to understand where
-  // these resources will be used.  Consequently, we're conservative and treat
-  // them all like DidRunInsecureContent().
 
-  if (net::IsCertStatusError(info->ssl_cert_status())) {
+  if (net::IsCertStatusError(info->ssl_cert_status()))
     backend_->HostRanInsecureContent(info->url().host(), info->child_id());
-
-    // TODO(abarth): We should eventually remove the main_frame_origin and
-    // frame_origin properties.  First, not every resource load is associated
-    // with a frame, so they don't always make sense.  Second, the
-    // main_frame_origin is computed from the first_party_for_cookies, which has
-    // been hacked to death to support third-party cookie blocking.
-
-    if (info->resource_type() != ResourceType::MAIN_FRAME &&
-        info->resource_type() != ResourceType::SUB_FRAME) {
-      // The frame's origin now contains insecure content.
-      OriginRanInsecureContent(info->frame_origin(), info->child_id());
-    }
-
-    if (info->resource_type() != ResourceType::MAIN_FRAME) {
-      // The main frame now contains a frame with insecure content.  Therefore,
-      // we mark the main frame's origin as broken too.
-      OriginRanInsecureContent(info->main_frame_origin(), info->child_id());
-    }
-  }
 }
 
 void SSLPolicy::UpdateEntry(NavigationEntry* entry, TabContents* tab_contents) {

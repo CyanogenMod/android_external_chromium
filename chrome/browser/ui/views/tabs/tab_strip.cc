@@ -170,7 +170,7 @@ void TabStrip::SetBackgroundOffset(const gfx::Point& offset) {
 }
 
 bool TabStrip::IsPositionInWindowCaption(const gfx::Point& point) {
-  views::View* v = GetViewForPoint(point);
+  views::View* v = GetEventHandlerForPoint(point);
 
   // If there is no control at this location, claim the hit was in the title
   // bar to get a move action.
@@ -276,13 +276,13 @@ void TabStrip::PaintChildren(gfx::Canvas* canvas) {
     if (tab->dragging()) {
       dragging_tab = tab;
     } else if (!tab->IsSelected()) {
-      tab->ProcessPaint(canvas);
+      tab->Paint(canvas);
     } else {
       selected_tab = tab;
     }
   }
 
-  if (GetWindow()->GetNonClientView()->UseNativeFrame()) {
+  if (GetWindow()->non_client_view()->UseNativeFrame()) {
     // Make sure unselected tabs are somewhat transparent.
     SkPaint paint;
     paint.setColor(SkColorSetARGB(200, 255, 255, 255));
@@ -295,14 +295,14 @@ void TabStrip::PaintChildren(gfx::Canvas* canvas) {
 
   // Paint the selected tab last, so it overlaps all the others.
   if (selected_tab)
-    selected_tab->ProcessPaint(canvas);
+    selected_tab->Paint(canvas);
 
   // Paint the New Tab button.
-  newtab_button_->ProcessPaint(canvas);
+  newtab_button_->Paint(canvas);
 
   // And the dragged tab.
   if (dragging_tab)
-    dragging_tab->ProcessPaint(canvas);
+    dragging_tab->Paint(canvas);
 }
 
 // Overridden to support automation. See automation_proxy_uitest.cc.
@@ -354,7 +354,7 @@ int TabStrip::OnPerformDrop(const DropTargetEvent& event) {
   SetDropIndex(-1, false);
 
   GURL url;
-  std::wstring title;
+  string16 title;
   if (!event.data().GetURLAndTitle(&url, &title) || !url.is_valid())
     return ui::DragDropTypes::DRAG_NONE;
 
@@ -367,10 +367,10 @@ AccessibilityTypes::Role TabStrip::GetAccessibleRole() {
   return AccessibilityTypes::ROLE_PAGETABLIST;
 }
 
-views::View* TabStrip::GetViewForPoint(const gfx::Point& point) {
+views::View* TabStrip::GetEventHandlerForPoint(const gfx::Point& point) {
   // Return any view that isn't a Tab or this TabStrip immediately. We don't
   // want to interfere.
-  views::View* v = View::GetViewForPoint(point);
+  views::View* v = View::GetEventHandlerForPoint(point);
   if (v && v != this && v->GetClassName() != Tab::kViewClassName)
     return v;
 

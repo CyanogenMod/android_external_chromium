@@ -23,6 +23,11 @@ class ExternalFocusTracker;
 class ImageButton;
 class ImageView;
 class Label;
+class Link;
+class LinkController;
+class MenuButton;
+class TextButton;
+class ViewMenuDelegate;
 }
 
 // TODO(pkasting): infobar_delegate.h forward declares "class InfoBar" but the
@@ -53,20 +58,14 @@ class InfoBarView : public InfoBar,
   // InfoBar is added to the view hierarchy.
   void set_container(InfoBarContainer* container) { container_ = container; }
 
-  // Starts animating the InfoBar open.
-  void AnimateOpen();
+  // Makes the infobar visible.  If |animate| is true, the infobar is then
+  // animated to full size.
+  void Show(bool animate);
 
-  // Opens the InfoBar immediately.
-  void Open();
-
-  // Starts animating the InfoBar closed. It will not be closed until the
-  // animation has completed, when |Close| will be called.
-  void AnimateClose();
-
-  // Closes the InfoBar immediately and removes it from its container. Notifies
-  // the delegate that it has closed. The InfoBar is deleted after this function
-  // is called.
-  void Close();
+  // Makes the infobar hidden.  If |animate| is true, the infobar is first
+  // animated to zero size.  Once the infobar is hidden, it is removed from its
+  // container (triggering its deletion), and its delegate is closed.
+  void Hide(bool animate);
 
   // Paint the arrow on |canvas|. |arrow_center_x| indicates the
   // desired location of the center of the arrow in the |outer_view|
@@ -77,12 +76,29 @@ class InfoBarView : public InfoBar,
   // The target height of the InfoBar, regardless of what its current height
   // is (due to animation).
   static const int kDefaultTargetHeight;
-  static const int kHorizontalPadding;
-  static const int kIconLabelSpacing;
   static const int kButtonButtonSpacing;
   static const int kEndOfLabelSpacing;
 
   virtual ~InfoBarView();
+
+  // Creates a label with the appropriate font and color for an infobar.
+  static views::Label* CreateLabel(const string16& text);
+
+  // Creates a link with the appropriate font and color for an infobar.
+  static views::Link* CreateLink(const string16& text,
+                                 views::LinkController* controller,
+                                 const SkColor& background_color);
+
+  // Creates a menu button with an infobar-specific appearance.
+  static views::MenuButton* CreateMenuButton(
+      const string16& text,
+      bool normal_has_border,
+      views::ViewMenuDelegate* menu_delegate);
+
+  // Creates a text button with an infobar-specific appearance.
+  static views::TextButton* CreateTextButton(views::ButtonListener* listener,
+                                             const string16& text,
+                                             bool needs_elevation);
 
   // views::View:
   virtual void Layout();
@@ -94,9 +110,10 @@ class InfoBarView : public InfoBar,
   // ui::AnimationDelegate:
   virtual void AnimationProgressed(const ui::Animation* animation);
 
-  // Returns the available width of the View for use by child view layout,
-  // excluding the close button.
-  virtual int GetAvailableWidth() const;
+  // Returns the minimum width the content (that is, everything between the icon
+  // and the close button) can be shrunk to.  This is used to prevent the close
+  // button from overlapping views that cannot be shrunk any further.
+  virtual int ContentMinimumWidth() const;
 
   // Removes our associated InfoBarDelegate from the associated TabContents.
   // (Will lead to this InfoBar being closed).
@@ -106,6 +123,11 @@ class InfoBarView : public InfoBar,
 
   ui::SlideAnimation* animation() { return animation_.get(); }
 
+  // These return x coordinates delimiting the usable area for subclasses to lay
+  // out their controls.
+  int StartX() const;
+  int EndX() const;
+
   // Returns a centered y-position of a control of height specified in
   // |prefsize| within the standard InfoBar height. Stable during an animation.
   int CenterY(const gfx::Size prefsize) const;
@@ -114,9 +136,11 @@ class InfoBarView : public InfoBar,
   // |prefsize| within the standard InfoBar height, adjusted according to the
   // current amount of animation offset the |parent| InfoBar currently has.
   // Changes during an animation.
-  int OffsetY(View* parent, const gfx::Size prefsize) const;
+  int OffsetY(const gfx::Size prefsize) const;
 
  private:
+  static const int kHorizontalPadding;
+
   // views::View:
   virtual AccessibilityTypes::Role GetAccessibleRole();
   virtual gfx::Size GetPreferredSize();
@@ -132,6 +156,11 @@ class InfoBarView : public InfoBar,
   // so.
   void DestroyFocusTracker(bool restore_focus);
 
+  // Closes the InfoBar immediately and removes it from its container. Notifies
+  // the delegate that it has closed. The InfoBar is deleted after this function
+  // is called.
+  void Close();
+
   // Deletes this object (called after a return to the message loop to allow
   // the stack in ViewHierarchyChanged to unwind).
   void DeleteSelf();
@@ -141,6 +170,9 @@ class InfoBarView : public InfoBar,
 
   // The InfoBar's delegate.
   InfoBarDelegate* delegate_;
+
+  // The optional icon at the left edge of the InfoBar.
+  views::ImageView* icon_;
 
   // The close button at the right edge of the InfoBar.
   views::ImageButton* close_button_;

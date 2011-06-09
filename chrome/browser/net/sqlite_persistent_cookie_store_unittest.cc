@@ -8,10 +8,10 @@
 #include "base/scoped_temp_dir.h"
 #include "base/stl_util-inl.h"
 #include "base/time.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/net/sqlite_persistent_cookie_store.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/test/thread_test_helper.h"
+#include "content/browser/browser_thread.h"
 #include "googleurl/src/gurl.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -34,8 +34,8 @@ class SQLitePersistentCookieStoreTest : public testing::Test {
     ASSERT_TRUE(0 == cookies.size());
     // Make sure the store gets written at least once.
     store_->AddCookie(
-        net::CookieMonster::CanonicalCookie("A", "B", "http://foo.bar", "/",
-                                            false, false,
+        net::CookieMonster::CanonicalCookie(GURL(), "A", "B", "http://foo.bar",
+                                            "/", false, false,
                                             base::Time::Now(),
                                             base::Time::Now(),
                                             true, base::Time::Now()));
@@ -128,8 +128,9 @@ TEST_F(SQLitePersistentCookieStoreTest, TestFlush) {
     std::string name(1, c);
     std::string value(1000, c);
     store_->AddCookie(
-        net::CookieMonster::CanonicalCookie(name, value, "http://foo.bar", "/",
-                                            false, false, t, t, true, t));
+        net::CookieMonster::CanonicalCookie(GURL(), name, value,
+                                            "http://foo.bar", "/", false, false,
+                                            t, t, true, t));
   }
 
   // Call Flush() and wait until the DB thread is idle.

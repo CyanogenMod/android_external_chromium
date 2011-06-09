@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,16 @@
 
 #include "base/message_loop.h"
 #include "base/singleton.h"
-#include "chrome/browser/browser_thread.h"
-#include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_setup_flow.h"
+#include "chrome/browser/ui/webui/chrome_url_data_manager.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/browser_thread.h"
 #include "googleurl/src/gurl.h"
 #include "grit/app_resources.h"
 #include "grit/browser_resources.h"
@@ -68,8 +68,13 @@ const char* SyncResourcesSource::kInvalidPasswordHelpUrl =
     "http://www.google.com/support/accounts/bin/answer.py?ctx=ch&answer=27444";
 const char* SyncResourcesSource::kCanNotAccessAccountUrl =
     "http://www.google.com/support/accounts/bin/answer.py?answer=48598";
+#if defined(OS_CHROMEOS)
 const char* SyncResourcesSource::kEncryptionHelpUrl =
-    "http://www.google.com/support/chrome/bin/answer.py?answer=165139";
+    "http://www.google.com/support/chromeos/bin/answer.py?answer=1181035";
+#else
+const char* SyncResourcesSource::kEncryptionHelpUrl =
+    "http://www.google.com/support/chrome/bin/answer.py?answer=1181035";
+#endif
 const char* SyncResourcesSource::kCreateNewAccountUrl =
     "https://www.google.com/accounts/NewAccount?service=chromiumsync";
 

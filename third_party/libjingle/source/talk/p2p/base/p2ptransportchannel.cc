@@ -621,12 +621,21 @@ void P2PTransportChannel::SortConnections() {
 
 // Track the best connection, and let listeners know
 void P2PTransportChannel::SwitchBestConnectionTo(Connection* conn) {
-  // Note: the previous best_connection_ may be destroyed by now, so don't
+  // Note: if conn is NULL, the previous best_connection_ has been destroyed,
+  // so don't use it.
   // use it.
+  Connection* old_best_connection = best_connection_;
   best_connection_ = conn;
   if (best_connection_) {
-    LOG_J(LS_INFO, this) << "New best connection: " << conn->ToString();
+    if (old_best_connection) {
+      LOG_J(LS_INFO, this) << "Previous best connection: "
+                           << old_best_connection->ToString();
+    }
+    LOG_J(LS_INFO, this) << "New best connection: "
+                         << best_connection_->ToString();
     SignalRouteChange(this, best_connection_->remote_candidate().address());
+  } else {
+    LOG_J(LS_INFO, this) << "No best connection";
   }
 }
 

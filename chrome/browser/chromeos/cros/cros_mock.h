@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -109,10 +109,9 @@ class CrosMock {
   ImePropertyList ime_properties_;
   InputMethodDescriptor current_input_method_;
   InputMethodDescriptor previous_input_method_;
-  WifiNetwork wifi_network_;
   WifiNetworkVector wifi_networks_;
-  CellularNetwork cellular_network_;
   CellularNetworkVector cellular_networks_;
+  VirtualNetworkVector virtual_networks_;
   std::string empty_string_;
 
   DISALLOW_COPY_AND_ASSIGN(CrosMock);

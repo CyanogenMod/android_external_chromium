@@ -23,10 +23,6 @@
 #include "chrome/browser/load_notification_details.h"
 #include "chrome/browser/page_info_window.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
-#include "chrome/browser/tab_contents/provisional_load_details.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/browser/ui/views/browser_dialogs.h"
@@ -42,6 +38,10 @@
 #include "chrome/common/notification_service.h"
 #include "chrome/common/page_transition_types.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/resource_dispatcher_host_request_info.h"
+#include "content/browser/tab_contents/provisional_load_details.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -916,7 +916,7 @@ scoped_refptr<ExternalTabContainer> ExternalTabContainer::RemovePendingTab(
 
 void ExternalTabContainer::SetEnableExtensionAutomation(
     const std::vector<std::string>& functions_enabled) {
-  if (functions_enabled.size() > 0) {
+  if (!functions_enabled.empty()) {
     if (!tab_contents_.get()) {
       NOTREACHED() << "Being invoked via tab so should have TabContents";
       return;

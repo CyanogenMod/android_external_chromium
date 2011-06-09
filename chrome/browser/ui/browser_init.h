@@ -140,6 +140,10 @@ class BrowserInit {
     // returns false to specify default processing.
     bool OpenApplicationWindow(Profile* profile);
 
+    // If IsAppLaunch is true and the user set a pref indicating that the app
+    // should open in a tab, do so.
+    bool OpenApplicationTab(Profile* profile);
+
     // Invoked from OpenURLsInBrowser to handle processing of urls. This may
     // do any of the following:
     // . Invoke ProcessStartupURLs if |process_startup| is true.
@@ -161,6 +165,9 @@ class BrowserInit {
     // new browser.
     bool ProcessStartupURLs(const std::vector<GURL>& urls_to_open);
 
+    // Adds any startup infobars to the selected tab of the given browser.
+    void AddInfoBarsIfNecessary(Browser* browser);
+
     // If the last session didn't exit cleanly and tab is a web contents tab,
     // an infobar is added allowing the user to restore the last session.
     void AddCrashedInfoBarIfNecessary(TabContents* tab);
@@ -168,6 +175,11 @@ class BrowserInit {
     // If we have been started with unsupported flags like --single-process,
     // politely nag the user about it.
     void AddBadFlagsInfoBarIfNecessary(TabContents* tab);
+
+    // If DNS based certificate checking has been enabled then we show a
+    // warning infobar.
+    void AddDNSCertProvenanceCheckingWarningInfoBarIfNecessary(
+        TabContents* tab);
 
     // Adds additional startup URLs to the specified vector.
     void AddStartupURLs(std::vector<GURL>* startup_urls) const;

@@ -70,13 +70,18 @@ struct WebPreferences {
   bool experimental_webgl_enabled;
   bool gl_multisampling_enabled;
   bool show_composited_layer_borders;
+  bool show_composited_layer_tree;
+  bool show_fps_counter;
+  bool asynchronous_spell_checking_enabled;
   bool accelerated_compositing_enabled;
+  bool composite_to_texture_enabled;
   bool accelerated_layers_enabled;
   bool accelerated_video_enabled;
   bool accelerated_2d_canvas_enabled;
   bool accelerated_plugins_enabled;
   bool memory_info_enabled;
   bool interactive_form_validation_enabled;
+  bool fullscreen_enabled;
 
   // We try to keep the default values the same as the default values in
   // chrome, except for the cases where it would require lots of extra work for

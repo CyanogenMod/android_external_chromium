@@ -9,15 +9,16 @@
 #include "base/basictypes.h"
 #include "base/scoped_ptr.h"
 #include "base/compiler_specific.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_observer.h"
 #include "chrome/common/notification_registrar.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_observer.h"
 
 class Extension;
-class FindManager;
+class FindTabHelper;
 class NavigationController;
 class PasswordManager;
 class PasswordManagerDelegate;
+class SearchEngineTabHelper;
 class TabContentsWrapperDelegate;
 
 // Wraps TabContents and all of its supporting objects in order to control
@@ -37,6 +38,14 @@ class TabContentsWrapper : public NotificationObserver,
   // Used to retrieve this object from |tab_contents_|, which is placed in
   // its property bag to avoid adding additional interfaces.
   static PropertyAccessor<TabContentsWrapper*>* property_accessor();
+
+  static void RegisterUserPrefs(PrefService* prefs);
+
+  // Initial title assigned to NavigationEntries from Navigate.
+  static string16 GetDefaultTitle();
+
+   // Returns a human-readable description the tab's loading state.
+  string16 GetStatusText() const;
 
   // Create a TabContentsWrapper with the same state as this one. The returned
   // heap-allocated pointer is owned by the caller.
@@ -71,19 +80,23 @@ class TabContentsWrapper : public NotificationObserver,
 
   bool is_starred() const { return is_starred_; }
 
-  // Returns the PasswordManager, creating it if necessary.
-  PasswordManager* GetPasswordManager();
+  // Tab Helpers ---------------------------------------------------------------
 
-  // Returns the FindManager, creating it if necessary.
-  FindManager* GetFindManager();
+  FindTabHelper* find_tab_helper() { return find_tab_helper_.get(); }
+
+  PasswordManager* password_manager() { return password_manager_.get(); }
+
+  SearchEngineTabHelper* search_engine_tab_helper() {
+    return search_engine_tab_helper_.get();
+  }
 
   // Overrides -----------------------------------------------------------------
 
   // TabContentsObserver overrides:
-  virtual void NavigateToPendingEntry() OVERRIDE;
   virtual void DidNavigateMainFramePostCommit(
       const NavigationController::LoadCommittedDetails& details,
       const ViewHostMsg_FrameNavigate_Params& params) OVERRIDE;
+  virtual bool OnMessageReceived(const IPC::Message& message) OVERRIDE;
 
   // NotificationObserver overrides:
   virtual void Observe(NotificationType type,
@@ -92,6 +105,12 @@ class TabContentsWrapper : public NotificationObserver,
 
  private:
   // Internal helpers ----------------------------------------------------------
+
+  // Message handlers.
+  void OnJSOutOfMemory();
+  void OnRegisterProtocolHandler(const std::string& protocol,
+                                 const GURL& url,
+                                 const string16& title);
 
   // Updates the starred state from the bookmark bar model. If the state has
   // changed, the delegate is notified.
@@ -110,15 +129,16 @@ class TabContentsWrapper : public NotificationObserver,
   // Whether the current URL is starred.
   bool is_starred_;
 
-  // Supporting objects --------------------------------------------------------
+  // Tab Helpers ---------------------------------------------------------------
 
-  // PasswordManager and its delegate, lazily created. The delegate must
-  // outlive the manager, per documentation in password_manager.h.
+  scoped_ptr<FindTabHelper> find_tab_helper_;
+
+  // PasswordManager and its delegate. The delegate must outlive the manager,
+  // per documentation in password_manager.h.
   scoped_ptr<PasswordManagerDelegate> password_manager_delegate_;
   scoped_ptr<PasswordManager> password_manager_;
 
-  // FindManager, lazily created.
-  scoped_ptr<FindManager> find_manager_;
+  scoped_ptr<SearchEngineTabHelper> search_engine_tab_helper_;
 
   // TabContents (MUST BE LAST) ------------------------------------------------
 

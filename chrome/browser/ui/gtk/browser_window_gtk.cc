@@ -24,24 +24,21 @@
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/debugger/devtools_window.h"
-#include "chrome/browser/dom_ui/bug_report_ui.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/page_info_window.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/ui/app_modal_dialogs/app_modal_dialog_queue.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
-#include "chrome/browser/ui/find_bar/find_manager.h"
+#include "chrome/browser/ui/find_bar/find_tab_helper.h"
 #include "chrome/browser/ui/gtk/about_chrome_dialog.h"
 #include "chrome/browser/ui/gtk/accelerators_gtk.h"
-#include "chrome/browser/ui/gtk/bookmark_bar_gtk.h"
+#include "chrome/browser/ui/gtk/bookmarks/bookmark_bar_gtk.h"
 #include "chrome/browser/ui/gtk/browser_titlebar.h"
 #include "chrome/browser/ui/gtk/browser_toolbar_gtk.h"
 #include "chrome/browser/ui/gtk/cairo_cached_surface.h"
@@ -56,7 +53,7 @@
 #include "chrome/browser/ui/gtk/gtk_floating_container.h"
 #include "chrome/browser/ui/gtk/gtk_theme_provider.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
-#include "chrome/browser/ui/gtk/import_dialog_gtk.h"
+#include "chrome/browser/ui/gtk/importer/import_dialog_gtk.h"
 #include "chrome/browser/ui/gtk/info_bubble_gtk.h"
 #include "chrome/browser/ui/gtk/infobars/infobar_container_gtk.h"
 #include "chrome/browser/ui/gtk/infobars/infobar_gtk.h"
@@ -74,11 +71,14 @@
 #include "chrome/browser/ui/gtk/update_recommended_dialog.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
+#include "chrome/browser/ui/webui/bug_report_ui.h"
 #include "chrome/browser/ui/window_sizer.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/native_web_keyboard_event.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_view.h"
+#include "content/common/notification_service.h"
 #include "grit/app_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -838,9 +838,8 @@ void BrowserWindowGtk::ToggleBookmarkBar() {
   bookmark_utils::ToggleWhenVisible(browser_->profile());
 }
 
-views::Window* BrowserWindowGtk::ShowAboutChromeDialog() {
+void BrowserWindowGtk::ShowAboutChromeDialog() {
   ShowAboutDialogForProfile(window_, browser_->profile());
-  return NULL;
 }
 
 void BrowserWindowGtk::ShowUpdateChromeDialog() {
@@ -1130,7 +1129,8 @@ void BrowserWindowGtk::TabSelectedAt(TabContentsWrapper* old_contents,
                                      TabContentsWrapper* new_contents,
                                      int index,
                                      bool user_gesture) {
-  DCHECK(old_contents != new_contents);
+  if (old_contents == new_contents)
+    return;
 
   if (old_contents && !old_contents->tab_contents()->is_being_destroyed())
     old_contents->view()->StoreFocus();
@@ -1146,7 +1146,7 @@ void BrowserWindowGtk::TabSelectedAt(TabContentsWrapper* old_contents,
   // we are the active browser before calling RestoreFocus().
   if (!browser_->tabstrip_model()->closing_all()) {
     new_contents->view()->RestoreFocus();
-    if (new_contents->GetFindManager()->find_ui_active())
+    if (new_contents->find_tab_helper()->find_ui_active())
       browser_->GetFindBarController()->find_bar()->SetFocusAndSelection();
   }
 
@@ -1643,6 +1643,14 @@ void BrowserWindowGtk::InitWidgets() {
   // Note that calling this the first time is necessary to get the
   // proper control layout.
   UpdateCustomFrame();
+
+  // We have to call this after the first window is created, but after that only
+  // when the theme changes.
+  static bool default_icon_set = false;
+  if (!default_icon_set) {
+    gtk_util::SetDefaultWindowIcon(window_);
+    default_icon_set = true;
+  }
 
   gtk_container_add(GTK_CONTAINER(window_), window_container_);
   gtk_widget_show(window_container_);

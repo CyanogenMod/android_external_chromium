@@ -5,9 +5,10 @@
 #include "chrome/browser/renderer_host/download_throttling_resource_handler.h"
 
 #include "base/logging.h"
+#include "chrome/browser/download/download_util.h"
 #include "chrome/browser/renderer_host/download_resource_handler.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
-#include "chrome/common/resource_response.h"
+#include "content/browser/renderer_host/resource_dispatcher_host.h"
+#include "content/common/resource_response.h"
 #include "net/base/io_buffer.h"
 #include "net/base/mime_sniffer.h"
 
@@ -31,7 +32,12 @@ DownloadThrottlingResourceHandler::DownloadThrottlingResourceHandler(
   host_->PauseRequest(render_process_host_id_, request_id_, true);
   host_->download_request_limiter()->CanDownloadOnIOThread(
       render_process_host_id_, render_view_id, this);
- }
+
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
+      NewRunnableFunction(&download_util::NotifyDownloadInitiated,
+                          render_process_host_id_, render_view_id_));
+}
 
 DownloadThrottlingResourceHandler::~DownloadThrottlingResourceHandler() {
 }

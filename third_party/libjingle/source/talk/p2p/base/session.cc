@@ -180,8 +180,6 @@ void BaseSession::SetError(Error error) {
   if (error != error_) {
     error_ = error;
     SignalError(this, error);
-    if (error_ != ERROR_NONE)
-      signaling_thread_->Post(this, MSG_ERROR);
   }
 }
 
@@ -646,6 +644,12 @@ void Session::OnIncomingMessage(const SessionMessage& msg) {
     case ACTION_TRANSPORT_ACCEPT:
       valid = OnTransportAcceptMessage(msg, &error);
       break;
+    case ACTION_NOTIFY:
+      valid = OnNotifyMessage(msg, &error);
+      break;
+    case ACTION_UPDATE:
+      valid = OnUpdateMessage(msg, &error);
+      break;
     default:
       valid = BadMessage(buzz::QN_STANZA_BAD_REQUEST,
                          "unknown session message type",
@@ -689,13 +693,16 @@ void Session::OnFailedSend(const buzz::XmlElement* orig_stanza,
   std::string error_type = "cancel";
 
   const buzz::XmlElement* error = error_stanza->FirstNamed(buzz::QN_ERROR);
-  ASSERT(error != NULL);
   if (error) {
     ASSERT(error->HasAttr(buzz::QN_TYPE));
     error_type = error->Attr(buzz::QN_TYPE);
 
     LOG(LS_ERROR) << "Session error:\n" << error->Str() << "\n"
                   << "in response to:\n" << orig_stanza->Str();
+  } else {
+    // don't crash if <error> is missing
+    LOG(LS_ERROR) << "Session error without <error/> element, ignoring";
+    return;
   }
 
   if (msg.type == ACTION_TRANSPORT_INFO) {
@@ -824,6 +831,30 @@ bool Session::OnTransportAcceptMessage(const SessionMessage& msg,
   return true;
 }
 
+bool Session::OnNotifyMessage(const SessionMessage& msg,
+                              MessageError* error) {
+  SessionNotify notify;
+  if (!ParseSessionNotify(msg.action_elem, &notify, error)) {
+    return false;
+  }
+
+  SignalMediaSources(notify.nickname_to_sources);
+
+  return true;
+}
+
+bool Session::OnUpdateMessage(const SessionMessage& msg,
+                              MessageError* error) {
+  SessionUpdate update;
+  if (!ParseSessionUpdate(msg.action_elem, &update, error)) {
+    return false;
+  }
+
+  // TODO: Process this message appropriately.
+
+  return true;
+}
+
 bool BareJidsEqual(const std::string& name1,
                    const std::string& name2) {
   buzz::Jid jid1(name1);
@@ -858,6 +889,12 @@ bool Session::CheckState(State state, MessageError* error) {
                       error);
   }
   return true;
+}
+
+void Session::SetError(Error error) {
+  BaseSession::SetError(error);
+  if (error_ != ERROR_NONE)
+    signaling_thread_->Post(this, MSG_ERROR);
 }
 
 void Session::OnMessage(talk_base::Message *pmsg) {
@@ -899,6 +936,16 @@ bool Session::WriteSessionAction(
   return WriteSessionInitiate(protocol, init.contents, init.transports,
                               content_parsers, trans_parsers,
                               elems, error);
+}
+
+bool Session::SetVideoView(
+    const std::vector<VideoViewRequest>& view_requests) {
+  SessionView view;
+  SessionError error;
+
+  view.view_requests = view_requests;
+
+  return !SendViewMessage(view, &error);
 }
 
 bool Session::SendAcceptMessage(const SessionDescription* sdesc,
@@ -948,6 +995,12 @@ bool Session::WriteSessionAction(SignalingProtocol protocol,
 
   return WriteTransportInfos(protocol, tinfos, parsers,
                              elems, error);
+}
+
+bool Session::SendViewMessage(const SessionView& view, SessionError* error) {
+  XmlElements elems;
+  WriteSessionView(view, &elems);
+  return SendMessage(ACTION_VIEW, elems, error);
 }
 
 bool Session::ResendAllTransportInfoMessages(SessionError* error) {

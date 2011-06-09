@@ -34,11 +34,23 @@
 
 namespace talk_base {
 
-const int BUF_SIZE = 64 * 1024;
+static const int BUF_SIZE = 64 * 1024;
+
+AsyncUDPSocket* AsyncUDPSocket::Create(SocketFactory* factory,
+                                       const SocketAddress& address) {
+  scoped_ptr<AsyncSocket> socket(factory->CreateAsyncSocket(SOCK_DGRAM));
+  if (!socket.get())
+    return NULL;
+  if (socket->Bind(address)) {
+    LOG(LS_INFO) << "Failed to bind UDP socket " << socket->GetError();
+    return NULL;
+  }
+  return new AsyncUDPSocket(socket.release());
+}
 
 AsyncUDPSocket::AsyncUDPSocket(AsyncSocket* socket)
-    : AsyncPacketSocket(socket) {
-  ASSERT(socket_ != NULL);
+    : socket_(socket) {
+  ASSERT(socket_.get() != NULL);
   size_ = BUF_SIZE;
   buf_ = new char[size_];
 
@@ -50,8 +62,51 @@ AsyncUDPSocket::~AsyncUDPSocket() {
   delete [] buf_;
 }
 
+SocketAddress AsyncUDPSocket::GetLocalAddress(bool* allocated) const {
+  if (allocated)
+    *allocated = true;
+  return socket_->GetLocalAddress();
+}
+
+SocketAddress AsyncUDPSocket::GetRemoteAddress() const {
+  return socket_->GetRemoteAddress();
+}
+
+int AsyncUDPSocket::Send(const void *pv, size_t cb) {
+  return socket_->Send(pv, cb);
+}
+
+int AsyncUDPSocket::SendTo(
+    const void *pv, size_t cb, const SocketAddress& addr) {
+  return socket_->SendTo(pv, cb, addr);
+}
+
+int AsyncUDPSocket::Close() {
+  return socket_->Close();
+}
+
+Socket::ConnState AsyncUDPSocket::GetState() const {
+  return socket_->GetState();
+}
+
+int AsyncUDPSocket::GetOption(Socket::Option opt, int* value) {
+  return socket_->GetOption(opt, value);
+}
+
+int AsyncUDPSocket::SetOption(Socket::Option opt, int value) {
+  return socket_->SetOption(opt, value);
+}
+
+int AsyncUDPSocket::GetError() const {
+  return socket_->GetError();
+}
+
+void AsyncUDPSocket::SetError(int error) {
+  return socket_->SetError(error);
+}
+
 void AsyncUDPSocket::OnReadEvent(AsyncSocket* socket) {
-  ASSERT(socket == socket_);
+  ASSERT(socket_.get() == socket);
 
   SocketAddress remote_addr;
   int len = socket_->RecvFrom(buf_, size_, &remote_addr);
@@ -68,7 +123,7 @@ void AsyncUDPSocket::OnReadEvent(AsyncSocket* socket) {
 
   // TODO: Make sure that we got all of the packet.
   // If we did not, then we should resize our buffer to be large enough.
-  SignalReadPacket(buf_, (size_t)len, remote_addr, this);
+  SignalReadPacket(this, buf_, (size_t)len, remote_addr);
 }
 
 }  // namespace talk_base

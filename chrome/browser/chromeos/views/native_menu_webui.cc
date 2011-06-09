@@ -8,9 +8,9 @@
 
 #include "base/message_loop.h"
 #include "base/string_util.h"
-#include "chrome/browser/chromeos/dom_ui/menu_ui.h"
 #include "chrome/browser/chromeos/views/menu_locator.h"
 #include "chrome/browser/chromeos/views/webui_menu_widget.h"
+#include "chrome/browser/chromeos/webui/menu_ui.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
@@ -394,8 +394,7 @@ NativeMenuWebUI* NativeMenuWebUI::FindMenuAt(const gfx::Point& point) {
     if (found)
       return found;
   }
-  gfx::Rect bounds;
-  menu_widget_->GetBounds(&bounds, false);
+  gfx::Rect bounds = menu_widget_->GetClientAreaScreenBounds();
   return bounds.Contains(point) ? this : NULL;
 }
 

@@ -17,25 +17,41 @@
 #import "chrome/browser/debugger/devtools_window.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/backing_store_mac.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view_mac.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/thumbnail_generator.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_constants.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
+#import "chrome/browser/ui/cocoa/infobars/infobar_container_controller.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_strip_controller.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_strip_model_observer_bridge.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/renderer_host/backing_store_mac.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/app_resources.h"
 #include "grit/theme_resources.h"
 #include "skia/ext/skia_utils_mac.h"
 #include "third_party/skia/include/utils/mac/SkCGUtils.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/image.h"
 #include "ui/gfx/scoped_cg_context_state_mac.h"
 
-const int kTopGradientHeight  = 15;
+// Height of the bottom gradient, in pixels.
+const CGFloat kBottomGradientHeight = 50;
+
+// The shade of gray at the top of the window. There's a  gradient from
+// this to |kCentralGray| at the top of the window.
+const CGFloat kTopGray = 0.77;
+
+// The shade of gray at the center of the window. Most of the window background
+// has this color.
+const CGFloat kCentralGray = 0.6;
+
+// The shade of gray at the bottom of the window. There's a gradient from
+// |kCentralGray| to this at the bottom of the window, |kBottomGradientHeight|
+// high.
+const CGFloat kBottomGray = 0.5;
 
 NSString* const kAnimationIdKey = @"AnimationId";
 NSString* const kAnimationIdFadeIn = @"FadeIn";
@@ -47,20 +63,33 @@ const CGFloat kObserverChangeAnimationDuration = 0.25;  // In seconds.
 const CGFloat kSelectionInset = 5;
 
 // CAGradientLayer is 10.6-only -- roll our own.
-@interface DarkGradientLayer : CALayer
+@interface GrayGradientLayer : CALayer {
+ @private
+  CGFloat startGray_;
+  CGFloat endGray_;
+}
+- (id)initWithStartGray:(CGFloat)startGray endGray:(CGFloat)endGray;
 - (void)drawInContext:(CGContextRef)context;
 @end
 
-@implementation DarkGradientLayer
+@implementation GrayGradientLayer
+- (id)initWithStartGray:(CGFloat)startGray endGray:(CGFloat)endGray {
+  if ((self = [super init])) {
+    startGray_ = startGray;
+    endGray_ = endGray;
+  }
+  return self;
+}
+
 - (void)drawInContext:(CGContextRef)context {
   base::mac::ScopedCFTypeRef<CGColorSpaceRef> grayColorSpace(
       CGColorSpaceCreateWithName(kCGColorSpaceGenericGray));
-  CGFloat grays[] = { 0.277, 1.0, 0.39, 1.0 };
+  CGFloat grays[] = { startGray_, 1.0, endGray_, 1.0 };
   CGFloat locations[] = { 0, 1 };
   base::mac::ScopedCFTypeRef<CGGradientRef> gradient(
       CGGradientCreateWithColorComponents(
           grayColorSpace.get(), grays, locations, arraysize(locations)));
-  CGPoint topLeft = CGPointMake(0.0, kTopGradientHeight);
+  CGPoint topLeft = CGPointMake(0.0, self.bounds.size.height);
   CGContextDrawLinearGradient(context, gradient.get(), topLeft, CGPointZero, 0);
 }
 @end
@@ -186,10 +215,19 @@ void ThumbnailLoader::LoadThumbnail() {
   int topOffset = 0;
 
   // Medium term, we want to show thumbs of the actual info bar views, which
-  // means I need to create InfoBarControllers here. At that point, we can get
-  // the height from that controller. Until then, hardcode. :-/
-  const int kInfoBarHeight = 31;
-  topOffset += contents_->infobar_count() * kInfoBarHeight;
+  // means I need to create InfoBarControllers here.
+  NSWindow* window = [contents_->GetNativeView() window];
+  NSWindowController* windowController = [window windowController];
+  if ([windowController isKindOfClass:[BrowserWindowController class]]) {
+    BrowserWindowController* bwc =
+        static_cast<BrowserWindowController*>(windowController);
+    InfoBarContainerController* infoBarContainer =
+        [bwc infoBarContainerController];
+    // TODO(thakis|rsesek): This is not correct for background tabs with
+    // infobars as the aspect ratio will be wrong. Fix that.
+    topOffset += NSHeight([[infoBarContainer view] frame]) -
+        [infoBarContainer antiSpoofHeight];
+  }
 
   bool always_show_bookmark_bar =
       contents_->profile()->GetPrefs()->GetBoolean(prefs::kShowBookmarkBar);
@@ -1106,7 +1144,7 @@ void AnimateCALayerOpacityFromTo(
   {
     ScopedCAActionDisabler disabler;
     // Background layer -- the visible part of the window.
-    gray_.reset(CGColorCreateGenericGray(0.39, 1.0));
+    gray_.reset(CGColorCreateGenericGray(kCentralGray, 1.0));
     bgLayer_ = [CALayer layer];
     bgLayer_.backgroundColor = gray_;
     bgLayer_.frame = NSRectToCGRect(containingRect_);
@@ -1122,16 +1160,31 @@ void AnimateCALayerOpacityFromTo(
     selectionHighlight_.hidden = YES;
     [bgLayer_ addSublayer:selectionHighlight_];
 
-    // Top gradient.
-    CALayer* gradientLayer = [DarkGradientLayer layer];
+    // Bottom gradient.
+    CALayer* gradientLayer = [[[GrayGradientLayer alloc]
+        initWithStartGray:kCentralGray endGray:kBottomGray] autorelease];
     gradientLayer.frame = CGRectMake(
         0,
-        NSHeight(containingRect_) - kTopGradientHeight,
+        0,
         NSWidth(containingRect_),
-        kTopGradientHeight);
+        kBottomGradientHeight);
     [gradientLayer setNeedsDisplay];  // Draw once.
     [bgLayer_ addSublayer:gradientLayer];
   }
+  // Top gradient (fades in).
+  CGFloat toolbarHeight = NSHeight([self frame]) - NSHeight(containingRect_);
+  topGradient_ = [[[GrayGradientLayer alloc]
+      initWithStartGray:kTopGray endGray:kCentralGray] autorelease];
+  topGradient_.frame = CGRectMake(
+      0,
+      NSHeight([self frame]) - toolbarHeight,
+      NSWidth(containingRect_),
+      toolbarHeight);
+  [topGradient_ setNeedsDisplay];  // Draw once.
+  [rootLayer_ addSublayer:topGradient_];
+  NSTimeInterval interval =
+      kDefaultAnimationDuration * (slomo ? kSlomoFactor : 1);
+  AnimateCALayerOpacityFromTo(topGradient_, 0, 1, interval);
 
   // Layers for the tab thumbnails.
   tileSet_->Build(tabStripModel_);
@@ -1418,6 +1471,7 @@ void AnimateCALayerOpacityFromTo(
   ScopedCAActionSetDuration durationSetter(duration);
   for (int i = 0; i < tabStripModel_->count(); ++i)
     [self fadeAwayTileAtIndex:i];
+  AnimateCALayerOpacityFromTo(topGradient_, 1, 0, duration);
 }
 
 - (void)animationDidStop:(CAAnimation*)animation finished:(BOOL)finished {

@@ -8,9 +8,9 @@
 #include "base/message_loop.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_thread.h"
-#include "chrome/browser/in_process_webkit/webkit_context.h"
 #include "chrome/browser/profiles/profile.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/in_process_webkit/webkit_context.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebCString.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebSecurityOrigin.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebString.h"
@@ -18,7 +18,10 @@
 
 using WebKit::WebSecurityOrigin;
 
-BrowsingDataLocalStorageHelper::LocalStorageInfo::LocalStorageInfo() {}
+BrowsingDataLocalStorageHelper::LocalStorageInfo::LocalStorageInfo()
+    : port(0),
+      size(0) {
+}
 
 BrowsingDataLocalStorageHelper::LocalStorageInfo::LocalStorageInfo(
     const std::string& protocol,

@@ -10,9 +10,6 @@
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_thread.h"
-#include "chrome/browser/dom_ui/chrome_url_data_manager.h"
-#include "chrome/browser/dom_ui/web_ui_util.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_proxy_service.h"
@@ -20,18 +17,21 @@
 #include "chrome/browser/printing/cloud_print/cloud_print_setup_source.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_url.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/service/service_process_control.h"
 #include "chrome/browser/service/service_process_control_manager.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/webui/chrome_url_data_manager.h"
 #include "chrome/common/net/gaia/gaia_auth_fetcher.h"
 #include "chrome/common/net/gaia/gaia_constants.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/service_messages.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/webui/web_ui_util.h"
 #include "grit/chromium_strings.h"
 #include "grit/locale_settings.h"
 #include "ui/base/l10n/l10n_font_util.h"
@@ -132,6 +132,12 @@ void CloudPrintSetupFlow::GetDialogSize(gfx::Size* size) const {
         IDS_CLOUD_PRINT_SETUP_WIZARD_HEIGHT_LINES,
         approximate_web_font);
   }
+
+#if !defined(OS_WIN)
+  float scale_hack = 96.f/72.f;
+  size->set_width(size->width() * scale_hack);
+  size->set_height(size->height() * scale_hack);
+#endif
 }
 
 // A callback to notify the delegate that the dialog closed.

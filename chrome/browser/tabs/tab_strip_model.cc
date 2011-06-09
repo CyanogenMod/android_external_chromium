@@ -18,18 +18,18 @@
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/tabs/tab_strip_model_delegate.h"
 #include "chrome/browser/tabs/tab_strip_model_order_controller.h"
-#include "chrome/browser/tab_contents/navigation_controller.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_delegate.h"
-#include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/tab_contents/navigation_controller.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_delegate.h"
+#include "content/browser/tab_contents/tab_contents_view.h"
 
 namespace {
 
@@ -959,7 +959,7 @@ void TabStripModel::ChangeSelectedContentsFrom(
   TabContentsWrapper* last_selected_contents = old_contents;
   if (last_selected_contents) {
     FOR_EACH_OBSERVER(TabStripModelObserver, observers_,
-                      TabDeselectedAt(last_selected_contents, selected_index_));
+                      TabDeselected(last_selected_contents));
   }
 
   selected_index_ = to_index;

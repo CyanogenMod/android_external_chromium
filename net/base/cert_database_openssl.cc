@@ -7,6 +7,7 @@
 #include <openssl/x509.h>
 
 #include "base/logging.h"
+#include "net/base/crypto_module.h"
 #include "net/base/net_errors.h"
 #include "net/base/openssl_private_key_store.h"
 #include "net/base/x509_certificate.h"
@@ -44,6 +45,12 @@ CryptoModule* CertDatabase::GetDefaultModule() const {
   // TODO(bulach): implement me.
   NOTIMPLEMENTED();
   return NULL;
+}
+
+void CertDatabase::ListModules(CryptoModuleList* modules, bool need_rw) const {
+  // TODO(bulach): implement me.
+  NOTIMPLEMENTED();
+  modules->clear();
 }
 
 int CertDatabase::ImportFromPKCS12(net::CryptoModule* module,

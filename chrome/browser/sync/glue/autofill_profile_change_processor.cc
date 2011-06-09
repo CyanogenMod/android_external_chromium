@@ -18,6 +18,7 @@
 #include "chrome/browser/sync/unrecoverable_error_handler.h"
 #include "chrome/browser/webdata/autofill_change.h"
 #include "chrome/browser/webdata/web_database.h"
+#include "chrome/common/guid.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
@@ -103,7 +104,7 @@ void AutofillProfileChangeProcessor::ApplyChangesFromSyncModel(
 void AutofillProfileChangeProcessor::Observe(NotificationType type,
     const NotificationSource& source,
     const NotificationDetails& details) {
-  DCHECK_EQ(type.value, NotificationType::AUTOFILL_PROFILE_CHANGED_GUID);
+  DCHECK_EQ(type.value, NotificationType::AUTOFILL_PROFILE_CHANGED);
   WebDataService* wds = Source<WebDataService>(source).ptr();
 
   if (!wds || wds->GetDatabase() != web_database_)
@@ -117,24 +118,22 @@ void AutofillProfileChangeProcessor::Observe(NotificationType type,
     return;
   }
 
-  AutofillProfileChangeGUID* change =
-      Details<AutofillProfileChangeGUID>(details).ptr();
+  AutofillProfileChange* change = Details<AutofillProfileChange>(details).ptr();
 
   ActOnChange(change, &trans, autofill_root);
 }
 
 void AutofillProfileChangeProcessor::ActOnChange(
-     AutofillProfileChangeGUID* change,
+     AutofillProfileChange* change,
      sync_api::WriteTransaction* trans,
      sync_api::ReadNode& autofill_root) {
-  DCHECK(change->type() == AutofillProfileChangeGUID::REMOVE ||
-         change->profile());
+  DCHECK(change->type() == AutofillProfileChange::REMOVE || change->profile());
   switch (change->type()) {
-    case AutofillProfileChangeGUID::ADD: {
+    case AutofillProfileChange::ADD: {
       AddAutofillProfileSyncNode(trans, autofill_root, *(change->profile()));
       break;
     }
-    case AutofillProfileChangeGUID::UPDATE: {
+    case AutofillProfileChange::UPDATE: {
       int64 sync_id = model_associator_->GetSyncIdFromChromeId(change->key());
       if (sync_api::kInvalidId == sync_id) {
         LOG(ERROR) << "Sync id is not found for " << change->key();
@@ -149,7 +148,7 @@ void AutofillProfileChangeProcessor::ActOnChange(
       WriteAutofillProfile(*(change->profile()), &node);
       break;
     }
-    case AutofillProfileChangeGUID::REMOVE: {
+    case AutofillProfileChange::REMOVE: {
       int64 sync_id = model_associator_->GetSyncIdFromChromeId(change->key());
       if (sync_api::kInvalidId == sync_id) {
         LOG(ERROR) << "Sync id is not found for " << change->key();
@@ -214,6 +213,11 @@ void AutofillProfileChangeProcessor::ApplyAutofillProfileChange(
   DCHECK_NE(sync_api::SyncManager::ChangeRecord::ACTION_DELETE, action);
   switch (action) {
     case sync_api::SyncManager::ChangeRecord::ACTION_ADD: {
+      if (guid::IsValidGUID(profile_specifics.guid()) == false) {
+        NOTREACHED() << "Guid from the server is invalid " <<
+            profile_specifics.guid();
+        return;
+      }
       AutoFillProfile p(profile_specifics.guid());
       AutofillProfileModelAssociator::OverwriteProfileWithServerData(&p,
           profile_specifics);
@@ -229,10 +233,9 @@ void AutofillProfileChangeProcessor::ApplyAutofillProfileChange(
     }
     case sync_api::SyncManager::ChangeRecord::ACTION_UPDATE: {
       AutoFillProfile *p;
-      if (!web_database_->GetAutoFillProfileForGUID(
-          profile_specifics.guid(), &p)) {
+      if (!web_database_->GetAutoFillProfile(profile_specifics.guid(), &p)) {
         LOG(ERROR) << "Could not find the autofill profile to update for " <<
-          profile_specifics.guid();
+            profile_specifics.guid();
         break;
       }
       scoped_ptr<AutoFillProfile> autofill_pointer(p);
@@ -276,6 +279,14 @@ void AutofillProfileChangeProcessor::AddAutofillProfileSyncNode(
     sync_api::WriteTransaction* trans,
     sync_api::BaseNode& autofill_profile_root,
     const AutoFillProfile& profile) {
+
+  std::string guid = profile.guid();
+
+  if (guid::IsValidGUID(guid) == false) {
+    DCHECK(false) << "Guid set on the profile is invalid " << guid;
+    return;
+  }
+
   sync_api::WriteNode node(trans);
   if (!node.InitUniqueByCreation(syncable::AUTOFILL_PROFILE,
       autofill_profile_root,
@@ -288,14 +299,13 @@ void AutofillProfileChangeProcessor::AddAutofillProfileSyncNode(
 
   WriteAutofillProfile(profile, &node);
 
-  std::string guid = profile.guid();
   model_associator_->Associate(&guid, node.GetId());
 }
 
 void AutofillProfileChangeProcessor::StartObserving() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   notification_registrar_.Add(this,
-      NotificationType::AUTOFILL_PROFILE_CHANGED_GUID,
+      NotificationType::AUTOFILL_PROFILE_CHANGED,
       NotificationService::AllSources());
 }
 
@@ -308,33 +318,40 @@ void AutofillProfileChangeProcessor::WriteAutofillProfile(
     const AutoFillProfile& profile,
     sync_api::WriteNode* node) {
   sync_pb::AutofillProfileSpecifics specifics;
+
+  // This would get compiled out in official builds. The caller is expected to
+  // pass in a valid profile object with valid guid.(i.e., the caller might
+  // have to a DCHECK and log before calling. Having to check in 2 places is
+  // not optimal.)
+  DCHECK(guid::IsValidGUID(profile.guid()));
+
   specifics.set_guid(profile.guid());
   specifics.set_name_first(UTF16ToUTF8(
-      profile.GetFieldText(AutoFillType(NAME_FIRST))));
+      profile.GetFieldText(AutofillType(NAME_FIRST))));
   specifics.set_name_middle(UTF16ToUTF8(
-      profile.GetFieldText(AutoFillType(NAME_MIDDLE))));
+      profile.GetFieldText(AutofillType(NAME_MIDDLE))));
   specifics.set_name_last(
-      UTF16ToUTF8(profile.GetFieldText(AutoFillType(NAME_LAST))));
+      UTF16ToUTF8(profile.GetFieldText(AutofillType(NAME_LAST))));
   specifics.set_address_home_line1(
-      UTF16ToUTF8(profile.GetFieldText(AutoFillType(ADDRESS_HOME_LINE1))));
+      UTF16ToUTF8(profile.GetFieldText(AutofillType(ADDRESS_HOME_LINE1))));
   specifics.set_address_home_line2(
-      UTF16ToUTF8(profile.GetFieldText(AutoFillType(ADDRESS_HOME_LINE2))));
+      UTF16ToUTF8(profile.GetFieldText(AutofillType(ADDRESS_HOME_LINE2))));
   specifics.set_address_home_city(UTF16ToUTF8(profile.GetFieldText(
-      AutoFillType(ADDRESS_HOME_CITY))));
+      AutofillType(ADDRESS_HOME_CITY))));
   specifics.set_address_home_state(UTF16ToUTF8(profile.GetFieldText(
-      AutoFillType(ADDRESS_HOME_STATE))));
+      AutofillType(ADDRESS_HOME_STATE))));
   specifics.set_address_home_country(UTF16ToUTF8(profile.GetFieldText(
-      AutoFillType(ADDRESS_HOME_COUNTRY))));
+      AutofillType(ADDRESS_HOME_COUNTRY))));
   specifics.set_address_home_zip(UTF16ToUTF8(profile.GetFieldText(
-      AutoFillType(ADDRESS_HOME_ZIP))));
+      AutofillType(ADDRESS_HOME_ZIP))));
   specifics.set_email_address(UTF16ToUTF8(profile.GetFieldText(
-      AutoFillType(EMAIL_ADDRESS))));
+      AutofillType(EMAIL_ADDRESS))));
   specifics.set_company_name(UTF16ToUTF8(profile.GetFieldText(
-      AutoFillType(COMPANY_NAME))));
+      AutofillType(COMPANY_NAME))));
   specifics.set_phone_fax_whole_number(UTF16ToUTF8(profile.GetFieldText(
-      AutoFillType(PHONE_FAX_WHOLE_NUMBER))));
+      AutofillType(PHONE_FAX_WHOLE_NUMBER))));
   specifics.set_phone_home_whole_number(UTF16ToUTF8(profile.GetFieldText(
-      AutoFillType(PHONE_HOME_WHOLE_NUMBER))));
+      AutofillType(PHONE_HOME_WHOLE_NUMBER))));
   node->SetAutofillProfileSpecifics(specifics);
 }
 

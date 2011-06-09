@@ -13,8 +13,8 @@
 #include "chrome/browser/notifications/balloon.h"
 #include "chrome/browser/ui/gtk/menu_gtk.h"
 #include "chrome/browser/ui/gtk/notifications/balloon_view_host_gtk.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "content/common/notification_observer.h"
+#include "content/common/notification_registrar.h"
 #include "ui/base/animation/animation_delegate.h"
 #include "ui/base/gtk/gtk_signal.h"
 #include "ui/gfx/point.h"
@@ -63,7 +63,9 @@ class BalloonViewImpl : public BalloonView,
   // ui::AnimationDelegate interface.
   virtual void AnimationProgressed(const ui::Animation* animation);
 
-  // Do the delayed close work.
+  // Do the delayed close work.  The balloon and all view components will be
+  // destroyed at this time, so it shouldn't be called while still processing
+  // an event that relies on them.
   void DelayedClose(bool by_user);
 
   // The height of the balloon's shelf.

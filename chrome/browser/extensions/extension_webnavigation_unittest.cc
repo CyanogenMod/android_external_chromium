@@ -5,13 +5,12 @@
 // Tests common functionality used by the Chrome Extensions webNavigation API
 // implementation.
 
-#include "testing/gtest/include/gtest/gtest.h"
-
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_webnavigation_api.h"
-#include "chrome/browser/renderer_host/test/test_render_view_host.h"
-#include "chrome/browser/tab_contents/test_tab_contents.h"
 #include "chrome/test/testing_profile.h"
+#include "content/browser/renderer_host/test_render_view_host.h"
+#include "content/browser/tab_contents/test_tab_contents.h"
+#include "testing/gtest/include/gtest/gtest.h"
 
 
 class FrameNavigationStateTest : public RenderViewHostTestHarness {
@@ -99,4 +98,14 @@ TEST_F(FrameNavigationStateTest, ErrorStateFrame) {
   navigation_state.TrackFrame(frame_id2, url, false, false, contents());
   EXPECT_TRUE(navigation_state.CanSendEvents(frame_id1));
   EXPECT_TRUE(navigation_state.CanSendEvents(frame_id2));
+}
+
+// Tests that no events are send for a not web-safe scheme.
+TEST_F(FrameNavigationStateTest, WebSafeScheme) {
+  FrameNavigationState navigation_state;
+  const int64 frame_id = 23;
+  const GURL url("unsafe://www.google.com/");
+
+  navigation_state.TrackFrame(frame_id, url, true, false, contents());
+  EXPECT_FALSE(navigation_state.CanSendEvents(frame_id));
 }

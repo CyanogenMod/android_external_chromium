@@ -40,8 +40,10 @@ namespace cricket {
 
 class BasicPortAllocator : public PortAllocator {
  public:
-  explicit BasicPortAllocator(talk_base::NetworkManager* network_manager);
   BasicPortAllocator(talk_base::NetworkManager* network_manager,
+                     talk_base::PacketSocketFactory* socket_factory);
+  BasicPortAllocator(talk_base::NetworkManager* network_manager,
+                     talk_base::PacketSocketFactory* socket_factory,
                      const talk_base::SocketAddress& stun_server,
                      const talk_base::SocketAddress& relay_server_udp,
                      const talk_base::SocketAddress& relay_server_tcp,
@@ -49,6 +51,8 @@ class BasicPortAllocator : public PortAllocator {
   virtual ~BasicPortAllocator();
 
   talk_base::NetworkManager* network_manager() { return network_manager_; }
+
+  talk_base::PacketSocketFactory* socket_factory() { return socket_factory_; }
 
   const talk_base::SocketAddress& stun_address() const {
     return stun_address_;
@@ -84,6 +88,7 @@ class BasicPortAllocator : public PortAllocator {
 
  private:
   talk_base::NetworkManager* network_manager_;
+  talk_base::PacketSocketFactory* socket_factory_;
   const talk_base::SocketAddress stun_address_;
   const talk_base::SocketAddress relay_address_udp_;
   const talk_base::SocketAddress relay_address_tcp_;

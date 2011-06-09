@@ -1441,12 +1441,18 @@ IPC_SYNC_MESSAGE_CONTROL2_1(AutomationMsg_CaptureEntirePageAsPNG,
 
 // Notify the JavaScript engine in the render to change its parameters
 // while performing stress testing.
-IPC_MESSAGE_ROUTED3(AutomationMsg_JavaScriptStressTestControl,
-                    int /* tab handle */,
-                    int /* command */,
-                    int /* type or run */)
+IPC_MESSAGE_CONTROL3(AutomationMsg_JavaScriptStressTestControl,
+                     int /* tab handle */,
+                     int /* command */,
+                     int /* type or run */)
 
 // This message posts a task to the PROCESS_LAUNCHER thread. Once processed
 // the response is sent back. This is useful when you want to make sure all
 // changes to the number of processes have completed.
 IPC_SYNC_MESSAGE_CONTROL0_0(AutomationMsg_WaitForProcessLauncherThreadToGoIdle)
+
+// Gets a handle of the browser that owns the given tab.
+IPC_SYNC_MESSAGE_CONTROL1_2(AutomationMsg_GetParentBrowserOfTab,
+                            int /* tab handle */,
+                            int /* browser handle */,
+                            bool /* success */)

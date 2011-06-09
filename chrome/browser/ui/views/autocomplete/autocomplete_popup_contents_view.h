@@ -9,6 +9,7 @@
 #include "chrome/browser/autocomplete/autocomplete.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_view.h"
+#include "chrome/browser/ui/views/autocomplete/autocomplete_result_view_model.h"
 #include "ui/base/animation/animation_delegate.h"
 #include "ui/base/animation/slide_animation.h"
 #include "ui/gfx/font.h"
@@ -24,23 +25,14 @@
 class AutocompleteEditModel;
 class AutocompleteEditViewWin;
 struct AutocompleteMatch;
+class AutocompleteResultView;
 class BubbleBorder;
 class Profile;
 
-// An interface implemented by an object that provides data to populate
-// individual result views.
-class AutocompleteResultViewModel {
- public:
-  // Returns true if the index is selected.
-  virtual bool IsSelectedIndex(size_t index) const = 0;
-
-  // Returns true if the index is hovered.
-  virtual bool IsHoveredIndex(size_t index) const = 0;
-
-  // Returns the special-case icon we should use for the given index, or NULL
-  // if we should use the default icon.
-  virtual const SkBitmap* GetSpecialIcon(size_t index) const = 0;
-};
+namespace gfx {
+class CanvasSkia;
+class Insets;
+}
 
 // A view representing the contents of the autocomplete popup.
 class AutocompletePopupContentsView : public views::View,
@@ -66,7 +58,6 @@ class AutocompletePopupContentsView : public views::View,
   virtual gfx::Rect GetTargetBounds();
   virtual void PaintUpdatesNow();
   virtual void OnDragCanceled();
-  virtual AutocompletePopupModel* GetModel();
 
   // Overridden from AutocompleteResultViewModel:
   virtual bool IsSelectedIndex(size_t index) const;
@@ -77,18 +68,38 @@ class AutocompletePopupContentsView : public views::View,
   virtual void AnimationProgressed(const ui::Animation* animation);
 
   // Overridden from views::View:
-  virtual void Paint(gfx::Canvas* canvas);
-  virtual void PaintChildren(gfx::Canvas* canvas) {
-    // We paint our children inside Paint().
-  }
+  virtual void OnPaint(gfx::Canvas* canvas);
+
+  // This method should not be triggered directly as we paint our children
+  // in an un-conventional way inside OnPaint. We use a separate canvas to
+  // paint the children. Hence we override this method to a no-op so that
+  // the view hierarchy doesnot "accidentally" trigger this.
+  virtual void PaintChildren(gfx::Canvas* canvas);
   virtual void Layout();
+  virtual void LayoutChildren();
   virtual void OnMouseEntered(const views::MouseEvent& event);
   virtual void OnMouseMoved(const views::MouseEvent& event);
   virtual void OnMouseExited(const views::MouseEvent& event);
   virtual bool OnMousePressed(const views::MouseEvent& event);
   virtual void OnMouseReleased(const views::MouseEvent& event, bool canceled);
   virtual bool OnMouseDragged(const views::MouseEvent& event);
-  virtual views::View* GetViewForPoint(const gfx::Point& point);
+  virtual views::View* GetEventHandlerForPoint(const gfx::Point& point);
+
+ protected:
+  virtual void PaintResultViews(gfx::CanvasSkia* canvas);
+
+  // Calculates the height needed to show all the results in the model.
+  virtual int CalculatePopupHeight();
+  virtual AutocompleteResultView* CreateResultView(
+      AutocompleteResultViewModel* model,
+      int model_index,
+      const gfx::Font& font,
+      const gfx::Font& bold_font);
+
+  scoped_ptr<AutocompletePopupModel> model_;
+
+  // The "Opt-in to Instant" promo view, if there is one.
+  views::View* opt_in_view_;
 
  private:
 #if defined(OS_WIN)
@@ -136,9 +147,6 @@ class AutocompletePopupContentsView : public views::View,
   // deleted, or without our knowledge.
   base::WeakPtr<AutocompletePopupClass> popup_;
 
-  // The provider of our result set.
-  scoped_ptr<AutocompletePopupModel> model_;
-
   // The edit view that invokes us.
   AutocompleteEditView* edit_view_;
 
@@ -168,9 +176,6 @@ class AutocompletePopupContentsView : public views::View,
   ui::SlideAnimation size_animation_;
   gfx::Rect start_bounds_;
   gfx::Rect target_bounds_;
-
-  // If non-NULL the instant opt-in-view is visible.
-  views::View* opt_in_view_;
 
   DISALLOW_COPY_AND_ASSIGN(AutocompletePopupContentsView);
 };

@@ -8,9 +8,9 @@
 
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/image_loading_tracker.h"
 #include "chrome/browser/shell_integration.h"
+#include "content/browser/browser_thread.h"
 #include "googleurl/src/gurl.h"
 #include "ui/base/gtk/gtk_signal.h"
 
@@ -67,7 +67,7 @@ class CreateApplicationShortcutsDialogGtk
   GtkWidget* error_dialog_;
 
  private:
-  friend class BrowserThread;
+  friend struct BrowserThread::DeleteOnThread<BrowserThread::UI>;
   friend class DeleteTask<CreateApplicationShortcutsDialogGtk>;
   DISALLOW_COPY_AND_ASSIGN(CreateApplicationShortcutsDialogGtk);
 };

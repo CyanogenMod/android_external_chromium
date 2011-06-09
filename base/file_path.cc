@@ -249,9 +249,8 @@ bool FilePath::AppendRelativePath(const FilePath& child,
   GetComponents(&parent_components);
   child.GetComponents(&child_components);
 
-  if (parent_components.size() >= child_components.size())
-    return false;
-  if (parent_components.size() == 0)
+  if (parent_components.empty() ||
+      parent_components.size() >= child_components.size())
     return false;
 
   std::vector<StringType>::const_iterator parent_comp =
@@ -520,6 +519,12 @@ string16 FilePath::LossyDisplayName() const {
   return WideToUTF16(base::SysNativeMBToWide(path_));
 }
 
+std::string FilePath::MaybeAsASCII() const {
+  if (IsStringASCII(path_))
+    return path_;
+  return "";
+}
+
 // The *Hack functions are temporary while we fix the remainder of the code.
 // Remember to remove the #includes at the top when you remove these.
 
@@ -533,6 +538,12 @@ std::wstring FilePath::ToWStringHack() const {
 #elif defined(OS_WIN)
 string16 FilePath::LossyDisplayName() const {
   return path_;
+}
+
+std::string FilePath::MaybeAsASCII() const {
+  if (IsStringASCII(path_))
+    return WideToASCII(path_);
+  return "";
 }
 
 // static

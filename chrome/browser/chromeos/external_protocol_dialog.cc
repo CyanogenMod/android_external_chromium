@@ -8,10 +8,10 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/external_protocol_handler.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/browser/ui/views/window.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_view.h"
 #include "googleurl/src/gurl.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -87,14 +87,14 @@ ExternalProtocolDialog::ExternalProtocolDialog(TabContents* tab_contents,
     : creation_time_(base::TimeTicks::Now()),
       scheme_(url.scheme()) {
   const int kMaxUrlWithoutSchemeSize = 256;
-  std::wstring elided_url_without_scheme;
-  ui::ElideString(ASCIIToWide(url.possibly_invalid_spec()),
+  string16 elided_url_without_scheme;
+  ui::ElideString(ASCIIToUTF16(url.possibly_invalid_spec()),
       kMaxUrlWithoutSchemeSize, &elided_url_without_scheme);
 
   std::wstring message_text = UTF16ToWide(l10n_util::GetStringFUTF16(
       IDS_EXTERNAL_PROTOCOL_INFORMATION,
       ASCIIToUTF16(url.scheme() + ":"),
-      WideToUTF16(elided_url_without_scheme)) + ASCIIToUTF16("\n\n"));
+      elided_url_without_scheme) + ASCIIToUTF16("\n\n"));
 
   message_box_view_ = new MessageBoxView(
       ui::MessageBoxFlags::kIsConfirmMessageBox,

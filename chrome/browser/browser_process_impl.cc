@@ -9,16 +9,14 @@
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/path_service.h"
+#include "base/synchronization/waitable_event.h"
 #include "base/task.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
-#include "base/synchronization/waitable_event.h"
 #include "chrome/browser/automation/automation_provider_list.h"
-#include "chrome/browser/browser_child_process_host.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_main.h"
 #include "chrome/browser/browser_process_sub_thread.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_trial.h"
 #include "chrome/browser/debugger/browser_list_tabcontents_provider.h"
 #include "chrome/browser/debugger/devtools_http_protocol_handler.h"
@@ -26,26 +24,25 @@
 #include "chrome/browser/debugger/devtools_protocol_handler.h"
 #include "chrome/browser/download/download_file_manager.h"
 #include "chrome/browser/download/save_file_manager.h"
+#include "chrome/browser/extensions/extension_event_router_forwarder.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/google/google_url_tracker.h"
 #include "chrome/browser/icon_manager.h"
 #include "chrome/browser/intranet_redirect_detector.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/metrics/metrics_service.h"
+#include "chrome/browser/metrics/thread_watcher.h"
 #include "chrome/browser/net/chrome_net_log.h"
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/net/sdch_dictionary_fetcher.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/plugin_data_remover.h"
-#include "chrome/browser/plugin_service.h"
 #include "chrome/browser/plugin_updater.h"
-#include "chrome/browser/policy/configuration_policy_provider_keeper.h"
+#include "chrome/browser/policy/browser_policy_connector.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/printing/print_job_manager.h"
 #include "chrome/browser/printing/print_preview_tab_controller.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/safe_browsing/client_side_detection_service.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/shell_integration.h"
@@ -54,14 +51,19 @@
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/extensions/extension_resource.h"
 #include "chrome/common/extensions/extension_l10n_util.h"
+#include "chrome/common/extensions/extension_resource.h"
 #include "chrome/common/json_pref_store.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
-#include "chrome/common/url_constants.h"
 #include "chrome/common/switch_utils.h"
+#include "chrome/common/url_constants.h"
 #include "chrome/installer/util/google_update_constants.h"
+#include "content/browser/browser_child_process_host.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/plugin_service.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/resource_dispatcher_host.h"
 #include "ipc/ipc_logging.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -72,8 +74,7 @@
 #endif
 
 #if defined(IPC_MESSAGE_LOG_ENABLED)
-#include "chrome/common/plugin_messages.h"
-#include "chrome/common/render_messages.h"
+#include "content/common/child_process_messages.h"
 #endif
 
 #if (defined(OS_WIN) || defined(OS_LINUX)) && !defined(OS_CHROMEOS)
@@ -97,12 +98,13 @@ BrowserProcessImpl::BrowserProcessImpl(const CommandLine& command_line)
       created_db_thread_(false),
       created_process_launcher_thread_(false),
       created_cache_thread_(false),
+      created_watchdog_thread_(false),
       created_profile_manager_(false),
       created_local_state_(false),
       created_icon_manager_(false),
       created_devtools_manager_(false),
       created_sidebar_manager_(false),
-      created_configuration_policy_provider_keeper_(false),
+      created_browser_policy_connector_(false),
       created_notification_ui_manager_(false),
       created_safe_browsing_detection_service_(false),
       module_ref_count_(0),
@@ -124,6 +126,8 @@ BrowserProcessImpl::BrowserProcessImpl(const CommandLine& command_line)
   shutdown_event_.reset(new base::WaitableEvent(true, false));
 
   net_log_.reset(new ChromeNetLog);
+
+  extension_event_router_forwarder_ = new ExtensionEventRouterForwarder;
 }
 
 BrowserProcessImpl::~BrowserProcessImpl() {
@@ -187,9 +191,9 @@ BrowserProcessImpl::~BrowserProcessImpl() {
     resource_dispatcher_host()->Shutdown();
   }
 
-  // The policy providers managed by |configuration_policy_provider_keeper_|
-  // need to shut down while the file thread is still alive.
-  configuration_policy_provider_keeper_.reset();
+  // The policy providers managed by |browser_policy_connector_| need to shut
+  // down while the IO and FILE threads are still alive.
+  browser_policy_connector_.reset();
 
 #if defined(USE_X11)
   // The IO thread must outlive the BACKGROUND_X11 thread.
@@ -244,6 +248,9 @@ BrowserProcessImpl::~BrowserProcessImpl() {
   // Prior to clearing local state, we want to complete tasks pending
   // on the db thread too.
   db_thread_.reset();
+
+  // Stop the watchdog thread after stopping other threads.
+  watchdog_thread_.reset();
 
   // At this point, no render process exist and the file, io, db, and
   // webkit threads in this process have all terminated, so it's safe
@@ -390,6 +397,14 @@ base::Thread* BrowserProcessImpl::background_x11_thread() {
 }
 #endif
 
+WatchDogThread* BrowserProcessImpl::watchdog_thread() {
+  DCHECK(CalledOnValidThread());
+  if (!created_watchdog_thread_)
+    CreateWatchdogThread();
+  DCHECK(watchdog_thread_.get() != NULL);
+  return watchdog_thread_.get();
+}
+
 ProfileManager* BrowserProcessImpl::profile_manager() {
   DCHECK(CalledOnValidThread());
   if (!created_profile_manager_)
@@ -423,6 +438,11 @@ ui::Clipboard* BrowserProcessImpl::clipboard() {
   return clipboard_.get();
 }
 
+ExtensionEventRouterForwarder*
+BrowserProcessImpl::extension_event_router_forwarder() {
+  return extension_event_router_forwarder_.get();
+}
+
 NotificationUIManager* BrowserProcessImpl::notification_ui_manager() {
   DCHECK(CalledOnValidThread());
   if (!created_notification_ui_manager_)
@@ -430,16 +450,14 @@ NotificationUIManager* BrowserProcessImpl::notification_ui_manager() {
   return notification_ui_manager_.get();
 }
 
-policy::ConfigurationPolicyProviderKeeper*
-    BrowserProcessImpl::configuration_policy_provider_keeper() {
+policy::BrowserPolicyConnector* BrowserProcessImpl::browser_policy_connector() {
   DCHECK(CalledOnValidThread());
-  if (!created_configuration_policy_provider_keeper_) {
-    DCHECK(configuration_policy_provider_keeper_.get() == NULL);
-    created_configuration_policy_provider_keeper_ = true;
-    configuration_policy_provider_keeper_.reset(
-        new policy::ConfigurationPolicyProviderKeeper());
+  if (!created_browser_policy_connector_) {
+    DCHECK(browser_policy_connector_.get() == NULL);
+    created_browser_policy_connector_ = true;
+    browser_policy_connector_.reset(new policy::BrowserPolicyConnector());
   }
-  return configuration_policy_provider_keeper_.get();
+  return browser_policy_connector_.get();
 }
 
 IconManager* BrowserProcessImpl::icon_manager() {
@@ -546,6 +564,10 @@ safe_browsing::ClientSideDetectionService*
     CreateSafeBrowsingDetectionService();
   }
   return safe_browsing_detection_service_.get();
+}
+
+bool BrowserProcessImpl::plugin_finder_disabled() const {
+  return *plugin_finder_disabled_pref_;
 }
 
 void BrowserProcessImpl::CheckForInspectorFiles() {
@@ -661,7 +683,8 @@ void BrowserProcessImpl::CreateIOThread() {
   background_x11_thread_.swap(background_x11_thread);
 #endif
 
-  scoped_ptr<IOThread> thread(new IOThread(local_state(), net_log_.get()));
+  scoped_ptr<IOThread> thread(new IOThread(
+      local_state(), net_log_.get(), extension_event_router_forwarder_.get()));
   base::Thread::Options options;
   options.message_loop_type = MessageLoop::TYPE_IO;
   if (!thread->StartWithOptions(options))
@@ -723,6 +746,16 @@ void BrowserProcessImpl::CreateCacheThread() {
   cache_thread_.swap(thread);
 }
 
+void BrowserProcessImpl::CreateWatchdogThread() {
+  DCHECK(!created_watchdog_thread_ && watchdog_thread_.get() == NULL);
+  created_watchdog_thread_ = true;
+
+  scoped_ptr<WatchDogThread> thread(new WatchDogThread());
+  if (!thread->Start())
+    return;
+  watchdog_thread_.swap(thread);
+}
+
 void BrowserProcessImpl::CreateProfileManager() {
   DCHECK(!created_profile_manager_ && profile_manager_.get() == NULL);
   created_profile_manager_ = true;
@@ -742,9 +775,15 @@ void BrowserProcessImpl::CreateLocalState() {
   pref_change_registrar_.Init(local_state_.get());
 
   // Make sure the the plugin updater gets notifications of changes
-  // in the plugin blacklist.
-  local_state_->RegisterListPref(prefs::kPluginsPluginsBlacklist);
-  pref_change_registrar_.Add(prefs::kPluginsPluginsBlacklist,
+  // in the plugin policy lists.
+  local_state_->RegisterListPref(prefs::kPluginsDisabledPlugins);
+  pref_change_registrar_.Add(prefs::kPluginsDisabledPlugins,
+                             PluginUpdater::GetInstance());
+  local_state_->RegisterListPref(prefs::kPluginsDisabledPluginsExceptions);
+  pref_change_registrar_.Add(prefs::kPluginsDisabledPluginsExceptions,
+                             PluginUpdater::GetInstance());
+  local_state_->RegisterListPref(prefs::kPluginsEnabledPlugins);
+  pref_change_registrar_.Add(prefs::kPluginsEnabledPlugins,
                              PluginUpdater::GetInstance());
 
   // Initialize and set up notifications for the printing enabled
@@ -764,6 +803,13 @@ void BrowserProcessImpl::CreateLocalState() {
       ShellIntegration::SetAsDefaultBrowser();
   }
   pref_change_registrar_.Add(prefs::kDefaultBrowserSettingEnabled, this);
+
+  // Initialize the preference for the plugin finder policy.
+  // This preference is only needed on the IO thread so make it available there.
+  local_state_->RegisterBooleanPref(prefs::kDisablePluginFinder, false);
+  plugin_finder_disabled_pref_.Init(prefs::kDisablePluginFinder,
+                                   local_state_.get(), NULL);
+  plugin_finder_disabled_pref_.MoveToThread(BrowserThread::IO);
 }
 
 void BrowserProcessImpl::CreateIconManager() {
@@ -868,7 +914,7 @@ void BrowserProcessImpl::SetIPCLoggingEnabled(bool enable) {
   // Messages to the renderers must be done on the UI (main) thread.
   for (RenderProcessHost::iterator i(RenderProcessHost::AllHostsIterator());
        !i.IsAtEnd(); i.Advance())
-    i.GetCurrentValue()->Send(new ViewMsg_SetIPCLoggingEnabled(enable));
+    i.GetCurrentValue()->Send(new ChildProcessMsg_SetIPCLoggingEnabled(enable));
 }
 
 // Helper for SetIPCLoggingEnabled.
@@ -877,7 +923,7 @@ void BrowserProcessImpl::SetIPCLoggingEnabledForChildProcesses(bool enabled) {
 
   BrowserChildProcessHost::Iterator i;  // default constr references a singleton
   while (!i.Done()) {
-    i->Send(new PluginProcessMsg_SetIPCLoggingEnabled(enabled));
+    i->Send(new ChildProcessMsg_SetIPCLoggingEnabled(enabled));
     ++i;
   }
 }

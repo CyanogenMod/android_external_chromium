@@ -22,11 +22,12 @@ class SideTab : public BaseTab {
 
   // views::View Overrides:
   virtual void Layout();
-  virtual void Paint(gfx::Canvas* canvas);
+  virtual void OnPaint(gfx::Canvas* canvas);
   virtual gfx::Size GetPreferredSize();
 
  protected:
-  virtual const gfx::Rect& title_bounds() const { return title_bounds_; }
+  virtual const gfx::Rect& GetTitleBounds() const;
+  virtual const gfx::Rect& GetIconBounds() const;
 
   // Returns true if the selected highlight should be rendered.
   virtual bool ShouldPaintHighlight() const;

@@ -14,24 +14,24 @@
 #include "base/path_service.h"
 #include "base/scoped_temp_dir.h"
 #include "base/stl_util-inl.h"
-#include "base/string_number_conversions.h"
 #include "base/string16.h"
+#include "base/string_number_conversions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/autofill/autofill_profile.h"
 #include "chrome/browser/autofill/autofill_type.h"
 #include "chrome/browser/autofill/credit_card.h"
-#include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/password_manager/encryptor.h"
+#include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/webdata/autofill_change.h"
 #include "chrome/browser/webdata/autofill_entry.h"
 #include "chrome/browser/webdata/web_database.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/guid.h"
 #include "chrome/test/ui_test_utils.h"
-#include "third_party/skia/include/core/SkBitmap.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "webkit/glue/form_field.h"
 #include "webkit/glue/password_form.h"
 
@@ -91,7 +91,7 @@ bool CompareAutofillEntries(const AutofillEntry& a, const AutofillEntry& b) {
     timestamps2.erase(*it);
   }
 
-  return timestamps2.size() != 0U;
+  return !timestamps2.empty();
 }
 
 void AutoFillProfile31FromStatement(const sql::Statement& s,
@@ -105,19 +105,19 @@ void AutoFillProfile31FromStatement(const sql::Statement& s,
   DCHECK(date_modified);
   *label = s.ColumnString16(0);
   *unique_id = s.ColumnInt(1);
-  profile->SetInfo(AutoFillType(NAME_FIRST), s.ColumnString16(2));
-  profile->SetInfo(AutoFillType(NAME_MIDDLE), s.ColumnString16(3));
-  profile->SetInfo(AutoFillType(NAME_LAST),s.ColumnString16(4));
-  profile->SetInfo(AutoFillType(EMAIL_ADDRESS), s.ColumnString16(5));
-  profile->SetInfo(AutoFillType(COMPANY_NAME), s.ColumnString16(6));
-  profile->SetInfo(AutoFillType(ADDRESS_HOME_LINE1), s.ColumnString16(7));
-  profile->SetInfo(AutoFillType(ADDRESS_HOME_LINE2), s.ColumnString16(8));
-  profile->SetInfo(AutoFillType(ADDRESS_HOME_CITY), s.ColumnString16(9));
-  profile->SetInfo(AutoFillType(ADDRESS_HOME_STATE), s.ColumnString16(10));
-  profile->SetInfo(AutoFillType(ADDRESS_HOME_ZIP), s.ColumnString16(11));
-  profile->SetInfo(AutoFillType(ADDRESS_HOME_COUNTRY), s.ColumnString16(12));
-  profile->SetInfo(AutoFillType(PHONE_HOME_WHOLE_NUMBER), s.ColumnString16(13));
-  profile->SetInfo(AutoFillType(PHONE_FAX_WHOLE_NUMBER), s.ColumnString16(14));
+  profile->SetInfo(AutofillType(NAME_FIRST), s.ColumnString16(2));
+  profile->SetInfo(AutofillType(NAME_MIDDLE), s.ColumnString16(3));
+  profile->SetInfo(AutofillType(NAME_LAST),s.ColumnString16(4));
+  profile->SetInfo(AutofillType(EMAIL_ADDRESS), s.ColumnString16(5));
+  profile->SetInfo(AutofillType(COMPANY_NAME), s.ColumnString16(6));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_LINE1), s.ColumnString16(7));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_LINE2), s.ColumnString16(8));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_CITY), s.ColumnString16(9));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_STATE), s.ColumnString16(10));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_ZIP), s.ColumnString16(11));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_COUNTRY), s.ColumnString16(12));
+  profile->SetInfo(AutofillType(PHONE_HOME_WHOLE_NUMBER), s.ColumnString16(13));
+  profile->SetInfo(AutofillType(PHONE_FAX_WHOLE_NUMBER), s.ColumnString16(14));
   *date_modified = s.ColumnInt64(15);
   profile->set_guid(s.ColumnString(16));
   EXPECT_TRUE(guid::IsValidGUID(profile->guid()));
@@ -133,20 +133,37 @@ void AutoFillProfile32FromStatement(const sql::Statement& s,
   profile->set_guid(s.ColumnString(0));
   EXPECT_TRUE(guid::IsValidGUID(profile->guid()));
   *label = s.ColumnString16(1);
-  profile->SetInfo(AutoFillType(NAME_FIRST), s.ColumnString16(2));
-  profile->SetInfo(AutoFillType(NAME_MIDDLE), s.ColumnString16(3));
-  profile->SetInfo(AutoFillType(NAME_LAST),s.ColumnString16(4));
-  profile->SetInfo(AutoFillType(EMAIL_ADDRESS), s.ColumnString16(5));
-  profile->SetInfo(AutoFillType(COMPANY_NAME), s.ColumnString16(6));
-  profile->SetInfo(AutoFillType(ADDRESS_HOME_LINE1), s.ColumnString16(7));
-  profile->SetInfo(AutoFillType(ADDRESS_HOME_LINE2), s.ColumnString16(8));
-  profile->SetInfo(AutoFillType(ADDRESS_HOME_CITY), s.ColumnString16(9));
-  profile->SetInfo(AutoFillType(ADDRESS_HOME_STATE), s.ColumnString16(10));
-  profile->SetInfo(AutoFillType(ADDRESS_HOME_ZIP), s.ColumnString16(11));
-  profile->SetInfo(AutoFillType(ADDRESS_HOME_COUNTRY), s.ColumnString16(12));
-  profile->SetInfo(AutoFillType(PHONE_HOME_WHOLE_NUMBER), s.ColumnString16(13));
-  profile->SetInfo(AutoFillType(PHONE_FAX_WHOLE_NUMBER), s.ColumnString16(14));
+  profile->SetInfo(AutofillType(NAME_FIRST), s.ColumnString16(2));
+  profile->SetInfo(AutofillType(NAME_MIDDLE), s.ColumnString16(3));
+  profile->SetInfo(AutofillType(NAME_LAST),s.ColumnString16(4));
+  profile->SetInfo(AutofillType(EMAIL_ADDRESS), s.ColumnString16(5));
+  profile->SetInfo(AutofillType(COMPANY_NAME), s.ColumnString16(6));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_LINE1), s.ColumnString16(7));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_LINE2), s.ColumnString16(8));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_CITY), s.ColumnString16(9));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_STATE), s.ColumnString16(10));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_ZIP), s.ColumnString16(11));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_COUNTRY), s.ColumnString16(12));
+  profile->SetInfo(AutofillType(PHONE_HOME_WHOLE_NUMBER), s.ColumnString16(13));
+  profile->SetInfo(AutofillType(PHONE_FAX_WHOLE_NUMBER), s.ColumnString16(14));
   *date_modified = s.ColumnInt64(15);
+}
+
+void AutoFillProfile33FromStatement(const sql::Statement& s,
+                                    AutoFillProfile* profile,
+                                    int64* date_modified) {
+  DCHECK(profile);
+  DCHECK(date_modified);
+  profile->set_guid(s.ColumnString(0));
+  EXPECT_TRUE(guid::IsValidGUID(profile->guid()));
+  profile->SetInfo(AutofillType(COMPANY_NAME), s.ColumnString16(1));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_LINE1), s.ColumnString16(2));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_LINE2), s.ColumnString16(3));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_CITY), s.ColumnString16(4));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_STATE), s.ColumnString16(5));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_ZIP), s.ColumnString16(6));
+  profile->SetInfo(AutofillType(ADDRESS_HOME_COUNTRY), s.ColumnString16(7));
+  *date_modified = s.ColumnInt64(8);
 }
 
 void CreditCard31FromStatement(const sql::Statement& s,
@@ -162,11 +179,11 @@ void CreditCard31FromStatement(const sql::Statement& s,
   DCHECK(date_modified);
   *label = s.ColumnString16(0);
   *unique_id = s.ColumnInt(1);
-  credit_card->SetInfo(AutoFillType(CREDIT_CARD_NAME), s.ColumnString16(2));
-  credit_card->SetInfo(AutoFillType(CREDIT_CARD_TYPE), s.ColumnString16(3));
-  credit_card->SetInfo(AutoFillType(CREDIT_CARD_EXP_MONTH),
+  credit_card->SetInfo(AutofillType(CREDIT_CARD_NAME), s.ColumnString16(2));
+  credit_card->SetInfo(AutofillType(CREDIT_CARD_TYPE), s.ColumnString16(3));
+  credit_card->SetInfo(AutofillType(CREDIT_CARD_EXP_MONTH),
                        s.ColumnString16(5));
-  credit_card->SetInfo(AutoFillType(CREDIT_CARD_EXP_4_DIGIT_YEAR),
+  credit_card->SetInfo(AutofillType(CREDIT_CARD_EXP_4_DIGIT_YEAR),
                        s.ColumnString16(6));
   int encrypted_number_len = s.ColumnByteLength(10);
   if (encrypted_number_len) {
@@ -180,27 +197,24 @@ void CreditCard31FromStatement(const sql::Statement& s,
 
 void CreditCard32FromStatement(const sql::Statement& s,
                                CreditCard* credit_card,
-                               string16* label,
                                std::string* encrypted_number,
                                int64* date_modified) {
   DCHECK(credit_card);
-  DCHECK(label);
   DCHECK(encrypted_number);
   DCHECK(date_modified);
   credit_card->set_guid(s.ColumnString(0));
   EXPECT_TRUE(guid::IsValidGUID(credit_card->guid()));
-  *label = s.ColumnString16(1);
-  credit_card->SetInfo(AutoFillType(CREDIT_CARD_NAME), s.ColumnString16(2));
-  credit_card->SetInfo(AutoFillType(CREDIT_CARD_EXP_MONTH),
+  credit_card->SetInfo(AutofillType(CREDIT_CARD_NAME), s.ColumnString16(1));
+  credit_card->SetInfo(AutofillType(CREDIT_CARD_EXP_MONTH),
+                       s.ColumnString16(2));
+  credit_card->SetInfo(AutofillType(CREDIT_CARD_EXP_4_DIGIT_YEAR),
                        s.ColumnString16(3));
-  credit_card->SetInfo(AutoFillType(CREDIT_CARD_EXP_4_DIGIT_YEAR),
-                       s.ColumnString16(4));
-  int encrypted_number_len = s.ColumnByteLength(5);
+  int encrypted_number_len = s.ColumnByteLength(4);
   if (encrypted_number_len) {
     encrypted_number->resize(encrypted_number_len);
-    memcpy(&(*encrypted_number)[0], s.ColumnBlob(5), encrypted_number_len);
+    memcpy(&(*encrypted_number)[0], s.ColumnBlob(4), encrypted_number_len);
   }
-  *date_modified = s.ColumnInt64(6);
+  *date_modified = s.ColumnInt64(5);
 }
 
 }  // namespace
@@ -1394,25 +1408,24 @@ TEST_F(WebDatabaseTest, AutoFillProfile) {
 
   // Add a 'Home' profile.
   AutoFillProfile home_profile;
-  home_profile.set_label(ASCIIToUTF16("Home"));
-  home_profile.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("John"));
-  home_profile.SetInfo(AutoFillType(NAME_MIDDLE), ASCIIToUTF16("Q."));
-  home_profile.SetInfo(AutoFillType(NAME_LAST), ASCIIToUTF16("Smith"));
-  home_profile.SetInfo(AutoFillType(EMAIL_ADDRESS),
+  home_profile.SetInfo(AutofillType(NAME_FIRST), ASCIIToUTF16("John"));
+  home_profile.SetInfo(AutofillType(NAME_MIDDLE), ASCIIToUTF16("Q."));
+  home_profile.SetInfo(AutofillType(NAME_LAST), ASCIIToUTF16("Smith"));
+  home_profile.SetInfo(AutofillType(EMAIL_ADDRESS),
                        ASCIIToUTF16("js@smith.xyz"));
-  home_profile.SetInfo(AutoFillType(COMPANY_NAME), ASCIIToUTF16("Google"));
-  home_profile.SetInfo(AutoFillType(ADDRESS_HOME_LINE1),
+  home_profile.SetInfo(AutofillType(COMPANY_NAME), ASCIIToUTF16("Google"));
+  home_profile.SetInfo(AutofillType(ADDRESS_HOME_LINE1),
                        ASCIIToUTF16("1234 Apple Way"));
-  home_profile.SetInfo(AutoFillType(ADDRESS_HOME_LINE2),
+  home_profile.SetInfo(AutofillType(ADDRESS_HOME_LINE2),
                        ASCIIToUTF16("unit 5"));
-  home_profile.SetInfo(AutoFillType(ADDRESS_HOME_CITY),
+  home_profile.SetInfo(AutofillType(ADDRESS_HOME_CITY),
                        ASCIIToUTF16("Los Angeles"));
-  home_profile.SetInfo(AutoFillType(ADDRESS_HOME_STATE), ASCIIToUTF16("CA"));
-  home_profile.SetInfo(AutoFillType(ADDRESS_HOME_ZIP), ASCIIToUTF16("90025"));
-  home_profile.SetInfo(AutoFillType(ADDRESS_HOME_COUNTRY), ASCIIToUTF16("US"));
-  home_profile.SetInfo(AutoFillType(PHONE_HOME_WHOLE_NUMBER),
+  home_profile.SetInfo(AutofillType(ADDRESS_HOME_STATE), ASCIIToUTF16("CA"));
+  home_profile.SetInfo(AutofillType(ADDRESS_HOME_ZIP), ASCIIToUTF16("90025"));
+  home_profile.SetInfo(AutofillType(ADDRESS_HOME_COUNTRY), ASCIIToUTF16("US"));
+  home_profile.SetInfo(AutofillType(PHONE_HOME_WHOLE_NUMBER),
                        ASCIIToUTF16("18181234567"));
-  home_profile.SetInfo(AutoFillType(PHONE_FAX_WHOLE_NUMBER),
+  home_profile.SetInfo(AutofillType(PHONE_FAX_WHOLE_NUMBER),
                        ASCIIToUTF16("1915243678"));
 
   Time pre_creation_time = Time::Now();
@@ -1421,11 +1434,12 @@ TEST_F(WebDatabaseTest, AutoFillProfile) {
 
   // Get the 'Home' profile.
   AutoFillProfile* db_profile;
-  ASSERT_TRUE(db.GetAutoFillProfileForLabel(ASCIIToUTF16("Home"), &db_profile));
+  ASSERT_TRUE(db.GetAutoFillProfile(home_profile.guid(), &db_profile));
   EXPECT_EQ(home_profile, *db_profile);
   sql::Statement s_home(db.db_.GetUniqueStatement(
       "SELECT date_modified "
-      "FROM autofill_profiles WHERE label='Home'"));
+      "FROM autofill_profiles WHERE guid=?"));
+  s_home.BindString(0, home_profile.guid());
   ASSERT_TRUE(s_home);
   ASSERT_TRUE(s_home.Step());
   EXPECT_GE(s_home.ColumnInt64(0), pre_creation_time.ToTimeT());
@@ -1435,23 +1449,22 @@ TEST_F(WebDatabaseTest, AutoFillProfile) {
 
   // Add a 'Billing' profile.
   AutoFillProfile billing_profile = home_profile;
-  billing_profile.set_label(ASCIIToUTF16("Billing"));
-  billing_profile.SetInfo(AutoFillType(ADDRESS_HOME_LINE1),
-                          ASCIIToUTF16("5678 Bottom Street"));
-  billing_profile.SetInfo(AutoFillType(ADDRESS_HOME_LINE2),
-                          ASCIIToUTF16("suite 3"));
   billing_profile.set_guid(guid::GenerateGUID());
+  billing_profile.SetInfo(AutofillType(ADDRESS_HOME_LINE1),
+                          ASCIIToUTF16("5678 Bottom Street"));
+  billing_profile.SetInfo(AutofillType(ADDRESS_HOME_LINE2),
+                          ASCIIToUTF16("suite 3"));
 
   pre_creation_time = Time::Now();
   EXPECT_TRUE(db.AddAutoFillProfile(billing_profile));
   post_creation_time = Time::Now();
 
   // Get the 'Billing' profile.
-  ASSERT_TRUE(db.GetAutoFillProfileForLabel(ASCIIToUTF16("Billing"),
-                                            &db_profile));
+  ASSERT_TRUE(db.GetAutoFillProfile(billing_profile.guid(), &db_profile));
   EXPECT_EQ(billing_profile, *db_profile);
   sql::Statement s_billing(db.db_.GetUniqueStatement(
-      "SELECT date_modified FROM autofill_profiles WHERE label='Billing'"));
+      "SELECT date_modified FROM autofill_profiles WHERE guid=?"));
+  s_billing.BindString(0, billing_profile.guid());
   ASSERT_TRUE(s_billing);
   ASSERT_TRUE(s_billing.Step());
   EXPECT_GE(s_billing.ColumnInt64(0), pre_creation_time.ToTimeT());
@@ -1459,16 +1472,16 @@ TEST_F(WebDatabaseTest, AutoFillProfile) {
   EXPECT_FALSE(s_billing.Step());
   delete db_profile;
 
-  // Update the 'Billing' profile.
-  billing_profile.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("Jane"));
+  // Update the 'Billing' profile, name only.
+  billing_profile.SetInfo(AutofillType(NAME_FIRST), ASCIIToUTF16("Jane"));
   Time pre_modification_time = Time::Now();
   EXPECT_TRUE(db.UpdateAutoFillProfile(billing_profile));
   Time post_modification_time = Time::Now();
-  ASSERT_TRUE(db.GetAutoFillProfileForLabel(ASCIIToUTF16("Billing"),
-                                            &db_profile));
+  ASSERT_TRUE(db.GetAutoFillProfile(billing_profile.guid(), &db_profile));
   EXPECT_EQ(billing_profile, *db_profile);
   sql::Statement s_billing_updated(db.db_.GetUniqueStatement(
-      "SELECT date_modified FROM autofill_profiles WHERE label='Billing'"));
+      "SELECT date_modified FROM autofill_profiles WHERE guid=?"));
+  s_billing_updated.BindString(0, billing_profile.guid());
   ASSERT_TRUE(s_billing_updated);
   ASSERT_TRUE(s_billing_updated.Step());
   EXPECT_GE(s_billing_updated.ColumnInt64(0),
@@ -1478,38 +1491,48 @@ TEST_F(WebDatabaseTest, AutoFillProfile) {
   EXPECT_FALSE(s_billing_updated.Step());
   delete db_profile;
 
+  // Update the 'Billing' profile.
+  billing_profile.SetInfo(AutofillType(NAME_FIRST), ASCIIToUTF16("Janice"));
+  billing_profile.SetInfo(AutofillType(NAME_MIDDLE), ASCIIToUTF16("C."));
+  billing_profile.SetInfo(AutofillType(NAME_FIRST), ASCIIToUTF16("Joplin"));
+  billing_profile.SetInfo(AutofillType(EMAIL_ADDRESS),
+                          ASCIIToUTF16("jane@singer.com"));
+  billing_profile.SetInfo(AutofillType(COMPANY_NAME), ASCIIToUTF16("Indy"));
+  billing_profile.SetInfo(AutofillType(ADDRESS_HOME_LINE1),
+                          ASCIIToUTF16("Open Road"));
+  billing_profile.SetInfo(AutofillType(ADDRESS_HOME_LINE2),
+                          ASCIIToUTF16("Route 66"));
+  billing_profile.SetInfo(AutofillType(ADDRESS_HOME_CITY),
+                          ASCIIToUTF16("NFA"));
+  billing_profile.SetInfo(AutofillType(ADDRESS_HOME_STATE), ASCIIToUTF16("NY"));
+  billing_profile.SetInfo(AutofillType(ADDRESS_HOME_ZIP),
+                          ASCIIToUTF16("10011"));
+  billing_profile.SetInfo(AutofillType(ADDRESS_HOME_COUNTRY),
+                          ASCIIToUTF16("United States"));
+  billing_profile.SetInfo(AutofillType(PHONE_HOME_WHOLE_NUMBER),
+                          ASCIIToUTF16("18181230000"));
+  billing_profile.SetInfo(AutofillType(PHONE_FAX_WHOLE_NUMBER),
+                          ASCIIToUTF16("1915240000"));
+  Time pre_modification_time_2 = Time::Now();
+  EXPECT_TRUE(db.UpdateAutoFillProfile(billing_profile));
+  Time post_modification_time_2 = Time::Now();
+  ASSERT_TRUE(db.GetAutoFillProfile(billing_profile.guid(), &db_profile));
+  EXPECT_EQ(billing_profile, *db_profile);
+  sql::Statement s_billing_updated_2(db.db_.GetUniqueStatement(
+      "SELECT date_modified FROM autofill_profiles WHERE guid=?"));
+  s_billing_updated_2.BindString(0, billing_profile.guid());
+  ASSERT_TRUE(s_billing_updated_2);
+  ASSERT_TRUE(s_billing_updated_2.Step());
+  EXPECT_GE(s_billing_updated_2.ColumnInt64(0),
+            pre_modification_time_2.ToTimeT());
+  EXPECT_LE(s_billing_updated_2.ColumnInt64(0),
+            post_modification_time_2.ToTimeT());
+  EXPECT_FALSE(s_billing_updated_2.Step());
+  delete db_profile;
+
   // Remove the 'Billing' profile.
   EXPECT_TRUE(db.RemoveAutoFillProfile(billing_profile.guid()));
-  EXPECT_FALSE(db.GetAutoFillProfileForLabel(ASCIIToUTF16("Billing"),
-                                             &db_profile));
-
-  // Add a 'GUID' profile.
-  AutoFillProfile guid_profile = home_profile;
-  guid_profile.set_label(ASCIIToUTF16("GUID"));
-  guid_profile.SetInfo(AutoFillType(ADDRESS_HOME_LINE1),
-                       ASCIIToUTF16("5678 Top Street"));
-  guid_profile.SetInfo(AutoFillType(ADDRESS_HOME_LINE2),
-                       ASCIIToUTF16("suite 4"));
-  guid_profile.set_guid(guid::GenerateGUID());
-
-  EXPECT_TRUE(db.AddAutoFillProfile(guid_profile));
-  ASSERT_TRUE(db.GetAutoFillProfileForGUID(guid_profile.guid(),
-                                           &db_profile));
-  EXPECT_EQ(guid_profile, *db_profile);
-  delete db_profile;
-
-  // Update the 'GUID' profile.
-  guid_profile.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("Jimmy"));
-  EXPECT_TRUE(db.UpdateAutoFillProfile(guid_profile));
-  ASSERT_TRUE(db.GetAutoFillProfileForGUID(guid_profile.guid(),
-                                           &db_profile));
-  EXPECT_EQ(guid_profile, *db_profile);
-  delete db_profile;
-
-  // Remove the 'GUID' profile.
-  EXPECT_TRUE(db.RemoveAutoFillProfile(guid_profile.guid()));
-  EXPECT_FALSE(db.GetAutoFillProfileForGUID(guid_profile.guid(),
-                                            &db_profile));
+  EXPECT_FALSE(db.GetAutoFillProfile(billing_profile.guid(), &db_profile));
 }
 
 TEST_F(WebDatabaseTest, CreditCard) {
@@ -1519,14 +1542,13 @@ TEST_F(WebDatabaseTest, CreditCard) {
 
   // Add a 'Work' credit card.
   CreditCard work_creditcard;
-  work_creditcard.set_label(ASCIIToUTF16("Work"));
-  work_creditcard.SetInfo(AutoFillType(CREDIT_CARD_NAME),
+  work_creditcard.SetInfo(AutofillType(CREDIT_CARD_NAME),
                           ASCIIToUTF16("Jack Torrance"));
-  work_creditcard.SetInfo(AutoFillType(CREDIT_CARD_NUMBER),
+  work_creditcard.SetInfo(AutofillType(CREDIT_CARD_NUMBER),
                           ASCIIToUTF16("1234567890123456"));
-  work_creditcard.SetInfo(AutoFillType(CREDIT_CARD_EXP_MONTH),
+  work_creditcard.SetInfo(AutofillType(CREDIT_CARD_EXP_MONTH),
                           ASCIIToUTF16("04"));
-  work_creditcard.SetInfo(AutoFillType(CREDIT_CARD_EXP_4_DIGIT_YEAR),
+  work_creditcard.SetInfo(AutofillType(CREDIT_CARD_EXP_4_DIGIT_YEAR),
                           ASCIIToUTF16("2013"));
 
   Time pre_creation_time = Time::Now();
@@ -1535,104 +1557,71 @@ TEST_F(WebDatabaseTest, CreditCard) {
 
   // Get the 'Work' credit card.
   CreditCard* db_creditcard;
-  ASSERT_TRUE(db.GetCreditCardForLabel(ASCIIToUTF16("Work"), &db_creditcard));
+  ASSERT_TRUE(db.GetCreditCard(work_creditcard.guid(), &db_creditcard));
   EXPECT_EQ(work_creditcard, *db_creditcard);
   sql::Statement s_work(db.db_.GetUniqueStatement(
-      "SELECT guid, label, name_on_card, expiration_month, expiration_year, "
+      "SELECT guid, name_on_card, expiration_month, expiration_year, "
       "card_number_encrypted, date_modified "
-      "FROM credit_cards WHERE label='Work'"));
+      "FROM credit_cards WHERE guid=?"));
+  s_work.BindString(0, work_creditcard.guid());
   ASSERT_TRUE(s_work);
   ASSERT_TRUE(s_work.Step());
-  EXPECT_GE(s_work.ColumnInt64(6), pre_creation_time.ToTimeT());
-  EXPECT_LE(s_work.ColumnInt64(6), post_creation_time.ToTimeT());
+  EXPECT_GE(s_work.ColumnInt64(5), pre_creation_time.ToTimeT());
+  EXPECT_LE(s_work.ColumnInt64(5), post_creation_time.ToTimeT());
   EXPECT_FALSE(s_work.Step());
   delete db_creditcard;
 
   // Add a 'Target' credit card.
   CreditCard target_creditcard;
-  target_creditcard.set_label(ASCIIToUTF16("Target"));
-  target_creditcard.SetInfo(AutoFillType(CREDIT_CARD_NAME),
+  target_creditcard.SetInfo(AutofillType(CREDIT_CARD_NAME),
                             ASCIIToUTF16("Jack Torrance"));
-  target_creditcard.SetInfo(AutoFillType(CREDIT_CARD_NUMBER),
+  target_creditcard.SetInfo(AutofillType(CREDIT_CARD_NUMBER),
                             ASCIIToUTF16("1111222233334444"));
-  target_creditcard.SetInfo(AutoFillType(CREDIT_CARD_EXP_MONTH),
+  target_creditcard.SetInfo(AutofillType(CREDIT_CARD_EXP_MONTH),
                             ASCIIToUTF16("06"));
-  target_creditcard.SetInfo(AutoFillType(CREDIT_CARD_EXP_4_DIGIT_YEAR),
+  target_creditcard.SetInfo(AutofillType(CREDIT_CARD_EXP_4_DIGIT_YEAR),
                             ASCIIToUTF16("2012"));
 
   pre_creation_time = Time::Now();
   EXPECT_TRUE(db.AddCreditCard(target_creditcard));
   post_creation_time = Time::Now();
-  ASSERT_TRUE(db.GetCreditCardForLabel(ASCIIToUTF16("Target"),
-                                       &db_creditcard));
+  ASSERT_TRUE(db.GetCreditCard(target_creditcard.guid(), &db_creditcard));
   EXPECT_EQ(target_creditcard, *db_creditcard);
   sql::Statement s_target(db.db_.GetUniqueStatement(
-      "SELECT guid, label, name_on_card, expiration_month, expiration_year, "
+      "SELECT guid, name_on_card, expiration_month, expiration_year, "
       "card_number_encrypted, date_modified "
-      "FROM credit_cards WHERE label='Target'"));
+      "FROM credit_cards WHERE guid=?"));
+  s_target.BindString(0, target_creditcard.guid());
   ASSERT_TRUE(s_target);
   ASSERT_TRUE(s_target.Step());
-  EXPECT_GE(s_target.ColumnInt64(6), pre_creation_time.ToTimeT());
-  EXPECT_LE(s_target.ColumnInt64(6), post_creation_time.ToTimeT());
+  EXPECT_GE(s_target.ColumnInt64(5), pre_creation_time.ToTimeT());
+  EXPECT_LE(s_target.ColumnInt64(5), post_creation_time.ToTimeT());
   EXPECT_FALSE(s_target.Step());
   delete db_creditcard;
 
   // Update the 'Target' credit card.
-  target_creditcard.SetInfo(AutoFillType(CREDIT_CARD_NAME),
+  target_creditcard.SetInfo(AutofillType(CREDIT_CARD_NAME),
                             ASCIIToUTF16("Charles Grady"));
   Time pre_modification_time = Time::Now();
   EXPECT_TRUE(db.UpdateCreditCard(target_creditcard));
   Time post_modification_time = Time::Now();
-  ASSERT_TRUE(db.GetCreditCardForLabel(ASCIIToUTF16("Target"), &db_creditcard));
+  ASSERT_TRUE(db.GetCreditCard(target_creditcard.guid(), &db_creditcard));
   EXPECT_EQ(target_creditcard, *db_creditcard);
   sql::Statement s_target_updated(db.db_.GetUniqueStatement(
-      "SELECT guid, label, name_on_card, expiration_month, expiration_year, "
+      "SELECT guid, name_on_card, expiration_month, expiration_year, "
       "card_number_encrypted, date_modified "
-      "FROM credit_cards WHERE label='Target'"));
+      "FROM credit_cards WHERE guid=?"));
+  s_target_updated.BindString(0, target_creditcard.guid());
   ASSERT_TRUE(s_target_updated);
   ASSERT_TRUE(s_target_updated.Step());
-  EXPECT_GE(s_target_updated.ColumnInt64(6),
-            pre_modification_time.ToTimeT());
-  EXPECT_LE(s_target_updated.ColumnInt64(6),
-            post_modification_time.ToTimeT());
+  EXPECT_GE(s_target_updated.ColumnInt64(5), pre_modification_time.ToTimeT());
+  EXPECT_LE(s_target_updated.ColumnInt64(5), post_modification_time.ToTimeT());
   EXPECT_FALSE(s_target_updated.Step());
   delete db_creditcard;
 
   // Remove the 'Target' credit card.
   EXPECT_TRUE(db.RemoveCreditCard(target_creditcard.guid()));
-  EXPECT_FALSE(db.GetCreditCardForLabel(ASCIIToUTF16("Target"),
-                                        &db_creditcard));
-
-  // Add a 'GUID' profile.
-  CreditCard guid_creditcard;
-  guid_creditcard.set_label(ASCIIToUTF16("GUID"));
-  guid_creditcard.SetInfo(AutoFillType(CREDIT_CARD_NAME),
-                          ASCIIToUTF16("Jimmy Jones"));
-  guid_creditcard.SetInfo(AutoFillType(CREDIT_CARD_NUMBER),
-                          ASCIIToUTF16("9999222233334444"));
-  guid_creditcard.SetInfo(AutoFillType(CREDIT_CARD_EXP_MONTH),
-                          ASCIIToUTF16("07"));
-  guid_creditcard.SetInfo(AutoFillType(CREDIT_CARD_EXP_4_DIGIT_YEAR),
-                          ASCIIToUTF16("2013"));
-
-  EXPECT_TRUE(db.AddCreditCard(guid_creditcard));
-  ASSERT_TRUE(db.GetCreditCardForGUID(guid_creditcard.guid(),
-                                      &db_creditcard));
-  EXPECT_EQ(guid_creditcard, *db_creditcard);
-  delete db_creditcard;
-
-  // Update the 'GUID' profile.
-  guid_creditcard.SetInfo(AutoFillType(CREDIT_CARD_NAME),
-                            ASCIIToUTF16("Jimmy Grady"));
-  EXPECT_TRUE(db.UpdateCreditCard(guid_creditcard));
-  ASSERT_TRUE(db.GetCreditCardForGUID(guid_creditcard.guid(), &db_creditcard));
-  EXPECT_EQ(guid_creditcard, *db_creditcard);
-  delete db_creditcard;
-
-  // Remove the 'GUID' profile.
-  EXPECT_TRUE(db.RemoveCreditCard(guid_creditcard.guid()));
-  EXPECT_FALSE(db.GetCreditCardForGUID(guid_creditcard.guid(),
-                                       &db_creditcard));
+  EXPECT_FALSE(db.GetCreditCard(target_creditcard.guid(), &db_creditcard));
 }
 
 TEST_F(WebDatabaseTest, UpdateAutoFillProfile) {
@@ -1641,22 +1630,21 @@ TEST_F(WebDatabaseTest, UpdateAutoFillProfile) {
 
   // Add a profile to the db.
   AutoFillProfile profile;
-  profile.set_label(ASCIIToUTF16("Test Profile"));
-  profile.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("John"));
-  profile.SetInfo(AutoFillType(NAME_MIDDLE), ASCIIToUTF16("Q."));
-  profile.SetInfo(AutoFillType(NAME_LAST), ASCIIToUTF16("Smith"));
-  profile.SetInfo(AutoFillType(EMAIL_ADDRESS), ASCIIToUTF16("js@example.com"));
-  profile.SetInfo(AutoFillType(COMPANY_NAME), ASCIIToUTF16("Google"));
-  profile.SetInfo(AutoFillType(ADDRESS_HOME_LINE1),
+  profile.SetInfo(AutofillType(NAME_FIRST), ASCIIToUTF16("John"));
+  profile.SetInfo(AutofillType(NAME_MIDDLE), ASCIIToUTF16("Q."));
+  profile.SetInfo(AutofillType(NAME_LAST), ASCIIToUTF16("Smith"));
+  profile.SetInfo(AutofillType(EMAIL_ADDRESS), ASCIIToUTF16("js@example.com"));
+  profile.SetInfo(AutofillType(COMPANY_NAME), ASCIIToUTF16("Google"));
+  profile.SetInfo(AutofillType(ADDRESS_HOME_LINE1),
                   ASCIIToUTF16("1234 Apple Way"));
-  profile.SetInfo(AutoFillType(ADDRESS_HOME_LINE2), ASCIIToUTF16("unit 5"));
-  profile.SetInfo(AutoFillType(ADDRESS_HOME_CITY), ASCIIToUTF16("Los Angeles"));
-  profile.SetInfo(AutoFillType(ADDRESS_HOME_STATE), ASCIIToUTF16("CA"));
-  profile.SetInfo(AutoFillType(ADDRESS_HOME_ZIP), ASCIIToUTF16("90025"));
-  profile.SetInfo(AutoFillType(ADDRESS_HOME_COUNTRY), ASCIIToUTF16("US"));
-  profile.SetInfo(AutoFillType(PHONE_HOME_WHOLE_NUMBER),
+  profile.SetInfo(AutofillType(ADDRESS_HOME_LINE2), ASCIIToUTF16("unit 5"));
+  profile.SetInfo(AutofillType(ADDRESS_HOME_CITY), ASCIIToUTF16("Los Angeles"));
+  profile.SetInfo(AutofillType(ADDRESS_HOME_STATE), ASCIIToUTF16("CA"));
+  profile.SetInfo(AutofillType(ADDRESS_HOME_ZIP), ASCIIToUTF16("90025"));
+  profile.SetInfo(AutofillType(ADDRESS_HOME_COUNTRY), ASCIIToUTF16("US"));
+  profile.SetInfo(AutofillType(PHONE_HOME_WHOLE_NUMBER),
                   ASCIIToUTF16("18181234567"));
-  profile.SetInfo(AutoFillType(PHONE_FAX_WHOLE_NUMBER),
+  profile.SetInfo(AutofillType(PHONE_FAX_WHOLE_NUMBER),
                   ASCIIToUTF16("1915243678"));
   db.AddAutoFillProfile(profile);
 
@@ -1670,7 +1658,7 @@ TEST_F(WebDatabaseTest, UpdateAutoFillProfile) {
 
   // Get the profile.
   AutoFillProfile* tmp_profile;
-  ASSERT_TRUE(db.GetAutoFillProfileForGUID(profile.guid(), &tmp_profile));
+  ASSERT_TRUE(db.GetAutoFillProfile(profile.guid(), &tmp_profile));
   scoped_ptr<AutoFillProfile> db_profile(tmp_profile);
   EXPECT_EQ(profile, *db_profile);
   sql::Statement s_original(db.db_.GetUniqueStatement(
@@ -1682,11 +1670,11 @@ TEST_F(WebDatabaseTest, UpdateAutoFillProfile) {
 
   // Now, update the profile and save the update to the database.
   // The modification date should change to reflect the update.
-  profile.SetInfo(AutoFillType(EMAIL_ADDRESS), ASCIIToUTF16("js@smith.xyz"));
+  profile.SetInfo(AutofillType(EMAIL_ADDRESS), ASCIIToUTF16("js@smith.xyz"));
   db.UpdateAutoFillProfile(profile);
 
   // Get the profile.
-  ASSERT_TRUE(db.GetAutoFillProfileForGUID(profile.guid(), &tmp_profile));
+  ASSERT_TRUE(db.GetAutoFillProfile(profile.guid(), &tmp_profile));
   db_profile.reset(tmp_profile);
   EXPECT_EQ(profile, *db_profile);
   sql::Statement s_updated(db.db_.GetUniqueStatement(
@@ -1709,7 +1697,7 @@ TEST_F(WebDatabaseTest, UpdateAutoFillProfile) {
   db.UpdateAutoFillProfile(profile);
 
   // Get the profile.
-  ASSERT_TRUE(db.GetAutoFillProfileForGUID(profile.guid(), &tmp_profile));
+  ASSERT_TRUE(db.GetAutoFillProfile(profile.guid(), &tmp_profile));
   db_profile.reset(tmp_profile);
   EXPECT_EQ(profile, *db_profile);
   sql::Statement s_unchanged(db.db_.GetUniqueStatement(
@@ -1726,14 +1714,13 @@ TEST_F(WebDatabaseTest, UpdateCreditCard) {
 
   // Add a credit card to the db.
   CreditCard credit_card;
-  credit_card.set_label(ASCIIToUTF16("Test Credit Card"));
-  credit_card.SetInfo(AutoFillType(CREDIT_CARD_NAME),
+  credit_card.SetInfo(AutofillType(CREDIT_CARD_NAME),
                       ASCIIToUTF16("Jack Torrance"));
-  credit_card.SetInfo(AutoFillType(CREDIT_CARD_NUMBER),
+  credit_card.SetInfo(AutofillType(CREDIT_CARD_NUMBER),
                       ASCIIToUTF16("1234567890123456"));
-  credit_card.SetInfo(AutoFillType(CREDIT_CARD_EXP_MONTH),
+  credit_card.SetInfo(AutofillType(CREDIT_CARD_EXP_MONTH),
                       ASCIIToUTF16("04"));
-  credit_card.SetInfo(AutoFillType(CREDIT_CARD_EXP_4_DIGIT_YEAR),
+  credit_card.SetInfo(AutofillType(CREDIT_CARD_EXP_4_DIGIT_YEAR),
                       ASCIIToUTF16("2013"));
   db.AddCreditCard(credit_card);
 
@@ -1747,7 +1734,7 @@ TEST_F(WebDatabaseTest, UpdateCreditCard) {
 
   // Get the credit card.
   CreditCard* tmp_credit_card;
-  ASSERT_TRUE(db.GetCreditCardForGUID(credit_card.guid(), &tmp_credit_card));
+  ASSERT_TRUE(db.GetCreditCard(credit_card.guid(), &tmp_credit_card));
   scoped_ptr<CreditCard> db_credit_card(tmp_credit_card);
   EXPECT_EQ(credit_card, *db_credit_card);
   sql::Statement s_original(db.db_.GetUniqueStatement(
@@ -1759,11 +1746,11 @@ TEST_F(WebDatabaseTest, UpdateCreditCard) {
 
   // Now, update the credit card and save the update to the database.
   // The modification date should change to reflect the update.
-  credit_card.SetInfo(AutoFillType(CREDIT_CARD_EXP_MONTH), ASCIIToUTF16("01"));
+  credit_card.SetInfo(AutofillType(CREDIT_CARD_EXP_MONTH), ASCIIToUTF16("01"));
   db.UpdateCreditCard(credit_card);
 
   // Get the credit card.
-  ASSERT_TRUE(db.GetCreditCardForGUID(credit_card.guid(), &tmp_credit_card));
+  ASSERT_TRUE(db.GetCreditCard(credit_card.guid(), &tmp_credit_card));
   db_credit_card.reset(tmp_credit_card);
   EXPECT_EQ(credit_card, *db_credit_card);
   sql::Statement s_updated(db.db_.GetUniqueStatement(
@@ -1786,7 +1773,7 @@ TEST_F(WebDatabaseTest, UpdateCreditCard) {
   db.UpdateCreditCard(credit_card);
 
   // Get the profile.
-  ASSERT_TRUE(db.GetCreditCardForGUID(credit_card.guid(), &tmp_credit_card));
+  ASSERT_TRUE(db.GetCreditCard(credit_card.guid(), &tmp_credit_card));
   db_credit_card.reset(tmp_credit_card);
   EXPECT_EQ(credit_card, *db_credit_card);
   sql::Statement s_unchanged(db.db_.GetUniqueStatement(
@@ -2106,7 +2093,7 @@ class WebDatabaseMigrationTest : public testing::Test {
   // Like this:
   //   > .output version_nn.sql
   //   > .dump
-  void LoadDatabase(const FilePath& path);
+  void LoadDatabase(const FilePath::StringType& file);
 
   // Assertion testing for migrating from version 27 and 28.
   void MigrateVersion28Assertions();
@@ -2117,11 +2104,11 @@ class WebDatabaseMigrationTest : public testing::Test {
   DISALLOW_COPY_AND_ASSIGN(WebDatabaseMigrationTest);
 };
 
-const int WebDatabaseMigrationTest::kCurrentTestedVersionNumber = 32;
+const int WebDatabaseMigrationTest::kCurrentTestedVersionNumber = 35;
 
-void WebDatabaseMigrationTest::LoadDatabase(const FilePath& file) {
+void WebDatabaseMigrationTest::LoadDatabase(const FilePath::StringType& file) {
   std::string contents;
-  ASSERT_TRUE(GetWebDatabaseData(file, &contents));
+  ASSERT_TRUE(GetWebDatabaseData(FilePath(file), &contents));
 
   sql::Connection connection;
   ASSERT_TRUE(connection.Open(GetDatabasePath()));
@@ -2226,8 +2213,7 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion22ToCurrent) {
   // This schema is taken from a build prior to the addition of the
   // |credit_card| table.  Version 22 of the schema.  Contrast this with the
   // corrupt version below.
-  ASSERT_NO_FATAL_FAILURE(
-      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_22.sql"))));
+  ASSERT_NO_FATAL_FAILURE(LoadDatabase(FILE_PATH_LITERAL("version_22.sql")));
 
   // Verify pre-conditions.
   {
@@ -2273,7 +2259,7 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion22CorruptedToCurrent) {
   // table.  Due to a bug in the migration logic the version is set incorrectly
   // to 22 (it should have been updated to 23 at least).
   ASSERT_NO_FATAL_FAILURE(
-      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_22_corrupt.sql"))));
+      LoadDatabase(FILE_PATH_LITERAL("version_22_corrupt.sql")));
 
   // Verify pre-conditions.  These are expectations for corrupt version 22 of
   // the database.
@@ -2321,8 +2307,7 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion22CorruptedToCurrent) {
 TEST_F(WebDatabaseMigrationTest, MigrateVersion24ToCurrent) {
   // This schema is taken from a build prior to the addition of the |keywords|
   // |logo_id| column.
-  ASSERT_NO_FATAL_FAILURE(
-      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_24.sql"))));
+  ASSERT_NO_FATAL_FAILURE(LoadDatabase(FILE_PATH_LITERAL("version_24.sql")));
 
   // Verify pre-conditions.  These are expectations for version 24 of the
   // database.
@@ -2362,8 +2347,7 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion24ToCurrent) {
 TEST_F(WebDatabaseMigrationTest, MigrateVersion25ToCurrent) {
   // This schema is taken from a build prior to the addition of the |keywords|
   // |created_by_policy| column.
-  ASSERT_NO_FATAL_FAILURE(
-      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_25.sql"))));
+  ASSERT_NO_FATAL_FAILURE(LoadDatabase(FILE_PATH_LITERAL("version_25.sql")));
 
   // Verify pre-conditions.  These are expectations for version 25 of the
   // database.
@@ -2400,8 +2384,7 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion25ToCurrent) {
 TEST_F(WebDatabaseMigrationTest, MigrateVersion26ToCurrentStringLabels) {
   // This schema is taken from a build prior to the change of column type for
   // credit_cards.billing_address from string to int.
-  ASSERT_NO_FATAL_FAILURE(
-      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_26.sql"))));
+  ASSERT_NO_FATAL_FAILURE(LoadDatabase(FILE_PATH_LITERAL("version_26.sql")));
 
   // Verify pre-conditions. These are expectations for version 26 of the
   // database.
@@ -2455,14 +2438,13 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion26ToCurrentStringLabels) {
 
     // Verify the credit card data is converted.
     sql::Statement s(connection.GetUniqueStatement(
-        "SELECT guid, label, name_on_card, expiration_month, expiration_year, "
+        "SELECT guid, name_on_card, expiration_month, expiration_year, "
         "card_number_encrypted, date_modified "
         "FROM credit_cards"));
     ASSERT_TRUE(s.Step());
-    EXPECT_EQ("label", s.ColumnString(1));
-    EXPECT_EQ("Jack", s.ColumnString(2));
-    EXPECT_EQ(2, s.ColumnInt(3));
-    EXPECT_EQ(2012, s.ColumnInt(4));
+    EXPECT_EQ("Jack", s.ColumnString(1));
+    EXPECT_EQ(2, s.ColumnInt(2));
+    EXPECT_EQ(2012, s.ColumnInt(3));
     // Column 5 is encrypted number blob.
     // Column 6 is date_modified.
   }
@@ -2474,8 +2456,7 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion26ToCurrentStringLabels) {
 TEST_F(WebDatabaseMigrationTest, MigrateVersion26ToCurrentStringIDs) {
   // This schema is taken from a build prior to the change of column type for
   // credit_cards.billing_address from string to int.
-  ASSERT_NO_FATAL_FAILURE(
-      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_26.sql"))));
+  ASSERT_NO_FATAL_FAILURE(LoadDatabase(FILE_PATH_LITERAL("version_26.sql")));
 
   // Verify pre-conditions. These are expectations for version 26 of the
   // database.
@@ -2531,14 +2512,13 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion26ToCurrentStringIDs) {
 
     // Verify the credit card data is converted.
     sql::Statement s(connection.GetUniqueStatement(
-        "SELECT guid, label, name_on_card, expiration_month, expiration_year, "
+        "SELECT guid, name_on_card, expiration_month, expiration_year, "
         "card_number_encrypted, date_modified "
         "FROM credit_cards"));
     ASSERT_TRUE(s.Step());
-    EXPECT_EQ("label", s.ColumnString(1));
-    EXPECT_EQ("Jack", s.ColumnString(2));
-    EXPECT_EQ(2, s.ColumnInt(3));
-    EXPECT_EQ(2012, s.ColumnInt(4));
+    EXPECT_EQ("Jack", s.ColumnString(1));
+    EXPECT_EQ(2, s.ColumnInt(2));
+    EXPECT_EQ(2012, s.ColumnInt(3));
     // Column 5 is encrypted credit card number blob.
     // Column 6 is date_modified.
   }
@@ -2548,8 +2528,7 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion26ToCurrentStringIDs) {
 // as the column added in 28 was nuked in 29.
 TEST_F(WebDatabaseMigrationTest, MigrateVersion27ToCurrent) {
   // Initialize the database.
-  ASSERT_NO_FATAL_FAILURE(
-      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_27.sql"))));
+  ASSERT_NO_FATAL_FAILURE(LoadDatabase(FILE_PATH_LITERAL("version_27.sql")));
 
   // Verify pre-conditions. These are expectations for version 28 of the
   // database.
@@ -2567,8 +2546,7 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion27ToCurrent) {
 // Makes sure instant_url is added correctly to keywords.
 TEST_F(WebDatabaseMigrationTest, MigrateVersion28ToCurrent) {
   // Initialize the database.
-  ASSERT_NO_FATAL_FAILURE(
-      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_28.sql"))));
+  ASSERT_NO_FATAL_FAILURE(LoadDatabase(FILE_PATH_LITERAL("version_28.sql")));
 
   // Verify pre-conditions. These are expectations for version 28 of the
   // database.
@@ -2587,8 +2565,7 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion28ToCurrent) {
 // credit_cards.
 TEST_F(WebDatabaseMigrationTest, MigrateVersion29ToCurrent) {
   // Initialize the database.
-  ASSERT_NO_FATAL_FAILURE(
-      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_29.sql"))));
+  ASSERT_NO_FATAL_FAILURE(LoadDatabase(FILE_PATH_LITERAL("version_29.sql")));
 
   // Verify pre-conditions.  These are expectations for version 29 of the
   // database.
@@ -2653,8 +2630,7 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion29ToCurrent) {
 // Makes sure guids are added to autofill_profiles and credit_cards tables.
 TEST_F(WebDatabaseMigrationTest, MigrateVersion30ToCurrent) {
   // Initialize the database.
-  ASSERT_NO_FATAL_FAILURE(
-      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_30.sql"))));
+  ASSERT_NO_FATAL_FAILURE(LoadDatabase(FILE_PATH_LITERAL("version_30.sql")));
 
   // Verify pre-conditions. These are expectations for version 29 of the
   // database.
@@ -2706,8 +2682,7 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion30ToCurrent) {
 // columns.
 TEST_F(WebDatabaseMigrationTest, MigrateVersion31ToCurrent) {
   // Initialize the database.
-  ASSERT_NO_FATAL_FAILURE(
-      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_31.sql"))));
+  ASSERT_NO_FATAL_FAILURE(LoadDatabase(FILE_PATH_LITERAL("version_31.sql")));
 
   // Verify pre-conditions. These are expectations for version 30 of the
   // database.
@@ -2803,24 +2778,35 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion31ToCurrent) {
     // Verify data in the database after the migration.
     sql::Statement s1(
         connection.GetUniqueStatement(
-            "SELECT guid, label, first_name, middle_name, last_name, "
-            "email, company_name, address_line_1, address_line_2, city, state, "
-            "zipcode, country, phone, fax, date_modified "
+            "SELECT guid, company_name, address_line_1, address_line_2, "
+            "city, state, zipcode, country, date_modified "
             "FROM autofill_profiles"));
     ASSERT_TRUE(s1.Step());
 
     AutoFillProfile profile_a;
-    string16 profile_label_a;
     int64 profile_date_modified_a = 0;
-    EXPECT_NO_FATAL_FAILURE(AutoFillProfile32FromStatement(
-        s1, &profile_a, &profile_label_a, &profile_date_modified_a));
-    EXPECT_EQ(profile, profile_a);
-    EXPECT_EQ(profile_label, profile_label_a);
+    EXPECT_NO_FATAL_FAILURE(AutoFillProfile33FromStatement(
+        s1, &profile_a, &profile_date_modified_a));
+    EXPECT_EQ(profile.guid(), profile_a.guid());
+    EXPECT_EQ(profile.GetFieldText(AutofillType(COMPANY_NAME)),
+              profile_a.GetFieldText(AutofillType(COMPANY_NAME)));
+    EXPECT_EQ(profile.GetFieldText(AutofillType(ADDRESS_HOME_LINE1)),
+              profile_a.GetFieldText(AutofillType(ADDRESS_HOME_LINE1)));
+    EXPECT_EQ(profile.GetFieldText(AutofillType(ADDRESS_HOME_LINE2)),
+              profile_a.GetFieldText(AutofillType(ADDRESS_HOME_LINE2)));
+    EXPECT_EQ(profile.GetFieldText(AutofillType(ADDRESS_HOME_CITY)),
+              profile_a.GetFieldText(AutofillType(ADDRESS_HOME_CITY)));
+    EXPECT_EQ(profile.GetFieldText(AutofillType(ADDRESS_HOME_STATE)),
+              profile_a.GetFieldText(AutofillType(ADDRESS_HOME_STATE)));
+    EXPECT_EQ(profile.GetFieldText(AutofillType(ADDRESS_HOME_ZIP)),
+              profile_a.GetFieldText(AutofillType(ADDRESS_HOME_ZIP)));
+    EXPECT_EQ(profile.GetFieldText(AutofillType(ADDRESS_HOME_COUNTRY)),
+              profile_a.GetFieldText(AutofillType(ADDRESS_HOME_COUNTRY)));
     EXPECT_EQ(profile_date_modified, profile_date_modified_a);
 
     sql::Statement s2(
         connection.GetUniqueStatement(
-            "SELECT guid, label, name_on_card, expiration_month, "
+            "SELECT guid, name_on_card, expiration_month, "
             "expiration_year, card_number_encrypted, date_modified "
             "FROM credit_cards"));
     ASSERT_TRUE(s2.Step());
@@ -2831,12 +2817,417 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion31ToCurrent) {
     int64 cc_date_modified_a = 0;
     EXPECT_NO_FATAL_FAILURE(CreditCard32FromStatement(s2,
                                                       &credit_card_a,
-                                                      &cc_label_a,
                                                       &cc_number_encrypted_a,
                                                       &cc_date_modified_a));
     EXPECT_EQ(credit_card, credit_card_a);
     EXPECT_EQ(cc_label, cc_label_a);
     EXPECT_EQ(cc_number_encrypted, cc_number_encrypted_a);
     EXPECT_EQ(cc_date_modified, cc_date_modified_a);
+  }
+}
+
+// Factor |autofill_profiles| address information separately from name, email,
+// and phone.
+TEST_F(WebDatabaseMigrationTest, MigrateVersion32ToCurrent) {
+  // Initialize the database.
+  ASSERT_NO_FATAL_FAILURE(LoadDatabase(FILE_PATH_LITERAL("version_32.sql")));
+
+  // Verify pre-conditions. These are expectations for version 32 of the
+  // database.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+
+    // Verify existence of columns we'll be changing.
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles", "guid"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles", "label"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles", "first_name"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles", "middle_name"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles", "last_name"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles", "email"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles",
+                                           "company_name"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles",
+                                           "address_line_1"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles",
+                                           "address_line_2"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles", "city"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles", "state"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles", "zipcode"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles", "country"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles", "phone"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles", "fax"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles",
+                                           "date_modified"));
+
+    EXPECT_FALSE(connection.DoesTableExist("autofill_profile_names"));
+    EXPECT_FALSE(connection.DoesTableExist("autofill_profile_emails"));
+    EXPECT_FALSE(connection.DoesTableExist("autofill_profile_phones"));
+
+    EXPECT_TRUE(connection.DoesColumnExist("credit_cards", "label"));
+  }
+
+  // Load the database via the WebDatabase class and migrate the database to
+  // the current version.
+  {
+    WebDatabase db;
+    ASSERT_EQ(sql::INIT_OK, db.Init(GetDatabasePath()));
+  }
+
+  // Verify post-conditions.  These are expectations for current version of the
+  // database.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+
+    // Check version.
+    EXPECT_EQ(kCurrentTestedVersionNumber, VersionFromConnection(&connection));
+
+    // Verify changes to columns.
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles", "guid"));
+    EXPECT_FALSE(connection.DoesColumnExist("autofill_profiles", "label"));
+    EXPECT_FALSE(connection.DoesColumnExist("autofill_profiles", "first_name"));
+    EXPECT_FALSE(connection.DoesColumnExist("autofill_profiles",
+                                            "middle_name"));
+    EXPECT_FALSE(connection.DoesColumnExist("autofill_profiles", "last_name"));
+    EXPECT_FALSE(connection.DoesColumnExist("autofill_profiles", "email"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles",
+                                           "company_name"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles",
+                                           "address_line_1"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles",
+                                           "address_line_2"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles", "city"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles", "state"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles", "zipcode"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles", "country"));
+    EXPECT_FALSE(connection.DoesColumnExist("autofill_profiles", "phone"));
+    EXPECT_FALSE(connection.DoesColumnExist("autofill_profiles", "fax"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles",
+                                           "date_modified"));
+
+    // New "names" table.
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profile_names", "guid"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profile_names",
+                                           "first_name"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profile_names",
+                                           "middle_name"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profile_names",
+                                           "last_name"));
+
+    // New "emails" table.
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profile_emails", "guid"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profile_emails", "email"));
+
+    // New "phones" table.
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profile_phones", "guid"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profile_phones", "type"));
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profile_phones",
+                                           "number"));
+
+    EXPECT_FALSE(connection.DoesColumnExist("credit_cards", "label"));
+
+    // Verify data in the database after the migration.
+    sql::Statement s1(
+        connection.GetUniqueStatement(
+            "SELECT guid, company_name, address_line_1, address_line_2, "
+            "city, state, zipcode, country, date_modified "
+            "FROM autofill_profiles"));
+
+    // John Doe.
+    ASSERT_TRUE(s1.Step());
+    EXPECT_EQ("00580526-FF81-EE2A-0546-1AC593A32E2F", s1.ColumnString(0));
+    EXPECT_EQ(ASCIIToUTF16("Doe Enterprises"), s1.ColumnString16(1));
+    EXPECT_EQ(ASCIIToUTF16("1 Main St"), s1.ColumnString16(2));
+    EXPECT_EQ(ASCIIToUTF16("Apt 1"), s1.ColumnString16(3));
+    EXPECT_EQ(ASCIIToUTF16("Los Altos"), s1.ColumnString16(4));
+    EXPECT_EQ(ASCIIToUTF16("CA"), s1.ColumnString16(5));
+    EXPECT_EQ(ASCIIToUTF16("94022"), s1.ColumnString16(6));
+    EXPECT_EQ(ASCIIToUTF16("United States"), s1.ColumnString16(7));
+    EXPECT_EQ(1297882100L, s1.ColumnInt64(8));
+
+    // John P. Doe.
+    ASSERT_TRUE(s1.Step());
+    EXPECT_EQ("589636FD-9037-3053-200C-80ABC97D7344", s1.ColumnString(0));
+    EXPECT_EQ(ASCIIToUTF16("Doe Enterprises"), s1.ColumnString16(1));
+    EXPECT_EQ(ASCIIToUTF16("1 Main St"), s1.ColumnString16(2));
+    EXPECT_EQ(ASCIIToUTF16("Apt 1"), s1.ColumnString16(3));
+    EXPECT_EQ(ASCIIToUTF16("Los Altos"), s1.ColumnString16(4));
+    EXPECT_EQ(ASCIIToUTF16("CA"), s1.ColumnString16(5));
+    EXPECT_EQ(ASCIIToUTF16("94022"), s1.ColumnString16(6));
+    EXPECT_EQ(ASCIIToUTF16("United States"), s1.ColumnString16(7));
+    EXPECT_EQ(1297882100L, s1.ColumnInt64(8));
+
+    // Dave Smith.
+    ASSERT_TRUE(s1.Step());
+    EXPECT_EQ("4C74A9D8-7EEE-423E-F9C2-E7FA70ED1396", s1.ColumnString(0));
+    EXPECT_EQ(ASCIIToUTF16(""), s1.ColumnString16(1));
+    EXPECT_EQ(ASCIIToUTF16("2 Main Street"), s1.ColumnString16(2));
+    EXPECT_EQ(ASCIIToUTF16(""), s1.ColumnString16(3));
+    EXPECT_EQ(ASCIIToUTF16("Los Altos"), s1.ColumnString16(4));
+    EXPECT_EQ(ASCIIToUTF16("CA"), s1.ColumnString16(5));
+    EXPECT_EQ(ASCIIToUTF16("94022"), s1.ColumnString16(6));
+    EXPECT_EQ(ASCIIToUTF16("United States"), s1.ColumnString16(7));
+    EXPECT_EQ(1297882100L, s1.ColumnInt64(8));
+
+    // Dave Smith (Part 2).
+    ASSERT_TRUE(s1.Step());
+    EXPECT_EQ("722DF5C4-F74A-294A-46F0-31FFDED0D635", s1.ColumnString(0));
+    EXPECT_EQ(ASCIIToUTF16(""), s1.ColumnString16(1));
+    EXPECT_EQ(ASCIIToUTF16("2 Main St"), s1.ColumnString16(2));
+    EXPECT_EQ(ASCIIToUTF16(""), s1.ColumnString16(3));
+    EXPECT_EQ(ASCIIToUTF16("Los Altos"), s1.ColumnString16(4));
+    EXPECT_EQ(ASCIIToUTF16("CA"), s1.ColumnString16(5));
+    EXPECT_EQ(ASCIIToUTF16("94022"), s1.ColumnString16(6));
+    EXPECT_EQ(ASCIIToUTF16("United States"), s1.ColumnString16(7));
+    EXPECT_EQ(1297882100L, s1.ColumnInt64(8));
+
+    // Alfred E Newman.
+    ASSERT_TRUE(s1.Step());
+    EXPECT_EQ("584282AC-5D21-8D73-A2DB-4F892EF61F3F", s1.ColumnString(0));
+    EXPECT_EQ(ASCIIToUTF16(""), s1.ColumnString16(1));
+    EXPECT_EQ(ASCIIToUTF16(""), s1.ColumnString16(2));
+    EXPECT_EQ(ASCIIToUTF16(""), s1.ColumnString16(3));
+    EXPECT_EQ(ASCIIToUTF16(""), s1.ColumnString16(4));
+    EXPECT_EQ(ASCIIToUTF16(""), s1.ColumnString16(5));
+    EXPECT_EQ(ASCIIToUTF16(""), s1.ColumnString16(6));
+    EXPECT_EQ(ASCIIToUTF16(""), s1.ColumnString16(7));
+    EXPECT_EQ(1297882100L, s1.ColumnInt64(8));
+
+    // 3 Main St.
+    ASSERT_TRUE(s1.Step());
+    EXPECT_EQ("9E5FE298-62C7-83DF-6293-381BC589183F", s1.ColumnString(0));
+    EXPECT_EQ(ASCIIToUTF16(""), s1.ColumnString16(1));
+    EXPECT_EQ(ASCIIToUTF16("3 Main St"), s1.ColumnString16(2));
+    EXPECT_EQ(ASCIIToUTF16(""), s1.ColumnString16(3));
+    EXPECT_EQ(ASCIIToUTF16("Los Altos"), s1.ColumnString16(4));
+    EXPECT_EQ(ASCIIToUTF16("CA"), s1.ColumnString16(5));
+    EXPECT_EQ(ASCIIToUTF16("94022"), s1.ColumnString16(6));
+    EXPECT_EQ(ASCIIToUTF16("United States"), s1.ColumnString16(7));
+    EXPECT_EQ(1297882100L, s1.ColumnInt64(8));
+
+    // That should be all.
+    EXPECT_FALSE(s1.Step());
+
+    sql::Statement s2(
+        connection.GetUniqueStatement(
+            "SELECT guid, first_name, middle_name, last_name "
+            "FROM autofill_profile_names"));
+
+    // John Doe.
+    ASSERT_TRUE(s2.Step());
+    EXPECT_EQ("00580526-FF81-EE2A-0546-1AC593A32E2F", s2.ColumnString(0));
+    EXPECT_EQ(ASCIIToUTF16("John"), s2.ColumnString16(1));
+    EXPECT_EQ(ASCIIToUTF16(""), s2.ColumnString16(2));
+    EXPECT_EQ(ASCIIToUTF16("Doe"), s2.ColumnString16(3));
+
+    // John P. Doe.
+    ASSERT_TRUE(s2.Step());
+    EXPECT_EQ("589636FD-9037-3053-200C-80ABC97D7344", s2.ColumnString(0));
+    EXPECT_EQ(ASCIIToUTF16("John"), s2.ColumnString16(1));
+    EXPECT_EQ(ASCIIToUTF16("P."), s2.ColumnString16(2));
+    EXPECT_EQ(ASCIIToUTF16("Doe"), s2.ColumnString16(3));
+
+    // Dave Smith.
+    ASSERT_TRUE(s2.Step());
+    EXPECT_EQ("4C74A9D8-7EEE-423E-F9C2-E7FA70ED1396", s2.ColumnString(0));
+    EXPECT_EQ(ASCIIToUTF16("Dave"), s2.ColumnString16(1));
+    EXPECT_EQ(ASCIIToUTF16(""), s2.ColumnString16(2));
+    EXPECT_EQ(ASCIIToUTF16("Smith"), s2.ColumnString16(3));
+
+    // Dave Smith (Part 2).
+    ASSERT_TRUE(s2.Step());
+    EXPECT_EQ("722DF5C4-F74A-294A-46F0-31FFDED0D635", s2.ColumnString(0));
+    EXPECT_EQ(ASCIIToUTF16("Dave"), s2.ColumnString16(1));
+    EXPECT_EQ(ASCIIToUTF16(""), s2.ColumnString16(2));
+    EXPECT_EQ(ASCIIToUTF16("Smith"), s2.ColumnString16(3));
+
+    // Alfred E Newman.
+    ASSERT_TRUE(s2.Step());
+    EXPECT_EQ("584282AC-5D21-8D73-A2DB-4F892EF61F3F", s2.ColumnString(0));
+    EXPECT_EQ(ASCIIToUTF16("Alfred"), s2.ColumnString16(1));
+    EXPECT_EQ(ASCIIToUTF16("E"), s2.ColumnString16(2));
+    EXPECT_EQ(ASCIIToUTF16("Newman"), s2.ColumnString16(3));
+
+    // Note no name for 3 Main St.
+
+    // Should be all.
+    EXPECT_FALSE(s2.Step());
+
+    sql::Statement s3(
+        connection.GetUniqueStatement(
+            "SELECT guid, email "
+            "FROM autofill_profile_emails"));
+
+    // John Doe.
+    ASSERT_TRUE(s3.Step());
+    EXPECT_EQ("00580526-FF81-EE2A-0546-1AC593A32E2F", s3.ColumnString(0));
+    EXPECT_EQ(ASCIIToUTF16("john@doe.com"), s3.ColumnString16(1));
+
+    // John P. Doe.
+    ASSERT_TRUE(s3.Step());
+    EXPECT_EQ("589636FD-9037-3053-200C-80ABC97D7344", s3.ColumnString(0));
+    EXPECT_EQ(ASCIIToUTF16("john@doe.com"), s3.ColumnString16(1));
+
+    // Note no email for 2 Main Street.
+    // Note no email for 2 Main St.
+
+    // Alfred E Newman.
+    ASSERT_TRUE(s3.Step());
+    EXPECT_EQ("584282AC-5D21-8D73-A2DB-4F892EF61F3F", s3.ColumnString(0));
+    EXPECT_EQ(ASCIIToUTF16("a@e.com"), s3.ColumnString16(1));
+
+    // Note no email for 3 Main St.
+
+    // Should be all.
+    EXPECT_FALSE(s3.Step());
+
+    sql::Statement s4(
+        connection.GetUniqueStatement(
+            "SELECT guid, type, number "
+            "FROM autofill_profile_phones"));
+
+    // John Doe phone.
+    ASSERT_TRUE(s4.Step());
+    EXPECT_EQ("00580526-FF81-EE2A-0546-1AC593A32E2F", s4.ColumnString(0));
+    EXPECT_EQ(0, s4.ColumnInt(1));  // 0 means phone.
+    EXPECT_EQ(ASCIIToUTF16("4151112222"), s4.ColumnString16(2));
+
+    // John Doe fax.
+    ASSERT_TRUE(s4.Step());
+    EXPECT_EQ("00580526-FF81-EE2A-0546-1AC593A32E2F", s4.ColumnString(0));
+    EXPECT_EQ(1, s4.ColumnInt(1)); // 1 means phone.
+    EXPECT_EQ(ASCIIToUTF16("4153334444"), s4.ColumnString16(2));
+
+    // John P. Doe phone.
+    ASSERT_TRUE(s4.Step());
+    EXPECT_EQ("589636FD-9037-3053-200C-80ABC97D7344", s4.ColumnString(0));
+    EXPECT_EQ(0, s4.ColumnInt(1)); // 0 means phone.
+    EXPECT_EQ(ASCIIToUTF16("4151112222"), s4.ColumnString16(2));
+
+    // John P. Doe fax.
+    ASSERT_TRUE(s4.Step());
+    EXPECT_EQ("589636FD-9037-3053-200C-80ABC97D7344", s4.ColumnString(0));
+    EXPECT_EQ(1, s4.ColumnInt(1)); // 1 means fax.
+    EXPECT_EQ(ASCIIToUTF16("4153334444"), s4.ColumnString16(2));
+
+    // Note no phone or fax for 2 Main Street.
+    // Note no phone or fax for 2 Main St.
+    // Note no phone or fax for Alfred E Newman.
+    // Note no phone or fax for 3 Main St.
+
+    // Should be all.
+    EXPECT_FALSE(s4.Step());
+  }
+}
+
+// Adds a column for the autofill profile's country code.
+TEST_F(WebDatabaseMigrationTest, MigrateVersion33ToCurrent) {
+  // Initialize the database.
+  ASSERT_NO_FATAL_FAILURE(LoadDatabase(FILE_PATH_LITERAL("version_33.sql")));
+
+  // Verify pre-conditions. These are expectations for version 33 of the
+  // database.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+
+    EXPECT_FALSE(connection.DoesColumnExist("autofill_profiles",
+                                            "country_code"));
+
+    // Check that the country value is the one we expect.
+    sql::Statement s(
+        connection.GetUniqueStatement("SELECT country FROM autofill_profiles"));
+
+    ASSERT_TRUE(s.Step());
+    std::string country = s.ColumnString(0);
+    EXPECT_EQ("United States", country);
+  }
+
+  // Load the database via the WebDatabase class and migrate the database to
+  // the current version.
+  {
+    WebDatabase db;
+    ASSERT_EQ(sql::INIT_OK, db.Init(GetDatabasePath()));
+  }
+
+  // Verify post-conditions.  These are expectations for current version of the
+  // database.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+
+    // Check version.
+    EXPECT_EQ(kCurrentTestedVersionNumber, VersionFromConnection(&connection));
+
+    ASSERT_TRUE(connection.DoesColumnExist("autofill_profiles",
+                                           "country_code"));
+
+    // Check that the country code is properly converted.
+    sql::Statement s(connection.GetUniqueStatement(
+        "SELECT country_code FROM autofill_profiles"));
+
+    ASSERT_TRUE(s.Step());
+    std::string country_code = s.ColumnString(0);
+    EXPECT_EQ("US", country_code);
+  }
+}
+
+// Cleans up bad country code "UK" in favor of good country code "GB".
+TEST_F(WebDatabaseMigrationTest, MigrateVersion34ToCurrent) {
+  // Initialize the database.
+  ASSERT_NO_FATAL_FAILURE(LoadDatabase(FILE_PATH_LITERAL("version_34.sql")));
+
+  // Verify pre-conditions. These are expectations for version 34 of the
+  // database.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles",
+                                           "country_code"));
+
+    // Check that the country_code value is the one we expect.
+    sql::Statement s(
+        connection.GetUniqueStatement("SELECT country_code "
+                                      "FROM autofill_profiles"));
+
+    ASSERT_TRUE(s.Step());
+    std::string country_code = s.ColumnString(0);
+    EXPECT_EQ("UK", country_code);
+
+    // Should have only one.
+    ASSERT_FALSE(s.Step());
+  }
+
+  // Load the database via the WebDatabase class and migrate the database to
+  // the current version.
+  {
+    WebDatabase db;
+    ASSERT_EQ(sql::INIT_OK, db.Init(GetDatabasePath()));
+  }
+
+  // Verify post-conditions.  These are expectations for current version of the
+  // database.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+
+    // Check version.
+    EXPECT_EQ(kCurrentTestedVersionNumber, VersionFromConnection(&connection));
+
+    ASSERT_TRUE(connection.DoesColumnExist("autofill_profiles",
+                                           "country_code"));
+
+    // Check that the country_code code is properly converted.
+    sql::Statement s(connection.GetUniqueStatement(
+        "SELECT country_code FROM autofill_profiles"));
+
+    ASSERT_TRUE(s.Step());
+    std::string country_code = s.ColumnString(0);
+    EXPECT_EQ("GB", country_code);
+
+    // Should have only one.
+    ASSERT_FALSE(s.Step());
   }
 }

@@ -25,10 +25,10 @@
 #include "chrome/browser/sessions/tab_restore_service_observer.h"
 #include "chrome/browser/sync/profile_sync_service_observer.h"
 #include "chrome/browser/tabs/tab_handler.h"
-#include "chrome/browser/tabs/tab_strip_model_delegate.h"   // TODO(beng): remove
-#include "chrome/browser/tabs/tab_strip_model_observer.h"   // TODO(beng): remove
-#include "chrome/browser/tab_contents/page_navigator.h"
-#include "chrome/browser/tab_contents/tab_contents_delegate.h"
+#include "chrome/browser/tabs/tab_strip_model_delegate.h"  // TODO(beng): remove
+#include "chrome/browser/tabs/tab_strip_model_observer.h"  // TODO(beng): remove
+#include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/search_engines/search_engine_tab_helper_delegate.h"
 #include "chrome/browser/ui/shell_dialogs.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper_delegate.h"
 #include "chrome/browser/ui/toolbar/toolbar_model.h"
@@ -36,6 +36,8 @@
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/page_transition_types.h"
 #include "chrome/common/page_zoom.h"
+#include "content/browser/tab_contents/page_navigator.h"
+#include "content/browser/tab_contents/tab_contents_delegate.h"
 #include "ui/gfx/rect.h"
 
 class BrowserWindow;
@@ -58,6 +60,7 @@ class Point;
 class Browser : public TabHandlerDelegate,
                 public TabContentsDelegate,
                 public TabContentsWrapperDelegate,
+                public SearchEngineTabHelperDelegate,
                 public PageNavigator,
                 public CommandUpdater::CommandUpdaterDelegate,
                 public NotificationObserver,
@@ -221,14 +224,6 @@ class Browser : public TabHandlerDelegate,
   // If there is already an existing active incognito session for the specified
   // |profile|, that session is re-used.
   static void OpenURLOffTheRecord(Profile* profile, const GURL& url);
-
-  // Open an application specified by |app_id| in the appropriate launch
-  // container. |existing_tab| is reused if it is not NULL and the launch
-  // container is a tab. Returns NULL if the app_id is invalid or if
-  // ExtensionService isn't ready/available.
-  static TabContents* OpenApplication(Profile* profile,
-                                      const std::string& app_id,
-                                      TabContents* existing_tab);
 
   // Open |extension| in |container|, using |existing_tab| if not NULL and if
   // the correct container type.  Returns the TabContents* that was created or
@@ -431,9 +426,8 @@ class Browser : public TabHandlerDelegate,
 
   // Show a given a URL. If a tab with the same URL (ignoring the ref) is
   // already visible in this browser, it becomes selected. Otherwise a new tab
-  // is created. If |ignore_path| is true, the paths of the URLs are ignored
-  // when locating the singleton tab.
-  void ShowSingletonTab(const GURL& url, bool ignore_path);
+  // is created.
+  void ShowSingletonTab(const GURL& url);
 
   // Update commands whose state depends on whether the window is in fullscreen
   // mode. This is a public function because on Linux, fullscreen mode is an
@@ -496,7 +490,7 @@ class Browser : public TabHandlerDelegate,
   // in |SupportsWindowFeature| for details on this.
   bool CanSupportWindowFeature(WindowFeature feature) const;
 
-// TODO(port): port these, and re-merge the two function declaration lists.
+  // TODO(port): port these, and re-merge the two function declaration lists.
   // Page-related commands.
   void Print();
   void EmailPageLocation();
@@ -707,7 +701,7 @@ class Browser : public TabHandlerDelegate,
                             TabContentsWrapper* contents,
                             int index);
   virtual void TabDetachedAt(TabContentsWrapper* contents, int index);
-  virtual void TabDeselectedAt(TabContentsWrapper* contents, int index);
+  virtual void TabDeselected(TabContentsWrapper* contents);
   virtual void TabSelectedAt(TabContentsWrapper* old_contents,
                              TabContentsWrapper* new_contents,
                              int index,
@@ -730,6 +724,10 @@ class Browser : public TabHandlerDelegate,
   FRIEND_TEST_ALL_PREFIXES(BrowserTest, ConvertTabToAppShortcut);
   FRIEND_TEST_ALL_PREFIXES(BrowserTest, OpenAppWindowLikeNtp);
   FRIEND_TEST_ALL_PREFIXES(BrowserTest, AppIdSwitch);
+  FRIEND_TEST_ALL_PREFIXES(BrowserInitTest, OpenAppShortcutNoPref);
+  FRIEND_TEST_ALL_PREFIXES(BrowserInitTest, OpenAppShortcutWindowPref);
+  FRIEND_TEST_ALL_PREFIXES(BrowserInitTest, OpenAppShortcutTabPref);
+  FRIEND_TEST_ALL_PREFIXES(BrowserInitTest, OpenAppShortcutPanel);
 
   // Used to describe why a tab is being detached. This is used by
   // TabDetachedAtImpl.
@@ -786,12 +784,6 @@ class Browser : public TabHandlerDelegate,
   virtual void RenderWidgetShowing();
   virtual int GetExtraRenderViewHeight() const;
   virtual void OnStartDownload(DownloadItem* download, TabContents* tab);
-  virtual void ConfirmSetDefaultSearchProvider(
-      TabContents* tab_contents,
-      TemplateURL* template_url,
-      TemplateURLModel* template_url_model);
-  virtual void ConfirmAddSearchProvider(const TemplateURL* template_url,
-                                        Profile* profile);
   virtual void ShowPageInfo(Profile* profile,
                             const GURL& url,
                             const NavigationEntry::SSLStatus& ssl,
@@ -811,10 +803,18 @@ class Browser : public TabHandlerDelegate,
   virtual void OnInstallApplication(TabContents* tab_contents,
                                     const WebApplicationInfo& app_info);
   virtual void ContentRestrictionsChanged(TabContents* source);
+  virtual void WorkerCrashed();
 
   // Overridden from TabContentsWrapperDelegate:
   virtual void URLStarredChanged(TabContentsWrapper* source,
                                  bool starred) OVERRIDE;
+  // Overridden from SearchEngineTabHelperDelegate:
+  virtual void ConfirmSetDefaultSearchProvider(
+      TabContents* tab_contents,
+      TemplateURL* template_url,
+      TemplateURLModel* template_url_model) OVERRIDE;
+  virtual void ConfirmAddSearchProvider(const TemplateURL* template_url,
+                                        Profile* profile) OVERRIDE;
 
   // Overridden from SelectFileDialog::Listener:
   virtual void FileSelected(const FilePath& path, int index, void* params);
@@ -823,6 +823,8 @@ class Browser : public TabHandlerDelegate,
   virtual void Observe(NotificationType type,
                        const NotificationSource& source,
                        const NotificationDetails& details);
+
+  void RemoveCrashedExtensionInfoBar(const std::string& id);
 
   // Overridden from ProfileSyncServiceObserver:
   virtual void OnStateChanged();
@@ -938,6 +940,10 @@ class Browser : public TabHandlerDelegate,
 
   // Assorted utility functions ///////////////////////////////////////////////
 
+  // Sets the delegate of all the parts of the |TabContentsWrapper| that
+  // are needed.
+  void SetAsDelegate(TabContentsWrapper* tab, Browser* delegate);
+
   // Shows the Find Bar, optionally selecting the next entry that matches the
   // existing search string for that Tab. |forward_direction| controls the
   // search direction.
@@ -999,6 +1005,9 @@ class Browser : public TabHandlerDelegate,
 
   // Opens view-source tab for given tab contents.
   void ViewSource(TabContentsWrapper* tab);
+
+  // Creates a NavigateParams struct for a singleton tab navigation.
+  browser::NavigateParams GetSingletonTabNavigateParams(const GURL& url);
 
   // Data members /////////////////////////////////////////////////////////////
 

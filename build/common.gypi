@@ -23,10 +23,14 @@
 
           # Disable touch support by default.
           'touchui%': 0,
+
+          # Disable file manager component extension by default.
+          'file_manager_extension%': 0,
         },
         # Copy conditionally-set variables out one scope.
         'chromeos%': '<(chromeos)',
         'touchui%': '<(touchui)',
+        'file_manager_extension%': '<(file_manager_extension)',
 
         # To do a shared build on linux we need to be able to choose between
         # type static_library and shared_library. We default to doing a static
@@ -61,6 +65,7 @@
       # Copy conditionally-set variables out one scope.
       'chromeos%': '<(chromeos)',
       'touchui%': '<(touchui)',
+      'file_manager_extension%': '<(file_manager_extension)',
       'host_arch%': '<(host_arch)',
       'library%': '<(library)',
       'toolkit_views%': '<(toolkit_views)',
@@ -107,7 +112,7 @@
       'disable_sse2%': 0,
 
       # Use libjpeg-turbo as the JPEG codec used by Chromium.
-      'use_libjpeg_turbo%': 0,
+      'use_libjpeg_turbo%': 1,
 
       # Variable 'component' is for cases where we would like to build some
       # components as dynamic shared libraries but still need variable
@@ -176,6 +181,7 @@
     'enable_flapper_hacks%': '<(enable_flapper_hacks)',
     'chromeos%': '<(chromeos)',
     'touchui%': '<(touchui)',
+    'file_manager_extension%': '<(file_manager_extension)',
     'inside_chromium_build%': '<(inside_chromium_build)',
     'fastbuild%': '<(fastbuild)',
     'python_ver%': '<(python_ver)',
@@ -485,6 +491,9 @@
       ['touchui==1', {
         'grit_defines': ['-D', 'touchui'],
       }],
+      ['file_manager_extension==1', {
+        'grit_defines': ['-D', 'file_manager_extension'],
+      }],
       ['remoting==1', {
         'grit_defines': ['-D', 'remoting'],
       }],
@@ -563,6 +572,9 @@
       }],
       ['touchui==1', {
         'defines': ['TOUCH_UI=1'],
+      }],
+      ['file_manager_extension==1', {
+        'defines': ['FILE_MANAGER_EXTENSION=1'],
       }],
       ['profiling==1', {
         'defines': ['ENABLE_PROFILING=1'],
@@ -1213,8 +1225,6 @@
                   # http://code.google.com/p/googletest/source/detail?r=446 .
                   # TODO(thakis): Use -isystem instead (http://crbug.com/58751 )
                   '-Wno-unnamed-type-template-args',
-                  # TODO(thakis): Turn on -- http://crbug.com/72205
-                  '-Wno-overloaded-virtual',
                 ],
                 'cflags!': [
                   # Clang doesn't seem to know know this flag.
@@ -1349,8 +1359,10 @@
                 # http://code.google.com/p/googletest/source/detail?r=446 .
                 # TODO(thakis): Use -isystem instead (http://crbug.com/58751 ).
                 '-Wno-unnamed-type-template-args',
-                # TODO(thakis): Turn on -- http://crbug.com/72205
-                '-Wno-overloaded-virtual',
+              ],
+              'OTHER_CFLAGS': [
+                # TODO(thakis): Causes many warnings - http://crbug.com/75001
+                '-fobjc-exceptions',
               ],
             }],
             ['clang==1 and clang_use_chrome_plugins==1', {

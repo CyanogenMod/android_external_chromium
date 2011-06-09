@@ -13,9 +13,6 @@
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/pinned_tab_codec.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/app_modal_dialogs/app_modal_dialog.h"
@@ -34,6 +31,9 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "net/base/mock_host_resolver.h"
@@ -636,16 +636,22 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, RestorePinnedTabs) {
   ASSERT_TRUE(new_browser);
   ASSERT_TRUE(new_browser != browser());
 
-  // We should get back an additional tab for the app.
-  ASSERT_EQ(2, new_browser->tab_count());
+  // We should get back an additional tab for the app, and another for the
+  // default home page.
+  ASSERT_EQ(3, new_browser->tab_count());
 
   // Make sure the state matches.
   TabStripModel* new_model = new_browser->tabstrip_model();
   EXPECT_TRUE(new_model->IsAppTab(0));
   EXPECT_FALSE(new_model->IsAppTab(1));
+  EXPECT_FALSE(new_model->IsAppTab(2));
 
   EXPECT_TRUE(new_model->IsTabPinned(0));
   EXPECT_TRUE(new_model->IsTabPinned(1));
+  EXPECT_FALSE(new_model->IsTabPinned(2));
+
+  EXPECT_EQ(browser()->GetHomePage(),
+      new_model->GetTabContentsAt(2)->tab_contents()->GetURL());
 
   EXPECT_TRUE(
       new_model->GetTabContentsAt(0)->tab_contents()->extension_app() ==

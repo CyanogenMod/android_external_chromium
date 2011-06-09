@@ -67,7 +67,6 @@ const char kAboutShorthangURL[] = "about:shorthang";
 const char kAboutSyncURL[] = "about:sync";
 const char kAboutSyncInternalsURL[] = "about:sync-internals";
 const char kAboutTermsURL[] = "about:terms";
-const char kAboutVaporwareURL[] = "about:vaporware";
 const char kAboutVersionURL[] = "about:version";
 
 // Use an obfuscated URL to make this nondiscoverable, we only want this
@@ -82,8 +81,10 @@ const char kChromeUIBookmarksURL[] = "chrome://bookmarks/";
 const char kChromeUIBugReportURL[] = "chrome://bugreport/";
 const char kChromeUIConflictsURL[] = "chrome://conflicts/";
 const char kChromeUIConstrainedHTMLTestURL[] = "chrome://constrained-test/";
+const char kChromeUICrashesURL[] = "chrome://crashes/";
 const char kChromeUIDevToolsURL[] = "chrome-devtools://devtools/";
 const char kChromeUIDownloadsURL[] = "chrome://downloads/";
+const char kChromeUIExtensionIconURL[] = "chrome://extension-icon/";
 const char kChromeUIExtensionsURL[] = "chrome://extensions/";
 const char kChromeUIFavIconURL[] = "chrome://favicon/";
 const char kChromeUIFlagsURL[] = "chrome://flags/";
@@ -108,15 +109,18 @@ const char kChromeUIMobileSetupURL[] = "chrome://mobilesetup/";
 const char kChromeUIRegisterPageURL[] = "chrome://register/";
 const char kChromeUISlideshowURL[] = "chrome://slideshow/";
 const char kChromeUISystemInfoURL[] = "chrome://system/";
+const char kChromeUIUserImageURL[] = "chrome://userimage/";
 #endif
 
 // Keep this list sorted please.
 const char kChromeUIBookmarksHost[] = "bookmarks";
 const char kChromeUIBugReportHost[] = "bugreport";
 const char kChromeUIConflictsHost[] = "conflicts";
+const char kChromeUICrashesHost[] = "crashes";
 const char kChromeUIDevToolsHost[] = "devtools";
 const char kChromeUIDialogHost[] = "dialog";
 const char kChromeUIDownloadsHost[] = "downloads";
+const char kChromeUIExtensionIconHost[] = "extension-icon";
 const char kChromeUIExtensionsHost[] = "extensions";
 const char kChromeUIFavIconHost[] = "favicon";
 const char kChromeUIFlagsHost[] = "flags";
@@ -125,7 +129,6 @@ const char kChromeUIHistoryHost[] = "history";
 const char kChromeUIHistory2Host[] = "history2";
 const char kChromeUIInspectorHost[] = "inspector";
 const char kChromeUIKeyboardHost[] = "keyboard";
-const char kChromeUILoginHost[] = "login";
 const char kChromeUINetInternalsHost[] = "net-internals";
 const char kChromeUINewTabHost[] = "newtab";
 const char kChromeUIPluginsHost[] = "plugins";
@@ -154,6 +157,12 @@ const char kChromeUISystemInfoHost[] = "system";
 const char kChromeUIMenu[] = "menu";
 const char kChromeUIWrenchMenu[] = "wrench-menu";
 const char kChromeUINetworkMenu[] = "network-menu";
+const char kChromeUIUserImageHost[] = "userimage";
+#endif
+
+#if defined(OS_CHROMEOS) && defined(TOUCH_UI)
+const char kChromeUILoginContainerHost[] = "login-container";
+const char kChromeUILoginHost[] = "login";
 #endif
 
 const char kUnreachableWebDataURL[] = "chrome://chromewebdata/";
@@ -176,19 +185,18 @@ const char kGpuInternalsURL[] = "chrome://gpu-internals/";
 
 // Option sub pages.
 const char kAdvancedOptionsSubPage[] =  "advanced";
-const char kAutoFillSubPage[] = "autoFillOptions";
+const char kAutoFillSubPage[] = "autofill";
 const char kBrowserOptionsSubPage[] =  "browser";
-const char kClearBrowserDataSubPage[] = "clearBrowserDataOverlay";
+const char kClearBrowserDataSubPage[] = "clearBrowserData";
 const char kContentSettingsSubPage[] = "content";
 const char kContentSettingsExceptionsSubPage[] = "contentExceptions";
 const char kDefaultOptionsSubPage[] =  "";
-const char kImportDataSubPage[] = "importDataOverlay";
+const char kImportDataSubPage[] = "importData";
 const char kPersonalOptionsSubPage[] =  "personal";
-const char kSearchEnginesOptionsSubPage[] = "editSearchEngineOverlay";
 const char kSearchEnginesSubPage[] = "searchEngines";
 #if defined(OS_CHROMEOS)
 const char kInternetOptionsSubPage[] = "internet";
-const char kLanguageOptionsSubPage[] = "language";
+const char kLanguageOptionsSubPage[] = "languages";
 const char kSystemOptionsSubPage[] = "system";
 #endif
 

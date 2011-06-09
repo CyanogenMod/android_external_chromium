@@ -15,10 +15,8 @@
 #include "chrome/browser/bookmarks/bookmark_editor.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_ui_util_mac.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view_mac.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
@@ -57,6 +55,8 @@
 #include "chrome/browser/ui/toolbar/encoding_menu_controller.h"
 #include "chrome/browser/ui/window_sizer.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/renderer_host/render_widget_host_view.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -422,6 +422,10 @@
 
 - (TabStripController*)tabStripController {
   return tabStripController_.get();
+}
+
+- (InfoBarContainerController*)infoBarContainerController {
+  return infoBarContainerController_.get();
 }
 
 - (StatusBubbleMac*)statusBubble {
@@ -1339,7 +1343,7 @@
   NSView *contentView = [[self window] contentView];
   [contentView addSubview:[findBarCocoaController_ view]
                positioned:NSWindowAbove
-               relativeTo:[toolbarController_ view]];
+               relativeTo:[infoBarContainerController_ view]];
 
   // Place the find bar immediately below the toolbar/attached bookmark bar. In
   // fullscreen mode, it hangs off the top of the screen when the bar is hidden.
@@ -2039,6 +2043,11 @@ willAnimateFromState:(bookmarks::VisualState)oldState
   return [focused isKindOfClass:[AutocompleteTextFieldEditor class]];
 }
 
+- (void)tabposeWillClose:(NSNotification*)notif {
+  // Re-show the container after Tabpose closes.
+  [[infoBarContainerController_ view] setHidden:NO];
+}
+
 - (void)openTabpose {
   NSUInteger modifierFlags = [[NSApp currentEvent] modifierFlags];
   BOOL slomo = (modifierFlags & NSShiftKeyMask) != 0;
@@ -2046,17 +2055,33 @@ willAnimateFromState:(bookmarks::VisualState)oldState
   // Cover info bars, inspector window, and detached bookmark bar on NTP.
   // Do not cover download shelf.
   NSRect activeArea = [[self tabContentArea] frame];
+  // Take out the anti-spoof height so that Tabpose doesn't draw on top of the
+  // browser chrome.
   activeArea.size.height +=
-      NSHeight([[infoBarContainerController_ view] frame]);
+      NSHeight([[infoBarContainerController_ view] frame]) -
+          [infoBarContainerController_ antiSpoofHeight];
   if ([self isBookmarkBarVisible] && [self placeBookmarkBarBelowInfoBar]) {
     NSView* bookmarkBarView = [bookmarkBarController_ view];
     activeArea.size.height += NSHeight([bookmarkBarView frame]);
   }
 
-  [TabposeWindow openTabposeFor:[self window]
-                           rect:activeArea
-                          slomo:slomo
-                  tabStripModel:browser_->tabstrip_model()];
+  // Hide the infobar container so that the anti-spoof bulge doesn't show when
+  // Tabpose is open.
+  [[infoBarContainerController_ view] setHidden:YES];
+
+  TabposeWindow* window =
+      [TabposeWindow openTabposeFor:[self window]
+                               rect:activeArea
+                              slomo:slomo
+                      tabStripModel:browser_->tabstrip_model()];
+
+  // When the Tabpose window closes, the infobar container needs to be made
+  // visible again.
+  NSNotificationCenter* center = [NSNotificationCenter defaultCenter];
+  [center addObserver:self
+             selector:@selector(tabposeWillClose:)
+                 name:NSWindowWillCloseNotification
+               object:window];
 }
 
 @end  // @implementation BrowserWindowController(Fullscreen)

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 
 #include <vector>
 
-#include "base/string16.h"
 #include "base/gtest_prod_util.h"
+#include "base/string16.h"
 #include "chrome/browser/autofill/form_group.h"
 
 // A form group that stores phone number information.
@@ -23,11 +23,11 @@ class PhoneNumber : public FormGroup {
   virtual void GetPossibleFieldTypes(const string16& text,
                                      FieldTypeSet* possible_types) const;
   virtual void GetAvailableFieldTypes(FieldTypeSet* available_types) const;
-  virtual void FindInfoMatches(const AutoFillType& type,
+  virtual void FindInfoMatches(const AutofillType& type,
                                const string16& info,
                                std::vector<string16>* matched_text) const;
-  virtual string16 GetFieldText(const AutoFillType& type) const;
-  virtual void SetInfo(const AutoFillType& type, const string16& value);
+  virtual string16 GetFieldText(const AutofillType& type) const;
+  virtual void SetInfo(const AutofillType& type, const string16& value);
 
   // Parses |value| to extract the components of a phone number.  |number|
   // returns the trailing 7 digits, |city_code| returns the next 3 digits, and
@@ -47,11 +47,11 @@ class PhoneNumber : public FormGroup {
 
   // The following functions should return the field type for each part of the
   // phone number.  Currently, these are either fax or home phone number types.
-  virtual AutoFillFieldType GetNumberType() const = 0;
-  virtual AutoFillFieldType GetCityCodeType() const = 0;
-  virtual AutoFillFieldType GetCountryCodeType() const = 0;
-  virtual AutoFillFieldType GetCityAndNumberType() const = 0;
-  virtual AutoFillFieldType GetWholeNumberType() const = 0;
+  virtual AutofillFieldType GetNumberType() const = 0;
+  virtual AutofillFieldType GetCityCodeType() const = 0;
+  virtual AutofillFieldType GetCountryCodeType() const = 0;
+  virtual AutofillFieldType GetCityAndNumberType() const = 0;
+  virtual AutofillFieldType GetWholeNumberType() const = 0;
 
  protected:
   explicit PhoneNumber(const PhoneNumber& phone_number);

@@ -4,14 +4,12 @@
 
 #include "chrome/browser/ui/views/tab_contents/native_tab_contents_container_gtk.h"
 
-#include "chrome/browser/renderer_host/render_widget_host_view.h"
-#include "chrome/browser/tab_contents/interstitial_page.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/tab_contents/tab_contents_container.h"
+#include "content/browser/renderer_host/render_widget_host_view.h"
+#include "content/browser/tab_contents/interstitial_page.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "views/focus/focus_manager.h"
-#include "views/widget/root_view.h"
-#include "views/widget/widget.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 // NativeTabContentsContainerGtk, public:
@@ -50,7 +48,7 @@ void NativeTabContentsContainerGtk::RenderViewHostChanged(
   // If we are focused, we need to pass the focus to the new RenderViewHost.
   views::FocusManager* focus_manager = GetFocusManager();
   if (focus_manager->GetFocusedView() == this)
-    Focus();
+    OnFocus();
 }
 
 views::View* NativeTabContentsContainerGtk::GetView() {
@@ -98,18 +96,9 @@ bool NativeTabContentsContainerGtk::IsFocusable() const {
   return container_->tab_contents() != NULL;
 }
 
-void NativeTabContentsContainerGtk::Focus() {
-  if (container_->tab_contents()) {
-    // Set the native focus on the actual content of the tab, that is the
-    // interstitial if one is showing.
-    if (container_->tab_contents()->interstitial_page()) {
-      container_->tab_contents()->interstitial_page()->Focus();
-      return;
-    }
-    GtkWidget* widget = container_->tab_contents()->GetContentNativeView();
-    if (widget)
-      gtk_widget_grab_focus(widget);
-  }
+void NativeTabContentsContainerGtk::OnFocus() {
+  if (container_->tab_contents())
+    container_->tab_contents()->Focus();
 }
 
 void NativeTabContentsContainerGtk::RequestFocus() {
@@ -118,10 +107,13 @@ void NativeTabContentsContainerGtk::RequestFocus() {
   // with tabs such as the TabContents that instruct the RenderView that it got
   // focus when they actually get the focus. When switching from one TabContents
   // tab that has focus to another TabContents tab that had focus, since the
-  // TabContentsContainerView already has focus, Focus() would not be called and
-  // the RenderView would not get notified it got focused.
-  // By clearing the focused view before-hand, we ensure Focus() will be called.
-  GetRootView()->FocusView(NULL);
+  // TabContentsContainerView already has focus, OnFocus() would not be called
+  // and the RenderView would not get notified it got focused.
+  // By clearing the focused view before-hand, we ensure OnFocus() will be
+  // called.
+  views::FocusManager* focus_manager = GetFocusManager();
+  if (focus_manager)
+    focus_manager->SetFocusedView(NULL);
   View::RequestFocus();
 }
 

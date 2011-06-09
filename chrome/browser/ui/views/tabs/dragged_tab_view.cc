@@ -84,12 +84,10 @@ void DraggedTabView::MoveTo(const gfx::Point& screen_point) {
 
 #if defined(OS_WIN)
   int show_flags = container_->IsVisible() ? SWP_NOZORDER : SWP_SHOWWINDOW;
-
   container_->SetWindowPos(HWND_TOP, x, y, 0, 0,
                            SWP_NOSIZE | SWP_NOACTIVATE | show_flags);
 #else
-  gfx::Rect bounds;
-  container_->GetBounds(&bounds, true);
+  gfx::Rect bounds = container_->GetWindowScreenBounds();
   container_->SetBounds(gfx::Rect(x, y, bounds.width(), bounds.height()));
   if (!container_->IsVisible())
     container_->Show();
@@ -108,20 +106,13 @@ void DraggedTabView::SetTabWidthAndUpdate(int width,
 }
 
 void DraggedTabView::Update() {
-#if defined(OS_WIN)
-  container_->set_can_update_layered_window(true);
   SchedulePaint();
-  container_->PaintNow(gfx::Rect());
-  container_->set_can_update_layered_window(false);
-#else
-  SchedulePaint();
-#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // DraggedTabView, views::View overrides:
 
-void DraggedTabView::Paint(gfx::Canvas* canvas) {
+void DraggedTabView::OnPaint(gfx::Canvas* canvas) {
   if (show_contents_on_drag_)
     PaintDetachedView(canvas);
   else
@@ -167,7 +158,7 @@ void DraggedTabView::PaintDetachedView(gfx::Canvas* canvas) {
   photobooth_->PaintScreenshotIntoCanvas(
       &scale_canvas,
       gfx::Rect(image_x, image_y, image_w, image_h));
-  renderer_->ProcessPaint(&scale_canvas);
+  renderer_->Paint(&scale_canvas);
 
   SkIRect subset;
   subset.set(0, 0, ps.width(), ps.height());
@@ -210,8 +201,7 @@ void DraggedTabView::ResizeContainer() {
   SetWindowPos(container_->GetNativeView(), HWND_TOPMOST, 0, 0, w, h,
                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 #else
-  gfx::Rect bounds;
-  container_->GetBounds(&bounds, true);
+  gfx::Rect bounds = container_->GetWindowScreenBounds();
   container_->SetBounds(gfx::Rect(bounds.x(), bounds.y(), w, h));
 #endif
 }

@@ -198,6 +198,26 @@ void PseudoTcpChannel::OnSessionTerminate(Session* session) {
     if (stream_ != NULL)
       stream_thread_->Post(this, MSG_ST_EVENT, new EventData(SE_CLOSE, -1));
   }
+
+  // Even though session_ is being destroyed, we mustn't clear the pointer,
+  // since we'll need it to tear down channel_.
+  //
+  // TODO(wez): Is it always the case that if channel_ != NULL then we'll get
+  // a channel-destroyed notification?
+}
+
+void PseudoTcpChannel::GetOption(PseudoTcp::Option opt, int* value) {
+  ASSERT(signal_thread_->IsCurrent());
+  CritScope lock(&cs_);
+  ASSERT(tcp_ != NULL);
+  tcp_->GetOption(opt, value);
+}
+
+void PseudoTcpChannel::SetOption(PseudoTcp::Option opt, int value) {
+  ASSERT(signal_thread_->IsCurrent());
+  CritScope lock(&cs_);
+  ASSERT(tcp_ != NULL);
+  tcp_->SetOption(opt, value);
 }
 
 //

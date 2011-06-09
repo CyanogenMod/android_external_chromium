@@ -12,10 +12,11 @@
 #include "base/ref_counted.h"
 #include "base/synchronization/waitable_event_watcher.h"
 #include "base/time.h"
-#include "chrome/browser/appcache/chrome_appcache_service.h"
-#include "chrome/browser/cancelable_request.h"
 #include "chrome/common/notification_registrar.h"
+#include "content/browser/appcache/chrome_appcache_service.h"
+#include "content/browser/cancelable_request.h"
 
+class ExtensionSpecialStoragePolicy;
 class IOThread;
 class PluginDataRemover;
 class Profile;
@@ -121,9 +122,9 @@ class BrowsingDataRemover : public NotificationObserver,
   // NotifyAndDeleteIfDone.
   void ClearedNetworkHistory();
 
-  // Invoked on the IO thread to clear the HostCache, which exposes some
-  // network history.
-  void ClearHostCacheOnIOThread(IOThread* io_thread);
+  // Invoked on the IO thread to clear the HostCache, speculative data about
+  // subresources on visited sites, and initial navigation history.
+  void ClearNetworkingHistory(IOThread* io_thread);
 
   // Callback when the cache has been deleted. Invokes NotifyAndDeleteIfDone.
   void ClearedCache();
@@ -138,19 +139,15 @@ class BrowsingDataRemover : public NotificationObserver,
   // NotifyAndDeleteIfDone.
   void OnClearedDatabases(int rv);
 
-  // Invoked on the FILE thread to delete HTML5 databases. Ignores any within
-  // the |webkit_db_whitelist|.
-  void ClearDatabasesOnFILEThread(base::Time delete_begin,
-      const std::vector<string16>& webkit_db_whitelist);
+  // Invoked on the FILE thread to delete HTML5 databases.
+  void ClearDatabasesOnFILEThread();
 
   // Callback when the appcache has been cleared. Invokes
   // NotifyAndDeleteIfDone.
   void OnClearedAppCache();
 
-  // Invoked on the IO thread to delete from the AppCache, ignoring data from
-  // any origins within the |origin_whitelist|.
-  void ClearAppCacheOnIOThread(base::Time delete_begin,
-                               const std::vector<GURL>& origin_whitelist);
+  // Invoked on the IO thread to delete from the AppCache.
+  void ClearAppCacheOnIOThread();
 
   // Lower level helpers.
   void OnGotAppCacheInfo(int rv);
@@ -163,7 +160,8 @@ class BrowsingDataRemover : public NotificationObserver,
   // Returns true if we're all done.
   bool all_done() {
     return registrar_.IsEmpty() && !waiting_for_clear_cache_ &&
-           !waiting_for_clear_history_ && !waiting_for_clear_host_cache_ &&
+           !waiting_for_clear_history_ &&
+           !waiting_for_clear_networking_history_ &&
            !waiting_for_clear_databases_ && !waiting_for_clear_appcache_ &&
            !waiting_for_clear_lso_data_;
   }
@@ -172,6 +170,9 @@ class BrowsingDataRemover : public NotificationObserver,
 
   // Profile we're to remove from.
   Profile* profile_;
+
+  // 'Protected' origins are not subject to data removal.
+  scoped_refptr<ExtensionSpecialStoragePolicy> special_storage_policy_;
 
   // Start time to delete from.
   const base::Time delete_begin_;
@@ -192,7 +193,6 @@ class BrowsingDataRemover : public NotificationObserver,
   net::CompletionCallbackImpl<BrowsingDataRemover> appcache_got_info_callback_;
   net::CompletionCallbackImpl<BrowsingDataRemover> appcache_deleted_callback_;
   scoped_refptr<appcache::AppCacheInfoCollection> appcache_info_;
-  std::vector<GURL> appcache_whitelist_;
   int appcaches_to_be_deleted_count_;
 
   // Used to delete data from the HTTP caches.
@@ -210,7 +210,7 @@ class BrowsingDataRemover : public NotificationObserver,
   // True if we're waiting for various data to be deleted.
   bool waiting_for_clear_databases_;
   bool waiting_for_clear_history_;
-  bool waiting_for_clear_host_cache_;
+  bool waiting_for_clear_networking_history_;
   bool waiting_for_clear_cache_;
   bool waiting_for_clear_appcache_;
   bool waiting_for_clear_lso_data_;

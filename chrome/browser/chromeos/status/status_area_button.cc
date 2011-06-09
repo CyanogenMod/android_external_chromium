@@ -30,7 +30,7 @@ StatusAreaButton::StatusAreaButton(views::ViewMenuDelegate* menu_delegate)
   SetTextHaloColor(kStatusTextHaloColor);
 }
 
-void StatusAreaButton::Paint(gfx::Canvas* canvas, bool for_drag) {
+void StatusAreaButton::PaintButton(gfx::Canvas* canvas, PaintButtonMode mode) {
   if (state() == BS_PUSHED) {
     // Apply 10% white when pushed down.
     canvas->FillRectInt(SkColorSetARGB(0x19, 0xFF, 0xFF, 0xFF),
@@ -38,10 +38,10 @@ void StatusAreaButton::Paint(gfx::Canvas* canvas, bool for_drag) {
   }
 
   if (use_menu_button_paint_) {
-    views::MenuButton::Paint(canvas, for_drag);
+    views::MenuButton::PaintButton(canvas, mode);
   } else {
-    DrawIcon(canvas);
-    PaintFocusBorder(canvas);
+    canvas->DrawBitmapInt(icon(), horizontal_padding(), 0);
+    OnPaintFocusBorder(canvas);
   }
 }
 
@@ -79,12 +79,11 @@ void StatusAreaButton::SetText(const std::wstring& text) {
   // TextButtons normally remember the max text size, so the button's preferred
   // size will always be as large as the largest text ever put in it.
   // We clear that max text size, so we can adjust the size to fit the text.
-  ClearMaxTextSize();
+  // The order is important.  ClearMaxTextSize sets the size to that of the
+  // current text, so it must be called after SetText.
   views::MenuButton::SetText(text);
-}
-
-void StatusAreaButton::DrawIcon(gfx::Canvas* canvas) {
-  canvas->DrawBitmapInt(icon(), horizontal_padding(), 0);
+  ClearMaxTextSize();
+  PreferredSizeChanged();
 }
 
 bool StatusAreaButton::Activate() {

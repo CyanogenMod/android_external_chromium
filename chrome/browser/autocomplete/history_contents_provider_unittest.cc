@@ -10,9 +10,11 @@
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autocomplete/history_contents_provider.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/history/history.h"
+#include "chrome/test/testing_browser_process.h"
+#include "chrome/test/testing_browser_process_test.h"
 #include "chrome/test/testing_profile.h"
+#include "content/browser/browser_thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::Time;
@@ -30,7 +32,7 @@ struct TestEntry {
   {"http://www.google.com/3", "PAGETHREE 3", "BAR some hello world for you"},
 };
 
-class HistoryContentsProviderTest : public testing::Test,
+class HistoryContentsProviderTest : public TestingBrowserProcessTest,
                                     public ACProviderListener {
  public:
   HistoryContentsProviderTest()

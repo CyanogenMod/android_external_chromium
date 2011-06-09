@@ -19,12 +19,6 @@
 #include "chrome/browser/extensions/extension_tabs_module_constants.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/backing_store.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_view_host_delegate.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
-#include "chrome/browser/tab_contents/tab_contents_view.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_navigator.h"
@@ -35,6 +29,12 @@
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/renderer_host/backing_store.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_view_host_delegate.h"
+#include "content/browser/tab_contents/navigation_entry.h"
+#include "content/browser/tab_contents/tab_contents_view.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "skia/ext/image_operations.h"
 #include "skia/ext/platform_canvas.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -358,6 +358,15 @@ bool CreateWindowFunction::RunImpl() {
     }
   }
 
+  // Don't let the extension crash the browser or renderers.
+  GURL browser_crash(chrome::kAboutBrowserCrash);
+  GURL renderer_crash(chrome::kAboutCrashURL);
+  if (std::find(urls.begin(), urls.end(), browser_crash) != urls.end() ||
+      std::find(urls.begin(), urls.end(), renderer_crash) != urls.end()) {
+    error_ = keys::kNoCrashBrowserError;
+    return false;
+  }
+
   // Look for optional tab id.
   if (args) {
     int tab_id;
@@ -469,7 +478,7 @@ bool CreateWindowFunction::RunImpl() {
     TabStripModel* target_tab_strip = new_window->tabstrip_model();
     target_tab_strip->InsertTabContentsAt(urls.size(), contents,
                                           TabStripModel::ADD_NONE);
-  } else if (urls.size() == 0) {
+  } else if (urls.empty()) {
     new_window->NewTab();
   }
   new_window->SelectNumberedTab(0);
@@ -666,6 +675,13 @@ bool CreateTabFunction::RunImpl() {
     }
   }
 
+  // Don't let extensions crash the browser or renderers.
+  if (url == GURL(chrome::kAboutBrowserCrash) ||
+      url == GURL(chrome::kAboutCrashURL)) {
+    error_ = keys::kNoCrashBrowserError;
+    return false;
+  }
+
   // Default to foreground for the new tab. The presence of 'selected' property
   // will override this default.
   bool selected = true;
@@ -785,6 +801,13 @@ bool UpdateTabFunction::RunImpl() {
     if (!url.is_valid()) {
       error_ = ExtensionErrorUtils::FormatErrorMessage(keys::kInvalidUrlError,
                                                        url_string);
+      return false;
+    }
+
+    // Don't let the extension crash the browser or renderers.
+    if (url == GURL(chrome::kAboutBrowserCrash) ||
+        url == GURL(chrome::kAboutCrashURL)) {
+      error_ = keys::kNoCrashBrowserError;
       return false;
     }
 
@@ -1014,6 +1037,13 @@ bool CaptureVisibleTabFunction::RunImpl() {
     error_ = keys::kInternalVisibleTabCaptureError;
     return false;
   }
+
+  // captureVisibleTab() can return an image containing sensitive information
+  // that the browser would otherwise protect.  Ensure the extension has
+  // permission to do this.
+  if (!GetExtension()->CanCaptureVisiblePage(tab_contents->GetURL(), &error_))
+    return false;
+
   RenderViewHost* render_view_host = tab_contents->render_view_host();
 
   // If a backing store is cached for the tab we want to capture,

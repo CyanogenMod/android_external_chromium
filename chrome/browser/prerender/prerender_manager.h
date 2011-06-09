@@ -12,11 +12,14 @@
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/time.h"
+#include "base/timer.h"
 #include "chrome/browser/prerender/prerender_contents.h"
 #include "googleurl/src/gurl.h"
 
 class Profile;
 class TabContents;
+
+namespace prerender {
 
 // PrerenderManager is responsible for initiating and keeping prerendered
 // views of webpages.
@@ -36,8 +39,10 @@ class PrerenderManager : public base::RefCounted<PrerenderManager> {
   explicit PrerenderManager(Profile* profile);
 
   // Preloads the URL supplied.  alias_urls indicates URLs that redirect
-  // to the same URL to be preloaded.
-  void AddPreload(const GURL& url, const std::vector<GURL>& alias_urls);
+  // to the same URL to be preloaded. Returns true if the URL was added,
+  // false if it was not.
+  bool AddPreload(const GURL& url, const std::vector<GURL>& alias_urls,
+                  const GURL& referrer);
 
   // For a given TabContents that wants to navigate to the URL supplied,
   // determines whether a preloaded version of the URL can be used,
@@ -56,7 +61,7 @@ class PrerenderManager : public base::RefCounted<PrerenderManager> {
   PrerenderContents* GetEntry(const GURL& url);
 
   // The following two methods should only be called from the UI thread.
-  void RecordPerceivedPageLoadTime(base::TimeDelta pplt);
+  static void RecordPerceivedPageLoadTime(base::TimeDelta pplt);
   void RecordTimeUntilUsed(base::TimeDelta time_until_used);
 
   base::TimeDelta max_prerender_age() const { return max_prerender_age_; }
@@ -85,19 +90,29 @@ class PrerenderManager : public base::RefCounted<PrerenderManager> {
   friend class base::RefCounted<PrerenderManager>;
   struct PrerenderContentsData;
 
+  // Starts and stops scheduling periodic cleanups, respectively.
+  void StartSchedulingPeriodicCleanups();
+  void StopSchedulingPeriodicCleanups();
+
+  // Deletes stale prerendered PrerenderContents.
+  // Also identifies and kills PrerenderContents that use too much
+  // resources.
+  void PeriodicCleanup();
+
   bool IsPrerenderElementFresh(const base::Time start) const;
   void DeleteOldEntries();
   virtual base::Time GetCurrentTime() const;
   virtual PrerenderContents* CreatePrerenderContents(
       const GURL& url,
-      const std::vector<GURL>& alias_urls);
+      const std::vector<GURL>& alias_urls,
+      const GURL& referrer);
 
   // Finds the specified PrerenderContents and returns it, if it exists.
   // Returns NULL otherwise.  Unlike GetEntry, the PrerenderManager maintains
   // ownership of the PrerenderContents.
   PrerenderContents* FindEntry(const GURL& url);
 
-  bool ShouldRecordWindowedPPLT() const;
+  static bool ShouldRecordWindowedPPLT();
 
   static void RecordPrefetchTagObservedOnUIThread();
 
@@ -119,6 +134,9 @@ class PrerenderManager : public base::RefCounted<PrerenderManager> {
   // observed link rel=prefetch tag.
   static const int kWindowedPPLTSeconds = 30;
 
+  // Time interval at which periodic cleanups are performed.
+  static const int kPeriodicCleanupIntervalMs = 1000;
+
   scoped_ptr<PrerenderContents::Factory> prerender_contents_factory_;
 
   static PrerenderManagerMode mode_;
@@ -129,7 +147,13 @@ class PrerenderManager : public base::RefCounted<PrerenderManager> {
   // This static variable should only be modified on the UI thread.
   static base::TimeTicks last_prefetch_seen_time_;
 
+  // RepeatingTimer to perform periodic cleanups of pending prerendered
+  // pages.
+  base::RepeatingTimer<PrerenderManager> repeating_timer_;
+
   DISALLOW_COPY_AND_ASSIGN(PrerenderManager);
 };
+
+}  // prerender
 
 #endif  // CHROME_BROWSER_PRERENDER_PRERENDER_MANAGER_H_

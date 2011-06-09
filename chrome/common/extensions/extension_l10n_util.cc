@@ -199,8 +199,11 @@ bool GetValidLocales(const FilePath& locale_path,
                                     file_util::FileEnumerator::DIRECTORIES);
   FilePath locale_folder;
   while (!(locale_folder = locales.Next()).empty()) {
-    std::string locale_name =
-        WideToASCII(locale_folder.BaseName().ToWStringHack());
+    std::string locale_name = locale_folder.BaseName().MaybeAsASCII();
+    if (locale_name.empty()) {
+      NOTREACHED();
+      continue;  // Not ASCII.
+    }
     if (!AddLocale(chrome_locales,
                    locale_folder,
                    locale_name,
@@ -277,13 +280,18 @@ bool ShouldSkipValidation(const FilePath& locales_path,
   // skipping any strings with '.'. This happens sometimes, for example with
   // '.svn' directories.
   FilePath relative_path;
-  if (!locales_path.AppendRelativePath(locale_path, &relative_path))
+  if (!locales_path.AppendRelativePath(locale_path, &relative_path)) {
     NOTREACHED();
-  std::wstring subdir(relative_path.ToWStringHack());
-  if (std::find(subdir.begin(), subdir.end(), L'.') != subdir.end())
+    return true;
+  }
+  std::string subdir = relative_path.MaybeAsASCII();
+  if (subdir.empty())
+    return true;  // Non-ASCII.
+
+  if (std::find(subdir.begin(), subdir.end(), '.') != subdir.end())
     return true;
 
-  if (all_locales.find(WideToASCII(subdir)) == all_locales.end())
+  if (all_locales.find(subdir) == all_locales.end())
     return true;
 
   return false;

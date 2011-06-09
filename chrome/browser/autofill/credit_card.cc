@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,10 @@
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/string16.h"
+#include "base/string_number_conversions.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
-#include "base/string_number_conversions.h"
-#include "base/string16.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_type.h"
 #include "chrome/browser/autofill/field_types.h"
@@ -24,7 +24,7 @@ namespace {
 
 const char* kCreditCardObfuscationString = "************";
 
-const AutoFillFieldType kAutoFillCreditCardTypes[] = {
+const AutofillFieldType kAutoFillCreditCardTypes[] = {
   CREDIT_CARD_NAME,
   CREDIT_CARD_NUMBER,
   CREDIT_CARD_TYPE,
@@ -35,6 +35,10 @@ const AutoFillFieldType kAutoFillCreditCardTypes[] = {
 const int kAutoFillCreditCardLength = arraysize(kAutoFillCreditCardTypes);
 
 std::string GetCreditCardType(const string16& number) {
+  // Don't check for a specific type if this is not a credit card number.
+  if (!CreditCard::IsCreditCardNumber(number))
+    return kGenericCard;
+
   // Credit card number specifications taken from:
   // http://en.wikipedia.org/wiki/Credit_card_numbers and
   // http://www.beachnet.com/~hstiles/cardtype.html
@@ -185,7 +189,7 @@ void CreditCard::GetAvailableFieldTypes(FieldTypeSet* available_types) const {
     available_types->insert(CREDIT_CARD_NUMBER);
 }
 
-void CreditCard::FindInfoMatches(const AutoFillType& type,
+void CreditCard::FindInfoMatches(const AutofillType& type,
                                  const string16& info,
                                  std::vector<string16>* matched_text) const {
   DCHECK(matched_text);
@@ -196,7 +200,7 @@ void CreditCard::FindInfoMatches(const AutoFillType& type,
       // Because the credit card number is encrypted and we are not able to do
       // comparisons with it we will say that any field that is known to be a
       // credit card number field will match all credit card numbers.
-      string16 text = GetPreviewText(AutoFillType(CREDIT_CARD_NUMBER));
+      string16 text = GetPreviewText(AutofillType(CREDIT_CARD_NUMBER));
       if (!text.empty())
         matched_text->push_back(text);
       break;
@@ -220,7 +224,7 @@ void CreditCard::FindInfoMatches(const AutoFillType& type,
   }
 }
 
-string16 CreditCard::GetFieldText(const AutoFillType& type) const {
+string16 CreditCard::GetFieldText(const AutofillType& type) const {
   switch (type.field_type()) {
     case CREDIT_CARD_NAME:
       return name_on_card();
@@ -267,7 +271,7 @@ string16 CreditCard::GetFieldText(const AutoFillType& type) const {
   }
 }
 
-string16 CreditCard::GetPreviewText(const AutoFillType& type) const {
+string16 CreditCard::GetPreviewText(const AutofillType& type) const {
   switch (type.field_type()) {
     case CREDIT_CARD_NUMBER:
       return last_four_digits();
@@ -281,7 +285,7 @@ string16 CreditCard::GetPreviewText(const AutoFillType& type) const {
   }
 }
 
-void CreditCard::SetInfo(const AutoFillType& type, const string16& value) {
+void CreditCard::SetInfo(const AutofillType& type, const string16& value) {
   switch (type.field_type()) {
     case CREDIT_CARD_NAME:
       set_name_on_card(value);
@@ -415,13 +419,13 @@ int CreditCard::Compare(const CreditCard& credit_card) const {
   // The following CreditCard field types are the only types we store in the
   // WebDB so far, so we're only concerned with matching these types in the
   // credit card.
-  const AutoFillFieldType types[] = { CREDIT_CARD_NAME,
+  const AutofillFieldType types[] = { CREDIT_CARD_NAME,
                                       CREDIT_CARD_NUMBER,
                                       CREDIT_CARD_EXP_MONTH,
                                       CREDIT_CARD_EXP_4_DIGIT_YEAR };
   for (size_t index = 0; index < arraysize(types); ++index) {
-    int comparison = GetFieldText(AutoFillType(types[index])).compare(
-        credit_card.GetFieldText(AutoFillType(types[index])));
+    int comparison = GetFieldText(AutofillType(types[index])).compare(
+        credit_card.GetFieldText(AutofillType(types[index])));
     if (comparison != 0)
       return comparison;
   }
@@ -537,7 +541,7 @@ void CreditCard::set_expiration_year(int expiration_year) {
   expiration_year_ = expiration_year;
 }
 
-bool CreditCard::FindInfoMatchesHelper(const AutoFillFieldType& field_type,
+bool CreditCard::FindInfoMatchesHelper(const AutofillFieldType& field_type,
                                        const string16& info,
                                        string16* match) const {
   DCHECK(match);
@@ -650,17 +654,17 @@ std::ostream& operator<<(std::ostream& os, const CreditCard& credit_card) {
       << " "
       << credit_card.guid()
       << " "
-      << UTF16ToUTF8(credit_card.GetFieldText(AutoFillType(CREDIT_CARD_NAME)))
+      << UTF16ToUTF8(credit_card.GetFieldText(AutofillType(CREDIT_CARD_NAME)))
       << " "
-      << UTF16ToUTF8(credit_card.GetFieldText(AutoFillType(CREDIT_CARD_TYPE)))
+      << UTF16ToUTF8(credit_card.GetFieldText(AutofillType(CREDIT_CARD_TYPE)))
       << " "
-      << UTF16ToUTF8(credit_card.GetFieldText(AutoFillType(CREDIT_CARD_NUMBER)))
-      << " "
-      << UTF16ToUTF8(credit_card.GetFieldText(
-             AutoFillType(CREDIT_CARD_EXP_MONTH)))
+      << UTF16ToUTF8(credit_card.GetFieldText(AutofillType(CREDIT_CARD_NUMBER)))
       << " "
       << UTF16ToUTF8(credit_card.GetFieldText(
-             AutoFillType(CREDIT_CARD_EXP_4_DIGIT_YEAR)));
+             AutofillType(CREDIT_CARD_EXP_MONTH)))
+      << " "
+      << UTF16ToUTF8(credit_card.GetFieldText(
+             AutofillType(CREDIT_CARD_EXP_4_DIGIT_YEAR)));
 }
 
 // These values must match the values in WebKitClientImpl in webkit/glue. We

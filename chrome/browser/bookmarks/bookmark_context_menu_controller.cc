@@ -14,9 +14,9 @@
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/page_navigator.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/tab_contents/page_navigator.h"
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -269,7 +269,7 @@ bool BookmarkContextMenuController::IsCommandIdEnabled(int command_id) const {
 
     case IDC_COPY:
     case IDC_CUT:
-      return selection_.size() > 0 && !is_root_node;
+      return !selection_.empty() && !is_root_node;
 
     case IDC_PASTE:
       // Paste to selection from the Bookmark Bar, to parent_ everywhere else

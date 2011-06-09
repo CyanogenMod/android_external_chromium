@@ -41,15 +41,11 @@ const int UserScript::kValidUserScriptSchemes =
     URLPattern::SCHEME_HTTP | URLPattern::SCHEME_HTTPS |
     URLPattern::SCHEME_FILE | URLPattern::SCHEME_FTP;
 
-bool UserScript::HasUserScriptFileExtension(const GURL& url) {
-  return EndsWith(url.ExtractFileName(), kFileExtension, false);
+bool UserScript::IsURLUserScript(const GURL& url,
+                                 const std::string& mime_type) {
+  return EndsWith(url.ExtractFileName(), kFileExtension, false) &&
+      mime_type != "text/html";
 }
-
-bool UserScript::HasUserScriptFileExtension(const FilePath& path) {
-  static FilePath extension(FilePath().AppendASCII(kFileExtension));
-  return EndsWith(path.BaseName().value(), extension.value(), false);
-}
-
 
 UserScript::File::File(const FilePath& extension_root,
                        const FilePath& relative_path,
@@ -79,17 +75,17 @@ void UserScript::add_url_pattern(const URLPattern& pattern) {
 void UserScript::clear_url_patterns() { url_patterns_.clear(); }
 
 bool UserScript::MatchesUrl(const GURL& url) const {
-  if (url_patterns_.size() > 0) {
+  if (!url_patterns_.empty()) {
     if (!UrlMatchesPatterns(&url_patterns_, url))
       return false;
   }
 
-  if (globs_.size() > 0) {
+  if (!globs_.empty()) {
     if (!UrlMatchesGlobs(&globs_, url))
       return false;
   }
 
-  if (exclude_globs_.size() > 0) {
+  if (!exclude_globs_.empty()) {
     if (UrlMatchesGlobs(&exclude_globs_, url))
       return false;
   }
@@ -195,7 +191,8 @@ void UserScript::Unpickle(const ::Pickle& pickle, void** iter) {
     std::string pattern_str;
     URLPattern pattern(valid_schemes);
     CHECK(pickle.ReadString(iter, &pattern_str));
-    CHECK(URLPattern::PARSE_SUCCESS == pattern.Parse(pattern_str));
+    CHECK(URLPattern::PARSE_SUCCESS ==
+          pattern.Parse(pattern_str, URLPattern::PARSE_LENIENT));
     url_patterns_.push_back(pattern);
   }
 

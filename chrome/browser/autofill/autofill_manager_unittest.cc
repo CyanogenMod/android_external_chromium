@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/scoped_vector.h"
-#include "base/string_number_conversions.h"
 #include "base/string16.h"
+#include "base/string_number_conversions.h"
 #include "base/stringprintf.h"
 #include "base/tuple.h"
 #include "base/utf_string_conversions.h"
@@ -20,12 +20,12 @@
 #include "chrome/browser/autofill/personal_data_manager.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/test/test_render_view_host.h"
-#include "chrome/browser/tab_contents/test_tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/autofill_messages.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/testing_profile.h"
+#include "content/browser/renderer_host/test_render_view_host.h"
+#include "content/browser/tab_contents/test_tab_contents.h"
 #include "googleurl/src/gurl.h"
 #include "grit/generated_resources.h"
 #include "ipc/ipc_test_sink.h"
@@ -39,7 +39,7 @@ using webkit_glue::FormField;
 
 namespace {
 
-// The page ID sent to the AutoFillManager from the RenderView, used to send
+// The page ID sent to the AutofillManager from the RenderView, used to send
 // an IPC message back to the renderer.
 const int kDefaultPageID = 137;
 
@@ -60,19 +60,10 @@ class TestPersonalDataManager : public PersonalDataManager {
   virtual void SaveImportedFormData() {}
   virtual bool IsDataLoaded() const { return true; }
 
-  AutoFillProfile* GetLabeledProfile(const char* label) {
+  AutoFillProfile* GetProfileWithGUID(const char* guid) {
     for (std::vector<AutoFillProfile *>::iterator it = web_profiles_.begin();
          it != web_profiles_.end(); ++it) {
-      if (!(*it)->Label().compare(ASCIIToUTF16(label)))
-        return *it;
-    }
-    return NULL;
-  }
-
-  CreditCard* GetLabeledCreditCard(const char* label) {
-    for (std::vector<CreditCard *>::iterator it = credit_cards_.begin();
-         it != credit_cards_.end(); ++it) {
-      if (!(*it)->Label().compare(ASCIIToUTF16(label)))
+      if (!(*it)->guid().compare(guid))
         return *it;
     }
     return NULL;
@@ -93,7 +84,7 @@ class TestPersonalDataManager : public PersonalDataManager {
   void CreateTestCreditCardsYearAndMonth(const char* year, const char* month) {
     ClearCreditCards();
     CreditCard* credit_card = new CreditCard;
-    autofill_test::SetCreditCardInfo(credit_card, "Miku", "Miku Hatsune",
+    autofill_test::SetCreditCardInfo(credit_card, "Miku Hatsune",
                                      "4234567890654321", // Visa
                                      month, year);
     credit_card->set_guid("00000000-0000-0000-0000-000000000007");
@@ -103,7 +94,7 @@ class TestPersonalDataManager : public PersonalDataManager {
  private:
   void CreateTestAutoFillProfiles(ScopedVector<AutoFillProfile>* profiles) {
     AutoFillProfile* profile = new AutoFillProfile;
-    autofill_test::SetProfileInfo(profile, "Home", "Elvis", "Aaron",
+    autofill_test::SetProfileInfo(profile, "Elvis", "Aaron",
                                   "Presley", "theking@gmail.com", "RCA",
                                   "3734 Elvis Presley Blvd.", "Apt. 10",
                                   "Memphis", "Tennessee", "38116", "USA",
@@ -111,7 +102,7 @@ class TestPersonalDataManager : public PersonalDataManager {
     profile->set_guid("00000000-0000-0000-0000-000000000001");
     profiles->push_back(profile);
     profile = new AutoFillProfile;
-    autofill_test::SetProfileInfo(profile, "Work", "Charles", "Hardin",
+    autofill_test::SetProfileInfo(profile, "Charles", "Hardin",
                                   "Holley", "buddy@gmail.com", "Decca",
                                   "123 Apple St.", "unit 6", "Lubbock",
                                   "Texas", "79401", "USA", "23456789012",
@@ -119,7 +110,7 @@ class TestPersonalDataManager : public PersonalDataManager {
     profile->set_guid("00000000-0000-0000-0000-000000000002");
     profiles->push_back(profile);
     profile = new AutoFillProfile;
-    autofill_test::SetProfileInfo(profile, "Empty", "", "", "", "", "", "", "",
+    autofill_test::SetProfileInfo(profile, "", "", "", "", "", "", "",
                                   "", "", "", "", "", "");
     profile->set_guid("00000000-0000-0000-0000-000000000003");
     profiles->push_back(profile);
@@ -127,19 +118,21 @@ class TestPersonalDataManager : public PersonalDataManager {
 
   void CreateTestCreditCards(ScopedVector<CreditCard>* credit_cards) {
     CreditCard* credit_card = new CreditCard;
-    autofill_test::SetCreditCardInfo(credit_card, "First", "Elvis Presley",
+    autofill_test::SetCreditCardInfo(credit_card, "Elvis Presley",
                                      "4234567890123456",  // Visa
                                      "04", "2012");
     credit_card->set_guid("00000000-0000-0000-0000-000000000004");
     credit_cards->push_back(credit_card);
+
     credit_card = new CreditCard;
-    autofill_test::SetCreditCardInfo(credit_card, "Second", "Buddy Holly",
+    autofill_test::SetCreditCardInfo(credit_card, "Buddy Holly",
                                      "5187654321098765",  // Mastercard
                                      "10", "2014");
     credit_card->set_guid("00000000-0000-0000-0000-000000000005");
     credit_cards->push_back(credit_card);
+
     credit_card = new CreditCard;
-    autofill_test::SetCreditCardInfo(credit_card, "Empty", "", "", "", "");
+    autofill_test::SetCreditCardInfo(credit_card, "", "", "", "");
     credit_card->set_guid("00000000-0000-0000-0000-000000000006");
     credit_cards->push_back(credit_card);
   }
@@ -382,7 +375,7 @@ void ExpectFilledAddressFormElvis(int page_id,
                                   bool has_credit_card_fields) {
   ExpectFilledForm(page_id, filled_form, expected_page_id, "Elvis", "Aaron",
                    "Presley", "3734 Elvis Presley Blvd.", "Apt. 10", "Memphis",
-                   "Tennessee", "38116", "USA", "12345678901", "",
+                   "Tennessee", "38116", "United States", "12345678901", "",
                    "theking@gmail.com", "", "", "", "", true,
                    has_credit_card_fields, false);
 }
@@ -409,11 +402,11 @@ void ExpectFilledCreditCardYearMonthWithYearMonth(int page_id,
                    has_address_fields, true, true);
 }
 
-class TestAutoFillManager : public AutoFillManager {
+class TestAutofillManager : public AutofillManager {
  public:
-  TestAutoFillManager(TabContents* tab_contents,
+  TestAutofillManager(TabContents* tab_contents,
                       TestPersonalDataManager* personal_manager)
-      : AutoFillManager(tab_contents, personal_manager),
+      : AutofillManager(tab_contents, personal_manager),
         autofill_enabled_(true) {
     test_personal_data_ = personal_manager;
   }
@@ -424,12 +417,8 @@ class TestAutoFillManager : public AutoFillManager {
     autofill_enabled_ = autofill_enabled;
   }
 
-  AutoFillProfile* GetLabeledProfile(const char* label) {
-    return test_personal_data_->GetLabeledProfile(label);
-  }
-
-  CreditCard* GetLabeledCreditCard(const char* label) {
-    return test_personal_data_->GetLabeledCreditCard(label);
+  AutoFillProfile* GetProfileWithGUID(const char* guid) {
+    return test_personal_data_->GetProfileWithGUID(guid);
   }
 
   void AddProfile(AutoFillProfile* profile) {
@@ -461,16 +450,16 @@ class TestAutoFillManager : public AutoFillManager {
   TestPersonalDataManager* test_personal_data_;
   bool autofill_enabled_;
 
-  DISALLOW_COPY_AND_ASSIGN(TestAutoFillManager);
+  DISALLOW_COPY_AND_ASSIGN(TestAutofillManager);
 };
 
 }  // namespace
 
-class AutoFillManagerTest : public RenderViewHostTestHarness {
+class AutofillManagerTest : public RenderViewHostTestHarness {
  public:
-  AutoFillManagerTest() {}
-  virtual ~AutoFillManagerTest() {
-    // Order of destruction is important as AutoFillManager relies on
+  AutofillManagerTest() {}
+  virtual ~AutofillManagerTest() {
+    // Order of destruction is important as AutofillManager relies on
     // PersonalDataManager to be around when it gets destroyed.
     autofill_manager_.reset(NULL);
     test_personal_data_ = NULL;
@@ -479,7 +468,7 @@ class AutoFillManagerTest : public RenderViewHostTestHarness {
   virtual void SetUp() {
     RenderViewHostTestHarness::SetUp();
     test_personal_data_ = new TestPersonalDataManager();
-    autofill_manager_.reset(new TestAutoFillManager(contents(),
+    autofill_manager_.reset(new TestAutofillManager(contents(),
                                                     test_personal_data_.get()));
   }
 
@@ -560,16 +549,16 @@ class AutoFillManagerTest : public RenderViewHostTestHarness {
   }
 
  protected:
-  scoped_ptr<TestAutoFillManager> autofill_manager_;
+  scoped_ptr<TestAutofillManager> autofill_manager_;
   scoped_refptr<TestPersonalDataManager> test_personal_data_;
 
  private:
-  DISALLOW_COPY_AND_ASSIGN(AutoFillManagerTest);
+  DISALLOW_COPY_AND_ASSIGN(AutofillManagerTest);
 };
 
 // Test that we return all address profile suggestions when all form fields are
 // empty.
-TEST_F(AutoFillManagerTest, GetProfileSuggestionsEmptyValue) {
+TEST_F(AutofillManagerTest, GetProfileSuggestionsEmptyValue) {
   // Set up our form data.
   FormData form;
   CreateTestAddressFormData(&form);
@@ -611,7 +600,7 @@ TEST_F(AutoFillManagerTest, GetProfileSuggestionsEmptyValue) {
 
 // Test that we return only matching address profile suggestions when the
 // selected form field has been partially filled out.
-TEST_F(AutoFillManagerTest, GetProfileSuggestionsMatchCharacter) {
+TEST_F(AutofillManagerTest, GetProfileSuggestionsMatchCharacter) {
   // Set up our form data.
   FormData form;
   CreateTestAddressFormData(&form);
@@ -646,7 +635,7 @@ TEST_F(AutoFillManagerTest, GetProfileSuggestionsMatchCharacter) {
 }
 
 // Test that we return no suggestions when the form has no relevant fields.
-TEST_F(AutoFillManagerTest, GetProfileSuggestionsUnknownFields) {
+TEST_F(AutofillManagerTest, GetProfileSuggestionsUnknownFields) {
   // Set up our form data.
   FormData form;
   form.name = ASCIIToUTF16("MyForm");
@@ -675,7 +664,7 @@ TEST_F(AutoFillManagerTest, GetProfileSuggestionsUnknownFields) {
 }
 
 // Test that we cull duplicate profile suggestions.
-TEST_F(AutoFillManagerTest, GetProfileSuggestionsWithDuplicates) {
+TEST_F(AutofillManagerTest, GetProfileSuggestionsWithDuplicates) {
   // Set up our form data.
   FormData form;
   CreateTestAddressFormData(&form);
@@ -684,7 +673,8 @@ TEST_F(AutoFillManagerTest, GetProfileSuggestionsWithDuplicates) {
 
   // Add a duplicate profile.
   AutoFillProfile* duplicate_profile = static_cast<AutoFillProfile*>(
-      autofill_manager_->GetLabeledProfile("Home")->Clone());
+      autofill_manager_->GetProfileWithGUID(
+          "00000000-0000-0000-0000-000000000001")->Clone());
   autofill_manager_->AddProfile(duplicate_profile);
 
   const FormField& field = form.fields[0];
@@ -719,7 +709,7 @@ TEST_F(AutoFillManagerTest, GetProfileSuggestionsWithDuplicates) {
 }
 
 // Test that we return no suggestions when autofill is disabled.
-TEST_F(AutoFillManagerTest, GetProfileSuggestionsAutofillDisabledByUser) {
+TEST_F(AutofillManagerTest, GetProfileSuggestionsAutofillDisabledByUser) {
   // Set up our form data.
   FormData form;
   CreateTestAddressFormData(&form);
@@ -736,7 +726,7 @@ TEST_F(AutoFillManagerTest, GetProfileSuggestionsAutofillDisabledByUser) {
 
 // Test that we return a warning explaining that autofill suggestions are
 // unavailable when the form method is GET rather than POST.
-TEST_F(AutoFillManagerTest, GetProfileSuggestionsMethodGet) {
+TEST_F(AutofillManagerTest, GetProfileSuggestionsMethodGet) {
   // Set up our form data.
   FormData form;
   CreateTestAddressFormData(&form);
@@ -803,7 +793,7 @@ TEST_F(AutoFillManagerTest, GetProfileSuggestionsMethodGet) {
 
 // Test that we return all credit card profile suggestions when all form fields
 // are empty.
-TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsEmptyValue) {
+TEST_F(AutofillManagerTest, GetCreditCardSuggestionsEmptyValue) {
   // Set up our form data.
   FormData form;
   CreateTestCreditCardFormData(&form, true, false);
@@ -833,7 +823,7 @@ TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsEmptyValue) {
   string16 expected_labels[] = {ASCIIToUTF16("*3456"), ASCIIToUTF16("*8765")};
   string16 expected_icons[] = {
     ASCIIToUTF16("visaCC"),
-    ASCIIToUTF16("masterCardCC")
+    ASCIIToUTF16("genericCC")
   };
   int expected_unique_ids[] = {
     autofill_manager_->GetPackedCreditCardID(4),
@@ -846,7 +836,7 @@ TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsEmptyValue) {
 
 // Test that we return only matching credit card profile suggestions when the
 // selected form field has been partially filled out.
-TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsMatchCharacter) {
+TEST_F(AutofillManagerTest, GetCreditCardSuggestionsMatchCharacter) {
   // Set up our form data.
   FormData form;
   CreateTestCreditCardFormData(&form, true, false);
@@ -882,7 +872,7 @@ TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsMatchCharacter) {
 
 // Test that we return credit card profile suggestions when the selected form
 // field is not the credit card number field.
-TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsNonCCNumber) {
+TEST_F(AutofillManagerTest, GetCreditCardSuggestionsNonCCNumber) {
   // Set up our form data.
   FormData form;
   CreateTestCreditCardFormData(&form, true, false);
@@ -912,7 +902,7 @@ TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsNonCCNumber) {
   string16 expected_labels[] = {ASCIIToUTF16("*3456"), ASCIIToUTF16("*8765")};
   string16 expected_icons[] = {
     ASCIIToUTF16("visaCC"),
-    ASCIIToUTF16("masterCardCC")
+    ASCIIToUTF16("genericCC")
   };
   int expected_unique_ids[] = {
     autofill_manager_->GetPackedCreditCardID(4),
@@ -925,7 +915,7 @@ TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsNonCCNumber) {
 
 // Test that we return a warning explaining that credit card profile suggestions
 // are unavailable when the form is not https.
-TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsNonHTTPS) {
+TEST_F(AutofillManagerTest, GetCreditCardSuggestionsNonHTTPS) {
   // Set up our form data.
   FormData form;
   CreateTestCreditCardFormData(&form, false, false);
@@ -989,7 +979,7 @@ TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsNonHTTPS) {
 }
 
 // Test that we return profile and credit card suggestions for combined forms.
-TEST_F(AutoFillManagerTest, GetAddressAndCreditCardSuggestions) {
+TEST_F(AutofillManagerTest, GetAddressAndCreditCardSuggestions) {
   // Set up our form data.
   FormData form;
   CreateTestAddressFormData(&form);
@@ -1048,7 +1038,7 @@ TEST_F(AutoFillManagerTest, GetAddressAndCreditCardSuggestions) {
   string16 expected_labels2[] = {ASCIIToUTF16("*3456"), ASCIIToUTF16("*8765")};
   string16 expected_icons2[] = {
     ASCIIToUTF16("visaCC"),
-    ASCIIToUTF16("masterCardCC")
+    ASCIIToUTF16("genericCC")
   };
   int expected_unique_ids2[] = {
     autofill_manager_->GetPackedCreditCardID(4),
@@ -1063,7 +1053,7 @@ TEST_F(AutoFillManagerTest, GetAddressAndCreditCardSuggestions) {
 // only return address suggestions. Instead of credit card suggestions, we
 // should return a warning explaining that credit card profile suggestions are
 // unavailable when the form is not https.
-TEST_F(AutoFillManagerTest, GetAddressAndCreditCardSuggestionsNonHttps) {
+TEST_F(AutofillManagerTest, GetAddressAndCreditCardSuggestionsNonHttps) {
   // Set up our form data.
   FormData form;
   CreateTestAddressFormData(&form);
@@ -1131,7 +1121,7 @@ TEST_F(AutoFillManagerTest, GetAddressAndCreditCardSuggestionsNonHttps) {
 }
 
 // Test that we correctly combine autofill and autocomplete suggestions.
-TEST_F(AutoFillManagerTest, GetCombinedAutoFillAndAutocompleteSuggestions) {
+TEST_F(AutofillManagerTest, GetCombinedAutoFillAndAutocompleteSuggestions) {
   // Set up our form data.
   FormData form;
   CreateTestAddressFormData(&form);
@@ -1180,7 +1170,7 @@ TEST_F(AutoFillManagerTest, GetCombinedAutoFillAndAutocompleteSuggestions) {
 
 // Test that we return autocomplete-like suggestions when trying to autofill
 // already filled forms.
-TEST_F(AutoFillManagerTest, GetFieldSuggestionsWhenFormIsAutoFilled) {
+TEST_F(AutofillManagerTest, GetFieldSuggestionsWhenFormIsAutoFilled) {
   // Set up our form data.
   FormData form;
   CreateTestAddressFormData(&form);
@@ -1218,7 +1208,7 @@ TEST_F(AutoFillManagerTest, GetFieldSuggestionsWhenFormIsAutoFilled) {
 
 // Test that nothing breaks when there are autocomplete suggestions but no
 // autofill suggestions.
-TEST_F(AutoFillManagerTest, GetFieldSuggestionsForAutocompleteOnly) {
+TEST_F(AutofillManagerTest, GetFieldSuggestionsForAutocompleteOnly) {
   // Set up our form data.
   FormData form;
   CreateTestAddressFormData(&form);
@@ -1261,7 +1251,7 @@ TEST_F(AutoFillManagerTest, GetFieldSuggestionsForAutocompleteOnly) {
 
 // Test that we do not return duplicate values drawn from multiple profiles when
 // filling an already filled field.
-TEST_F(AutoFillManagerTest, GetFieldSuggestionsWithDuplicateValues) {
+TEST_F(AutofillManagerTest, GetFieldSuggestionsWithDuplicateValues) {
   // Set up our form data.
   FormData form;
   CreateTestAddressFormData(&form);
@@ -1270,7 +1260,7 @@ TEST_F(AutoFillManagerTest, GetFieldSuggestionsWithDuplicateValues) {
 
   // |profile| will be owned by the mock PersonalDataManager.
   AutoFillProfile* profile = new AutoFillProfile;
-  autofill_test::SetProfileInfo(profile, "Duplicate", "Elvis", "", "", "", "",
+  autofill_test::SetProfileInfo(profile, "Elvis", "", "", "", "",
                                 "", "", "", "", "", "", "", "");
   profile->set_guid("00000000-0000-0000-0000-000000000101");
   autofill_manager_->AddProfile(profile);
@@ -1305,14 +1295,14 @@ TEST_F(AutoFillManagerTest, GetFieldSuggestionsWithDuplicateValues) {
 }
 
 // Test that we correctly fill an address form.
-TEST_F(AutoFillManagerTest, FillAddressForm) {
+TEST_F(AutofillManagerTest, FillAddressForm) {
   // Set up our form data.
   FormData form;
   CreateTestAddressFormData(&form);
   std::vector<FormData> forms(1, form);
   FormsSeen(forms);
 
-  std::string guid = autofill_manager_->GetLabeledProfile("Home")->guid();
+  std::string guid = "00000000-0000-0000-0000-000000000001";
   FillAutoFillFormData(
       kDefaultPageID, form, form.fields[0],
       autofill_manager_->PackGUIDs(std::string(), guid));
@@ -1324,14 +1314,14 @@ TEST_F(AutoFillManagerTest, FillAddressForm) {
 }
 
 // Test that we correctly fill a credit card form.
-TEST_F(AutoFillManagerTest, FillCreditCardForm) {
+TEST_F(AutofillManagerTest, FillCreditCardForm) {
   // Set up our form data.
   FormData form;
   CreateTestCreditCardFormData(&form, true, false);
   std::vector<FormData> forms(1, form);
   FormsSeen(forms);
 
-  std::string guid = autofill_manager_->GetLabeledCreditCard("First")->guid();
+  std::string guid = "00000000-0000-0000-0000-000000000004";
   FillAutoFillFormData(
       kDefaultPageID, form, *form.fields.begin(),
       autofill_manager_->PackGUIDs(guid, std::string()));
@@ -1344,7 +1334,7 @@ TEST_F(AutoFillManagerTest, FillCreditCardForm) {
 
 // Test that we correctly fill a credit card form with month input type.
 // 1. year empty, month empty
-TEST_F(AutoFillManagerTest, FillCreditCardFormNoYearNoMonth) {
+TEST_F(AutofillManagerTest, FillCreditCardFormNoYearNoMonth) {
   // Same as the SetUp(), but generate 4 credit cards with year month
   // combination.
   test_personal_data_->CreateTestCreditCardsYearAndMonth("", "");
@@ -1354,7 +1344,7 @@ TEST_F(AutoFillManagerTest, FillCreditCardFormNoYearNoMonth) {
   std::vector<FormData> forms(1, form);
   FormsSeen(forms);
 
-  std::string guid = autofill_manager_->GetLabeledCreditCard("Miku")->guid();
+  std::string guid = "00000000-0000-0000-0000-000000000007";
   FillAutoFillFormData(
       kDefaultPageID, form, *form.fields.begin(),
       autofill_manager_->PackGUIDs(guid, std::string()));
@@ -1369,7 +1359,7 @@ TEST_F(AutoFillManagerTest, FillCreditCardFormNoYearNoMonth) {
 
 // Test that we correctly fill a credit card form with month input type.
 // 2. year empty, month non-empty
-TEST_F(AutoFillManagerTest, FillCreditCardFormNoYearMonth) {
+TEST_F(AutofillManagerTest, FillCreditCardFormNoYearMonth) {
   // Same as the SetUp(), but generate 4 credit cards with year month
   // combination.
   test_personal_data_->CreateTestCreditCardsYearAndMonth("", "04");
@@ -1379,7 +1369,7 @@ TEST_F(AutoFillManagerTest, FillCreditCardFormNoYearMonth) {
   std::vector<FormData> forms(1, form);
   FormsSeen(forms);
 
-  std::string guid = autofill_manager_->GetLabeledCreditCard("Miku")->guid();
+  std::string guid = "00000000-0000-0000-0000-000000000007";
   FillAutoFillFormData(
       kDefaultPageID, form, *form.fields.begin(),
       autofill_manager_->PackGUIDs(guid, std::string()));
@@ -1393,7 +1383,7 @@ TEST_F(AutoFillManagerTest, FillCreditCardFormNoYearMonth) {
 
 // Test that we correctly fill a credit card form with month input type.
 // 3. year non-empty, month empty
-TEST_F(AutoFillManagerTest, FillCreditCardFormYearNoMonth) {
+TEST_F(AutofillManagerTest, FillCreditCardFormYearNoMonth) {
   // Same as the SetUp(), but generate 4 credit cards with year month
   // combination.
   test_personal_data_->CreateTestCreditCardsYearAndMonth("2012", "");
@@ -1403,7 +1393,7 @@ TEST_F(AutoFillManagerTest, FillCreditCardFormYearNoMonth) {
   std::vector<FormData> forms(1, form);
   FormsSeen(forms);
 
-  std::string guid = autofill_manager_->GetLabeledCreditCard("Miku")->guid();
+  std::string guid = "00000000-0000-0000-0000-000000000007";
   FillAutoFillFormData(
       kDefaultPageID, form, *form.fields.begin(),
       autofill_manager_->PackGUIDs(guid, std::string()));
@@ -1417,7 +1407,7 @@ TEST_F(AutoFillManagerTest, FillCreditCardFormYearNoMonth) {
 
 // Test that we correctly fill a credit card form with month input type.
 // 4. year non-empty, month empty
-TEST_F(AutoFillManagerTest, FillCreditCardFormYearMonth) {
+TEST_F(AutofillManagerTest, FillCreditCardFormYearMonth) {
   // Same as the SetUp(), but generate 4 credit cards with year month
   // combination.
   test_personal_data_->ClearCreditCards();
@@ -1428,7 +1418,7 @@ TEST_F(AutoFillManagerTest, FillCreditCardFormYearMonth) {
   std::vector<FormData> forms(1, form);
   FormsSeen(forms);
 
-  std::string guid = autofill_manager_->GetLabeledCreditCard("Miku")->guid();
+  std::string guid = "00000000-0000-0000-0000-000000000007";
   FillAutoFillFormData(
       kDefaultPageID, form, *form.fields.begin(),
       autofill_manager_->PackGUIDs(guid, std::string()));
@@ -1441,7 +1431,7 @@ TEST_F(AutoFillManagerTest, FillCreditCardFormYearMonth) {
 }
 
 // Test that we correctly fill a combined address and credit card form.
-TEST_F(AutoFillManagerTest, FillAddressAndCreditCardForm) {
+TEST_F(AutofillManagerTest, FillAddressAndCreditCardForm) {
   // Set up our form data.
   FormData form;
   CreateTestAddressFormData(&form);
@@ -1450,7 +1440,7 @@ TEST_F(AutoFillManagerTest, FillAddressAndCreditCardForm) {
   FormsSeen(forms);
 
   // First fill the address data.
-  std::string guid = autofill_manager_->GetLabeledProfile("Home")->guid();
+  std::string guid = "00000000-0000-0000-0000-000000000001";
   FillAutoFillFormData(kDefaultPageID, form, form.fields[0],
                        autofill_manager_->PackGUIDs(std::string(), guid));
 
@@ -1464,7 +1454,7 @@ TEST_F(AutoFillManagerTest, FillAddressAndCreditCardForm) {
 
   // Now fill the credit card data.
   const int kPageID2 = 2;
-  guid = autofill_manager_->GetLabeledCreditCard("First")->guid();
+  guid = "00000000-0000-0000-0000-000000000004";
   FillAutoFillFormData(
       kPageID2, form, form.fields.back(),
       autofill_manager_->PackGUIDs(guid, std::string()));
@@ -1479,7 +1469,7 @@ TEST_F(AutoFillManagerTest, FillAddressAndCreditCardForm) {
 
 // Test that we correctly fill a form that has multiple logical sections, e.g.
 // both a billing and a shipping address.
-TEST_F(AutoFillManagerTest, FillFormWithMultipleSections) {
+TEST_F(AutofillManagerTest, FillFormWithMultipleSections) {
   // Set up our form data.
   FormData form;
   CreateTestAddressFormData(&form);
@@ -1493,7 +1483,7 @@ TEST_F(AutoFillManagerTest, FillFormWithMultipleSections) {
   FormsSeen(forms);
 
   // Fill the first section.
-  std::string guid = autofill_manager_->GetLabeledProfile("Home")->guid();
+  std::string guid = "00000000-0000-0000-0000-000000000001";
   FillAutoFillFormData(kDefaultPageID, form, form.fields[0],
                        autofill_manager_->PackGUIDs(std::string(), guid));
 
@@ -1517,7 +1507,7 @@ TEST_F(AutoFillManagerTest, FillFormWithMultipleSections) {
   // Fill the second section, with the initiating field somewhere in the middle
   // of the section.
   const int kPageID2 = 2;
-  guid = autofill_manager_->GetLabeledProfile("Home")->guid();
+  guid = "00000000-0000-0000-0000-000000000001";
   ASSERT_LT(9U, kAddressFormSize);
   FillAutoFillFormData(kPageID2, form, form.fields[kAddressFormSize + 9],
                        autofill_manager_->PackGUIDs(std::string(), guid));
@@ -1549,7 +1539,7 @@ TEST_F(AutoFillManagerTest, FillFormWithMultipleSections) {
 }
 
 // Test that we correctly fill a previously auto-filled form.
-TEST_F(AutoFillManagerTest, FillAutoFilledForm) {
+TEST_F(AutofillManagerTest, FillAutoFilledForm) {
   // Set up our form data.
   FormData form;
   CreateTestAddressFormData(&form);
@@ -1560,7 +1550,7 @@ TEST_F(AutoFillManagerTest, FillAutoFilledForm) {
   FormsSeen(forms);
 
   // First fill the address data.
-  std::string guid = autofill_manager_->GetLabeledProfile("Home")->guid();
+  std::string guid = "00000000-0000-0000-0000-000000000001";
   FillAutoFillFormData(
       kDefaultPageID, form, *form.fields.begin(),
       autofill_manager_->PackGUIDs(std::string(), guid));
@@ -1577,7 +1567,7 @@ TEST_F(AutoFillManagerTest, FillAutoFilledForm) {
 
   // Now fill the credit card data.
   const int kPageID2 = 2;
-  guid = autofill_manager_->GetLabeledCreditCard("First")->guid();
+  guid = "00000000-0000-0000-0000-000000000004";
   FillAutoFillFormData(
       kPageID2, form, form.fields.back(),
       autofill_manager_->PackGUIDs(guid, std::string()));
@@ -1613,7 +1603,7 @@ TEST_F(AutoFillManagerTest, FillAutoFilledForm) {
 }
 
 // Test that we correctly fill a phone number split across multiple fields.
-TEST_F(AutoFillManagerTest, FillPhoneNumber) {
+TEST_F(AutofillManagerTest, FillPhoneNumber) {
   // Set up our form data.
   FormData form;
   form.name = ASCIIToUTF16("MyPhoneForm");
@@ -1647,16 +1637,18 @@ TEST_F(AutoFillManagerTest, FillPhoneNumber) {
   std::vector<FormData> forms(1, form);
   FormsSeen(forms);
 
-  AutoFillProfile *work_profile = autofill_manager_->GetLabeledProfile("Work");
+  AutoFillProfile *work_profile = autofill_manager_->GetProfileWithGUID(
+      "00000000-0000-0000-0000-000000000002");
   ASSERT_TRUE(work_profile != NULL);
-  const AutoFillType phone_type(PHONE_HOME_NUMBER);
+  const AutofillType phone_type(PHONE_HOME_NUMBER);
   string16 saved_phone = work_profile->GetFieldText(phone_type);
 
   char test_data[] = "1234567890123456";
   for (int i = arraysize(test_data) - 1; i >= 0; --i) {
     test_data[i] = 0;
+    SCOPED_TRACE(StringPrintf("Testing phone: %s", test_data));
     work_profile->SetInfo(phone_type, ASCIIToUTF16(test_data));
-    // The page ID sent to the AutoFillManager from the RenderView, used to send
+    // The page ID sent to the AutofillManager from the RenderView, used to send
     // an IPC message back to the renderer.
     int page_id = 100 - i;
     FillAutoFillFormData(
@@ -1680,7 +1672,7 @@ TEST_F(AutoFillManagerTest, FillPhoneNumber) {
 }
 
 // Test that we can still fill a form when a field has been removed from it.
-TEST_F(AutoFillManagerTest, FormChangesRemoveField) {
+TEST_F(AutofillManagerTest, FormChangesRemoveField) {
   // Set up our form data.
   FormData form;
   CreateTestAddressFormData(&form);
@@ -1696,7 +1688,7 @@ TEST_F(AutoFillManagerTest, FormChangesRemoveField) {
   // Now, after the call to |FormsSeen|, we remove the field before filling.
   form.fields.erase(form.fields.begin() + 3);
 
-  std::string guid = autofill_manager_->GetLabeledProfile("Home")->guid();
+  std::string guid = "00000000-0000-0000-0000-000000000001";
   FillAutoFillFormData(
       kDefaultPageID, form, form.fields[0],
       autofill_manager_->PackGUIDs(std::string(), guid));
@@ -1708,7 +1700,7 @@ TEST_F(AutoFillManagerTest, FormChangesRemoveField) {
 }
 
 // Test that we can still fill a form when a field has been added to it.
-TEST_F(AutoFillManagerTest, FormChangesAddField) {
+TEST_F(AutofillManagerTest, FormChangesAddField) {
   // The offset of the fax field in the address form.
   const int kFaxFieldOffset = 10;
 
@@ -1727,7 +1719,7 @@ TEST_F(AutoFillManagerTest, FormChangesAddField) {
   // Now, after the call to |FormsSeen|, we restore the field before filling.
   form.fields.insert(pos, field);
 
-  std::string guid = autofill_manager_->GetLabeledProfile("Home")->guid();
+  std::string guid = "00000000-0000-0000-0000-000000000001";
   FillAutoFillFormData(
       kDefaultPageID, form, form.fields[0],
       autofill_manager_->PackGUIDs(std::string(), guid));
@@ -1740,7 +1732,7 @@ TEST_F(AutoFillManagerTest, FormChangesAddField) {
 
 // Checks that resetting the auxiliary profile enabled preference does the right
 // thing on all platforms.
-TEST_F(AutoFillManagerTest, AuxiliaryProfilesReset) {
+TEST_F(AutofillManagerTest, AuxiliaryProfilesReset) {
 #if defined(OS_MACOSX)
   // Auxiliary profiles is implemented on Mac only.  It enables Mac Address
   // Book integration.

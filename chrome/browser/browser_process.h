@@ -27,6 +27,7 @@ class ChromeNetLog;
 class DevToolsManager;
 class DownloadRequestLimiter;
 class DownloadStatusUpdater;
+class ExtensionEventRouterForwarder;
 class GoogleURLTracker;
 class IconManager;
 class IntranetRedirectDetector;
@@ -39,6 +40,7 @@ class ResourceDispatcherHost;
 class SidebarManager;
 class TabCloseableStateWatcher;
 class ThumbnailGenerator;
+class WatchDogThread;
 
 namespace base {
 class Thread;
@@ -51,7 +53,7 @@ class PrintPreviewTabController;
 }
 
 namespace policy {
-class ConfigurationPolicyProviderKeeper;
+class BrowserPolicyConnector;
 }
 
 namespace ui {
@@ -80,6 +82,8 @@ class BrowserProcess {
   virtual DevToolsManager* devtools_manager() = 0;
   virtual SidebarManager* sidebar_manager() = 0;
   virtual ui::Clipboard* clipboard() = 0;
+  virtual ExtensionEventRouterForwarder*
+      extension_event_router_forwarder() = 0;
 
   // Returns the manager for desktop notifications.
   virtual NotificationUIManager* notification_ui_manager() = 0;
@@ -115,8 +119,10 @@ class BrowserProcess {
   virtual base::Thread* background_x11_thread() = 0;
 #endif
 
-  virtual policy::ConfigurationPolicyProviderKeeper*
-      configuration_policy_provider_keeper() = 0;
+  // Returns the thread that is used for health check of all browser threads.
+  virtual WatchDogThread* watchdog_thread() = 0;
+
+  virtual policy::BrowserPolicyConnector* browser_policy_connector() = 0;
 
   virtual IconManager* icon_manager() = 0;
 
@@ -165,6 +171,10 @@ class BrowserProcess {
   // client-side detection servers.
   virtual safe_browsing::ClientSideDetectionService*
       safe_browsing_detection_service() = 0;
+
+  // Returns the state of the disable plugin finder policy. Callable only on
+  // the IO thread.
+  virtual bool plugin_finder_disabled() const = 0;
 
   // Trigger an asynchronous check to see if we have the inspector's files on
   // disk.

@@ -12,20 +12,21 @@
 #include "chrome/browser/background_contents_service.h"
 #include "chrome/browser/character_encoding.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/gpu_data_manager.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_widget_fullscreen_host.h"
-#include "chrome/browser/renderer_host/render_widget_host.h"
-#include "chrome/browser/renderer_host/render_widget_host_view.h"
-#include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/tab_contents/background_contents.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/user_style_sheet_watcher.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_widget_fullscreen_host.h"
+#include "content/browser/renderer_host/render_widget_host.h"
+#include "content/browser/renderer_host/render_widget_host_view.h"
+#include "content/browser/site_instance.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_view.h"
 
 RenderViewHostDelegateViewHelper::RenderViewHostDelegateViewHelper() {}
 
@@ -193,20 +194,18 @@ bool RenderViewHostDelegateHelper::gpu_enabled_ = true;
 
 // static
 WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
-    Profile* profile, bool is_dom_ui) {
+    Profile* profile, bool is_web_ui) {
   PrefService* prefs = profile->GetPrefs();
   WebPreferences web_prefs;
 
+  web_prefs.standard_font_family =
+      UTF8ToUTF16(prefs->GetString(prefs::kWebKitStandardFontFamily));
   web_prefs.fixed_font_family =
       UTF8ToUTF16(prefs->GetString(prefs::kWebKitFixedFontFamily));
   web_prefs.serif_font_family =
       UTF8ToUTF16(prefs->GetString(prefs::kWebKitSerifFontFamily));
   web_prefs.sans_serif_font_family =
       UTF8ToUTF16(prefs->GetString(prefs::kWebKitSansSerifFontFamily));
-  if (prefs->GetBoolean(prefs::kWebKitStandardFontIsSerif))
-    web_prefs.standard_font_family = web_prefs.serif_font_family;
-  else
-    web_prefs.standard_font_family = web_prefs.sans_serif_font_family;
   web_prefs.cursive_font_family =
       UTF8ToUTF16(prefs->GetString(prefs::kWebKitCursiveFontFamily));
   web_prefs.fantasy_font_family =
@@ -287,6 +286,10 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
         command_line.HasSwitch(switches::kAllowFileAccessFromFiles);
     web_prefs.show_composited_layer_borders =
         command_line.HasSwitch(switches::kShowCompositedLayerBorders);
+    web_prefs.show_composited_layer_tree =
+        command_line.HasSwitch(switches::kShowCompositedLayerTree);
+    web_prefs.show_fps_counter =
+        command_line.HasSwitch(switches::kShowFPSCounter);
     web_prefs.accelerated_compositing_enabled =
         gpu_enabled() &&
         !command_line.HasSwitch(switches::kDisableAcceleratedCompositing);
@@ -294,7 +297,9 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
         gpu_enabled() &&
         command_line.HasSwitch(switches::kEnableAccelerated2dCanvas);
     web_prefs.accelerated_layers_enabled =
-        command_line.HasSwitch(switches::kEnableAcceleratedLayers);
+        !command_line.HasSwitch(switches::kDisableAcceleratedLayers);
+    web_prefs.composite_to_texture_enabled =
+        command_line.HasSwitch(switches::kEnableCompositeToTexture);
     web_prefs.accelerated_plugins_enabled =
         command_line.HasSwitch(switches::kEnableAcceleratedPlugins);
     web_prefs.accelerated_video_enabled =
@@ -305,6 +310,9 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
         !command_line.HasSwitch(switches::kNoPings);
     web_prefs.interactive_form_validation_enabled =
         !command_line.HasSwitch(switches::kDisableInteractiveFormValidation);
+    web_prefs.fullscreen_enabled =
+        command_line.HasSwitch(switches::kEnableFullScreen);
+
     // The user stylesheet watcher may not exist in a testing profile.
     if (profile->GetUserStyleSheetWatcher()) {
       web_prefs.user_style_sheet_enabled = true;
@@ -313,6 +321,20 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
     } else {
       web_prefs.user_style_sheet_enabled = false;
     }
+  }
+
+  {  // Certain GPU features might have been blacklisted.
+    GpuDataManager* gpu_data_manager = GpuDataManager::GetInstance();
+    DCHECK(gpu_data_manager);
+    if (!gpu_data_manager->GpuFeatureAllowed(
+            GpuFeatureFlags::kGpuFeatureAcceleratedCompositing))
+      web_prefs.accelerated_compositing_enabled = false;
+    if (!gpu_data_manager->GpuFeatureAllowed(
+            GpuFeatureFlags::kGpuFeatureWebgl))
+      web_prefs.experimental_webgl_enabled = false;
+    if (!gpu_data_manager->GpuFeatureAllowed(
+            GpuFeatureFlags::kGpuFeatureMultisampling))
+      web_prefs.gl_multisampling_enabled = false;
   }
 
   web_prefs.uses_universal_detector =
@@ -330,7 +352,7 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
   }
   DCHECK(!web_prefs.default_encoding.empty());
 
-  if (is_dom_ui) {
+  if (is_web_ui) {
     web_prefs.loads_images_automatically = true;
     web_prefs.javascript_enabled = true;
   }

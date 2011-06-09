@@ -11,7 +11,6 @@
 
 #include "app/surface/transport_dib.h"
 #include "base/file_path.h"
-#include "base/file_util_proxy.h"
 #include "base/ref_counted.h"
 #include "base/shared_memory.h"
 #include "base/time.h"
@@ -28,11 +27,11 @@
 #include "googleurl/src/gurl.h"
 #include "ipc/ipc_param_traits.h"
 #include "media/audio/audio_parameters.h"
+#include "net/base/host_port_pair.h"
 #include "third_party/WebKit/Source/WebKit/chromium/public/WebTextDirection.h"
 #include "ui/gfx/rect.h"
 #include "ui/gfx/size.h"
 #include "webkit/glue/password_form.h"
-#include "webkit/glue/resource_type.h"
 #include "webkit/glue/webaccessibility.h"
 #include "webkit/glue/webmenuitem.h"
 #include "webkit/glue/webpreferences.h"
@@ -292,10 +291,6 @@ struct ViewHostMsg_FrameNavigate_Params {
   // True if this was a post request.
   bool is_post;
 
-  // Whether the content of the frame was replaced with some alternate content
-  // (this can happen if the resource was insecure).
-  bool is_content_filtered;
-
   // Whether the frame navigation resulted in no change to the documents within
   // the page. For example, the navigation may have just resulted in scrolling
   // to a named anchor.
@@ -303,6 +298,16 @@ struct ViewHostMsg_FrameNavigate_Params {
 
   // The status code of the HTTP request.
   int http_status_code;
+
+  // Remote address of the socket which fetched this resource.
+  net::HostPortPair socket_address;
+
+  // True if the connection was proxied.  In this case, socket_address
+  // will represent the address of the proxy, rather than the remote host.
+  bool was_fetched_via_proxy;
+
+  // Serialized history item state to store in the navigation entry.
+  std::string content_state;
 };
 
 // Values that may be OR'd together to form the 'flags' parameter of a
@@ -345,7 +350,7 @@ struct ViewHostMsg_UpdateRect_Params {
   gfx::Rect scroll_rect;
 
   // The scroll offset of the render view.
-  gfx::Size scroll_offset;
+  gfx::Point scroll_offset;
 
   // The regions of the bitmap (in view coords) that contain updated pixels.
   // In the case of scrolling, this includes the scroll damage rect.
@@ -419,74 +424,6 @@ struct ViewMsg_ClosePage_Params {
   // must be valid when for_cross_site_transition is set, and must be -1
   // otherwise.
   int new_request_id;
-};
-
-// Parameters for a resource request.
-struct ViewHostMsg_Resource_Request {
-  ViewHostMsg_Resource_Request();
-  ~ViewHostMsg_Resource_Request();
-
-  // The request method: GET, POST, etc.
-  std::string method;
-
-  // The requested URL.
-  GURL url;
-
-  // Usually the URL of the document in the top-level window, which may be
-  // checked by the third-party cookie blocking policy. Leaving it empty may
-  // lead to undesired cookie blocking. Third-party cookie blocking can be
-  // bypassed by setting first_party_for_cookies = url, but this should ideally
-  // only be done if there really is no way to determine the correct value.
-  GURL first_party_for_cookies;
-
-  // The referrer to use (may be empty).
-  GURL referrer;
-
-  // The origin of the frame that is associated with this request.  This is used
-  // to update our insecure content state.
-  std::string frame_origin;
-
-  // The origin of the main frame (top-level frame) that is associated with this
-  // request.  This is used to update our insecure content state.
-  std::string main_frame_origin;
-
-  // Additional HTTP request headers.
-  std::string headers;
-
-  // net::URLRequest load flags (0 by default).
-  int load_flags;
-
-  // Process ID from which this request originated, or zero if it originated
-  // in the renderer itself.
-  int origin_pid;
-
-  // What this resource load is for (main frame, sub-frame, sub-resource,
-  // object).
-  ResourceType::Type resource_type;
-
-  // Used by plugin->browser requests to get the correct net::URLRequestContext.
-  uint32 request_context;
-
-  // Indicates which frame (or worker context) the request is being loaded into,
-  // or kNoHostId.
-  int appcache_host_id;
-
-  // Optional upload data (may be null).
-  scoped_refptr<net::UploadData> upload_data;
-
-  bool download_to_file;
-
-  // True if the request was user initiated.
-  bool has_user_gesture;
-
-  // The following two members are specified if the request is initiated by
-  // a plugin like Gears.
-
-  // Contains the id of the host renderer.
-  int host_renderer_id;
-
-  // Contains the id of the host render view.
-  int host_render_view_id;
 };
 
 // Parameters for a render request.
@@ -573,6 +510,9 @@ struct ViewHostMsg_DidPreviewDocument_Params {
 
   // Cookie for the document to ensure correctness.
   int document_cookie;
+
+  // Store the expected pages count.
+  int expected_pages_count;
 };
 
 // Parameters to describe a rendered page.
@@ -926,6 +866,36 @@ struct ViewHostMsg_AccessibilityNotification_Params {
   webkit_glue::WebAccessibility acc_obj;
 };
 
+// A node is essentially a frame.
+struct ViewHostMsg_MalwareDOMDetails_Node {
+  ViewHostMsg_MalwareDOMDetails_Node();
+  ~ViewHostMsg_MalwareDOMDetails_Node();
+
+  // URL of this resource. Can be empty.
+  GURL url;
+
+  // If this resource was in the "src" attribute of a tag, this is the tagname
+  // (eg "IFRAME"). Can be empty.
+  std::string tag_name;
+
+  // URL of the parent node. Can be empty.
+  GURL parent;
+
+  // children of this node. Can be emtpy.
+  std::vector<GURL> children;
+};
+
+// Parameters to describe interesting details from a rendered page that lead
+// to a malware warning.
+struct ViewHostMsg_MalwareDOMDetails_Params {
+  ViewHostMsg_MalwareDOMDetails_Params();
+  ~ViewHostMsg_MalwareDOMDetails_Params();
+
+  // All the nodes we extracted.
+  std::vector<ViewHostMsg_MalwareDOMDetails_Node> nodes;
+};
+
+
 namespace IPC {
 
 class Message;
@@ -990,14 +960,6 @@ struct ParamTraits<ViewHostMsg_UpdateRect_Params> {
 template <>
 struct ParamTraits<ViewMsg_ClosePage_Params> {
   typedef ViewMsg_ClosePage_Params param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, void** iter, param_type* r);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template <>
-struct ParamTraits<ViewHostMsg_Resource_Request> {
-  typedef ViewHostMsg_Resource_Request param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, void** iter, param_type* r);
   static void Log(const param_type& p, std::string* l);
@@ -1140,16 +1102,24 @@ struct ParamTraits<ViewHostMsg_DomMessage_Params> {
 };
 
 template <>
-struct ParamTraits<base::FileUtilProxy::Entry> {
-  typedef base::FileUtilProxy::Entry param_type;
+struct ParamTraits<ViewHostMsg_AccessibilityNotification_Params> {
+  typedef ViewHostMsg_AccessibilityNotification_Params param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, void** iter, param_type* p);
   static void Log(const param_type& p, std::string* l);
 };
 
 template <>
-struct ParamTraits<ViewHostMsg_AccessibilityNotification_Params> {
-  typedef ViewHostMsg_AccessibilityNotification_Params param_type;
+struct ParamTraits<ViewHostMsg_MalwareDOMDetails_Params> {
+  typedef ViewHostMsg_MalwareDOMDetails_Params param_type;
+  static void Write(Message* m, const param_type& p);
+  static bool Read(const Message* m, void** iter, param_type* p);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
+struct ParamTraits<ViewHostMsg_MalwareDOMDetails_Node> {
+  typedef ViewHostMsg_MalwareDOMDetails_Node param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, void** iter, param_type* p);
   static void Log(const param_type& p, std::string* l);

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,9 +14,9 @@ cr.define('options', function() {
    * @class
    */
   function AutoFillEditAddressOverlay() {
-    OptionsPage.call(this, 'autoFillEditAddressOverlay',
+    OptionsPage.call(this, 'autoFillEditAddress',
                      templateData.autoFillEditAddressTitle,
-                     'autoFillEditAddressOverlay');
+                     'autofill-edit-address-overlay');
   }
 
   cr.addSingletonGetter(AutoFillEditAddressOverlay);
@@ -31,15 +31,16 @@ cr.define('options', function() {
       OptionsPage.prototype.initializePage.call(this);
 
       var self = this;
-      $('autoFillEditAddressCancelButton').onclick = function(event) {
+      $('autofill-edit-address-cancel-button').onclick = function(event) {
         self.dismissOverlay_();
       }
-      $('autoFillEditAddressApplyButton').onclick = function(event) {
+      $('autofill-edit-address-apply-button').onclick = function(event) {
         self.saveAddress_();
         self.dismissOverlay_();
       }
 
       self.guid = '';
+      self.populateCountryList_();
       self.clearInputFields_();
       self.connectInputEvents_();
     },
@@ -63,13 +64,13 @@ cr.define('options', function() {
     saveAddress_: function() {
       var address = new Array();
       address[0] = this.guid;
-      address[1] = $('fullName').value;
-      address[2] = $('companyName').value;
-      address[3] = $('addrLine1').value;
-      address[4] = $('addrLine2').value;
+      address[1] = $('full-name').value;
+      address[2] = $('company-name').value;
+      address[3] = $('addr-line-1').value;
+      address[4] = $('addr-line-2').value;
       address[5] = $('city').value;
       address[6] = $('state').value;
-      address[7] = $('zipCode').value;
+      address[7] = $('postal-code').value;
       address[8] = $('country').value;
       address[9] = $('phone').value;
       address[10] = $('fax').value;
@@ -86,12 +87,15 @@ cr.define('options', function() {
      */
     connectInputEvents_: function() {
       var self = this;
-      $('fullName').oninput = $('companyName').oninput =
-      $('addrLine1').oninput = $('addrLine2').oninput = $('city').oninput =
-      $('state').oninput = $('country').oninput = $('zipCode').oninput =
-      $('phone').oninput = $('fax').oninput =
-      $('email').oninput = function(event) {
+      $('full-name').oninput = $('company-name').oninput =
+      $('addr-line-1').oninput = $('addr-line-2').oninput = $('city').oninput =
+      $('state').oninput = $('postal-code').oninput = $('phone').oninput =
+      $('fax').oninput = $('email').oninput = function(event) {
         self.inputFieldChanged_();
+      }
+
+      $('country').onchange = function(event) {
+        self.countryChanged_();
       }
     },
 
@@ -102,11 +106,79 @@ cr.define('options', function() {
      */
     inputFieldChanged_: function() {
       var disabled =
-          !$('fullName').value && !$('companyName').value &&
-          !$('addrLine1').value && !$('addrLine2').value && !$('city').value &&
-          !$('state').value && !$('zipCode').value && !('country').value &&
-          !$('phone').value && !$('fax').value && !$('email').value;
-      $('autoFillEditAddressApplyButton').disabled = disabled;
+          !$('full-name').value && !$('company-name').value &&
+          !$('addr-line-1').value && !$('addr-line-2').value &&
+          !$('city').value && !$('state').value && !$('postal-code').value &&
+          !$('country').value && !$('phone').value && !$('fax').value &&
+          !$('email').value;
+      $('autofill-edit-address-apply-button').disabled = disabled;
+    },
+
+    /**
+     * Updates the postal code and state field labels appropriately for the
+     * selected country.
+     * @private
+     */
+    countryChanged_: function() {
+      var countryCode = $('country').value;
+      if (!countryCode)
+        countryCode = templateData.defaultCountryCode;
+
+      var details = templateData.autofillCountryData[countryCode];
+      var postal = $('postal-code-label');
+      postal.textContent = details['postalCodeLabel'];
+      $('state-label').textContent = details['stateLabel'];
+
+      // Also update the 'Ok' button as needed.
+      this.inputFieldChanged_();
+    },
+
+    /**
+     * Populates the country <select> list.
+     * @private
+     */
+    populateCountryList_: function() {
+      var countryData = templateData.autofillCountryData;
+      var defaultCountryCode = templateData.defaultCountryCode;
+
+      // Build an array of the country names and their corresponding country
+      // codes, so that we can sort and insert them in order.
+      var countries = [];
+      for (var countryCode in countryData) {
+        // We always want the default country to be at the top of the list, so
+        // we handle it separately.
+        if (countryCode == defaultCountryCode)
+          continue;
+
+        var country = {
+          countryCode: countryCode,
+          name: countryData[countryCode]['name']
+        };
+        countries.push(country);
+      }
+
+      // Sort the countries in alphabetical order by name.
+      countries = countries.sort(function(a, b) {
+        return a.name < b.name ? -1 : 1;
+      });
+
+      // Insert the empty and default countries at the beginning of the array.
+      var emptyCountry = {
+        countryCode: '',
+        name: ''
+      };
+      var defaultCountry = {
+        countryCode: defaultCountryCode,
+        name: countryData[defaultCountryCode]['name']
+      };
+      countries.unshift(emptyCountry, defaultCountry);
+
+      // Add the countries to the country <select> list.
+      var countryList = $('country');
+      for (var i = 0; i < countries.length; i++) {
+        var country = new Option(countries[i].name, countries[i].countryCode);
+        countryList.appendChild(country)
+      }
     },
 
     /**
@@ -114,17 +186,19 @@ cr.define('options', function() {
      * @private
      */
     clearInputFields_: function() {
-      $('fullName').value = '';
-      $('companyName').value = '';
-      $('addrLine1').value = '';
-      $('addrLine2').value = '';
+      $('full-name').value = '';
+      $('company-name').value = '';
+      $('addr-line-1').value = '';
+      $('addr-line-2').value = '';
       $('city').value = '';
       $('state').value = '';
-      $('zipCode').value = '';
+      $('postal-code').value = '';
       $('country').value = '';
       $('phone').value = '';
       $('fax').value = '';
       $('email').value = '';
+
+      this.countryChanged_();
     },
 
     /**
@@ -143,17 +217,19 @@ cr.define('options', function() {
      * @private
      */
     setInputFields_: function(address) {
-      $('fullName').value = address['fullName'];
-      $('companyName').value = address['companyName'];
-      $('addrLine1').value = address['addrLine1'];
-      $('addrLine2').value = address['addrLine2'];
+      $('full-name').value = address['fullName'];
+      $('company-name').value = address['companyName'];
+      $('addr-line-1').value = address['addrLine1'];
+      $('addr-line-2').value = address['addrLine2'];
       $('city').value = address['city'];
       $('state').value = address['state'];
-      $('zipCode').value = address['zipCode'];
+      $('postal-code').value = address['postalCode'];
       $('country').value = address['country'];
       $('phone').value = address['phone'];
       $('fax').value = address['fax'];
       $('email').value = address['email'];
+
+      this.countryChanged_();
     },
   };
 
@@ -166,7 +242,7 @@ cr.define('options', function() {
   };
 
   AutoFillEditAddressOverlay.setTitle = function(title) {
-    $('autoFillAddressTitle').textContent = title;
+    $('autofill-address-title').textContent = title;
   };
 
   // Export

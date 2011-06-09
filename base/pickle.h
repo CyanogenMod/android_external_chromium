@@ -68,6 +68,7 @@ class Pickle {
   bool ReadInt(void** iter, int* result) const;
   bool ReadLong(void** iter, long* result) const;
   bool ReadSize(void** iter, size_t* result) const;
+  bool ReadUInt16(void** iter, uint16* result) const;
   bool ReadUInt32(void** iter, uint32* result) const;
   bool ReadInt64(void** iter, int64* result) const;
   bool ReadUInt64(void** iter, uint64* result) const;
@@ -95,6 +96,9 @@ class Pickle {
     return WriteBytes(&value, sizeof(value));
   }
   bool WriteSize(size_t value) {
+    return WriteBytes(&value, sizeof(value));
+  }
+  bool WriteUInt16(uint16 value) {
     return WriteBytes(&value, sizeof(value));
   }
   bool WriteUInt32(uint32 value) {
@@ -143,12 +147,12 @@ class Pickle {
   // to the Pickle constructor.
   template <class T>
   T* headerT() {
-    DCHECK(sizeof(T) == header_size_);
+    DCHECK_EQ(header_size_, sizeof(T));
     return static_cast<T*>(header_);
   }
   template <class T>
   const T* headerT() const {
-    DCHECK(sizeof(T) == header_size_);
+    DCHECK_EQ(header_size_, sizeof(T));
     return static_cast<const T*>(header_);
   }
 

@@ -36,7 +36,9 @@
 #ifndef GMOCK_INCLUDE_GMOCK_GMOCK_MORE_ACTIONS_H_
 #define GMOCK_INCLUDE_GMOCK_GMOCK_MORE_ACTIONS_H_
 
-#include <gmock/gmock-generated-actions.h>
+#include <algorithm>
+
+#include "gmock/gmock-generated-actions.h"
 
 namespace testing {
 namespace internal {
@@ -153,6 +155,14 @@ ACTION_TEMPLATE(SaveArg,
   *pointer = ::std::tr1::get<k>(args);
 }
 
+// Action SaveArgPointee<k>(pointer) saves the value pointed to
+// by the k-th (0-based) argument of the mock function to *pointer.
+ACTION_TEMPLATE(SaveArgPointee,
+                HAS_1_TEMPLATE_PARAMS(int, k),
+                AND_1_VALUE_PARAMS(pointer)) {
+  *pointer = *::std::tr1::get<k>(args);
+}
+
 // Action SetArgReferee<k>(value) assigns 'value' to the variable
 // referenced by the k-th (0-based) argument of the mock function.
 ACTION_TEMPLATE(SetArgReferee,
@@ -194,6 +204,9 @@ ACTION_TEMPLATE(DeleteArg,
                 AND_0_VALUE_PARAMS()) {
   delete ::std::tr1::get<k>(args);
 }
+
+// This action returns the value pointed to by 'pointer'.
+ACTION_P(ReturnPointee, pointer) { return *pointer; }
 
 // Action Throw(exception) can be used in a mock function of any type
 // to throw the given exception.  Any copyable value can be thrown.

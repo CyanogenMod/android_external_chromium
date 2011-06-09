@@ -13,14 +13,14 @@
 #include "base/logging.h"
 #include "base/nss_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/certificate_viewer.h"
 #include "chrome/browser/ssl/ssl_client_auth_handler.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/crypto_module_password_dialog.h"
 #include "chrome/browser/ui/gtk/constrained_window_gtk.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/browser/ui/gtk/owned_widget_gtk.h"
 #include "chrome/common/net/x509_certificate_model.h"
+#include "content/browser/certificate_viewer.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/generated_resources.h"
 #include "net/base/x509_certificate.h"
 #include "ui/base/gtk/gtk_signal.h"
@@ -48,6 +48,7 @@ class SSLClientCertificateSelector : public ConstrainedDialogDelegate {
 
   // ConstrainedDialogDelegate implementation:
   virtual GtkWidget* GetWidgetRoot() { return root_widget_.get(); }
+  virtual GtkWidget* GetFocusWidget();
   virtual void DeleteDelegate();
 
  private:
@@ -188,6 +189,10 @@ SSLClientCertificateSelector::~SSLClientCertificateSelector() {
 void SSLClientCertificateSelector::Show() {
   DCHECK(!window_);
   window_ = parent_->CreateConstrainedDialog(this);
+}
+
+GtkWidget* SSLClientCertificateSelector::GetFocusWidget() {
+  return select_button_;
 }
 
 void SSLClientCertificateSelector::DeleteDelegate() {
@@ -356,7 +361,6 @@ void SSLClientCertificateSelector::OnPromptShown(GtkWidget* widget,
     return;
   GTK_WIDGET_SET_FLAGS(select_button_, GTK_CAN_DEFAULT);
   gtk_widget_grab_default(select_button_);
-  gtk_widget_grab_focus(select_button_);
 }
 
 }  // namespace

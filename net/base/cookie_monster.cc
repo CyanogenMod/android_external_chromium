@@ -1166,11 +1166,11 @@ bool CookieMonster::SetCookieWithCreationTimeAndOptions(
   scoped_ptr<CanonicalCookie> cc;
   Time cookie_expires = CanonExpiration(pc, creation_time, options);
 
-  cc.reset(new CanonicalCookie(pc.Name(), pc.Value(), cookie_domain,
-                               cookie_path,
-                               pc.IsSecure(), pc.IsHttpOnly(),
-                               creation_time, creation_time,
-                               !cookie_expires.is_null(), cookie_expires));
+  cc.reset(new CanonicalCookie(url, pc.Name(),
+                               pc.Value(), cookie_domain, cookie_path,
+                               pc.IsSecure(), pc.IsHttpOnly(), creation_time,
+                               creation_time, !cookie_expires.is_null(),
+                               cookie_expires));
 
   if (!cc.get()) {
     VLOG(kVlogSetCookies) << "WARNING: Failed to allocate CanonicalCookie";
@@ -1579,7 +1579,7 @@ CookieMonster::ParsedCookie::ParsedCookie(const std::string& cookie_line)
   }
 
   ParseTokenValuePairs(cookie_line);
-  if (pairs_.size() > 0) {
+  if (!pairs_.empty()) {
     is_valid_ = true;
     SetupAttributes();
   }
@@ -1871,7 +1871,8 @@ CookieMonster::CanonicalCookie::CanonicalCookie()
       httponly_(false) {
 }
 
-CookieMonster::CanonicalCookie::CanonicalCookie(const std::string& name,
+CookieMonster::CanonicalCookie::CanonicalCookie(const GURL& url,
+                                                const std::string& name,
                                                 const std::string& value,
                                                 const std::string& domain,
                                                 const std::string& path,
@@ -1881,21 +1882,23 @@ CookieMonster::CanonicalCookie::CanonicalCookie(const std::string& name,
                                                 const base::Time& last_access,
                                                 bool has_expires,
                                                 const base::Time& expires)
-    : name_(name),
-    value_(value),
-    domain_(domain),
-    path_(path),
-    creation_date_(creation),
-    last_access_date_(last_access),
-    expiry_date_(expires),
-    has_expires_(has_expires),
-    secure_(secure),
-    httponly_(httponly) {
+    : source_(GetCookieSourceFromURL(url)),
+      name_(name),
+      value_(value),
+      domain_(domain),
+      path_(path),
+      creation_date_(creation),
+      last_access_date_(last_access),
+      expiry_date_(expires),
+      has_expires_(has_expires),
+      secure_(secure),
+      httponly_(httponly) {
 }
 
 CookieMonster::CanonicalCookie::CanonicalCookie(const GURL& url,
                                                 const ParsedCookie& pc)
-    : name_(pc.Name()),
+    : source_(GetCookieSourceFromURL(url)),
+      name_(pc.Name()),
       value_(pc.Value()),
       path_(CanonPath(url, pc)),
       creation_date_(Time::Now()),
@@ -1921,6 +1924,19 @@ CookieMonster::CanonicalCookie::CanonicalCookie(const GURL& url,
 }
 
 CookieMonster::CanonicalCookie::~CanonicalCookie() {
+}
+
+std::string CookieMonster::CanonicalCookie::GetCookieSourceFromURL(
+    const GURL& url) {
+  if (url.SchemeIsFile())
+    return url.spec();
+
+  url_canon::Replacements<char> replacements;
+  replacements.ClearPort();
+  if (url.SchemeIsSecure())
+    replacements.SetScheme("http", url_parse::Component(0, 4));
+
+  return url.GetOrigin().ReplaceComponents(replacements).spec();
 }
 
 CookieMonster::CanonicalCookie* CookieMonster::CanonicalCookie::Create(
@@ -1961,9 +1977,9 @@ CookieMonster::CanonicalCookie* CookieMonster::CanonicalCookie::Create(
   cookie_path = std::string(canon_path.data() + canon_path_component.begin,
                             canon_path_component.len);
 
-  return new CanonicalCookie(parsed_name, parsed_value, cookie_domain,
-                             cookie_path, secure, http_only,
-                             creation_time, creation_time,
+  return new CanonicalCookie(url, parsed_name,
+                             parsed_value, cookie_domain, cookie_path, secure,
+                             http_only, creation_time, creation_time,
                              !expiration_time.is_null(), expiration_time);
 }
 

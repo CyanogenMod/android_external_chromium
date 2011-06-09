@@ -6,9 +6,9 @@
 
 #include "chrome/browser/cookies_tree_model.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_source.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
@@ -372,8 +372,7 @@ void CollectedCookiesWin::AddContentException(views::TreeView* tree_view,
   origin_node->CreateContentException(
       tab_contents_->profile()->GetHostContentSettingsMap(), setting);
   infobar_->UpdateVisibility(true, setting, origin_node->GetTitle());
-  gfx::Rect bounds;
-  GetWidget()->GetBounds(&bounds, false);
+  gfx::Rect bounds = GetWidget()->GetClientAreaScreenBounds();
   // WidgetWin::GetBounds returns the bounds relative to the parent window,
   // while WidgetWin::SetBounds wants screen coordinates. Do the translation
   // here until http://crbug.com/52851 is fixed.

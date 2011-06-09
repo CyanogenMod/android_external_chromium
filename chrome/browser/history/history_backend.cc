@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -376,7 +376,7 @@ void HistoryBackend::AddPage(scoped_refptr<HistoryAddPageArgs> request) {
 
   // If a redirect chain is given, we expect the last item in that chain to be
   // the final URL.
-  DCHECK(request->redirects.size() == 0 ||
+  DCHECK(request->redirects.empty() ||
          request->redirects.back() == request->url);
 
   // Avoid duplicating times in the database, at least as long as pages are
@@ -550,7 +550,7 @@ void HistoryBackend::InitImpl(const std::string& languages) {
   // Fill the in-memory database and send it back to the history service on the
   // main thread.
   InMemoryHistoryBackend* mem_backend = new InMemoryHistoryBackend;
-  if (mem_backend->Init(history_name, db_.get(), languages))
+  if (mem_backend->Init(history_name, history_dir_, db_.get(), languages))
     delegate_->SetInMemoryBackend(mem_backend);  // Takes ownership of pointer.
   else
     delete mem_backend;  // Error case, run without the in-memory DB.

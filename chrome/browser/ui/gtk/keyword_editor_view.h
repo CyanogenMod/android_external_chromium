@@ -12,11 +12,11 @@
 #include "base/gtest_prod_util.h"
 #include "base/scoped_ptr.h"
 #include "base/string16.h"
-#include "chrome/browser/search_engines/edit_search_engine_controller.h"
 #include "chrome/browser/search_engines/template_url_model_observer.h"
+#include "chrome/browser/ui/search_engines/edit_search_engine_controller.h"
+#include "ui/base/gtk/gtk_signal.h"
 #include "ui/base/models/table_model_observer.h"
 
-class AccessibleWidgetHelper;
 class KeywordEditorController;
 class Profile;
 class TemplateURLTableModel;
@@ -90,8 +90,7 @@ class KeywordEditorView : public ui::TableModelObserver,
   static void OnWindowDestroy(GtkWidget* widget, KeywordEditorView* window);
 
   // Callback for dialog buttons.
-  static void OnResponse(GtkDialog* dialog, int response_id,
-                         KeywordEditorView* window);
+  CHROMEGTK_CALLBACK_1(KeywordEditorView, void, OnResponse, int);
 
   // Callback checking whether a row should be drawn as a separator.
   static gboolean OnCheckRowIsSeparator(GtkTreeModel* model,
@@ -150,9 +149,6 @@ class KeywordEditorView : public ui::TableModelObserver,
   // but we need the old value to know which row to remove from the
   // |list_store_|.
   int model_second_group_index_;
-
-  // Helper object to manage accessibility metadata.
-  scoped_ptr<AccessibleWidgetHelper> accessible_widget_helper_;
 
   friend class KeywordEditorViewTest;
   FRIEND_TEST_ALL_PREFIXES(KeywordEditorViewTest, Empty);

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@
 #include "base/message_loop.h"
 #include "base/string_util.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/notifications/balloon_collection_impl.h"
 #include "chrome/browser/notifications/balloon.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
@@ -21,7 +20,9 @@
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/notifications/notifications_prefs_cache.h"
 #include "chrome/common/render_messages.h"
+#include "chrome/test/testing_pref_service.h"
 #include "chrome/test/testing_profile.h"
+#include "content/browser/browser_thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace chromeos {
@@ -89,6 +90,9 @@ class DesktopNotificationsTest : public testing::Test {
   // and a thread so that notifications code runs on the expected thread.
   MessageLoopForUI message_loop_;
   BrowserThread ui_thread_;
+
+  // Mock local state.
+  TestingPrefService local_state_;
 
   // Test profile.
   scoped_ptr<TestingProfile> profile_;

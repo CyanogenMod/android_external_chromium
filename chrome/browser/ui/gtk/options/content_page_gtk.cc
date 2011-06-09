@@ -18,12 +18,12 @@
 #include "chrome/browser/ui/gtk/gtk_chrome_link_button.h"
 #include "chrome/browser/ui/gtk/gtk_theme_provider.h"
 #include "chrome/browser/ui/gtk/gtk_util.h"
-#include "chrome/browser/ui/gtk/import_dialog_gtk.h"
+#include "chrome/browser/ui/gtk/importer/import_dialog_gtk.h"
 #include "chrome/browser/ui/gtk/options/options_layout_gtk.h"
 #include "chrome/browser/ui/gtk/options/passwords_exceptions_window_gtk.h"
-#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "content/common/notification_service.h"
 #include "grit/app_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -201,7 +201,7 @@ void ContentPageGtk::ObserveThemeChanged() {
   bool is_gtk_theme = false;
 #endif
 
-  bool is_classic_theme = !is_gtk_theme && provider->GetThemeID().empty();
+  bool is_classic_theme = !is_gtk_theme && provider->UsingDefaultTheme();
   gtk_widget_set_sensitive(themes_reset_button_, !is_classic_theme);
 }
 

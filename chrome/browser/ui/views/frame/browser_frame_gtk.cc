@@ -21,7 +21,7 @@
 BrowserFrame* BrowserFrame::Create(BrowserView* browser_view,
                                    Profile* profile) {
   BrowserFrameGtk* frame = new BrowserFrameGtk(browser_view, profile);
-  frame->Init();
+  frame->InitBrowserFrame();
   return frame;
 }
 #endif
@@ -44,13 +44,13 @@ BrowserFrameGtk::BrowserFrameGtk(BrowserView* browser_view, Profile* profile)
 BrowserFrameGtk::~BrowserFrameGtk() {
 }
 
-void BrowserFrameGtk::Init() {
+void BrowserFrameGtk::InitBrowserFrame() {
   if (browser_frame_view_ == NULL)
     browser_frame_view_ =
         browser::CreateBrowserNonClientFrameView(this, browser_view_);
 
-  GetNonClientView()->SetFrameView(browser_frame_view_);
-  WindowGtk::Init(NULL, gfx::Rect());
+  non_client_view()->SetFrameView(browser_frame_view_);
+  WindowGtk::InitWindow(NULL, gfx::Rect());
   // Don't focus anything on creation, selecting a tab will set the focus.
 }
 
@@ -98,10 +98,6 @@ void BrowserFrameGtk::TabStripDisplayModeChanged() {
 }
 
 ThemeProvider* BrowserFrameGtk::GetThemeProvider() const {
-  return profile_->GetThemeProvider();
-}
-
-ThemeProvider* BrowserFrameGtk::GetDefaultThemeProvider() const {
   return profile_->GetThemeProvider();
 }
 

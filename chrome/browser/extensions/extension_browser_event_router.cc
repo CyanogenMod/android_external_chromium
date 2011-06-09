@@ -11,14 +11,14 @@
 #include "chrome/browser/extensions/extension_page_actions_module_constants.h"
 #include "chrome/browser/extensions/extension_tabs_module_constants.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/notification_service.h"
+#include "content/browser/tab_contents/navigation_entry.h"
+#include "content/browser/tab_contents/tab_contents.h"
 
 namespace events = extension_event_names;
 namespace tab_keys = extension_tabs_module_constants;
@@ -349,6 +349,9 @@ void ExtensionBrowserEventRouter::TabSelectedAt(
     TabContentsWrapper* new_contents,
     int index,
     bool user_gesture) {
+  if (old_contents == new_contents)
+    return;
+
   ListValue args;
   args.Append(Value::CreateIntegerValue(
       ExtensionTabUtil::GetTabId(new_contents->tab_contents())));

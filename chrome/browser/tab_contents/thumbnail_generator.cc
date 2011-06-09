@@ -14,13 +14,13 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/history/top_sites.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/backing_store.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/property_bag.h"
 #include "chrome/common/thumbnail_score.h"
+#include "content/browser/renderer_host/backing_store.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "googleurl/src/gurl.h"
 #include "skia/ext/bitmap_platform_device.h"
 #include "skia/ext/image_operations.h"
@@ -649,7 +649,7 @@ void ThumbnailGenerator::UpdateThumbnailIfNecessary(
   // Compute the thumbnail score.
   ThumbnailScore score;
   score.at_top =
-      (tab_contents->render_view_host()->last_scroll_offset().height() == 0);
+      (tab_contents->render_view_host()->last_scroll_offset().y() == 0);
   score.boring_score = ThumbnailGenerator::CalculateBoringScore(&thumbnail);
   score.good_clipping =
       (clip_result == ThumbnailGenerator::kTallerThanWide ||

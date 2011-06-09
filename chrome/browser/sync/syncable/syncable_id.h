@@ -20,7 +20,6 @@ struct sqlite3_stmt;
 
 namespace syncable {
 struct EntryKernel;
-struct IdRowTraits;
 class Id;
 }  // namespace syncable
 
@@ -44,7 +43,6 @@ std::ostream& operator<<(std::ostream& out, const Id& id);
 class Id {
   friend int UnpackEntry(SQLStatement* statement,
                          syncable::EntryKernel** kernel);
-  friend struct syncable::IdRowTraits;
   friend int BindFields(const EntryKernel& entry, SQLStatement* statement);
   friend std::ostream& operator<<(std::ostream& out, const Id& id);
   friend class MockConnectionManager;
@@ -78,7 +76,9 @@ class Id {
   inline void Clear() {
     s_ = "r";
   }
-  // Must never allow id == 0 or id < 0 to compile.
+  inline int compare(const Id& that) const {
+    return s_.compare(that.s_);
+  }
   inline bool operator == (const Id& that) const {
     return s_ == that.s_;
   }
@@ -91,6 +91,10 @@ class Id {
   inline bool operator > (const Id& that) const {
     return s_ > that.s_;
   }
+  // Return the next highest ID in the lexicographic ordering.  This is
+  // useful for computing upper bounds on std::sets that are ordered
+  // by operator<.
+  Id GetLexicographicSuccessor() const;
 
   // Three functions are used to work with our proto buffers.
   std::string GetServerId() const;
@@ -99,7 +103,12 @@ class Id {
   // id from the server. Returns a client only opaque id.
   static Id CreateFromClientString(const std::string& local_id);
 
- protected:
+  // This method returns an ID that will compare less than any valid ID.
+  // The returned ID is not a valid ID itself.  This is useful for
+  // computing lower bounds on std::sets that are ordered by operator<.
+  static Id GetLeastIdForLexicographicComparison();
+
+ private:
   std::string s_;
 };
 

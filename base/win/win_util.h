@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,7 +55,7 @@ bool IsAltPressed();
 // NOTE: The EnableLUA registry flag, which is ignored on Windows XP
 // machines, might still exist and be set to 0 (UAC disabled), in which case
 // this function will return false. You should therefore check this flag only
-// if the OS is Vista.
+// if the OS is Vista or later.
 bool UserAccountControlIsEnabled();
 
 // Sets the application id in given IPropertyStore. The function is intended
@@ -72,6 +72,11 @@ bool AddCommandToAutoRun(HKEY root_key, const string16& name,
 // could be HKCU or HKLM or the root of any user hive.
 bool RemoveCommandFromAutoRun(HKEY root_key, const string16& name);
 
+// Reads the command specified by |name| from the AutoRun key. |root_key|
+// could be HKCU or HKLM or the root of any user hive. Used for unit-tests.
+bool ReadCommandFromAutoRun(HKEY root_key,
+                            const string16& name,
+                            string16* command);
 }  // namespace win
 }  // namespace base
 

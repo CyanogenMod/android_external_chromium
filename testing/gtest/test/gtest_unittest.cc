@@ -34,6 +34,7 @@
 
 #include "gtest/gtest.h"
 #include <vector>
+#include <ostream>
 
 // Verifies that the command line flag variables can be accessed
 // in code once <gtest/gtest.h> has been #included.
@@ -321,13 +322,11 @@ TEST(NullLiteralTest, IsTrueForNullLiterals) {
   EXPECT_TRUE(GTEST_IS_NULL_LITERAL_(0));
   EXPECT_TRUE(GTEST_IS_NULL_LITERAL_(0U));
   EXPECT_TRUE(GTEST_IS_NULL_LITERAL_(0L));
-  EXPECT_TRUE(GTEST_IS_NULL_LITERAL_(false));
 #ifndef __BORLANDC__
   // Some compilers may fail to detect some null pointer literals;
   // as long as users of the framework don't use such literals, this
   // is harmless.
   EXPECT_TRUE(GTEST_IS_NULL_LITERAL_(1 - 1));
-  EXPECT_TRUE(GTEST_IS_NULL_LITERAL_(true && false));
 #endif
 }
 
@@ -1149,7 +1148,8 @@ TEST(StringTest, CanBeAssignedNonEmpty) {
 TEST(StringTest, CanBeAssignedSelf) {
   String dest("hello");
 
-  dest = dest;
+  // Use explicit function call notation here to suppress self-assign warning.
+  dest.operator=(dest);
   EXPECT_STREQ("hello", dest.c_str());
 }
 
@@ -3729,7 +3729,8 @@ TEST(AssertionTest, ASSERT_ANY_THROW) {
 // compile.
 TEST(AssertionTest, AssertPrecedence) {
   ASSERT_EQ(1 < 2, true);
-  ASSERT_EQ(true && false, false);
+  bool false_value = false;
+  ASSERT_EQ(true && false_value, false);
 }
 
 // A subroutine used by the following test.
@@ -4218,7 +4219,7 @@ TEST(ExpectTest, EXPECT_EQ_Double) {
 TEST(ExpectTest, EXPECT_EQ_NULL) {
   // A success.
   const char* p = NULL;
-  // Some older GCC versions may issue a spurious waring in this or the next
+  // Some older GCC versions may issue a spurious warning in this or the next
   // assertion statement. This warning should not be suppressed with
   // static_cast since the test verifies the ability to use bare NULL as the
   // expected parameter to the macro.
@@ -4488,8 +4489,10 @@ TEST(MacroTest, SUCCEED) {
 // Tests using bool values in {EXPECT|ASSERT}_EQ.
 TEST(EqAssertionTest, Bool) {
   EXPECT_EQ(true,  true);
-  EXPECT_FATAL_FAILURE(ASSERT_EQ(false, true),
-                       "Value of: true");
+  EXPECT_FATAL_FAILURE({
+      bool false_value = false;
+      ASSERT_EQ(false_value, true);
+    }, "Value of: true");
 }
 
 // Tests using int values in {EXPECT|ASSERT}_EQ.
@@ -4902,7 +4905,7 @@ TEST(AssertionResultTest, ConstructionWorks) {
   EXPECT_STREQ("ghi", r5.message());
 }
 
-// Tests that the negation fips the predicate result but keeps the message.
+// Tests that the negation flips the predicate result but keeps the message.
 TEST(AssertionResultTest, NegationWorks) {
   AssertionResult r1 = AssertionSuccess() << "abc";
   EXPECT_FALSE(!r1);
@@ -4917,6 +4920,12 @@ TEST(AssertionResultTest, StreamingWorks) {
   AssertionResult r = AssertionSuccess();
   r << "abc" << 'd' << 0 << true;
   EXPECT_STREQ("abcd0true", r.message());
+}
+
+TEST(AssertionResultTest, CanStreamOstreamManipulators) {
+  AssertionResult r = AssertionSuccess();
+  r << "Data" << std::endl << std::flush << std::ends << "Will be visible";
+  EXPECT_STREQ("Data\n\\0Will be visible", r.message());
 }
 
 // Tests streaming a user type whose definition and operator << are
@@ -6462,8 +6471,9 @@ TEST(ColoredOutputTest, UsesColorsWhenTermSupportsColors) {
 
 // Verifies that StaticAssertTypeEq works in a namespace scope.
 
-static bool dummy1 = StaticAssertTypeEq<bool, bool>();
-static bool dummy2 = StaticAssertTypeEq<const int, const int>();
+static bool dummy1 GTEST_ATTRIBUTE_UNUSED_ = StaticAssertTypeEq<bool, bool>();
+static bool dummy2 GTEST_ATTRIBUTE_UNUSED_ =
+    StaticAssertTypeEq<const int, const int>();
 
 // Verifies that StaticAssertTypeEq works in a class.
 

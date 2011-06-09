@@ -18,11 +18,9 @@
 #include "base/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "chrome/browser/autofill/autofill_common_test.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/sync/abstract_profile_sync_service_test.h"
 #include "chrome/browser/sync/engine/model_changing_syncer_command.h"
 #include "chrome/browser/sync/engine/syncapi.h"
-#include "chrome/browser/sync/engine/syncer_util.h"
 #include "chrome/browser/sync/glue/autofill_change_processor.h"
 #include "chrome/browser/sync/glue/autofill_data_type_controller.h"
 #include "chrome/browser/sync/glue/autofill_model_associator.h"
@@ -47,6 +45,7 @@
 #include "chrome/common/notification_type.h"
 #include "chrome/test/profile_mock.h"
 #include "chrome/test/sync/engine/test_id_factory.h"
+#include "content/browser/browser_thread.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 using base::Time;
@@ -61,7 +60,6 @@ using browser_sync::DataTypeController;
 using browser_sync::GROUP_DB;
 using browser_sync::kAutofillTag;
 using browser_sync::SyncBackendHostForProfileSyncTest;
-using browser_sync::SyncerUtil;
 using browser_sync::UnrecoverableErrorHandler;
 using syncable::CREATE_NEW_UPDATE_ITEM;
 using syncable::AUTOFILL;
@@ -551,11 +549,9 @@ class FakeServerUpdater: public base::RefCountedThreadSafe<FakeServerUpdater> {
       item.Put(SPECIFICS, entity_specifics);
       item.Put(SERVER_SPECIFICS, entity_specifics);
       item.Put(BASE_VERSION, 1);
-      syncable::Id server_parent_id = service_->id_factory()->NewServerId();
-      item.Put(syncable::ID, server_parent_id);
-      syncable::Id new_predecessor =
-          SyncerUtil::ComputePrevIdFromServerPosition(&trans, &item,
-          server_parent_id);
+      syncable::Id server_item_id = service_->id_factory()->NewServerId();
+      item.Put(syncable::ID, server_item_id);
+      syncable::Id new_predecessor;
       ASSERT_TRUE(item.PutPredecessor(new_predecessor));
     }
     VLOG(1) << "FakeServerUpdater finishing.";
@@ -657,7 +653,7 @@ TEST_F(ProfileSyncServiceAutofillTest, HasProfileEmptySync) {
   // Owned by GetAutoFillProfiles caller.
   AutoFillProfile* profile0 = new AutoFillProfile;
   autofill_test::SetProfileInfoWithGuid(profile0,
-      "{54B3F9AA-335E-4f71-A27D-719C41564230}", "Billing",
+      "54B3F9AA-335E-4F71-A27D-719C41564230", "Billing",
       "Mitchell", "Morrison",
       "johnwayne@me.xyz", "Fox", "123 Zoo St.", "unit 5", "Hollywood", "CA",
       "91601", "US", "12345678910", "01987654321");
@@ -767,14 +763,14 @@ TEST_F(ProfileSyncServiceAutofillTest, HasNativeHasSyncMergeEntry) {
 TEST_F(ProfileSyncServiceAutofillTest, HasNativeHasSyncMergeProfile) {
   AutoFillProfile sync_profile;
   autofill_test::SetProfileInfoWithGuid(&sync_profile,
-      "{23355099-1170-4b71-8ED4-144470CC9EBE}", "Billing",
+      "23355099-1170-4B71-8ED4-144470CC9EBE", "Billing",
       "Mitchell", "Morrison",
       "johnwayne@me.xyz", "Fox", "123 Zoo St.", "unit 5", "Hollywood", "CA",
       "91601", "US", "12345678910", "01987654321");
 
   AutoFillProfile* native_profile = new AutoFillProfile;
   autofill_test::SetProfileInfoWithGuid(native_profile,
-      "{23355099-1170-4b71-8ED4-144470CC9EBE}", "Billing", "Alicia", "Saenz",
+      "23355099-1170-4B71-8ED4-144470CC9EBE", "Billing", "Alicia", "Saenz",
       "joewayne@me.xyz", "Fox", "1212 Center.", "Bld. 5", "Orlando", "FL",
       "32801", "US", "19482937549", "13502849239");
 
@@ -804,12 +800,12 @@ TEST_F(ProfileSyncServiceAutofillTest, MergeProfileWithDifferentGuid) {
   AutoFillProfile sync_profile;
 
   autofill_test::SetProfileInfoWithGuid(&sync_profile,
-      "{23355099-1170-4b71-8ED4-144470CC9EBE}", "Billing",
+      "23355099-1170-4B71-8ED4-144470CC9EBE", "Billing",
       "Mitchell", "Morrison",
       "johnwayne@me.xyz", "Fox", "123 Zoo St.", "unit 5", "Hollywood", "CA",
       "91601", "US", "12345678910", "01987654321");
 
-  std::string native_guid = "{EDC609ED-7EEE-4f27-B00C-423242A9C44B}";
+  std::string native_guid = "EDC609ED-7EEE-4F27-B00C-423242A9C44B";
   AutoFillProfile* native_profile = new AutoFillProfile;
   autofill_test::SetProfileInfoWithGuid(native_profile,
       native_guid.c_str(), "Billing",
@@ -882,16 +878,16 @@ TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeAddProfile) {
 
   AutoFillProfile added_profile;
   autofill_test::SetProfileInfoWithGuid(&added_profile,
-      "{D6ADA912-D374-4c0a-917D-F5C8EBE43011}", "Josephine", "Alicia", "Saenz",
+      "D6ADA912-D374-4C0A-917D-F5C8EBE43011", "Josephine", "Alicia", "Saenz",
       "joewayne@me.xyz", "Fox", "1212 Center.", "Bld. 5", "Orlando", "FL",
       "32801", "US", "19482937549", "13502849239");
 
-  AutofillProfileChangeGUID change(AutofillProfileChangeGUID::ADD,
+  AutofillProfileChange change(AutofillProfileChange::ADD,
       added_profile.guid(), &added_profile);
   scoped_refptr<ThreadNotifier> notifier(new ThreadNotifier(&db_thread_));
-  notifier->Notify(NotificationType::AUTOFILL_PROFILE_CHANGED_GUID,
+  notifier->Notify(NotificationType::AUTOFILL_PROFILE_CHANGED,
                    Source<WebDataService>(web_data_service_.get()),
-                   Details<AutofillProfileChangeGUID>(&change));
+                   Details<AutofillProfileChange>(&change));
 
   std::vector<AutoFillProfile> new_sync_profiles;
   ASSERT_TRUE(GetAutofillProfilesFromSyncDBUnderProfileNode(
@@ -967,12 +963,12 @@ TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeRemoveEntry) {
 TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeRemoveProfile) {
   AutoFillProfile sync_profile;
   autofill_test::SetProfileInfoWithGuid(&sync_profile,
-      "{3BA5FA1B-1EC4-4bb3-9B57-EC92BE3C1A09}", "Josephine", "Alicia", "Saenz",
+      "3BA5FA1B-1EC4-4BB3-9B57-EC92BE3C1A09", "Josephine", "Alicia", "Saenz",
       "joewayne@me.xyz", "Fox", "1212 Center.", "Bld. 5", "Orlando", "FL",
       "32801", "US", "19482937549", "13502849239");
   AutoFillProfile* native_profile = new AutoFillProfile;
   autofill_test::SetProfileInfoWithGuid(native_profile,
-      "{3BA5FA1B-1EC4-4bb3-9B57-EC92BE3C1A09}", "Josephine", "Alicia", "Saenz",
+      "3BA5FA1B-1EC4-4BB3-9B57-EC92BE3C1A09", "Josephine", "Alicia", "Saenz",
       "joewayne@me.xyz", "Fox", "1212 Center.", "Bld. 5", "Orlando", "FL",
       "32801", "US", "19482937549", "13502849239");
 
@@ -988,12 +984,12 @@ TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeRemoveProfile) {
   StartSyncService(&task, false, syncable::AUTOFILL_PROFILE);
   ASSERT_TRUE(task.success());
 
-  AutofillProfileChangeGUID change(AutofillProfileChangeGUID::REMOVE,
+  AutofillProfileChange change(AutofillProfileChange::REMOVE,
                                sync_profile.guid(), NULL);
   scoped_refptr<ThreadNotifier> notifier(new ThreadNotifier(&db_thread_));
-  notifier->Notify(NotificationType::AUTOFILL_PROFILE_CHANGED_GUID,
+  notifier->Notify(NotificationType::AUTOFILL_PROFILE_CHANGED,
                    Source<WebDataService>(web_data_service_.get()),
-                   Details<AutofillProfileChangeGUID>(&change));
+                   Details<AutofillProfileChange>(&change));
 
   std::vector<AutoFillProfile> new_sync_profiles;
   ASSERT_TRUE(GetAutofillProfilesFromSyncDBUnderProfileNode(

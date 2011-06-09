@@ -5,6 +5,7 @@
 #include "chrome/browser/profiles/profile_impl.h"
 
 #include "base/command_line.h"
+#include "base/compiler_specific.h"
 #include "base/environment.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
@@ -13,7 +14,6 @@
 #include "base/scoped_ptr.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
-#include "chrome/browser/appcache/chrome_appcache_service.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
 #include "chrome/browser/background_contents_service.h"
@@ -22,32 +22,25 @@
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_signin.h"
-#include "chrome/browser/browser_thread.h"
-#include "chrome/browser/chrome_blob_storage_context.h"
 #include "chrome/browser/content_settings/host_content_settings_map.h"
+#include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/defaults.h"
-#include "chrome/browser/dom_ui/chrome_url_data_manager.h"
-#include "chrome/browser/dom_ui/ntp_resource_cache.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/extensions/default_apps.h"
 #include "chrome/browser/extensions/extension_devtools_manager.h"
 #include "chrome/browser/extensions/extension_error_reporter.h"
 #include "chrome/browser/extensions/extension_event_router.h"
 #include "chrome/browser/extensions/extension_info_map.h"
-#include "chrome/browser/extensions/extension_io_event_router.h"
 #include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/extensions/extension_pref_store.h"
 #include "chrome/browser/extensions/extension_process_manager.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_special_storage_policy.h"
 #include "chrome/browser/extensions/user_script_master.h"
 #include "chrome/browser/favicon_service.h"
-#include "chrome/browser/file_system/browser_file_system_helper.h"
 #include "chrome/browser/geolocation/geolocation_content_settings_map.h"
-#include "chrome/browser/geolocation/geolocation_permission_context.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/history/top_sites.h"
-#include "chrome/browser/host_zoom_map.h"
-#include "chrome/browser/in_process_webkit/webkit_context.h"
 #include "chrome/browser/instant/instant_controller.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/net/gaia/token_service.h"
@@ -58,13 +51,12 @@
 #include "chrome/browser/password_manager/password_store_default.h"
 #include "chrome/browser/policy/configuration_policy_pref_store.h"
 #include "chrome/browser/policy/configuration_policy_provider.h"
-#include "chrome/browser/policy/profile_policy_context.h"
+#include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/prefs/pref_value_store.h"
 #include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_proxy_service.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/search_engines/template_url_fetcher.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/sessions/session_service.h"
@@ -78,10 +70,13 @@
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/transport_security_persister.h"
 #include "chrome/browser/ui/find_bar/find_bar_state.h"
+#include "chrome/browser/ui/webui/chrome_url_data_manager.h"
+#include "chrome/browser/ui/webui/extension_icon_source.h"
+#include "chrome/browser/ui/webui/ntp_resource_cache.h"
 #include "chrome/browser/user_style_sheet_watcher.h"
 #include "chrome/browser/visitedlink/visitedlink_event_listener.h"
 #include "chrome/browser/visitedlink/visitedlink_master.h"
-#include "chrome/browser/web_resource/web_resource_service.h"
+#include "chrome/browser/web_resource/promo_resource_service.h"
 #include "chrome/browser/webdata/web_data_service.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
@@ -91,6 +86,14 @@
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
+#include "content/browser/appcache/chrome_appcache_service.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/chrome_blob_storage_context.h"
+#include "content/browser/file_system/browser_file_system_helper.h"
+#include "content/browser/geolocation/geolocation_permission_context.h"
+#include "content/browser/host_zoom_map.h"
+#include "content/browser/in_process_webkit/webkit_context.h"
+#include "content/browser/renderer_host/render_process_host.h"
 #include "grit/browser_resources.h"
 #include "grit/locale_settings.h"
 #include "net/base/transport_security_state.h"
@@ -121,6 +124,7 @@
 #endif
 
 #if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/locale_change_guard.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/chromeos/preferences.h"
 #endif
@@ -245,6 +249,7 @@ ProfileImpl::ProfileImpl(const FilePath& path)
     : path_(path),
       visited_link_event_listener_(new VisitedLinkEventListener()),
       extension_devtools_manager_(NULL),
+      ALLOW_THIS_IN_INITIALIZER_LIST(io_data_(this)),
       host_content_settings_map_(NULL),
       host_zoom_map_(NULL),
       history_service_created_(false),
@@ -279,26 +284,6 @@ ProfileImpl::ProfileImpl(const FilePath& path)
   chrome::GetUserCacheDirectory(path_, &base_cache_path_);
   file_util::CreateDirectory(base_cache_path_);
 
-  FilePath cookie_path = GetPath();
-  cookie_path = cookie_path.Append(chrome::kCookieFilename);
-  FilePath cache_path = base_cache_path_;
-  int cache_max_size;
-  GetCacheParameters(kNormalContext, &cache_path, &cache_max_size);
-  cache_path = GetCachePath(cache_path);
-
-  FilePath media_cache_path = base_cache_path_;
-  int media_cache_max_size;
-  GetCacheParameters(kMediaContext, &media_cache_path, &media_cache_max_size);
-  media_cache_path = GetMediaCachePath(media_cache_path);
-
-  FilePath extensions_cookie_path = GetPath();
-  extensions_cookie_path =
-      extensions_cookie_path.Append(chrome::kExtensionsCookieFilename);
-
-  io_data_.Init(cookie_path, cache_path, cache_max_size,
-                media_cache_path, media_cache_max_size, extensions_cookie_path,
-                this);
-
   // Listen for theme installations from our original profile.
   registrar_.Add(this, NotificationType::THEME_INSTALLED,
                  Source<Profile>(GetOriginalProfile()));
@@ -312,11 +297,6 @@ ProfileImpl::ProfileImpl(const FilePath& path)
 
   ssl_config_service_manager_.reset(
       SSLConfigServiceManager::CreateDefaultManager(this));
-
-#if defined(OS_CHROMEOS)
-  chromeos_preferences_.reset(new chromeos::Preferences());
-  chromeos_preferences_->Init(prefs);
-#endif
 
   pinned_tab_service_.reset(new PinnedTabService(this));
 
@@ -333,10 +313,9 @@ ProfileImpl::ProfileImpl(const FilePath& path)
   background_contents_service_.reset(
       new BackgroundContentsService(this, CommandLine::ForCurrentProcess()));
 
-  extension_io_event_router_ = new ExtensionIOEventRouter(this);
   extension_info_map_ = new ExtensionInfoMap();
 
-  GetPolicyContext()->Initialize();
+  InitRegisteredProtocolHandlers();
 
   clear_local_state_on_exit_ = prefs->GetBoolean(prefs::kClearSiteDataOnExit);
 
@@ -345,6 +324,31 @@ ProfileImpl::ProfileImpl(const FilePath& path)
                                  new ProfileSizeTask(path_), 112000);
 
   InstantController::RecordMetrics(this);
+
+  FilePath cookie_path = GetPath();
+  cookie_path = cookie_path.Append(chrome::kCookieFilename);
+  FilePath cache_path = base_cache_path_;
+  int cache_max_size;
+  GetCacheParameters(kNormalContext, &cache_path, &cache_max_size);
+  cache_path = GetCachePath(cache_path);
+
+  FilePath media_cache_path = base_cache_path_;
+  int media_cache_max_size;
+  GetCacheParameters(kMediaContext, &media_cache_path, &media_cache_max_size);
+  media_cache_path = GetMediaCachePath(media_cache_path);
+
+  FilePath extensions_cookie_path = GetPath();
+  extensions_cookie_path =
+      extensions_cookie_path.Append(chrome::kExtensionsCookieFilename);
+
+  // Make sure we initialize the ProfileIOData after everything else has been
+  // initialized that we might be reading from the IO thread.
+  io_data_.Init(cookie_path, cache_path, cache_max_size,
+                media_cache_path, media_cache_max_size, extensions_cookie_path);
+
+  // Initialize the ProfilePolicyConnector after |io_data_| since it requires
+  // the URLRequestContextGetter to be initialized.
+  GetPolicyConnector()->Initialize();
 }
 
 void ProfileImpl::InitExtensions() {
@@ -359,7 +363,6 @@ void ProfileImpl::InitExtensions() {
 
   extension_process_manager_.reset(ExtensionProcessManager::Create(this));
   extension_event_router_.reset(new ExtensionEventRouter(this));
-  extension_io_event_router_ = new ExtensionIOEventRouter(this);
   extension_message_service_ = new ExtensionMessageService(this);
 
   ExtensionErrorReporter::Init(true);  // allow noisy errors.
@@ -385,6 +388,10 @@ void ProfileImpl::InitExtensions() {
     FilePath path = command_line->GetSwitchValuePath(switches::kLoadExtension);
     extensions_service_->LoadExtension(path);
   }
+
+  // Make the chrome://extension-icon/ resource is available.
+  ExtensionIconSource* icon_source = new ExtensionIconSource(this);
+  GetChromeURLDataManager()->AddDataSource(icon_source);
 }
 
 void ProfileImpl::RegisterComponentExtensions() {
@@ -404,6 +411,12 @@ void ProfileImpl::RegisterComponentExtensions() {
   component_extensions.push_back(std::make_pair(
       FILE_PATH_LITERAL("bookmark_manager"),
       IDR_BOOKMARKS_MANIFEST));
+
+#if defined(FILE_MANAGER_EXTENSION)
+  component_extensions.push_back(std::make_pair(
+      FILE_PATH_LITERAL("file_manager"),
+      IDR_FILEMANAGER_MANIFEST));
+#endif
 
 #if defined(TOUCH_UI)
   component_extensions.push_back(std::make_pair(
@@ -481,12 +494,19 @@ void ProfileImpl::InstallDefaultApps() {
   }
 }
 
-void ProfileImpl::InitWebResources() {
-  if (web_resource_service_)
+void ProfileImpl::InitPromoResources() {
+  if (promo_resource_service_)
     return;
 
-  web_resource_service_ = new WebResourceService(this);
-  web_resource_service_->StartAfterDelay();
+  promo_resource_service_ = new PromoResourceService(this);
+  promo_resource_service_->StartAfterDelay();
+}
+
+void ProfileImpl::InitRegisteredProtocolHandlers() {
+  if (protocol_handler_registry_)
+    return;
+  protocol_handler_registry_ = new ProtocolHandlerRegistry(this);
+  protocol_handler_registry_->Load();
 }
 
 NTPResourceCache* ProfileImpl::GetNTPResourceCache() {
@@ -509,7 +529,7 @@ ProfileImpl::~ProfileImpl() {
       Source<Profile>(this),
       NotificationService::NoDetails());
 
-  GetPolicyContext()->Shutdown();
+  GetPolicyConnector()->Shutdown();
 
   tab_restore_service_ = NULL;
 
@@ -574,9 +594,6 @@ ProfileImpl::~ProfileImpl() {
   // HistoryService first.
   favicon_service_ = NULL;
 
-  if (extension_io_event_router_)
-    extension_io_event_router_->DestroyingProfile();
-
   if (extension_message_service_)
     extension_message_service_->DestroyingProfile();
 
@@ -632,11 +649,13 @@ ChromeAppCacheService* ProfileImpl::GetAppCacheService() {
     appcache_service_ = new ChromeAppCacheService;
     BrowserThread::PostTask(
         BrowserThread::IO, FROM_HERE,
-        NewRunnableMethod(appcache_service_.get(),
-                          &ChromeAppCacheService::InitializeOnIOThread,
-                          GetPath(), IsOffTheRecord(),
-                          make_scoped_refptr(GetHostContentSettingsMap()),
-                          clear_local_state_on_exit_));
+        NewRunnableMethod(
+            appcache_service_.get(),
+            &ChromeAppCacheService::InitializeOnIOThread,
+            GetPath(), IsOffTheRecord(),
+            make_scoped_refptr(GetHostContentSettingsMap()),
+            make_scoped_refptr(GetExtensionSpecialStoragePolicy()),
+            clear_local_state_on_exit_));
   }
   return appcache_service_;
 }
@@ -644,7 +663,7 @@ ChromeAppCacheService* ProfileImpl::GetAppCacheService() {
 webkit_database::DatabaseTracker* ProfileImpl::GetDatabaseTracker() {
   if (!db_tracker_) {
     db_tracker_ = new webkit_database::DatabaseTracker(
-        GetPath(), IsOffTheRecord());
+        GetPath(), IsOffTheRecord(), GetExtensionSpecialStoragePolicy());
   }
   return db_tracker_;
 }
@@ -695,8 +714,11 @@ ExtensionEventRouter* ProfileImpl::GetExtensionEventRouter() {
   return extension_event_router_.get();
 }
 
-ExtensionIOEventRouter* ProfileImpl::GetExtensionIOEventRouter() {
-  return extension_io_event_router_.get();
+ExtensionSpecialStoragePolicy*
+    ProfileImpl::GetExtensionSpecialStoragePolicy() {
+  if (!extension_special_storage_policy_.get())
+    extension_special_storage_policy_ = new ExtensionSpecialStoragePolicy();
+  return extension_special_storage_policy_.get();
 }
 
 SSLHostState* ProfileImpl::GetSSLHostState() {
@@ -1055,7 +1077,7 @@ PersonalDataManager* ProfileImpl::GetPersonalDataManager() {
 fileapi::FileSystemContext* ProfileImpl::GetFileSystemContext() {
   if (!file_system_context_.get())
     file_system_context_ = CreateFileSystemContext(
-        GetPath(), IsOffTheRecord());
+        GetPath(), IsOffTheRecord(), GetExtensionSpecialStoragePolicy());
   DCHECK(file_system_context_.get());
   return file_system_context_.get();
 }
@@ -1143,6 +1165,10 @@ BookmarkModel* ProfileImpl::GetBookmarkModel() {
     bookmark_bar_model_->Load();
   }
   return bookmark_bar_model_.get();
+}
+
+ProtocolHandlerRegistry* ProfileImpl::GetProtocolHandlerRegistry() {
+  return protocol_handler_registry_.get();
 }
 
 bool ProfileImpl::IsSameProfile(Profile* profile) {
@@ -1366,11 +1392,11 @@ ExtensionInfoMap* ProfileImpl::GetExtensionInfoMap() {
   return extension_info_map_.get();
 }
 
-policy::ProfilePolicyContext* ProfileImpl::GetPolicyContext() {
-  if (!profile_policy_context_.get())
-    profile_policy_context_.reset(new policy::ProfilePolicyContext(this));
+policy::ProfilePolicyConnector* ProfileImpl::GetPolicyConnector() {
+  if (!profile_policy_connector_.get())
+    profile_policy_connector_.reset(new policy::ProfilePolicyConnector(this));
 
-  return profile_policy_context_.get();
+  return profile_policy_connector_.get();
 }
 
 ChromeURLDataManager* ProfileImpl::GetChromeURLDataManager() {
@@ -1476,6 +1502,10 @@ void ProfileImpl::ChangeAppLocale(
   local_state->ScheduleSavePersistentPrefs();
 }
 
+void ProfileImpl::OnLogin() {
+  locale_change_guard_.reset(new chromeos::LocaleChangeGuard(this));
+}
+
 chromeos::ProxyConfigServiceImpl*
     ProfileImpl::GetChromeOSProxyConfigServiceImpl() {
   if (!chromeos_proxy_config_service_impl_) {
@@ -1490,6 +1520,11 @@ void ProfileImpl::SetupChromeOSEnterpriseExtensionObserver() {
   chromeos_enterprise_extension_observer_.reset(
       new chromeos::EnterpriseExtensionObserver(this));
 }
+
+void ProfileImpl::InitChromeOSPreferences() {
+  chromeos_preferences_.reset(new chromeos::Preferences());
+  chromeos_preferences_->Init(GetPrefs());
+}
 #endif  // defined(OS_CHROMEOS)
 
 PrefProxyConfigTracker* ProfileImpl::GetProxyConfigTracker() {
@@ -1499,10 +1534,10 @@ PrefProxyConfigTracker* ProfileImpl::GetProxyConfigTracker() {
   return pref_proxy_config_tracker_;
 }
 
-PrerenderManager* ProfileImpl::GetPrerenderManager() {
-  if (!PrerenderManager::IsPrerenderingEnabled())
+prerender::PrerenderManager* ProfileImpl::GetPrerenderManager() {
+  if (!prerender::PrerenderManager::IsPrerenderingEnabled())
     return NULL;
   if (!prerender_manager_)
-    prerender_manager_ = new PrerenderManager(this);
+    prerender_manager_ = new prerender::PrerenderManager(this);
   return prerender_manager_;
 }

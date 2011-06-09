@@ -84,7 +84,7 @@ class BorderContents : public views::View {
 
  private:
   // Overridden from View:
-  virtual void Paint(gfx::Canvas* canvas);
+  virtual void OnPaint(gfx::Canvas* canvas);
 
   // Changes |arrow_location| to its mirrored version, vertically if |vertical|
   // is true, horizontally otherwise, if |window_bounds| don't fit in
@@ -171,7 +171,7 @@ class InfoBubbleDelegate {
   virtual bool FadeInOnShow() = 0;
 
   // The name of the window to which this delegate belongs.
-  virtual std::wstring accessible_name() { return L""; }
+  virtual std::wstring accessible_name();
 };
 
 // TODO(sky): this code is ifdef-tastic. It might be cleaner to refactor the
@@ -245,11 +245,11 @@ class InfoBubble
   virtual ~InfoBubble();
 
   // Creates the InfoBubble.
-  virtual void Init(views::Widget* parent,
-                    const gfx::Rect& position_relative_to,
-                    BubbleBorder::ArrowLocation arrow_location,
-                    views::View* contents,
-                    InfoBubbleDelegate* delegate);
+  virtual void InitBubble(views::Widget* parent,
+                          const gfx::Rect& position_relative_to,
+                          BubbleBorder::ArrowLocation arrow_location,
+                          views::View* contents,
+                          InfoBubbleDelegate* delegate);
 
   // Instantiates and returns the BorderContents this InfoBubble should use.
   // Subclasses can return their own BorderContents implementation.

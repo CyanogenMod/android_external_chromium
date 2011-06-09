@@ -25,7 +25,6 @@
 #include "chrome/browser/sync/syncable/blob.h"
 #include "chrome/browser/sync/syncable/dir_open_result.h"
 #include "chrome/browser/sync/syncable/directory_event.h"
-#include "chrome/browser/sync/syncable/path_name_cmp.h"
 #include "chrome/browser/sync/syncable/syncable_id.h"
 #include "chrome/browser/sync/syncable/model_type.h"
 #include "chrome/browser/sync/util/channel.h"
@@ -210,8 +209,6 @@ enum Create {
 enum CreateNewUpdateItem {
   CREATE_NEW_UPDATE_ITEM
 };
-
-typedef std::set<std::string> AttributeKeySet;
 
 typedef std::set<int64> MetahandleSet;
 
@@ -419,6 +416,12 @@ class Entry {
     return *kernel_;
   }
 
+  // Compute a local predecessor position for |update_item|, based on its
+  // absolute server position.  The returned ID will be a valid predecessor
+  // under SERVER_PARENT_ID that is consistent with the
+  // SERVER_POSITION_IN_PARENT ordering.
+  Id ComputePrevIdFromServerPosition(const Id& parent_id) const;
+
  protected:  // Don't allow creation on heap, except by sync API wrappers.
   friend class sync_api::ReadNode;
   void* operator new(size_t size) { return (::operator new)(size); }
@@ -540,12 +543,7 @@ class MutableEntry : public Entry {
   DISALLOW_COPY_AND_ASSIGN(MutableEntry);
 };
 
-template <Int64Field field_index>
-class SameField;
-template <Int64Field field_index>
-class HashField;
 class LessParentIdAndHandle;
-class LessMultiIncusionTargetAndMetahandle;
 template <typename FieldType, FieldType field_index>
 class LessField;
 class LessEntryMetaHandles {
@@ -556,6 +554,76 @@ class LessEntryMetaHandles {
   }
 };
 typedef std::set<EntryKernel, LessEntryMetaHandles> OriginalEntries;
+
+// How syncable indices & Indexers work.
+//
+// The syncable Directory maintains several indices on the Entries it tracks.
+// The indices follow a common pattern:
+//   (a) The index allows efficient lookup of an Entry* with particular
+//       field values.  This is done by use of a std::set<> and a custom
+//       comparator.
+//   (b) There may be conditions for inclusion in the index -- for example,
+//       deleted items might not be indexed.
+//   (c) Because the index set contains only Entry*, one must be careful
+//       to remove Entries from the set before updating the value of
+//       an indexed field.
+// The traits of an index are a Comparator (to define the set ordering) and a
+// ShouldInclude function (to define the conditions for inclusion).  For each
+// index, the traits are grouped into a class called an Indexer which
+// can be used as a template type parameter.
+
+// Traits type for metahandle index.
+struct MetahandleIndexer {
+  // This index is of the metahandle field values.
+  typedef LessField<MetahandleField, META_HANDLE> Comparator;
+
+  // This index includes all entries.
+  inline static bool ShouldInclude(const EntryKernel* a) {
+    return true;
+  }
+};
+
+// Traits type for ID field index.
+struct IdIndexer {
+  // This index is of the ID field values.
+  typedef LessField<IdField, ID> Comparator;
+
+  // This index includes all entries.
+  inline static bool ShouldInclude(const EntryKernel* a) {
+    return true;
+  }
+};
+
+// Traits type for unique client tag index.
+struct ClientTagIndexer {
+  // This index is of the client-tag values.
+  typedef LessField<StringField, UNIQUE_CLIENT_TAG> Comparator;
+
+  // Items are only in this index if they have a non-empty client tag value.
+  static bool ShouldInclude(const EntryKernel* a);
+};
+
+// This index contains EntryKernels ordered by parent ID and metahandle.
+// It allows efficient lookup of the children of a given parent.
+struct ParentIdAndHandleIndexer {
+  // This index is of the parent ID and metahandle.  We use a custom
+  // comparator.
+  class Comparator {
+   public:
+    bool operator() (const syncable::EntryKernel* a,
+                     const syncable::EntryKernel* b) const;
+  };
+
+  // This index does not include deleted items.
+  static bool ShouldInclude(const EntryKernel* a);
+};
+
+// Given an Indexer providing the semantics of an index, defines the
+// set type used to actually contain the index.
+template <typename Indexer>
+struct Index {
+  typedef std::set<EntryKernel*, typename Indexer::Comparator> Set;
+};
 
 // a WriteTransaction has a writer tag describing which body of code is doing
 // the write. This is defined up here since DirectoryChangeEvent also contains
@@ -599,9 +667,6 @@ struct DirectoryChangeEvent {
   }
 };
 
-// A list of metahandles whose metadata should not be purged.
-typedef std::multiset<int64> Pegs;
-
 // The name Directory in this case means the entire directory
 // structure within a single user account.
 //
@@ -628,7 +693,6 @@ typedef std::multiset<int64> Pegs;
 class ScopedKernelLock;
 class IdFilter;
 class DirectoryManager;
-struct PathMatcher;
 
 class Directory {
   friend class BaseTransaction;
@@ -780,8 +844,6 @@ class Directory {
 
   // These don't do semantic checking.
   // The semantic checking is implemented higher up.
-  void Undelete(EntryKernel* const entry);
-  void Delete(EntryKernel* const entry);
   void UnlinkEntryFromOrder(EntryKernel* entry,
                             WriteTransaction* trans,
                             ScopedKernelLock* lock);
@@ -812,16 +874,20 @@ class Directory {
 
   // Returns the child meta handles for given parent id.
   void GetChildHandles(BaseTransaction*, const Id& parent_id,
-      const std::string& path_spec, ChildHandles* result);
-  void GetChildHandles(BaseTransaction*, const Id& parent_id,
       ChildHandles* result);
-  void GetChildHandlesImpl(BaseTransaction* trans, const Id& parent_id,
-                           PathMatcher* matcher, ChildHandles* result);
 
   // Find the first or last child in the positional ordering under a parent,
   // and return its id.  Returns a root Id if parent has no children.
   virtual Id GetFirstChildId(BaseTransaction* trans, const Id& parent_id);
   Id GetLastChildId(BaseTransaction* trans, const Id& parent_id);
+
+  // Compute a local predecessor position for |update_item|.  The position
+  // is determined by the SERVER_POSITION_IN_PARENT value of |update_item|,
+  // as well as the SERVER_POSITION_IN_PARENT values of any up-to-date
+  // children of |parent_id|.
+  Id ComputePrevIdFromServerPosition(
+      const EntryKernel* update_item,
+      const syncable::Id& parent_id);
 
   // SaveChanges works by taking a consistent snapshot of the current Directory
   // state and indices (by deep copy) under a ReadTransaction, passing this
@@ -905,11 +971,6 @@ class Directory {
   void GetAllMetaHandles(BaseTransaction* trans, MetahandleSet* result);
   bool SafeToPurgeFromMemory(const EntryKernel* const entry) const;
 
-  // Helper method used to implement GetFirstChildId/GetLastChildId.
-  Id GetChildWithNullIdField(IdField field,
-                             BaseTransaction* trans,
-                             const Id& parent_id);
-
   // Internal setters that do not acquire a lock internally.  These are unsafe
   // on their own; caller must guarantee exclusive access manually by holding
   // a ScopedKernelLock.
@@ -918,27 +979,19 @@ class Directory {
 
   Directory& operator = (const Directory&);
 
-  // TODO(sync):  If lookups and inserts in these sets become
-  // the bottle-neck, then we can use hash-sets instead.  But
-  // that will require using #ifdefs and compiler-specific code,
-  // so use standard sets for now.
  public:
-  typedef std::set<EntryKernel*, LessField<MetahandleField, META_HANDLE> >
-    MetahandlesIndex;
-  typedef std::set<EntryKernel*, LessField<IdField, ID> > IdsIndex;
+  typedef Index<MetahandleIndexer>::Set MetahandlesIndex;
+  typedef Index<IdIndexer>::Set IdsIndex;
   // All entries in memory must be in both the MetahandlesIndex and
   // the IdsIndex, but only non-deleted entries will be the
   // ParentIdChildIndex.
-  // This index contains EntryKernels ordered by parent ID and metahandle.
-  // It allows efficient lookup of the children of a given parent.
-  typedef std::set<EntryKernel*, LessParentIdAndHandle> ParentIdChildIndex;
+  typedef Index<ParentIdAndHandleIndexer>::Set ParentIdChildIndex;
 
   // Contains both deleted and existing entries with tags.
   // We can't store only existing tags because the client would create
   // items that had a duplicated ID in the end, resulting in a DB key
   // violation. ID reassociation would fail after an attempted commit.
-  typedef std::set<EntryKernel*,
-                   LessField<StringField, UNIQUE_CLIENT_TAG> > ClientTagIndex;
+  typedef Index<ClientTagIndexer>::Set ClientTagIndex;
 
  protected:
   // Used by tests.
@@ -973,8 +1026,10 @@ class Directory {
     // Never hold the mutex and do anything with the database or any
     // other buffered IO.  Violating this rule will result in deadlock.
     base::Lock mutex;
-    MetahandlesIndex* metahandles_index;  // Entries indexed by metahandle
-    IdsIndex* ids_index;  // Entries indexed by id
+    // Entries indexed by metahandle
+    MetahandlesIndex* metahandles_index;
+    // Entries indexed by id
+    IdsIndex* ids_index;
     ParentIdChildIndex* parent_id_child_index;
     ClientTagIndex* client_tag_index;
     // So we don't have to create an EntryKernel every time we want to
@@ -1025,6 +1080,25 @@ class Directory {
     // purposes.  Protected by the save_changes_mutex.
     DebugQueue<int64, 1000> flushed_metahandles;
   };
+
+  // Helper method used to do searches on |parent_id_child_index|.
+  ParentIdChildIndex::iterator LocateInParentChildIndex(
+      const ScopedKernelLock& lock,
+      const Id& parent_id,
+      int64 position_in_parent,
+      const Id& item_id_for_tiebreaking);
+
+  // Return an iterator to the beginning of the range of the children of
+  // |parent_id| in the kernel's parent_id_child_index.
+  ParentIdChildIndex::iterator GetParentChildIndexLowerBound(
+      const ScopedKernelLock& lock,
+      const Id& parent_id);
+
+  // Return an iterator to just past the end of the range of the
+  // children of |parent_id| in the kernel's parent_id_child_index.
+  ParentIdChildIndex::iterator GetParentChildIndexUpperBound(
+      const ScopedKernelLock& lock,
+      const Id& parent_id);
 
   Kernel* kernel_;
 
@@ -1117,11 +1191,6 @@ class WriteTransaction : public BaseTransaction {
 };
 
 bool IsLegalNewParent(BaseTransaction* trans, const Id& id, const Id& parentid);
-int ComparePathNames(const std::string& a, const std::string& b);
-
-// Exposed in header as this is used as a sqlite3 callback.
-int ComparePathNames16(void*, int a_bytes, const void* a, int b_bytes,
-                       const void* b);
 
 int64 Now();
 

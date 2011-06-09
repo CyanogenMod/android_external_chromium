@@ -3186,6 +3186,16 @@
               "expirationDate": {"type": "number", "optional": true, "description": "The expiration date of the cookie as the number of seconds since the UNIX epoch. If omitted, the cookie becomes a session cookie."},
               "storeId": {"type": "string", "optional": true, "description": "The ID of the cookie store in which to set the cookie. By default, the cookie is set in the current execution context's cookie store."}
             }
+          },
+          {
+            "type": "function",
+            "name": "callback",
+            "optional": true,
+            "parameters": [
+              {
+                "name": "cookie", "$ref": "Cookie", "optional": true, "description": "Contains details about the cookie that's been set.  If setting failed for any reason, this will be \"null\", and \"chrome.extension.lastError\" will be set."
+              }
+            ]
           }
         ]
       },
@@ -3203,6 +3213,24 @@
               "name": {"type": "string", "description": "The name of the cookie to remove."},
               "storeId": {"type": "string", "optional": true, "description": "The ID of the cookie store to look in for the cookie. If unspecified, the cookie is looked for by default in the current execution context's cookie store."}
             }
+          },
+          {
+            "type": "function",
+            "name": "callback",
+            "optional": true,
+            "parameters": [
+              {
+                "name": "details",
+                "type": "object",
+                "description": "Contains details about the cookie that's been removed.  If removal failed for any reason, this will be \"null\", and \"chrome.extension.lastError\" will be set.",
+                "optional": true,
+                "properties": {
+                  "url": {"type": "string", "description": "The URL associated with the cookie that's been removed."},
+                  "name": {"type": "string", "description": "The name of the cookie that's been removed."},
+                  "storeId": {"type": "string", "description": "The ID of the cookie store from which the cookie was removed."}
+                }
+              }
+            ]
           }
         ]
       },
@@ -3328,7 +3356,7 @@
               "url": {"type": "string"},
               "frameId": {"type": "integer", "description": "0 indicates the navigation happens in the tab content window; positive value indicates navigation in a subframe."},
               "transitionType": {"type": "string", "enum": ["link", "typed", "auto_bookmark", "auto_subframe", "manual_subframe", "generated", "start_page", "form_submit", "reload", "keyword", "keyword_generated"], "description": "Cause of the navigation. The same transition types as defined in the history API are used."},
-              "transitionQualifiers": {"type": "string", "description": "Zero or more transition qualifiers delimited by \"|\". Possible qualifiers are \"client_redirect\", \"server_redirect\", and \"forward_back\"."},
+              "transitionQualifiers": {"type": "array", "description": "A list of transition qualifiers.", "items:": {"type": "string", "enum": ["client_redirect", "server_redirect", "forward_back"]}},
               "timeStamp": {"type": "number", "description": "The time when the navigation was committed, in milliseconds since the epoch."}
             }
           }
@@ -3397,7 +3425,7 @@
             "properties": {
               "sourceTabId": {"type": "integer", "description": "The ID of the tab in which the navigation is triggered."},
               "sourceUrl": {"type": "string", "description": "The URL of the document that is opening the new window."},
-              "targetUrl": {"type": "string", "description": "The URL to be opened in the new window."},
+              "url": {"type": "string", "description": "The URL to be opened in the new window."},
               "timeStamp": {"type": "number", "description": "The time when the browser was about to create a new view, in milliseconds since the epoch."}
             }
           }
@@ -3684,30 +3712,31 @@
         "type": "object",
         "description": "An object encapsulating a single proxy server's specification.",
         "properties": {
-          "scheme": {"type": "string", "optional": true, "enum": ["http", "https", "socks", "socks4", "socks5"], "description": "The scheme (protocol) of the proxy server itself."},
-          "host": {"type": "string", "description": "The URI of the proxy server."},
-          "port": {"type": "integer", "optional": true, "description": "The port of the proxy server."}
+          "scheme": {"type": "string", "optional": true, "enum": ["http", "https", "socks4", "socks5"], "description": "The scheme (protocol) of the proxy server itself. Defaults to 'http'."},
+          "host": {"type": "string", "description": "The URI of the proxy server. This must be an ASCII hostname (in Punycode format). IDNA is not supported, yet."},
+          "port": {"type": "integer", "optional": true, "description": "The port of the proxy server. Defaults to a port that depends on the scheme."}
         }
       },
       {
         "id": "ProxyRules",
         "type": "object",
-        "description": "An object encapsulating the set of proxy rules for all protocols. Use either 'singleProxy' or (a subset of) 'proxyForHttp', 'proxyForHttps', 'proxyForFtp' and 'socksProxy'.",
+        "description": "An object encapsulating the set of proxy rules for all protocols. Use either 'singleProxy' or (a subset of) 'proxyForHttp', 'proxyForHttps', 'proxyForFtp' and 'fallbackProxy'.",
         "properties": {
-          "singleProxy": {"$ref": "ProxyServer", "optional": true, "description": "The proxy server to be used for all per-URL requests (i.e., http, https, and ftp)."},
+          "singleProxy": {"$ref": "ProxyServer", "optional": true, "description": "The proxy server to be used for all per-URL requests (that is http, https, and ftp)."},
           "proxyForHttp": {"$ref": "ProxyServer", "optional": true, "description": "The proxy server to be used for HTTP requests."},
           "proxyForHttps": {"$ref": "ProxyServer", "optional": true, "description": "The proxy server to be used for HTTPS requests."},
           "proxyForFtp": {"$ref": "ProxyServer", "optional": true, "description": "The proxy server to be used for FTP requests."},
-          "socksProxy": {"$ref": "ProxyServer", "optional": true, "description": "The proxy server to be used for SOCKS requests."},
+          "fallbackProxy": {"$ref": "ProxyServer", "optional": true, "description": "The proxy server to be used for everthing else or if any of the specific proxyFor... is not specified."},
           "bypassList": {"type": "array", "items": {"type": "string"}, "optional": true, "description": "List of servers to connect to without a proxy server."}
         }
       },
       {
         "id": "PacScript",
         "type": "object",
-        "description": "An object holding proxy auto-config information. Only one of the fields should be non-empty.",
+        "description": "An object holding proxy auto-config information. Exactly one of the fields should be non-empty.",
         "properties": {
-          "url": {"type": "string", "optional": true, "description": "URL of he PAC file to be used."}
+          "url": {"type": "string", "optional": true, "description": "URL of the PAC file to be used."},
+          "data": {"type": "string", "optional": true, "description": "A PAC script."}
         }
       },
       {
@@ -3725,57 +3754,43 @@
         }
       }
     ],
-    "functions": [
-      {
-        "name": "useCustomProxySettings",
-        "type": "function",
-        "description": "Apply the given proxy configuration.",
-        "parameters": [
+    "properties": {
+      "settings": {
+        "$ref": "Preference",
+        "description": "Proxy settings to be used. The value of this preference is a ProxyConfig object.",
+        "value": [
+          "proxy",
+          {"$ref": "ProxyConfig"},
           {
-            "name": "config",
-            "$ref": "ProxyConfig"
-          },
-          {
-            "name": "incognito",
-            "type": "boolean",
-            "description": "If true, the proxy settings apply only to incognito windows. Otherwise they apply to regular windows (and incognito windows if no specific settings are provided for incognito windows)",
-            "optional": true
+            "get": "experimental.proxy.get",
+            "set": "experimental.proxy.set"
           }
         ]
-      },
+      }
+    },
+    "events": [
       {
-        "name": "removeCustomProxySettings",
+        "name": "onProxyError",
         "type": "function",
-        "description": "Remove a custom proxy set by the current extension. This is the inverse of useCustomProxySettings.",
+        "description": "Notifies about proxy errors.",
         "parameters": [
           {
-            "name": "incognito",
-            "type": "boolean",
-            "description": "See incognito parameter of useCustomProxySettings.",
-            "optional": true
-          }
-        ]
-      },
-      {
-        "name": "getCurrentProxySettings",
-        "type": "function",
-        "description": "Returns the currently effective proxy settings. These can originate from default values, command line options, the extension settings API, policies and possibly other sources in the future.",
-        "parameters": [
-          {
-            "name": "incognito",
-            "type": "boolean",
-            "description": "See incognito parameter of useCustomProxySettings."
-          },
-          {
-            "name": "callback",
-            "type": "function",
-            "parameters": [
-              {
-                "name": "config",
-                "$ref": "ProxyConfig",
-                "description": "Configuration, not necessarily a literal copy of the configuration passed to useCustomProxySettings."
+            "type": "object",
+            "name": "details",
+            "properties": {
+              "fatal": {
+                "type": "boolean",
+                "description": "If true, the error was fatal and the network transaction was aborted. Otherwise, a direct connection is used instead."
+              },
+              "error": {
+                "type": "string",
+                "description": "The error description."
+              },
+              "details": {
+                "type": "string",
+                "description": "Additional details about the error such as a JavaScript runtime error."
               }
-            ]
+            }
           }
         ]
       }
@@ -4177,7 +4192,7 @@
         "type": "object",
         "properties": {
           "size": { "type": "integer", "description": "A number representing the width and height of the icon. Likely values include (but are not limited to) 128, 48, 24, and 16."  },
-          "url": { "type": "string", "description": "The url for this icon image." }
+          "url": { "type": "string", "description": "The URL for this icon image. To display a grayscale version of the icon (to indicate that an extension is disabled, for example), append <code>?grayscale=true</code> to the URL." }
         }
       },
       {
@@ -4211,6 +4226,11 @@
           },
           "appLaunchUrl": {
             "description": "The launch url (only present for apps).",
+            "type": "string",
+            "optional": true
+          },
+          "homepageUrl": {
+            "description": "The URL of the homepage of this extension or app",
             "type": "string",
             "optional": true
           },
@@ -4502,5 +4522,125 @@
         ]
       }
     ]
+  },
+  {
+    "namespace": "experimental.extension",
+    "types": [
+      {
+        "id": "Preference",
+        "type": "object",
+        "customBindings": "Preference",
+        "description": "An object which allows access to a preference.",
+        "functions": [
+          {
+            "name": "get",
+            "type": "function",
+            "description": "Get the setting from the user preferences.",
+            "parameters": [
+              {
+                "name": "details",
+                "type": "object",
+                "description": "What setting to return.",
+                "properties": {
+                  "incognito": {
+                    "type": "boolean",
+                    "optional": true,
+                    "description": "Whether to return the setting that applies to the incognito session only (default false)."
+                  }
+                }
+              },
+              {
+                "name": "callback",
+                "type": "function",
+                "parameters": [
+                  {
+                    "name": "details",
+                    "type": "object",
+                    "description": "Details of the currently effective preference value.",
+                    "properties": {
+                      "value": {
+                        "description": "The value of the preference.",
+                        "type": "any"
+                      },
+                      "levelOfControl": {
+                        "description": "One of<br>NotControllable = cannot be controlled by any extension<br>ControlledByOtherExtensions = controlled by extensions with higher precedence<br>ControllableByThisExtension = can be controlled by this extension<br>ControlledByThisExtension = controlled by this extension",
+                        "type": "string",
+                        "enum": ["NotControllable", "ControlledByOtherExtensions", "ControllableByThisExtension", "ControlledByThisExtension"]
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "set",
+            "type": "function",
+            "description": "Set the setting in the user preferences",
+            "parameters": [
+              {
+                "name": "details",
+                "type": "object",
+                "description": "What setting to change.",
+                "properties": {
+                  "value": {
+                    "description": "The value of the preference.",
+                    "type": "any"
+                  },
+                  "incognito": {
+                    "type": "boolean",
+                    "optional": true,
+                    "description": "Whether to modify the setting for the incognito session only (default false)."
+                  }
+                }
+              },
+              {
+                "name": "callback",
+                "type": "function",
+                "description": "Called after the preference has been set.",
+                "optional": true,
+                "parameters": []
+              }
+            ]
+          },
+          {
+            "name": "clear",
+            "type": "function",
+            "description": "Clears the setting in the user preferences. This way default settings can become effective again.",
+            "parameters": [
+              {
+                "name": "details",
+                "type": "object",
+                "description": "What setting to clear.",
+                "properties": {
+                  "incognito": {
+                    "type": "boolean",
+                    "optional": true,
+                    "description": "Whether to clear the setting for the incognito session only (default false)."
+                  }
+                }
+              },
+              {
+                "name": "callback",
+                "type": "function",
+                "description": "Called after the preference has been cleared.",
+                "optional": true,
+                "parameters": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "namespace": "experimental.contentSettings.misc",
+    "properties": {
+      "blockThirdPartyCookies": {
+        "$ref": "Preference",
+        "value": ["blockThirdPartyCookies", {"type": "boolean"}],
+        "description": "Whether third party cookies should be blocked. The value of this preference is of type boolean."
+      }
+    }
   }
 ]

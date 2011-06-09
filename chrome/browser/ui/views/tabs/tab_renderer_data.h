@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,16 +21,8 @@ struct TabRendererData {
     NETWORK_STATE_LOADING,  // connected, transferring data.
   };
 
-  TabRendererData()
-      : network_state(NETWORK_STATE_NONE),
-        loading(false),
-        crashed_status(base::TERMINATION_STATUS_STILL_RUNNING),
-        off_the_record(false),
-        show_icon(true),
-        mini(false),
-        blocked(false),
-        app(false) {
-  }
+  TabRendererData();
+  ~TabRendererData();
 
   // This interprets the crashed status to decide whether or not this
   // render data represents a tab that is "crashed" (i.e. the render
@@ -40,6 +32,10 @@ struct TabRendererData {
             crashed_status == base::TERMINATION_STATUS_PROCESS_CRASHED ||
             crashed_status == base::TERMINATION_STATUS_ABNORMAL_TERMINATION);
   }
+
+  // Returns true if the TabRendererData is same as given |data|. Two favicons
+  // are considered equals if two SkBitmaps point to the same SkPixelRef object.
+  bool Equals(const TabRendererData& data);
 
   SkBitmap favicon;
   NetworkState network_state;

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -66,6 +66,35 @@ void GetServicePackLevel(int* major, int* minor) {
 
   *major = service_pack_major;
   *minor = service_pack_minor;
+}
+
+WindowsArchitecture GetWindowsArchitecture() {
+  SYSTEM_INFO system_info;
+  GetNativeSystemInfo(&system_info);
+  switch (system_info.wProcessorArchitecture) {
+    case PROCESSOR_ARCHITECTURE_INTEL: return X86_ARCHITECTURE;
+    case PROCESSOR_ARCHITECTURE_AMD64: return X64_ARCHITECTURE;
+    case PROCESSOR_ARCHITECTURE_IA64:  return IA64_ARCHITECTURE;
+    default:                           return OTHER_ARCHITECTURE;
+  }
+}
+
+WOW64Status GetWOW64Status() {
+  static WOW64Status wow64_status =
+      GetWOW64StatusForProcess(GetCurrentProcess());
+  return wow64_status;
+}
+
+WOW64Status GetWOW64StatusForProcess(HANDLE process_handle) {
+  typedef BOOL (WINAPI* IsWow64ProcessFunc)(HANDLE, PBOOL);
+  IsWow64ProcessFunc is_wow64_process = reinterpret_cast<IsWow64ProcessFunc>(
+      GetProcAddress(GetModuleHandle(L"kernel32.dll"), "IsWow64Process"));
+  if (!is_wow64_process)
+    return WOW64_DISABLED;
+  BOOL is_wow64 = FALSE;
+  if (!(*is_wow64_process)(process_handle, &is_wow64))
+    return WOW64_UNKNOWN;
+  return is_wow64 ? WOW64_ENABLED : WOW64_DISABLED;
 }
 
 }  // namespace win

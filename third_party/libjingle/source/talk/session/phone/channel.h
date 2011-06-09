@@ -41,6 +41,7 @@
 #include "talk/session/phone/mediaengine.h"
 #include "talk/session/phone/mediachannel.h"
 #include "talk/session/phone/mediamonitor.h"
+#include "talk/session/phone/rtcpmuxfilter.h"
 #include "talk/session/phone/srtpfilter.h"
 
 namespace cricket {
@@ -67,37 +68,14 @@ enum {
   MSG_SETRTCPCNAME = 18,
   MSG_SENDINTRAFRAME = 19,
   MSG_REQUESTINTRAFRAME = 20,
-};
-
-// TODO: Move to own file.
-class RtcpMuxFilter {
- public:
-  RtcpMuxFilter();
-
-  // Whether the filter is active, i.e. has RTCP mux been properly negotiated.
-  bool IsActive() const;
-
-  // Specifies whether the offer indicates the use of RTCP mux.
-  bool SetOffer(bool offer_enable, ContentSource src);
-
-  // Specifies whether the answer indicates the use of RTCP mux.
-  bool SetAnswer(bool answer_enable, ContentSource src);
-
-  // Determines whether the specified packet is RTCP.
-  bool DemuxRtcp(const char* data, int len);
-
- private:
-  enum State { ST_INIT, ST_SENTOFFER, ST_RECEIVEDOFFER, ST_ACTIVE };
-  State state_;
-  bool offer_enable_;
+  MSG_RTPPACKET = 22,
+  MSG_RTCPPACKET = 23,
+  MSG_CHANNEL_ERROR = 24
 };
 
 // BaseChannel contains logic common to voice and video, including
 // enable/mute, marshaling calls to a worker thread, and
 // connection and media monitors.
-// TODO: Break the dependency on BaseSession. The only thing we need
-// it for is to Create/Destroy TransportChannels, and set codecs, both of which
-// could be done by the calling class.
 class BaseChannel
     : public talk_base::MessageHandler, public sigslot::has_slots<>,
       public MediaChannel::NetworkInterface {
@@ -106,7 +84,7 @@ class BaseChannel
               MediaChannel* channel, BaseSession* session,
               const std::string& content_name,
               TransportChannel* transport_channel);
-  ~BaseChannel();
+  virtual ~BaseChannel();
 
   talk_base::Thread* worker_thread() const { return worker_thread_; }
   BaseSession* session() const { return session_; }
@@ -117,6 +95,7 @@ class BaseChannel
   TransportChannel* rtcp_transport_channel() const {
     return rtcp_transport_channel_;
   }
+  bool enabled() const { return enabled_; }
   bool secure() const { return srtp_filter_.IsActive(); }
 
   // Channel control
@@ -159,7 +138,6 @@ class BaseChannel
   MediaEngine* media_engine() const { return media_engine_; }
   virtual MediaChannel* media_channel() const { return media_channel_; }
   void set_rtcp_transport_channel(TransportChannel* transport);
-  bool enabled() const { return enabled_; }
   bool writable() const { return writable_; }
   bool has_codec() const { return has_codec_; }
   void set_has_codec(bool has_codec) { has_codec_ = has_codec; }
@@ -172,18 +150,19 @@ class BaseChannel
                    talk_base::MessageData *pdata = NULL);
   void Clear(uint32 id = talk_base::MQID_ANY,
              talk_base::MessageList* removed = NULL);
+  void FlushRtcpMessages();
 
   // NetworkInterface implementation, called by MediaEngine
-  virtual int SendPacket(const void *data, size_t len);
-  virtual int SendRtcp(const void *data, size_t len);
+  virtual bool SendPacket(talk_base::Buffer* packet);
+  virtual bool SendRtcp(talk_base::Buffer* packet);
   virtual int SetOption(SocketType type, talk_base::Socket::Option o, int val);
 
   // From TransportChannel
   void OnWritableState(TransportChannel* channel);
   void OnChannelRead(TransportChannel* channel, const char *data, size_t len);
 
-  int SendPacket(bool rtcp, const void* data, size_t len);
-  void HandlePacket(bool rtcp, const char* data, size_t len);
+  bool SendPacket(bool rtcp, talk_base::Buffer* packet);
+  void HandlePacket(bool rtcp, talk_base::Buffer* packet);
 
   // Setting the send codec based on the remote description.
   void OnSessionState(BaseSession* session, BaseSession::State state);
@@ -313,6 +292,11 @@ class VoiceChannel : public BaseChannel {
   int GetOutputLevel_w();
   void GetActiveStreams_w(AudioInfo::StreamList* actives);
 
+  // Signal errors from VoiceMediaChannel.  Arguments are:
+  //     ssrc(uint32), and error(VoiceMediaChannel::Error).
+  sigslot::signal3<VoiceChannel*, uint32, VoiceMediaChannel::Error>
+      SignalMediaError;
+
  private:
   struct SetRingbackToneMessageData : public talk_base::MessageData {
     SetRingbackToneMessageData(const void* b, int l)
@@ -368,6 +352,8 @@ class VoiceChannel : public BaseChannel {
   virtual void OnMediaMonitorUpdate(
       VoiceMediaChannel *media_channel, const VoiceMediaInfo& info);
   void OnAudioMonitorUpdate(AudioMonitor *monitor, const AudioInfo& info);
+  void OnVoiceChannelError(uint32 ssrc, VoiceMediaChannel::Error error);
+  void SendLastMediaError();
 
   static const int kEarlyMediaTimeout = 1000;
   bool received_media_;
@@ -405,6 +391,9 @@ class VideoChannel : public BaseChannel {
   bool SendIntraFrame();
   bool RequestIntraFrame();
 
+  sigslot::signal3<VideoChannel*, uint32, VideoMediaChannel::Error>
+      SignalMediaError;
+
  private:
   // overrides from BaseChannel
   virtual void ChangeState();
@@ -440,6 +429,8 @@ class VideoChannel : public BaseChannel {
       SocketMonitor *monitor, const std::vector<ConnectionInfo> &infos);
   virtual void OnMediaMonitorUpdate(
       VideoMediaChannel *media_channel, const VideoMediaInfo& info);
+  void OnVideoChannelError(uint32 ssrc, VideoMediaChannel::Error error);
+
   VoiceChannel *voice_channel_;
   VideoRenderer *renderer_;
   talk_base::scoped_ptr<VideoMediaMonitor> media_monitor_;

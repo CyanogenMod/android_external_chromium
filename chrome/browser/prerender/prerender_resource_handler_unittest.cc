@@ -3,9 +3,12 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/prerender/prerender_resource_handler.h"
-#include "chrome/common/resource_response.h"
+#include "content/common/resource_response.h"
 #include "net/http/http_response_headers.h"
+#include "net/url_request/url_request_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+namespace prerender {
 
 namespace {
 
@@ -82,14 +85,18 @@ net::HttpResponseHeaders* CreateResponseHeaders(
 class PrerenderResourceHandlerTest : public testing::Test {
  protected:
   PrerenderResourceHandlerTest()
-      : ALLOW_THIS_IN_INITIALIZER_LIST(
+      : loop_(MessageLoop::TYPE_IO),
+        ui_thread_(BrowserThread::UI, &loop_),
+        io_thread_(BrowserThread::IO, &loop_),
+        test_url_request_(GURL("http://www.referrer.com"),
+                          &test_url_request_delegate_),
+        ALLOW_THIS_IN_INITIALIZER_LIST(
             pre_handler_(new PrerenderResourceHandler(
+                test_url_request_,
                 new MockResourceHandler(),
                 NewCallback(
                     this,
                     &PrerenderResourceHandlerTest::SetLastHandledURL)))),
-        ui_thread_(BrowserThread::UI, &loop_),
-        io_thread_(BrowserThread::IO, &loop_),
         default_url_("http://www.prerender.com") {
   }
 
@@ -103,9 +110,11 @@ class PrerenderResourceHandlerTest : public testing::Test {
     loop_.RunAllPending();
   }
 
-  void SetLastHandledURL(const GURL& url, const std::vector<GURL>& alias_urls) {
+  void SetLastHandledURL(const GURL& url, const std::vector<GURL>& alias_urls,
+                         const GURL& referrer) {
     last_handled_url_ = url;
     alias_urls_ = alias_urls;
+    referrer_ = referrer;
   }
 
   // Common logic shared by many of the tests
@@ -132,13 +141,19 @@ class PrerenderResourceHandlerTest : public testing::Test {
         != alias_urls_.end();
   }
 
-  scoped_refptr<PrerenderResourceHandler> pre_handler_;
+  // Must be initialized before |test_url_request_|.
   MessageLoop loop_;
   BrowserThread ui_thread_;
   BrowserThread io_thread_;
+
+  TestDelegate test_url_request_delegate_;
+  TestURLRequest test_url_request_;
+
+  scoped_refptr<PrerenderResourceHandler> pre_handler_;
   GURL last_handled_url_;
   GURL default_url_;
   std::vector<GURL> alias_urls_;
+  GURL referrer_;
 };
 
 namespace {
@@ -154,15 +169,16 @@ TEST_F(PrerenderResourceHandlerTest, Prerender) {
   EXPECT_EQ(default_url_, last_handled_url_);
 }
 
+static const int kRequestId = 1;
+
 // Tests that the final request in a redirect chain will
 // get diverted to the PrerenderManager.
 TEST_F(PrerenderResourceHandlerTest, PrerenderRedirect) {
-  int request_id = 1;
   GURL url_redirect("http://www.redirect.com");
   bool defer = false;
-  EXPECT_TRUE(pre_handler_->OnWillStart(request_id, default_url_, &defer));
+  EXPECT_TRUE(pre_handler_->OnWillStart(kRequestId, default_url_, &defer));
   EXPECT_FALSE(defer);
-  EXPECT_TRUE(pre_handler_->OnRequestRedirected(request_id,
+  EXPECT_TRUE(pre_handler_->OnRequestRedirected(kRequestId,
                                                 url_redirect,
                                                 NULL,
                                                 &defer));
@@ -171,7 +187,7 @@ TEST_F(PrerenderResourceHandlerTest, PrerenderRedirect) {
   response->response_head.mime_type = "text/html";
   response->response_head.headers = CreateResponseHeaders(
       "HTTP/1.1 200 OK\n");
-  EXPECT_TRUE(pre_handler_->OnResponseStarted(request_id, response));
+  EXPECT_TRUE(pre_handler_->OnResponseStarted(kRequestId, response));
   EXPECT_TRUE(last_handled_url_.is_empty());
   loop_.RunAllPending();
   EXPECT_EQ(url_redirect, last_handled_url_);
@@ -180,4 +196,26 @@ TEST_F(PrerenderResourceHandlerTest, PrerenderRedirect) {
   EXPECT_EQ(2, static_cast<int>(alias_urls_.size()));
 }
 
+// Tests that https requests will not be prerendered.
+TEST_F(PrerenderResourceHandlerTest, PrerenderHttps) {
+  GURL url_https("https://www.google.com");
+  bool defer = false;
+  EXPECT_FALSE(pre_handler_->OnWillStart(kRequestId, url_https, &defer));
+  EXPECT_FALSE(defer);
 }
+
+TEST_F(PrerenderResourceHandlerTest, PrerenderRedirectToHttps) {
+  bool defer = false;
+  EXPECT_TRUE(pre_handler_->OnWillStart(kRequestId, default_url_, &defer));
+  EXPECT_FALSE(defer);
+  GURL url_https("https://www.google.com");
+  EXPECT_FALSE(pre_handler_->OnRequestRedirected(kRequestId,
+                                                 url_https,
+                                                 NULL,
+                                                 &defer));
+  EXPECT_FALSE(defer);
+}
+
+}  // namespace
+
+}  // namespace prerender

@@ -1,14 +1,15 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/printing/print_job_worker.h"
 
 #include "base/message_loop.h"
+#include "base/values.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/printing/print_job.h"
 #include "chrome/common/notification_service.h"
+#include "content/browser/browser_thread.h"
 #include "printing/printed_document.h"
 #include "printing/printed_page.h"
 
@@ -80,7 +81,10 @@ void PrintJobWorker::GetSettings(bool ask_user_for_settings,
 
   // Recursive task processing is needed for the dialog in case it needs to be
   // destroyed by a task.
-  MessageLoop::current()->SetNestableTasksAllowed(true);
+  // TODO(thestig): this code is wrong, SetNestableTasksAllowed(true) is needed
+  // on the thread where the PrintDlgEx is called, and definitely both calls
+  // should happen on the same thread. See http://crbug.com/73466
+  // MessageLoop::current()->SetNestableTasksAllowed(true);
   printing_context_->set_use_overlays(use_overlays);
 
   if (ask_user_for_settings) {
@@ -95,10 +99,48 @@ void PrintJobWorker::GetSettings(bool ask_user_for_settings,
   }
 }
 
+void PrintJobWorker::SetSettings(const DictionaryValue* const new_settings) {
+  DCHECK_EQ(message_loop(), MessageLoop::current());
+
+  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+      NewRunnableMethod(this, &PrintJobWorker::UpdatePrintSettings,
+                        new_settings));
+}
+
+void PrintJobWorker::UpdatePrintSettings(
+    const DictionaryValue* const new_settings) {
+  // Create new PageRanges based on |new_settings|.
+  PageRanges new_ranges;
+  ListValue* page_range_array;
+  if (new_settings->GetList("pageRange", &page_range_array)) {
+    for (size_t index = 0; index < page_range_array->GetSize(); ++index) {
+      DictionaryValue* dict;
+      if (page_range_array->GetDictionary(index, &dict)) {
+        PageRange range;
+        if (dict->GetInteger("from", &range.from) &&
+            dict->GetInteger("to", &range.to)) {
+          // Page numbers are 0-based.
+          range.from--;
+          range.to--;
+          new_ranges.push_back(range);
+        }
+      }
+    }
+  }
+  // We don't update any other print job settings now, so delete |new_settings|.
+  delete new_settings;
+  PrintingContext::Result result =
+      printing_context_->UpdatePrintSettings(new_ranges);
+  GetSettingsDone(result);
+}
+
 void PrintJobWorker::GetSettingsDone(PrintingContext::Result result) {
   // Most PrintingContext functions may start a message loop and process
   // message recursively, so disable recursive task processing.
-  MessageLoop::current()->SetNestableTasksAllowed(false);
+  // TODO(thestig): see above comment.  SetNestableTasksAllowed(false) needs to
+  // be called on the same thread as the previous call.  See
+  // http://crbug.com/73466
+  // MessageLoop::current()->SetNestableTasksAllowed(false);
 
   // We can't use OnFailure() here since owner_ may not support notifications.
 
@@ -264,7 +306,11 @@ void PrintJobWorker::SpoolPage(PrintedPage& page) {
   }
 
   // Actual printing.
+#if defined(OS_WIN) || defined(OS_MACOSX)
   document_->RenderPrintedPage(page, printing_context_->context());
+#elif defined(OS_POSIX)
+  document_->RenderPrintedPage(page, printing_context_.get());
+#endif
 
   // Postprocess.
   if (printing_context_->PageDone() != PrintingContext::OK) {

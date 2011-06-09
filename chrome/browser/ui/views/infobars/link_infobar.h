@@ -22,13 +22,13 @@ class LinkInfoBar : public InfoBarView,
 
   // InfoBarView:
   virtual void Layout();
+  virtual void ViewHierarchyChanged(bool is_add, View* parent, View* child);
 
   // views::LinkController:
   virtual void LinkActivated(views::Link* source, int event_flags);
 
   LinkInfoBarDelegate* GetDelegate();
 
-  views::ImageView* icon_;
   views::Label* label_1_;
   views::Link* link_;
   views::Label* label_2_;

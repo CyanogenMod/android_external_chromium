@@ -273,25 +273,35 @@ int HttpAuthController::HandleAuthChallenge(
       case HttpAuth::AUTHORIZATION_RESULT_ACCEPT:
         break;
       case HttpAuth::AUTHORIZATION_RESULT_INVALID:
-        InvalidateCurrentHandler();
+        InvalidateCurrentHandler(INVALIDATE_HANDLER_AND_CACHED_CREDENTIALS);
         break;
       case HttpAuth::AUTHORIZATION_RESULT_REJECT:
         HistogramAuthEvent(handler_.get(), AUTH_EVENT_REJECT);
-        InvalidateCurrentHandler();
+        InvalidateCurrentHandler(INVALIDATE_HANDLER_AND_CACHED_CREDENTIALS);
         break;
       case HttpAuth::AUTHORIZATION_RESULT_STALE:
         if (http_auth_cache_->UpdateStaleChallenge(auth_origin_,
                                                    handler_->realm(),
                                                    handler_->auth_scheme(),
                                                    challenge_used)) {
-          handler_.reset();
-          identity_ = HttpAuth::Identity();
+          InvalidateCurrentHandler(INVALIDATE_HANDLER);
         } else {
           // It's possible that a server could incorrectly issue a stale
           // response when the entry is not in the cache. Just evict the
           // current value from the cache.
-          InvalidateCurrentHandler();
+          InvalidateCurrentHandler(INVALIDATE_HANDLER_AND_CACHED_CREDENTIALS);
         }
+        break;
+      case HttpAuth::AUTHORIZATION_RESULT_DIFFERENT_REALM:
+        // If the server changes the authentication realm in a
+        // subsequent challenge, invalidate cached credentials for the
+        // previous realm.  If the server rejects a preemptive
+        // authorization and requests credentials for a different
+        // realm, we keep the cached credentials.
+        InvalidateCurrentHandler(
+            (identity_.source == HttpAuth::IDENT_SRC_PATH_LOOKUP) ?
+            INVALIDATE_HANDLER :
+            INVALIDATE_HANDLER_AND_CACHED_CREDENTIALS);
         break;
       default:
         NOTREACHED();
@@ -403,10 +413,12 @@ bool HttpAuthController::HaveAuth() const {
   return handler_.get() && !identity_.invalid;
 }
 
-void HttpAuthController::InvalidateCurrentHandler() {
+void HttpAuthController::InvalidateCurrentHandler(
+    InvalidateHandlerAction action) {
   DCHECK(CalledOnValidThread());
 
-  InvalidateRejectedAuthFromCache();
+  if (action == INVALIDATE_HANDLER_AND_CACHED_CREDENTIALS)
+    InvalidateRejectedAuthFromCache();
   handler_.reset();
   identity_ = HttpAuth::Identity();
 }
@@ -414,13 +426,6 @@ void HttpAuthController::InvalidateCurrentHandler() {
 void HttpAuthController::InvalidateRejectedAuthFromCache() {
   DCHECK(CalledOnValidThread());
   DCHECK(HaveAuth());
-
-  // TODO(eroman): this short-circuit can be relaxed. If the realm of
-  // the preemptively used auth entry matches the realm of the subsequent
-  // challenge, then we can invalidate the preemptively used entry.
-  // Otherwise as-is we may send the failed credentials one extra time.
-  if (identity_.source == HttpAuth::IDENT_SRC_PATH_LOOKUP)
-    return;
 
   // Clear the cache entry for the identity we just failed on.
   // Note: we require the username/password to match before invalidating

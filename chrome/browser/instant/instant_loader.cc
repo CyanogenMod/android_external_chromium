@@ -18,15 +18,7 @@
 #include "chrome/browser/history/history_marshaling.h"
 #include "chrome/browser/instant/instant_loader_delegate.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_widget_host.h"
-#include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/search_engines/template_url.h"
-#include "chrome/browser/tab_contents/navigation_controller.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_delegate.h"
-#include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_details.h"
@@ -38,7 +30,14 @@
 #include "chrome/common/page_transition_types.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/renderer_preferences.h"
-#include "ipc/ipc_message.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_widget_host.h"
+#include "content/browser/renderer_host/render_widget_host_view.h"
+#include "content/browser/tab_contents/navigation_controller.h"
+#include "content/browser/tab_contents/navigation_entry.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_delegate.h"
+#include "content/browser/tab_contents/tab_contents_view.h"
 #include "net/http/http_util.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/codec/png_codec.h"
@@ -85,28 +84,7 @@ class InstantLoader::FrameLoadObserver : public NotificationObserver {
   // NotificationObserver:
   virtual void Observe(NotificationType type,
                        const NotificationSource& source,
-                       const NotificationDetails& details) {
-    switch (type.value) {
-      case NotificationType::LOAD_COMPLETED_MAIN_FRAME: {
-        int page_id = *(Details<int>(details).ptr());
-        NavigationEntry* active_entry =
-            tab_contents_->controller().GetActiveEntry();
-        if (!active_entry || active_entry->page_id() != page_id ||
-            active_entry->unique_id() != unique_id_) {
-          return;
-        }
-        loader_->SendBoundsToPage(true);
-        // TODO: support real cursor position.
-        int text_length = static_cast<int>(text_.size());
-        tab_contents_->render_view_host()->DetermineIfPageSupportsInstant(
-            text_, verbatim_, text_length, text_length);
-        break;
-      }
-      default:
-        NOTREACHED();
-        break;
-    }
-  }
+                       const NotificationDetails& details) OVERRIDE;
 
  private:
   InstantLoader* loader_;
@@ -129,37 +107,45 @@ class InstantLoader::FrameLoadObserver : public NotificationObserver {
   DISALLOW_COPY_AND_ASSIGN(FrameLoadObserver);
 };
 
+void InstantLoader::FrameLoadObserver::Observe(
+    NotificationType type,
+    const NotificationSource& source,
+    const NotificationDetails& details) {
+  switch (type.value) {
+    case NotificationType::LOAD_COMPLETED_MAIN_FRAME: {
+      int page_id = *(Details<int>(details).ptr());
+      NavigationEntry* active_entry =
+          tab_contents_->controller().GetActiveEntry();
+      if (!active_entry || active_entry->page_id() != page_id ||
+          active_entry->unique_id() != unique_id_) {
+        return;
+      }
+      loader_->SendBoundsToPage(true);
+      // TODO: support real cursor position.
+      int text_length = static_cast<int>(text_.size());
+      tab_contents_->render_view_host()->DetermineIfPageSupportsInstant(
+          text_, verbatim_, text_length, text_length);
+      break;
+    }
+    default:
+      NOTREACHED();
+      break;
+  }
+}
+
+// TabContentsDelegateImpl -----------------------------------------------------
+
 class InstantLoader::TabContentsDelegateImpl
     : public TabContentsDelegate,
       public NotificationObserver {
  public:
-  explicit TabContentsDelegateImpl(InstantLoader* loader)
-      : loader_(loader),
-        registered_render_widget_host_(NULL),
-        waiting_for_new_page_(true),
-        is_mouse_down_from_activate_(false),
-        user_typed_before_load_(false) {
-  }
+  explicit TabContentsDelegateImpl(InstantLoader* loader);
 
   // Invoked prior to loading a new URL.
-  void PrepareForNewLoad() {
-    user_typed_before_load_ = false;
-    waiting_for_new_page_ = true;
-    add_page_vector_.clear();
-    UnregisterForPaintNotifications();
-  }
-
-  // Invoked when removed as the delegate. Gives a chance to do any necessary
-  // cleanup.
-  void Reset() {
-    is_mouse_down_from_activate_ = false;
-    UnregisterForPaintNotifications();
-  }
+  void PrepareForNewLoad();
 
   // Invoked when the preview paints. Invokes PreviewPainted on the loader.
-  void PreviewPainted() {
-    loader_->PreviewPainted();
-  }
+  void PreviewPainted();
 
   bool is_mouse_down_from_activate() const {
     return is_mouse_down_from_activate_;
@@ -169,232 +155,74 @@ class InstantLoader::TabContentsDelegateImpl
 
   // Sets the last URL that will be added to history when CommitHistory is
   // invoked and removes all but the first navigation.
-  void SetLastHistoryURLAndPrune(const GURL& url) {
-    if (add_page_vector_.empty())
-      return;
-
-    history::HistoryAddPageArgs* args = add_page_vector_.front().get();
-    args->url = url;
-    args->redirects.clear();
-    args->redirects.push_back(url);
-
-    // Prune all but the first entry.
-    add_page_vector_.erase(add_page_vector_.begin() + 1,
-                           add_page_vector_.end());
-  }
+  void SetLastHistoryURLAndPrune(const GURL& url);
 
   // Commits the currently buffered history.
-  void CommitHistory(bool supports_instant) {
-    TabContents* tab = loader_->preview_contents()->tab_contents();
-    if (tab->profile()->IsOffTheRecord())
-      return;
+  void CommitHistory(bool supports_instant);
 
-    for (size_t i = 0; i < add_page_vector_.size(); ++i)
-      tab->UpdateHistoryForNavigation(add_page_vector_[i].get());
+  void RegisterForPaintNotifications(RenderWidgetHost* render_widget_host);
 
-    NavigationEntry* active_entry = tab->controller().GetActiveEntry();
-    if (!active_entry) {
-      // It appears to be possible to get here with no active entry. This seems
-      // to be possible with an auth dialog, but I can't narrow down the
-      // circumstances. If you hit this, file a bug with the steps you did and
-      // assign it to me (sky).
-      NOTREACHED();
-      return;
-    }
-    tab->UpdateHistoryPageTitle(*active_entry);
+  void UnregisterForPaintNotifications();
 
-    FaviconService* favicon_service =
-        tab->profile()->GetFaviconService(Profile::EXPLICIT_ACCESS);
-
-    if (favicon_service && active_entry->favicon().is_valid() &&
-        !active_entry->favicon().bitmap().empty()) {
-      std::vector<unsigned char> image_data;
-      gfx::PNGCodec::EncodeBGRASkBitmap(active_entry->favicon().bitmap(), false,
-                                        &image_data);
-      favicon_service->SetFavicon(active_entry->url(),
-                                  active_entry->favicon().url(),
-                                  image_data);
-      if (supports_instant && !add_page_vector_.empty()) {
-        // If we're using the instant API, then we've tweaked the url that is
-        // going to be added to history. We need to also set the favicon for the
-        // url we're adding to history (see comment in ReleasePreviewContents
-        // for details).
-        favicon_service->SetFavicon(add_page_vector_.back()->url,
-                                    active_entry->favicon().url(),
-                                    image_data);
-      }
-    }
-  }
-
-  void RegisterForPaintNotifications(RenderWidgetHost* render_widget_host) {
-    DCHECK(registered_render_widget_host_ == NULL);
-    registered_render_widget_host_ = render_widget_host;
-    Source<RenderWidgetHost> source =
-        Source<RenderWidgetHost>(registered_render_widget_host_);
-    registrar_.Add(this, NotificationType::RENDER_WIDGET_HOST_DID_PAINT,
-        source);
-    registrar_.Add(this, NotificationType::RENDER_WIDGET_HOST_DESTROYED,
-        source);
-  }
-
-  void UnregisterForPaintNotifications() {
-    if (registered_render_widget_host_) {
-      Source<RenderWidgetHost> source =
-          Source<RenderWidgetHost>(registered_render_widget_host_);
-      registrar_.Remove(this, NotificationType::RENDER_WIDGET_HOST_DID_PAINT,
-          source);
-      registrar_.Remove(this, NotificationType::RENDER_WIDGET_HOST_DESTROYED,
-          source);
-      registered_render_widget_host_ = NULL;
-    }
-  }
-
+  // NotificationObserver:
   virtual void Observe(NotificationType type,
-               const NotificationSource& source,
-               const NotificationDetails& details) {
-    if (type == NotificationType::RENDER_WIDGET_HOST_DID_PAINT) {
-      UnregisterForPaintNotifications();
-      PreviewPainted();
-    } else if (type == NotificationType::RENDER_WIDGET_HOST_DESTROYED) {
-      UnregisterForPaintNotifications();
-    } else {
-      NOTREACHED() << "Got a notification we didn't register for.";
-    }
-  }
+                       const NotificationSource& source,
+                       const NotificationDetails& details) OVERRIDE;
 
+  // TabContentsDelegate:
   virtual void OpenURLFromTab(TabContents* source,
                               const GURL& url, const GURL& referrer,
                               WindowOpenDisposition disposition,
-                              PageTransition::Type transition) {}
+                              PageTransition::Type transition) OVERRIDE;
   virtual void NavigationStateChanged(const TabContents* source,
-                                      unsigned changed_flags) {
-    if (!loader_->ready() && !registered_render_widget_host_ &&
-        source->controller().entry_count()) {
-      // The load has been committed. Install an observer that waits for the
-      // first paint then makes the preview active. We wait for the load to be
-      // committed before waiting on paint as there is always an initial paint
-      // when a new renderer is created from the resize so that if we showed the
-      // preview after the first paint we would end up with a white rect.
-      RegisterForPaintNotifications(
-          source->GetRenderWidgetHostView()->GetRenderWidgetHost());
-    }
-  }
-  virtual std::string GetNavigationHeaders(const GURL& url) {
-    std::string header;
-    net::HttpUtil::AppendHeaderIfMissing(kPreviewHeader, kPreviewHeaderValue,
-                                         &header);
-    return header;
-  }
+                                      unsigned changed_flags) OVERRIDE;
+  virtual std::string GetNavigationHeaders(const GURL& url) OVERRIDE;
   virtual void AddNewContents(TabContents* source,
                               TabContents* new_contents,
                               WindowOpenDisposition disposition,
                               const gfx::Rect& initial_pos,
-                              bool user_gesture) {}
-  virtual void ActivateContents(TabContents* contents) {
-  }
-  virtual void DeactivateContents(TabContents* contents) {}
-  virtual void LoadingStateChanged(TabContents* source) {}
-  virtual void CloseContents(TabContents* source) {}
-  virtual void MoveContents(TabContents* source, const gfx::Rect& pos) {}
-  virtual bool ShouldFocusConstrainedWindow() {
-    // Return false so that constrained windows are not initially focused. If
-    // we did otherwise the preview would prematurely get committed when focus
-    // goes to the constrained window.
-    return false;
-  }
-  virtual void WillShowConstrainedWindow(TabContents* source) {
-    if (!loader_->ready()) {
-      // A constrained window shown for an auth may not paint. Show the preview
-      // contents.
-      UnregisterForPaintNotifications();
-      loader_->ShowPreview();
-    }
-  }
-  virtual void ToolbarSizeChanged(TabContents* source, bool is_animating) {}
-  virtual void UpdateTargetURL(TabContents* source, const GURL& url) {}
-  virtual bool ShouldSuppressDialogs() {
-    // Any message shown during instant cancels instant, so we suppress them.
-    return true;
-  }
+                              bool user_gesture) OVERRIDE;
+  virtual void ActivateContents(TabContents* contents) OVERRIDE;
+  virtual void DeactivateContents(TabContents* contents) OVERRIDE;
+  virtual void LoadingStateChanged(TabContents* source) OVERRIDE;
+  virtual void CloseContents(TabContents* source) OVERRIDE;
+  virtual void MoveContents(TabContents* source,
+                            const gfx::Rect& pos) OVERRIDE;
+  virtual bool ShouldFocusConstrainedWindow() OVERRIDE;
+  virtual void WillShowConstrainedWindow(TabContents* source) OVERRIDE;
+  virtual void ToolbarSizeChanged(TabContents* source,
+                                  bool is_animating) OVERRIDE;
+  virtual void UpdateTargetURL(TabContents* source,
+                               const GURL& url) OVERRIDE;
+  virtual bool ShouldSuppressDialogs() OVERRIDE;
   virtual void BeforeUnloadFired(TabContents* tab,
                                  bool proceed,
-                                 bool* proceed_to_fire_unload) {}
-  virtual void SetFocusToLocationBar(bool select_all) {}
-  virtual bool ShouldFocusPageAfterCrash() { return false; }
-  virtual void LostCapture() {
-    CommitFromMouseReleaseIfNecessary();
-  }
+                                 bool* proceed_to_fire_unload) OVERRIDE;
+  virtual void SetFocusToLocationBar(bool select_all) OVERRIDE;
+  virtual bool ShouldFocusPageAfterCrash() OVERRIDE;
+  virtual void LostCapture() OVERRIDE;
   // If the user drags, we won't get a mouse up (at least on Linux). Commit the
   // instant result when the drag ends, so that during the drag the page won't
   // move around.
-  virtual void DragEnded() {
-    CommitFromMouseReleaseIfNecessary();
-  }
-  virtual bool CanDownload(int request_id) { return false; }
-  virtual void HandleMouseUp() {
-    CommitFromMouseReleaseIfNecessary();
-  }
-  virtual void HandleMouseActivate() {
-    is_mouse_down_from_activate_ = true;
-  }
-  virtual bool OnGoToEntryOffset(int offset) { return false; }
+  virtual void DragEnded() OVERRIDE;
+  virtual bool CanDownload(int request_id) OVERRIDE;
+  virtual void HandleMouseUp() OVERRIDE;
+  virtual void HandleMouseActivate() OVERRIDE;
+  virtual bool OnGoToEntryOffset(int offset) OVERRIDE;
   virtual bool ShouldAddNavigationToHistory(
       const history::HistoryAddPageArgs& add_page_args,
-      NavigationType::Type navigation_type) {
-    if (waiting_for_new_page_ && navigation_type == NavigationType::NEW_PAGE)
-      waiting_for_new_page_ = false;
-
-    if (!waiting_for_new_page_) {
-      add_page_vector_.push_back(
-          scoped_refptr<history::HistoryAddPageArgs>(add_page_args.Clone()));
-    }
-    return false;
-  }
-
-  virtual void OnSetSuggestions(int32 page_id,
-                                const std::vector<std::string>& suggestions) {
-    TabContentsWrapper* source = loader_->preview_contents();
-    if (!source->controller().GetActiveEntry() ||
-        page_id != source->controller().GetActiveEntry()->page_id())
-      return;
-
-    // TODO: only allow for default search provider.
-    // TODO(sky): Handle multiple suggestions.
-    if (suggestions.empty())
-      loader_->SetCompleteSuggestedText(string16());
-    else
-      loader_->SetCompleteSuggestedText(UTF8ToUTF16(suggestions[0]));
-  }
-
-  virtual void OnInstantSupportDetermined(int32 page_id, bool result) {
-    TabContents* source = loader_->preview_contents()->tab_contents();
-    if (!source->controller().GetActiveEntry() ||
-        page_id != source->controller().GetActiveEntry()->page_id())
-      return;
-
-    if (result)
-      loader_->PageFinishedLoading();
-    else
-      loader_->PageDoesntSupportInstant(user_typed_before_load_);
-  }
-
-  virtual bool ShouldShowHungRendererDialog() {
-    // If we allow the hung renderer dialog to be shown it'll gain focus,
-    // stealing focus from the omnibox causing instant to be cancelled. Return
-    // false so that doesn't happen.
-    return false;
-  }
+      NavigationType::Type navigation_type) OVERRIDE;
+  virtual void OnSetSuggestions(
+      int32 page_id,
+      const std::vector<std::string>& suggestions) OVERRIDE;
+  virtual void OnInstantSupportDetermined(int32 page_id, bool result) OVERRIDE;
+  virtual bool ShouldShowHungRendererDialog() OVERRIDE;
 
  private:
   typedef std::vector<scoped_refptr<history::HistoryAddPageArgs> >
       AddPageVector;
 
-  void CommitFromMouseReleaseIfNecessary() {
-    bool was_down = is_mouse_down_from_activate_;
-    is_mouse_down_from_activate_ = false;
-    if (was_down && loader_->ShouldCommitInstantOnMouseUp())
-      loader_->CommitInstantLoader();
-  }
+  void CommitFromMouseReleaseIfNecessary();
 
   InstantLoader* loader_;
 
@@ -423,18 +251,330 @@ class InstantLoader::TabContentsDelegateImpl
   DISALLOW_COPY_AND_ASSIGN(TabContentsDelegateImpl);
 };
 
+InstantLoader::TabContentsDelegateImpl::TabContentsDelegateImpl(
+    InstantLoader* loader)
+    : loader_(loader),
+      registered_render_widget_host_(NULL),
+      waiting_for_new_page_(true),
+      is_mouse_down_from_activate_(false),
+      user_typed_before_load_(false) {
+  DCHECK(loader->preview_contents());
+  registrar_.Add(this, NotificationType::INTERSTITIAL_ATTACHED,
+      Source<TabContents>(loader->preview_contents()->tab_contents()));
+}
+
+void InstantLoader::TabContentsDelegateImpl::PrepareForNewLoad() {
+  user_typed_before_load_ = false;
+  waiting_for_new_page_ = true;
+  add_page_vector_.clear();
+  UnregisterForPaintNotifications();
+}
+
+void InstantLoader::TabContentsDelegateImpl::PreviewPainted() {
+  loader_->PreviewPainted();
+}
+
+void InstantLoader::TabContentsDelegateImpl::SetLastHistoryURLAndPrune(
+    const GURL& url) {
+  if (add_page_vector_.empty())
+    return;
+
+  history::HistoryAddPageArgs* args = add_page_vector_.front().get();
+  args->url = url;
+  args->redirects.clear();
+  args->redirects.push_back(url);
+
+  // Prune all but the first entry.
+  add_page_vector_.erase(add_page_vector_.begin() + 1,
+                         add_page_vector_.end());
+}
+
+void InstantLoader::TabContentsDelegateImpl::CommitHistory(
+    bool supports_instant) {
+  TabContents* tab = loader_->preview_contents()->tab_contents();
+  if (tab->profile()->IsOffTheRecord())
+    return;
+
+  for (size_t i = 0; i < add_page_vector_.size(); ++i)
+    tab->UpdateHistoryForNavigation(add_page_vector_[i].get());
+
+  NavigationEntry* active_entry = tab->controller().GetActiveEntry();
+  if (!active_entry) {
+    // It appears to be possible to get here with no active entry. This seems
+    // to be possible with an auth dialog, but I can't narrow down the
+    // circumstances. If you hit this, file a bug with the steps you did and
+    // assign it to me (sky).
+    NOTREACHED();
+    return;
+  }
+  tab->UpdateHistoryPageTitle(*active_entry);
+
+  FaviconService* favicon_service =
+      tab->profile()->GetFaviconService(Profile::EXPLICIT_ACCESS);
+
+  if (favicon_service && active_entry->favicon().is_valid() &&
+      !active_entry->favicon().bitmap().empty()) {
+    std::vector<unsigned char> image_data;
+    gfx::PNGCodec::EncodeBGRASkBitmap(active_entry->favicon().bitmap(), false,
+                                      &image_data);
+    favicon_service->SetFavicon(active_entry->url(),
+                                active_entry->favicon().url(),
+                                image_data);
+    if (supports_instant && !add_page_vector_.empty()) {
+      // If we're using the instant API, then we've tweaked the url that is
+      // going to be added to history. We need to also set the favicon for the
+      // url we're adding to history (see comment in ReleasePreviewContents
+      // for details).
+      favicon_service->SetFavicon(add_page_vector_.back()->url,
+                                  active_entry->favicon().url(),
+                                  image_data);
+    }
+  }
+}
+
+void InstantLoader::TabContentsDelegateImpl::RegisterForPaintNotifications(
+    RenderWidgetHost* render_widget_host) {
+  DCHECK(registered_render_widget_host_ == NULL);
+  registered_render_widget_host_ = render_widget_host;
+  Source<RenderWidgetHost> source =
+      Source<RenderWidgetHost>(registered_render_widget_host_);
+  registrar_.Add(this, NotificationType::RENDER_WIDGET_HOST_DID_PAINT,
+                 source);
+  registrar_.Add(this, NotificationType::RENDER_WIDGET_HOST_DESTROYED,
+                 source);
+}
+
+void InstantLoader::TabContentsDelegateImpl::UnregisterForPaintNotifications() {
+  if (registered_render_widget_host_) {
+    Source<RenderWidgetHost> source =
+        Source<RenderWidgetHost>(registered_render_widget_host_);
+    registrar_.Remove(this, NotificationType::RENDER_WIDGET_HOST_DID_PAINT,
+                      source);
+    registrar_.Remove(this, NotificationType::RENDER_WIDGET_HOST_DESTROYED,
+                      source);
+    registered_render_widget_host_ = NULL;
+  }
+}
+
+void InstantLoader::TabContentsDelegateImpl::Observe(
+    NotificationType type,
+    const NotificationSource& source,
+    const NotificationDetails& details) {
+  switch (type.value) {
+    case NotificationType::RENDER_WIDGET_HOST_DID_PAINT:
+      UnregisterForPaintNotifications();
+      PreviewPainted();
+      break;
+    case NotificationType::RENDER_WIDGET_HOST_DESTROYED:
+      UnregisterForPaintNotifications();
+      break;
+    case NotificationType::INTERSTITIAL_ATTACHED:
+      PreviewPainted();
+      break;
+    default:
+      NOTREACHED() << "Got a notification we didn't register for.";
+  }
+}
+
+void InstantLoader::TabContentsDelegateImpl::OpenURLFromTab(
+    TabContents* source,
+    const GURL& url, const GURL& referrer,
+    WindowOpenDisposition disposition,
+    PageTransition::Type transition) {
+}
+
+void InstantLoader::TabContentsDelegateImpl::NavigationStateChanged(
+    const TabContents* source,
+    unsigned changed_flags) {
+  if (!loader_->ready() && !registered_render_widget_host_ &&
+      source->controller().entry_count()) {
+    // The load has been committed. Install an observer that waits for the
+    // first paint then makes the preview active. We wait for the load to be
+    // committed before waiting on paint as there is always an initial paint
+    // when a new renderer is created from the resize so that if we showed the
+    // preview after the first paint we would end up with a white rect.
+    RegisterForPaintNotifications(
+        source->GetRenderWidgetHostView()->GetRenderWidgetHost());
+  } else if (source->is_crashed()) {
+    PreviewPainted();
+  }
+}
+
+std::string InstantLoader::TabContentsDelegateImpl::GetNavigationHeaders(
+    const GURL& url) {
+  std::string header;
+  net::HttpUtil::AppendHeaderIfMissing(kPreviewHeader, kPreviewHeaderValue,
+                                       &header);
+  return header;
+}
+
+void InstantLoader::TabContentsDelegateImpl::AddNewContents(
+    TabContents* source,
+    TabContents* new_contents,
+    WindowOpenDisposition disposition,
+    const gfx::Rect& initial_pos,
+    bool user_gesture) {
+}
+
+void InstantLoader::TabContentsDelegateImpl::ActivateContents(
+    TabContents* contents) {
+}
+
+void InstantLoader::TabContentsDelegateImpl::DeactivateContents(
+    TabContents* contents) {
+}
+
+void InstantLoader::TabContentsDelegateImpl::LoadingStateChanged(
+    TabContents* source) {
+}
+
+void InstantLoader::TabContentsDelegateImpl::CloseContents(
+    TabContents* source) {
+}
+
+void InstantLoader::TabContentsDelegateImpl::MoveContents(
+    TabContents* source,
+    const gfx::Rect& pos) {
+}
+
+bool InstantLoader::TabContentsDelegateImpl::ShouldFocusConstrainedWindow() {
+  // Return false so that constrained windows are not initially focused. If
+  // we did otherwise the preview would prematurely get committed when focus
+  // goes to the constrained window.
+  return false;
+}
+
+void InstantLoader::TabContentsDelegateImpl::WillShowConstrainedWindow(
+    TabContents* source) {
+  if (!loader_->ready()) {
+    // A constrained window shown for an auth may not paint. Show the preview
+    // contents.
+    UnregisterForPaintNotifications();
+    loader_->ShowPreview();
+  }
+}
+
+void InstantLoader::TabContentsDelegateImpl::ToolbarSizeChanged(
+    TabContents* source,
+    bool is_animating) {
+}
+
+void InstantLoader::TabContentsDelegateImpl::UpdateTargetURL(
+    TabContents* source, const GURL& url) {
+}
+
+bool InstantLoader::TabContentsDelegateImpl::ShouldSuppressDialogs() {
+  // Any message shown during instant cancels instant, so we suppress them.
+  return true;
+}
+
+void InstantLoader::TabContentsDelegateImpl::BeforeUnloadFired(
+    TabContents* tab,
+    bool proceed,
+    bool* proceed_to_fire_unload) {
+}
+
+void InstantLoader::TabContentsDelegateImpl::SetFocusToLocationBar(
+    bool select_all) {
+}
+
+bool InstantLoader::TabContentsDelegateImpl::ShouldFocusPageAfterCrash() {
+  return false;
+}
+
+void InstantLoader::TabContentsDelegateImpl::LostCapture() {
+  CommitFromMouseReleaseIfNecessary();
+}
+
+void InstantLoader::TabContentsDelegateImpl::DragEnded() {
+  CommitFromMouseReleaseIfNecessary();
+}
+
+bool InstantLoader::TabContentsDelegateImpl::CanDownload(int request_id) {
+  return false;
+}
+
+void InstantLoader::TabContentsDelegateImpl::HandleMouseUp() {
+  CommitFromMouseReleaseIfNecessary();
+}
+
+void InstantLoader::TabContentsDelegateImpl::HandleMouseActivate() {
+  is_mouse_down_from_activate_ = true;
+}
+
+bool InstantLoader::TabContentsDelegateImpl::OnGoToEntryOffset(int offset) {
+  return false;
+}
+
+bool InstantLoader::TabContentsDelegateImpl::ShouldAddNavigationToHistory(
+    const history::HistoryAddPageArgs& add_page_args,
+    NavigationType::Type navigation_type) {
+  if (waiting_for_new_page_ && navigation_type == NavigationType::NEW_PAGE)
+    waiting_for_new_page_ = false;
+
+  if (!waiting_for_new_page_) {
+    add_page_vector_.push_back(
+        scoped_refptr<history::HistoryAddPageArgs>(add_page_args.Clone()));
+  }
+  return false;
+}
+
+void InstantLoader::TabContentsDelegateImpl::OnSetSuggestions(
+    int32 page_id,
+    const std::vector<std::string>& suggestions) {
+  TabContentsWrapper* source = loader_->preview_contents();
+  if (!source->controller().GetActiveEntry() ||
+      page_id != source->controller().GetActiveEntry()->page_id())
+    return;
+
+  // TODO: only allow for default search provider.
+  // TODO(sky): Handle multiple suggestions.
+  if (suggestions.empty())
+    loader_->SetCompleteSuggestedText(string16());
+  else
+    loader_->SetCompleteSuggestedText(UTF8ToUTF16(suggestions[0]));
+}
+
+void InstantLoader::TabContentsDelegateImpl::OnInstantSupportDetermined(
+    int32 page_id,
+    bool result) {
+  TabContents* source = loader_->preview_contents()->tab_contents();
+  if (!source->controller().GetActiveEntry() ||
+      page_id != source->controller().GetActiveEntry()->page_id())
+    return;
+
+  if (result)
+    loader_->PageFinishedLoading();
+  else
+    loader_->PageDoesntSupportInstant(user_typed_before_load_);
+}
+
+bool InstantLoader::TabContentsDelegateImpl::ShouldShowHungRendererDialog() {
+  // If we allow the hung renderer dialog to be shown it'll gain focus,
+  // stealing focus from the omnibox causing instant to be cancelled. Return
+  // false so that doesn't happen.
+  return false;
+}
+
+void InstantLoader::TabContentsDelegateImpl
+    ::CommitFromMouseReleaseIfNecessary() {
+  bool was_down = is_mouse_down_from_activate_;
+  is_mouse_down_from_activate_ = false;
+  if (was_down && loader_->ShouldCommitInstantOnMouseUp())
+    loader_->CommitInstantLoader();
+}
+
+// InstantLoader ---------------------------------------------------------------
+
 InstantLoader::InstantLoader(InstantLoaderDelegate* delegate, TemplateURLID id)
     : delegate_(delegate),
       template_url_id_(id),
       ready_(false),
       last_transition_type_(PageTransition::LINK) {
-  preview_tab_contents_delegate_.reset(new TabContentsDelegateImpl(this));
 }
 
 InstantLoader::~InstantLoader() {
   registrar_.RemoveAll();
-
-  preview_tab_contents_delegate_->Reset();
 
   // Delete the TabContents before the delegate as the TabContents holds a
   // reference to the delegate.
@@ -574,7 +714,8 @@ void InstantLoader::SetOmniboxBounds(const gfx::Rect& bounds) {
 }
 
 bool InstantLoader::IsMouseDownFromActivate() {
-  return preview_tab_contents_delegate_->is_mouse_down_from_activate();
+  return preview_tab_contents_delegate_.get() &&
+      preview_tab_contents_delegate_->is_mouse_down_from_activate();
 }
 
 TabContentsWrapper* InstantLoader::ReleasePreviewContents(
@@ -619,8 +760,7 @@ TabContentsWrapper* InstantLoader::ReleasePreviewContents(
           Source<NavigationController>(&preview_contents_->controller()));
 #endif
     }
-    preview_contents_->set_delegate(NULL);
-    preview_tab_contents_delegate_->Reset();
+    preview_contents_->tab_contents()->set_delegate(NULL);
     ready_ = false;
   }
   update_bounds_timer_.Stop();
@@ -776,6 +916,7 @@ void InstantLoader::CreatePreviewContents(TabContentsWrapper* tab_contents) {
   if (max_page_id != -1)
     preview_contents_->controller().set_max_restored_page_id(max_page_id + 1);
 
+  preview_tab_contents_delegate_.reset(new TabContentsDelegateImpl(this));
   new_contents->set_delegate(preview_tab_contents_delegate_.get());
 
   gfx::Rect tab_bounds;

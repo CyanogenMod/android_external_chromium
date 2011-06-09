@@ -11,18 +11,18 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/dom_ui/web_ui_util.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/sync/profile_sync_service.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/webui/web_ui_util.h"
 #include "grit/locale_settings.h"
 #include "ui/base/l10n/l10n_font_util.h"
 #include "ui/gfx/font.h"
@@ -181,11 +181,15 @@ static void DisablePasswordSync(ProfileSyncService* service) {
 }
 
 void FlowHandler::HandleSubmitAuth(const ListValue* args) {
-  std::string json(web_ui_util::GetJsonResponseFromFirstArgumentInList(args));
-  std::string username, password, captcha, access_code;
+  std::string json;
+  if (!args->GetString(0, &json)) {
+    NOTREACHED() << "Could not read JSON argument";
+    return;
+  }
   if (json.empty())
     return;
 
+  std::string username, password, captcha, access_code;
   if (!GetAuthData(json, &username, &password, &captcha, &access_code)) {
     // The page sent us something that we didn't understand.
     // This probably indicates a programming error.
@@ -198,12 +202,15 @@ void FlowHandler::HandleSubmitAuth(const ListValue* args) {
 }
 
 void FlowHandler::HandleConfigure(const ListValue* args) {
-  std::string json(web_ui_util::GetJsonResponseFromFirstArgumentInList(args));
-  SyncConfiguration configuration;
-
+  std::string json;
+  if (!args->GetString(0, &json)) {
+    NOTREACHED() << "Could not read JSON argument";
+    return;
+  }
   if (json.empty())
     return;
 
+  SyncConfiguration configuration;
   if (!GetConfiguration(json, &configuration)) {
     // The page sent us something that we didn't understand.
     // This probably indicates a programming error.
@@ -218,8 +225,11 @@ void FlowHandler::HandleConfigure(const ListValue* args) {
 }
 
 void FlowHandler::HandlePassphraseEntry(const ListValue* args) {
-  std::string json(web_ui_util::GetJsonResponseFromFirstArgumentInList(args));
-
+  std::string json;
+  if (!args->GetString(0, &json)) {
+    NOTREACHED() << "Could not read JSON argument";
+    return;
+  }
   if (json.empty())
     return;
 
@@ -240,8 +250,11 @@ void FlowHandler::HandlePassphraseCancel(const ListValue* args) {
 }
 
 void FlowHandler::HandleFirstPassphrase(const ListValue* args) {
-  std::string json(web_ui_util::GetJsonResponseFromFirstArgumentInList(args));
-
+  std::string json;
+  if (!args->GetString(0, &json)) {
+    NOTREACHED() << "Could not read JSON argument";
+    return;
+  }
   if (json.empty())
     return;
 
@@ -566,7 +579,8 @@ bool SyncSetupFlow::ShouldAdvance(SyncSetupWizard::State state) {
   switch (state) {
     case SyncSetupWizard::GAIA_LOGIN:
       return current_state_ == SyncSetupWizard::FATAL_ERROR ||
-             current_state_ == SyncSetupWizard::GAIA_LOGIN;
+             current_state_ == SyncSetupWizard::GAIA_LOGIN ||
+             current_state_ == SyncSetupWizard::SETTING_UP;
     case SyncSetupWizard::GAIA_SUCCESS:
       return current_state_ == SyncSetupWizard::GAIA_LOGIN;
     case SyncSetupWizard::CONFIGURE:

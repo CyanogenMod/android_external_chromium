@@ -393,6 +393,7 @@ struct LayoutMetrics {
       NSString* tooltip = [NSString stringWithFormat:@"%@\n%s", title,
                                     urlString.c_str()];
       [button setToolTip:tooltip];
+      [button setAcceptsTrackIn:YES];
     }
   } else {
     [button setEnabled:NO];
@@ -458,7 +459,8 @@ struct LayoutMetrics {
 // coordinates).  The top left is positioned in a manner similar to
 // cascading menus.  Windows may grow to either the right or left of
 // their parent (if a sub-folder) so we need to know |windowWidth|.
-- (NSPoint)windowTopLeftForWidth:(int)windowWidth {
+- (NSPoint)windowTopLeftForWidth:(int)windowWidth height:(int)windowHeight {
+  CGFloat kMinSqueezedMenuHeight = bookmarks::kBookmarkFolderButtonHeight * 2.0;
   NSPoint newWindowTopLeft;
   if (![parentController_ isKindOfClass:[self class]]) {
     // If we're not popping up from one of ourselves, we must be
@@ -484,6 +486,18 @@ struct LayoutMetrics {
     if (spillOff > 0.0) {
       newWindowTopLeft.x = std::max(newWindowTopLeft.x - spillOff,
                                     NSMinX(screenFrame));
+    }
+    // The menu looks bad when it is squeezed up against the bottom of the
+    // screen and ends up being only a few pixels tall. If it meets the
+    // threshold for this case, instead show the menu above the button.
+    NSRect visFrame = [[[parentButton_ window] screen] visibleFrame];
+    CGFloat availableVerticalSpace = newWindowTopLeft.y -
+        (NSMinY(visFrame) + bookmarks::kScrollWindowVerticalMargin);
+    if ((availableVerticalSpace < kMinSqueezedMenuHeight) &&
+        (windowHeight > availableVerticalSpace)) {
+      newWindowTopLeft.y = std::min(
+          newWindowTopLeft.y + windowHeight + NSHeight([parentButton_ frame]),
+          NSMaxY(visFrame));
     }
   } else {
     // Parent is a folder: expose as much as we can vertically; grow right/left.
@@ -702,7 +716,8 @@ struct LayoutMetrics {
   folderFrame.size.height += deltaMenuHeight;
   [folderView_ setFrameSize:folderFrame.size];
   CGFloat windowWidth = [self adjustButtonWidths] + padding_;
-  NSPoint newWindowTopLeft = [self windowTopLeftForWidth:windowWidth];
+  NSPoint newWindowTopLeft = [self windowTopLeftForWidth:windowWidth
+                                                  height:deltaMenuHeight];
   CGFloat left = newWindowTopLeft.x;
   NSSize newSize = NSMakeSize(windowWidth, deltaMenuHeight);
   [self adjustWindowLeft:left size:newSize scrollingBy:0.0];
@@ -762,7 +777,8 @@ struct LayoutMetrics {
   // base the window width on this ideal button width.
   CGFloat buttonWidth = [self adjustButtonWidths];
   CGFloat windowWidth = buttonWidth + padding_;
-  NSPoint newWindowTopLeft = [self windowTopLeftForWidth:windowWidth];
+  NSPoint newWindowTopLeft = [self windowTopLeftForWidth:windowWidth
+                                                  height:height];
   // Make sure as much of a submenu is exposed (which otherwise would be a
   // problem if the parent button is close to the bottom of the screen).
   if ([parentController_ isKindOfClass:[self class]]) {
@@ -944,20 +960,20 @@ struct LayoutMetrics {
 - (void)addOrUpdateScrollTracking {
   [self removeScrollTracking];
   NSView* view = [[self window] contentView];
-  scrollTrackingArea_.reset([[NSTrackingArea alloc]
+  scrollTrackingArea_.reset([[CrTrackingArea alloc]
                               initWithRect:[view bounds]
                                    options:(NSTrackingMouseMoved |
                                             NSTrackingMouseEnteredAndExited |
                                             NSTrackingActiveAlways)
-                                     owner:self
+                              proxiedOwner:self
                                   userInfo:nil]);
-    [view addTrackingArea:scrollTrackingArea_];
+  [view addTrackingArea:scrollTrackingArea_.get()];
 }
 
 // Remove the tracking area associated with scrolling.
 - (void)removeScrollTracking {
   if (scrollTrackingArea_.get()) {
-    [[[self window] contentView] removeTrackingArea:scrollTrackingArea_];
+    [[[self window] contentView] removeTrackingArea:scrollTrackingArea_.get()];
   }
   scrollTrackingArea_.reset();
 }
@@ -1188,6 +1204,10 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
 #pragma mark NSWindowDelegate Functions
 
 - (void)windowWillClose:(NSNotification*)notification {
+  // Also done by the dealloc method, but also doing it here is quicker and
+  // more reliable.
+  [parentButton_ forceButtonBorderToStayOnAlways:NO];
+
   // If a "hover open" is pending when the bookmark bar folder is
   // closed, be sure it gets cancelled.
   [NSObject cancelPreviousPerformRequestsWithTarget:self];
@@ -1223,7 +1243,8 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
 
   [self performSelector:@selector(openBookmarkFolderFromButtonAndCloseOldOne:)
              withObject:sender
-             afterDelay:bookmarks::kHoverOpenDelay];
+             afterDelay:bookmarks::kHoverOpenDelay
+                inModes:[NSArray arrayWithObject:NSRunLoopCommonModes]];
 }
 
 // Called from the BookmarkButton
@@ -1261,6 +1282,11 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
                                  parent->IndexOfChild(node));
   }
 }
+
+- (void)bookmarkDragDidEnd:(BookmarkButton*)button {
+  [barController_ bookmarkDragDidEnd:button];
+}
+
 
 #pragma mark BookmarkButtonControllerProtocol
 

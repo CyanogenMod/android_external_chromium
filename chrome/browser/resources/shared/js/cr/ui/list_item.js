@@ -27,26 +27,10 @@ cr.define('cr.ui', function() {
     },
 
     /**
-     * The current selection state.
-     * @type {Boolean}
+     * This item's index in the containing list.
+     * @type {number}
      */
-    get selected() {
-      return this.hasAttribute('selected');
-    },
-    set selected(selected) {
-      selected = Boolean(selected);
-      var oldSelected = this.selected;
-      if (oldSelected == selected)
-        return;
-
-      if (selected)
-        this.setAttribute('selected', '');
-      else
-        this.removeAttribute('selected');
-
-      cr.dispatchPropertyChange(this, 'selected', selected, oldSelected);
-      this.selectionChanged();
-    },
+    listIndex_: -1,
 
     /**
      * Called when an element is decorated as a list item.
@@ -66,7 +50,10 @@ cr.define('cr.ui', function() {
    * selection model. This is only used for display purpose.
    * @type {boolean}
    */
-  cr.defineProperty(ListItem, 'selected', cr.PropertyKind.BOOL_ATTR);
+  cr.defineProperty(ListItem, 'selected', cr.PropertyKind.BOOL_ATTR,
+                    function() {
+                      this.selectionChanged();
+                    });
 
   /**
    * Whether the item is the lead in a selection. Setting this does not update
@@ -74,6 +61,12 @@ cr.define('cr.ui', function() {
    * @type {boolean}
    */
   cr.defineProperty(ListItem, 'lead', cr.PropertyKind.BOOL_ATTR);
+
+  /**
+   * This item's index in the containing list.
+   * @type {number}
+   */
+  cr.defineProperty(ListItem, 'listIndex');
 
   return {
     ListItem: ListItem

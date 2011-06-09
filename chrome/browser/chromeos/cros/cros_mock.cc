@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -311,12 +311,18 @@ void CrosMock::SetNetworkLibraryStatusAreaExpectations() {
   EXPECT_CALL(*mock_network_library_, cellular_network())
       .Times(AnyNumber())
       .WillRepeatedly((Return((const CellularNetwork*)(NULL))));
+  EXPECT_CALL(*mock_network_library_, virtual_network())
+      .Times(AnyNumber())
+      .WillRepeatedly((Return((const VirtualNetwork*)(NULL))));
   EXPECT_CALL(*mock_network_library_, wifi_networks())
       .Times(AnyNumber())
       .WillRepeatedly((ReturnRef(wifi_networks_)));
   EXPECT_CALL(*mock_network_library_, cellular_networks())
       .Times(AnyNumber())
       .WillRepeatedly((ReturnRef(cellular_networks_)));
+  EXPECT_CALL(*mock_network_library_, virtual_networks())
+      .Times(AnyNumber())
+      .WillRepeatedly((ReturnRef(virtual_networks_)));
 
   // Set specific expectations for interesting functions:
 
@@ -347,7 +353,7 @@ void CrosMock::SetNetworkLibraryStatusAreaExpectations() {
 
 void CrosMock::SetPowerLibraryStatusAreaExpectations() {
   EXPECT_CALL(*mock_power_library_, AddObserver(_))
-      .Times(1)
+      .Times(2)
       .RetiresOnSaturation();
   EXPECT_CALL(*mock_power_library_, battery_fully_charged())
       .Times(1)
@@ -374,7 +380,7 @@ void CrosMock::SetPowerLibraryStatusAreaExpectations() {
       .WillRepeatedly((Return(base::TimeDelta::FromMinutes(24))))
       .RetiresOnSaturation();
   EXPECT_CALL(*mock_power_library_, RemoveObserver(_))
-      .Times(1)
+      .Times(2)
       .RetiresOnSaturation();
 }
 

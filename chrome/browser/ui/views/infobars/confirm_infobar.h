@@ -10,37 +10,15 @@
 #include "views/controls/link.h"
 
 class ConfirmInfoBarDelegate;
-class InfoBarTextButton;
 namespace views {
 class Label;
+class TextButton;
 }
-
-// TODO(pkasting): This class will die soon.
-class AlertInfoBar : public InfoBarView {
- public:
-  explicit AlertInfoBar(ConfirmInfoBarDelegate* delegate);
-  virtual ~AlertInfoBar();
-
-  // Overridden from views::View:
-  virtual void Layout();
-
- protected:
-  views::Label* label() const { return label_; }
-  views::ImageView* icon() const { return icon_; }
-
- private:
-  views::Label* label_;
-  views::ImageView* icon_;
-
-  DISALLOW_COPY_AND_ASSIGN(AlertInfoBar);
-};
 
 // An infobar that shows a message, up to two optional buttons, and an optional,
 // right-aligned link.  This is commonly used to do things like:
 // "Would you like to do X?  [Yes]  [No]               _Learn More_ [x]"
-// TODO(pkasting): The above layout is the desired, but not current, layout; fix
-// coming in a future patch.
-class ConfirmInfoBar : public AlertInfoBar,
+class ConfirmInfoBar : public InfoBarView,
                        public views::LinkController {
  public:
   explicit ConfirmInfoBar(ConfirmInfoBarDelegate* delegate);
@@ -51,19 +29,18 @@ class ConfirmInfoBar : public AlertInfoBar,
   // InfoBarView:
   virtual void Layout();
   virtual void ViewHierarchyChanged(bool is_add, View* parent, View* child);
-  virtual int GetAvailableWidth() const;
   virtual void ButtonPressed(views::Button* sender, const views::Event& event);
+  virtual int ContentMinimumWidth() const;
 
   // views::LinkController:
   virtual void LinkActivated(views::Link* source, int event_flags);
 
   ConfirmInfoBarDelegate* GetDelegate();
 
-  InfoBarTextButton* ok_button_;
-  InfoBarTextButton* cancel_button_;
+  views::Label* label_;
+  views::TextButton* ok_button_;
+  views::TextButton* cancel_button_;
   views::Link* link_;
-
-  bool initialized_;
 
   DISALLOW_COPY_AND_ASSIGN(ConfirmInfoBar);
 };

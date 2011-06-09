@@ -41,31 +41,33 @@ GtkWidget* MakeMarkupLabel(const char* format, const std::string& str) {
   return label;
 }
 
-void OnDialogResponse(GtkDialog* dialog, int response_id,
-                      ExtensionInstallUI::Delegate* delegate) {
+void OnResponse(GtkWidget* dialog, int response_id,
+                ExtensionInstallUI::Delegate* delegate) {
   if (response_id == GTK_RESPONSE_ACCEPT) {
     delegate->InstallUIProceed();
   } else {
     delegate->InstallUIAbort();
   }
 
-  gtk_widget_destroy(GTK_WIDGET(dialog));
+  gtk_widget_destroy(dialog);
 }
 
 void ShowInstallPromptDialog2(GtkWindow* parent, SkBitmap* skia_icon,
                               const Extension* extension,
                               ExtensionInstallUI::Delegate *delegate,
-                              const std::vector<string16>& permissions) {
+                              const std::vector<string16>& permissions,
+                              ExtensionInstallUI::PromptType type) {
   // Build the dialog.
   GtkWidget* dialog = gtk_dialog_new_with_buttons(
-      l10n_util::GetStringUTF8(IDS_EXTENSION_INSTALL_PROMPT_TITLE).c_str(),
+      l10n_util::GetStringUTF8(ExtensionInstallUI::kTitleIds[type]).c_str(),
       parent,
       GTK_DIALOG_MODAL,
       NULL);
   GtkWidget* close_button = gtk_dialog_add_button(GTK_DIALOG(dialog),
       GTK_STOCK_CANCEL, GTK_RESPONSE_CLOSE);
-  gtk_dialog_add_button(GTK_DIALOG(dialog),
-      l10n_util::GetStringUTF8(IDS_EXTENSION_PROMPT_INSTALL_BUTTON).c_str(),
+  gtk_dialog_add_button(
+      GTK_DIALOG(dialog),
+      l10n_util::GetStringUTF8(ExtensionInstallUI::kButtonIds[type]).c_str(),
       GTK_RESPONSE_ACCEPT);
   gtk_dialog_set_has_separator(GTK_DIALOG(dialog), FALSE);
 
@@ -97,9 +99,10 @@ void ShowInstallPromptDialog2(GtkWindow* parent, SkBitmap* skia_icon,
   gtk_box_pack_start(GTK_BOX(icon_hbox), right_column_area, TRUE, TRUE, 0);
 
   std::string heading_text = l10n_util::GetStringFUTF8(
-      IDS_EXTENSION_INSTALL_PROMPT_HEADING, UTF8ToUTF16(extension->name()));
+      ExtensionInstallUI::kHeadingIds[type], UTF8ToUTF16(extension->name()));
   GtkWidget* heading_label = MakeMarkupLabel("<span weight=\"bold\">%s</span>",
                                              heading_text);
+  gtk_label_set_line_wrap(GTK_LABEL(heading_label), true);
   gtk_misc_set_alignment(GTK_MISC(heading_label), 0.0, 0.5);
   bool show_permissions = !permissions.empty();
   // If we are not going to show the permissions, vertically center the title.
@@ -108,7 +111,7 @@ void ShowInstallPromptDialog2(GtkWindow* parent, SkBitmap* skia_icon,
 
   if (show_permissions) {
     GtkWidget* warning_label = gtk_label_new(l10n_util::GetStringUTF8(
-        IDS_EXTENSION_PROMPT_WILL_HAVE_ACCESS_TO).c_str());
+        ExtensionInstallUI::kWarningIds[type]).c_str());
     gtk_util::SetLabelWidth(warning_label, kRightColumnMinWidth);
 
     gtk_box_pack_start(GTK_BOX(right_column_area), warning_label,
@@ -157,7 +160,7 @@ void ShowInstallPromptDialog2(GtkWindow* parent, SkBitmap* skia_icon,
     }
   }
 
-  g_signal_connect(dialog, "response", G_CALLBACK(OnDialogResponse), delegate);
+  g_signal_connect(dialog, "response", G_CALLBACK(OnResponse), delegate);
   gtk_window_set_resizable(GTK_WINDOW(dialog), FALSE);
 
   gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_CLOSE);
@@ -172,7 +175,8 @@ void ExtensionInstallUI::ShowExtensionInstallUIPrompt2Impl(
     Delegate* delegate,
     const Extension* extension,
     SkBitmap* icon,
-    const std::vector<string16>& permissions) {
+    const std::vector<string16>& permissions,
+    ExtensionInstallUI::PromptType type) {
   Browser* browser = BrowserList::GetLastActiveWithProfile(profile);
   if (!browser) {
     delegate->InstallUIAbort();
@@ -187,5 +191,5 @@ void ExtensionInstallUI::ShowExtensionInstallUIPrompt2Impl(
   }
 
   ShowInstallPromptDialog2(browser_window->window(), icon, extension,
-      delegate, permissions);
+                           delegate, permissions, type);
 }

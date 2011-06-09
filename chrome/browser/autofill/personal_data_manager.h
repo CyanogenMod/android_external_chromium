@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,8 @@
 #include "chrome/browser/autofill/field_types.h"
 #include "chrome/browser/webdata/web_data_service.h"
 
-class AutoFillManager;
+class AutofillManager;
+class AutofillMetrics;
 class FormStructure;
 class Profile;
 
@@ -136,13 +137,6 @@ class PersonalDataManager
   virtual const std::vector<AutoFillProfile*>& web_profiles();
   virtual const std::vector<CreditCard*>& credit_cards();
 
-  // Creates a profile labeled |label|.
-  // This must be called on the DB thread with the expectation that the
-  // returned form will be synchronously persisted to the WebDatabase.  See
-  // Refresh and SetProfiles for details.
-  AutoFillProfile* CreateNewEmptyAutoFillProfileForDBThread(
-      const string16& label);
-
   // Re-loads profiles and credit cards from the WebDatabase asynchronously.
   // In the general case, this is a no-op and will re-create the same
   // in-memory model as existed prior to the call.  If any change occurred to
@@ -167,6 +161,9 @@ class PersonalDataManager
 #ifdef ANDROID
   friend class ProfileImplAndroid;
 #endif
+
+  // For tests.
+  static void set_has_logged_profile_count(bool has_logged_profile_count);
 
   PersonalDataManager();
   virtual ~PersonalDataManager();
@@ -197,12 +194,6 @@ class PersonalDataManager
   // query handle.
   void CancelPendingQuery(WebDataService::Handle* handle);
 
-  // Ensures that all profile labels are unique by appending an increasing digit
-  // to the end of non-unique labels.
-  // TODO(jhawkins): Create a new interface for labeled entities and turn these
-  // two methods into one.
-  void SetUniqueCreditCardLabels(std::vector<CreditCard>* credit_cards);
-
   // Saves |imported_profile| to the WebDB if it exists.
   virtual void SaveImportedProfile(const AutoFillProfile& imported_profile);
 
@@ -212,6 +203,14 @@ class PersonalDataManager
   bool MergeProfile(const AutoFillProfile& profile,
                     const std::vector<AutoFillProfile*>& existing_profiles,
                     std::vector<AutoFillProfile>* merged_profiles);
+
+  // The first time this is called, logs an UMA metrics for the number of
+  // profiles the user has. On subsequent calls, does nothing.
+  void LogProfileCount() const;
+
+  // For tests.
+  const AutofillMetrics* metric_logger() const;
+  void set_metric_logger(const AutofillMetrics* metric_logger);
 
   // The profile hosting this PersonalDataManager.
   Profile* profile_;
@@ -245,6 +244,10 @@ class PersonalDataManager
 
   // The observers.
   ObserverList<Observer> observers_;
+
+ private:
+  // For logging UMA metrics. Overridden by metrics tests.
+  scoped_ptr<const AutofillMetrics> metric_logger_;
 
   DISALLOW_COPY_AND_ASSIGN(PersonalDataManager);
 };

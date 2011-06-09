@@ -11,8 +11,6 @@
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_process_manager.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_widget_host_view.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
@@ -20,6 +18,8 @@
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
+#include "content/browser/renderer_host/render_widget_host_view.h"
+#include "content/browser/renderer_host/render_view_host.h"
 #include "views/widget/root_view.h"
 #include "views/window/window.h"
 
@@ -156,6 +156,13 @@ void ExtensionPopup::ResizeToView() {
   // know our position to do it.
   gfx::Size new_size = view()->size();
 
+  // |relative_to_| is in browser-relative coordinates, so convert it to
+  // screen coordinates for use in placing the popup widgets.
+  gfx::Rect relative_rect = relative_to_;
+  gfx::Point relative_origin = relative_rect.origin();
+  views::View::ConvertPointToScreen(frame_->GetRootView(), &relative_origin);
+  relative_rect.set_origin(relative_origin);
+
   // The rounded corners cut off more of the view than the border insets claim.
   // Since we can't clip the ExtensionView's corners, we need to increase the
   // inset by half the corner radius as well as lying about the size of the
@@ -163,7 +170,7 @@ void ExtensionPopup::ResizeToView() {
   int corner_inset = BubbleBorder::GetCornerRadius() / 2;
   gfx::Size adjusted_size = new_size;
   adjusted_size.Enlarge(2 * corner_inset, 2 * corner_inset);
-  gfx::Rect rect = border_->GetBounds(relative_to_, adjusted_size);
+  gfx::Rect rect = border_->GetBounds(relative_rect, adjusted_size);
   border_widget_->SetBounds(rect);
 
   // Now calculate the inner bounds.  This is a bit more convoluted than

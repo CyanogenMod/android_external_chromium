@@ -12,6 +12,7 @@
 #include "base/scoped_ptr.h"
 #include "base/string16.h"
 #include "base/task.h"
+#include "base/time.h"
 #include "net/base/auth.h"
 #include "net/base/completion_callback.h"
 #include "net/http/http_request_info.h"
@@ -85,6 +86,7 @@ class URLRequestHttpJob : public URLRequestJob {
   virtual void ContinueDespiteLastError();
   virtual bool ReadRawData(IOBuffer* buf, int buf_size, int *bytes_read);
   virtual void StopCaching();
+  virtual HostPortPair GetSocketAddress() const;
 
   // Keep a reference to the url request context to be sure it's not deleted
   // before us.
@@ -136,6 +138,10 @@ class URLRequestHttpJob : public URLRequestJob {
  private:
   virtual ~URLRequestHttpJob();
 
+  void RecordTimer();
+  void ResetTimer();
+
+  base::Time request_creation_time_;
   ScopedRunnableMethodFactory<URLRequestHttpJob> method_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(URLRequestHttpJob);

@@ -27,12 +27,12 @@ const char DeviceManagementBackendImpl::kValueRequestRegister[] = "register";
 const char DeviceManagementBackendImpl::kValueRequestUnregister[] =
     "unregister";
 const char DeviceManagementBackendImpl::kValueRequestPolicy[] = "policy";
-const char DeviceManagementBackendImpl::kValueDeviceType[] = "Chrome OS";
+const char DeviceManagementBackendImpl::kValueDeviceType[] = "2";
 const char DeviceManagementBackendImpl::kValueAppType[] = "Chrome";
 
 namespace {
 
-const char kValueAgent[] = "%s enterprise management client version %s (%s)";
+const char kValueAgent[] = "%s enterprise management client %s (%s)";
 
 const char kPostContentType[] = "application/protobuf";
 
@@ -170,7 +170,10 @@ void DeviceManagementJobBase::HandleResponse(
   }
 
   if (response_code != 200) {
-    OnError(DeviceManagementBackend::kErrorHttpStatus);
+    if (response_code == 400)
+      OnError(DeviceManagementBackend::kErrorRequestInvalid);
+    else
+      OnError(DeviceManagementBackend::kErrorHttpStatus);
     return;
   }
 
@@ -230,7 +233,17 @@ class DeviceManagementRegisterJob : public DeviceManagementJobBase {
       const std::string& auth_token,
       const std::string& device_id,
       const em::DeviceRegisterRequest& request,
-      DeviceManagementBackend::DeviceRegisterResponseDelegate* delegate);
+      DeviceManagementBackend::DeviceRegisterResponseDelegate* delegate)
+      : DeviceManagementJobBase(
+          backend_impl,
+          DeviceManagementBackendImpl::kValueRequestRegister,
+          device_id),
+        delegate_(delegate) {
+    SetAuthToken(auth_token);
+    em::DeviceManagementRequest request_wrapper;
+    request_wrapper.mutable_register_request()->CopyFrom(request);
+    SetPayload(request_wrapper);
+  }
   virtual ~DeviceManagementRegisterJob() {}
 
  private:
@@ -247,32 +260,25 @@ class DeviceManagementRegisterJob : public DeviceManagementJobBase {
   DISALLOW_COPY_AND_ASSIGN(DeviceManagementRegisterJob);
 };
 
-DeviceManagementRegisterJob::DeviceManagementRegisterJob(
-    DeviceManagementBackendImpl* backend_impl,
-    const std::string& auth_token,
-    const std::string& device_id,
-    const em::DeviceRegisterRequest& request,
-    DeviceManagementBackend::DeviceRegisterResponseDelegate* delegate)
-    : DeviceManagementJobBase(
-          backend_impl,
-          DeviceManagementBackendImpl::kValueRequestRegister,
-          device_id),
-      delegate_(delegate) {
-  SetAuthToken(auth_token);
-  em::DeviceManagementRequest request_wrapper;
-  request_wrapper.mutable_register_request()->CopyFrom(request);
-  SetPayload(request_wrapper);
-}
-
 // Handles device unregistration jobs.
 class DeviceManagementUnregisterJob : public DeviceManagementJobBase {
  public:
   DeviceManagementUnregisterJob(
       DeviceManagementBackendImpl* backend_impl,
-      const std::string& device_id,
       const std::string& device_management_token,
+      const std::string& device_id,
       const em::DeviceUnregisterRequest& request,
-      DeviceManagementBackend::DeviceUnregisterResponseDelegate* delegate);
+      DeviceManagementBackend::DeviceUnregisterResponseDelegate* delegate)
+      : DeviceManagementJobBase(
+          backend_impl,
+          DeviceManagementBackendImpl::kValueRequestUnregister,
+          device_id),
+        delegate_(delegate) {
+    SetDeviceManagementToken(device_management_token);
+    em::DeviceManagementRequest request_wrapper;
+    request_wrapper.mutable_unregister_request()->CopyFrom(request);
+    SetPayload(request_wrapper);
+  }
   virtual ~DeviceManagementUnregisterJob() {}
 
  private:
@@ -289,23 +295,6 @@ class DeviceManagementUnregisterJob : public DeviceManagementJobBase {
   DISALLOW_COPY_AND_ASSIGN(DeviceManagementUnregisterJob);
 };
 
-DeviceManagementUnregisterJob::DeviceManagementUnregisterJob(
-    DeviceManagementBackendImpl* backend_impl,
-    const std::string& device_management_token,
-    const std::string& device_id,
-    const em::DeviceUnregisterRequest& request,
-    DeviceManagementBackend::DeviceUnregisterResponseDelegate* delegate)
-    : DeviceManagementJobBase(
-          backend_impl,
-          DeviceManagementBackendImpl::kValueRequestUnregister,
-          device_id),
-      delegate_(delegate) {
-  SetDeviceManagementToken(device_management_token);
-  em::DeviceManagementRequest request_wrapper;
-  request_wrapper.mutable_unregister_request()->CopyFrom(request);
-  SetPayload(request_wrapper);
-}
-
 // Handles policy request jobs.
 class DeviceManagementPolicyJob : public DeviceManagementJobBase {
  public:
@@ -314,7 +303,17 @@ class DeviceManagementPolicyJob : public DeviceManagementJobBase {
       const std::string& device_management_token,
       const std::string& device_id,
       const em::DevicePolicyRequest& request,
-      DeviceManagementBackend::DevicePolicyResponseDelegate* delegate);
+      DeviceManagementBackend::DevicePolicyResponseDelegate* delegate)
+      : DeviceManagementJobBase(
+          backend_impl,
+          DeviceManagementBackendImpl::kValueRequestPolicy,
+          device_id),
+        delegate_(delegate) {
+    SetDeviceManagementToken(device_management_token);
+    em::DeviceManagementRequest request_wrapper;
+    request_wrapper.mutable_policy_request()->CopyFrom(request);
+    SetPayload(request_wrapper);
+  }
   virtual ~DeviceManagementPolicyJob() {}
 
  private:
@@ -330,23 +329,6 @@ class DeviceManagementPolicyJob : public DeviceManagementJobBase {
 
   DISALLOW_COPY_AND_ASSIGN(DeviceManagementPolicyJob);
 };
-
-DeviceManagementPolicyJob::DeviceManagementPolicyJob(
-    DeviceManagementBackendImpl* backend_impl,
-    const std::string& device_management_token,
-    const std::string& device_id,
-    const em::DevicePolicyRequest& request,
-    DeviceManagementBackend::DevicePolicyResponseDelegate* delegate)
-    : DeviceManagementJobBase(
-          backend_impl,
-          DeviceManagementBackendImpl::kValueRequestPolicy,
-          device_id),
-      delegate_(delegate) {
-  SetDeviceManagementToken(device_management_token);
-  em::DeviceManagementRequest request_wrapper;
-  request_wrapper.mutable_policy_request()->CopyFrom(request);
-  SetPayload(request_wrapper);
-}
 
 DeviceManagementBackendImpl::DeviceManagementBackendImpl(
     DeviceManagementService* service)

@@ -29,19 +29,14 @@
 
 #include <string>
 
-#include "talk/xmpp/constants.h"
+#include "talk/base/basicpacketsocketfactory.h"
 #include "talk/base/helpers.h"
-#include "talk/base/thread.h"
+#include "talk/base/logging.h"
 #include "talk/base/network.h"
 #include "talk/base/socketaddress.h"
-#include "talk/base/stringutils.h"
 #include "talk/base/stringencode.h"
-#include "talk/p2p/base/sessionmanager.h"
-#include "talk/p2p/client/basicportallocator.h"
-#include "talk/p2p/client/sessionmanagertask.h"
-#include "talk/session/phone/devicemanager.h"
-#include "talk/session/phone/mediaengine.h"
-#include "talk/session/phone/mediasessionclient.h"
+#include "talk/base/stringutils.h"
+#include "talk/base/thread.h"
 #include "talk/examples/call/console.h"
 #include "talk/examples/call/presencepushtask.h"
 #include "talk/examples/call/presenceouttask.h"
@@ -50,11 +45,14 @@
 #include "talk/examples/call/friendinvitesendtask.h"
 #include "talk/examples/call/muc.h"
 #include "talk/examples/call/voicemailjidrequester.h"
-#ifdef USE_TALK_SOUND
-#include "talk/sound/platformsoundsystemfactory.h"
-#endif
+#include "talk/p2p/base/sessionmanager.h"
+#include "talk/p2p/client/basicportallocator.h"
+#include "talk/p2p/client/sessionmanagertask.h"
+#include "talk/session/phone/devicemanager.h"
+#include "talk/session/phone/mediaengine.h"
+#include "talk/session/phone/mediasessionclient.h"
+#include "talk/xmpp/constants.h"
 
-#include "talk/base/logging.h"
 
 class NullRenderer : public cricket::VideoRenderer {
  public:
@@ -237,16 +235,20 @@ void CallClient::ParseLine(const std::string& line) {
 }
 
 CallClient::CallClient(buzz::XmppClient* xmpp_client)
-    : xmpp_client_(xmpp_client), media_engine_(NULL), media_client_(NULL),
-      call_(NULL), incoming_call_(false),
-      auto_accept_(false), pmuc_domain_("groupchat.google.com"),
-      local_renderer_(NULL), remote_renderer_(NULL),
-      roster_(new RosterMap), portallocator_flags_(0),
-      allow_local_ips_(false), initial_protocol_(cricket::PROTOCOL_HYBRID)
-#ifdef USE_TALK_SOUND
-      , sound_system_factory_(NULL)
-#endif
-    {
+    : xmpp_client_(xmpp_client),
+      media_engine_(NULL),
+      media_client_(NULL),
+      call_(NULL),
+      incoming_call_(false),
+      auto_accept_(false),
+      pmuc_domain_("groupchat.google.com"),
+      local_renderer_(NULL),
+      remote_renderer_(NULL),
+      roster_(new RosterMap),
+      portallocator_flags_(0),
+      allow_local_ips_(false),
+      initial_protocol_(cricket::PROTOCOL_HYBRID),
+      secure_policy_(cricket::SEC_DISABLED) {
   xmpp_client_->SignalStateChange.connect(this, &CallClient::OnStateChange);
 }
 
@@ -334,14 +336,19 @@ void CallClient::InitPhone() {
   // dispatched by it.
   worker_thread_->Start();
 
+  // TODO: It looks like we are leaking many
+  // objects. E.g. |network_manager_| and |socket_factory_| are never
+  // deleted.
+
   network_manager_ = new talk_base::NetworkManager();
+  socket_factory_ = new talk_base::BasicPacketSocketFactory(worker_thread_);
 
   // TODO: Decide if the relay address should be specified here.
   talk_base::SocketAddress stun_addr("stun.l.google.com", 19302);
-  port_allocator_ =
-      new cricket::BasicPortAllocator(network_manager_, stun_addr,
-          talk_base::SocketAddress(), talk_base::SocketAddress(),
-          talk_base::SocketAddress());
+  port_allocator_ = new cricket::BasicPortAllocator(
+      network_manager_, socket_factory_, stun_addr,
+      talk_base::SocketAddress(), talk_base::SocketAddress(),
+      talk_base::SocketAddress());
 
   if (portallocator_flags_ != 0) {
     port_allocator_->set_flags(portallocator_flags_);
@@ -359,32 +366,19 @@ void CallClient::InitPhone() {
   session_manager_task_->EnableOutgoingMessages();
   session_manager_task_->Start();
 
-#ifdef USE_TALK_SOUND
-  if (!sound_system_factory_) {
-    sound_system_factory_ = new cricket::PlatformSoundSystemFactory();
-  }
-#endif
-
   if (!media_engine_) {
-    media_engine_ = cricket::MediaEngine::Create(
-#ifdef USE_TALK_SOUND
-        sound_system_factory_
-#endif
-        );
+    media_engine_ = cricket::MediaEngine::Create();
   }
 
   media_client_ = new cricket::MediaSessionClient(
       xmpp_client_->jid(),
       session_manager_,
       media_engine_,
-      new cricket::DeviceManager(
-#ifdef USE_TALK_SOUND
-          sound_system_factory_
-#endif
-          ));
+      new cricket::DeviceManager());
   media_client_->SignalCallCreate.connect(this, &CallClient::OnCallCreate);
   media_client_->SignalDevicesChange.connect(this,
                                              &CallClient::OnDevicesChange);
+  media_client_->set_secure(secure_policy_);
 }
 
 void CallClient::OnRequestSignaling() {

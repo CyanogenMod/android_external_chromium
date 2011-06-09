@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "talk/base/asyncfile.h"
+#include "talk/base/scoped_ptr.h"
 #include "talk/base/socketserver.h"
 #include "talk/base/criticalsection.h"
 
@@ -38,13 +39,37 @@
 typedef int SOCKET;
 #endif // POSIX
 
-namespace talk_base { 
+namespace talk_base {
 
-class Dispatcher;
+// Event constants for the Dispatcher class.
+enum DispatcherEvent {
+  DE_READ    = 0x0001,
+  DE_WRITE   = 0x0002,
+  DE_CONNECT = 0x0004,
+  DE_CLOSE   = 0x0008,
+  DE_ACCEPT  = 0x0010,
+};
+
 class Signaler;
 #ifdef POSIX
-class PosixSignalDeliveryDispatcher;
+class PosixSignalDispatcher;
 #endif
+
+class Dispatcher {
+ public:
+  virtual ~Dispatcher() {}
+  virtual uint32 GetRequestedEvents() = 0;
+  virtual void OnPreEvent(uint32 ff) = 0;
+  virtual void OnEvent(uint32 ff, int err) = 0;
+#ifdef WIN32
+  virtual WSAEVENT GetWSAEvent() = 0;
+  virtual SOCKET GetSocket() = 0;
+  virtual bool CheckSignalClose() = 0;
+#elif POSIX
+  virtual int GetDescriptor() = 0;
+  virtual bool IsDescriptorClosed() = 0;
+#endif
+};
 
 // A socket server that provides the real sockets of the underlying OS.
 class PhysicalSocketServer : public SocketServer {
@@ -75,9 +100,8 @@ public:
   // manipulate user-level data structures.
   // "handler" may be SIG_IGN, SIG_DFL, or a user-specified function, just like
   // with signal(2).
-  // Only one PhysicalSocketServer may have user-level signal handlers.
-  // Attempting to install a signal handler for a PhysicalSocketServer when
-  // another already owns some will fail.
+  // Only one PhysicalSocketServer should have user-level signal handlers.
+  // Dispatching signals on multiple PhysicalSocketServers is not reliable.
   // The signal mask is not modified. It is the caller's responsibily to
   // maintain it as desired.
   bool SetPosixSignalHandler(int signum, void (*handler)(int));
@@ -89,8 +113,9 @@ private:
 
 #ifdef POSIX
   static bool InstallSignal(int signum, void (*handler)(int));
-#endif
 
+  scoped_ptr<PosixSignalDispatcher> signal_dispatcher_;
+#endif
   DispatcherList dispatchers_;
   IteratorList iterators_;
   Signaler* signal_wakeup_;

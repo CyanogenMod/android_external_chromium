@@ -7,21 +7,21 @@
 #include "base/command_line.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/content_settings/content_settings_details.h"
 #include "chrome/browser/content_settings/content_settings_provider.h"
-#include "chrome/browser/content_settings/policy_content_settings_provider.h"
-#include "chrome/browser/content_settings/pref_content_settings_provider.h"
+#include "chrome/browser/content_settings/content_settings_policy_provider.h"
+#include "chrome/browser/content_settings/content_settings_pref_provider.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/prefs/scoped_pref_update.h"
+#include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/browser_thread.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/net_util.h"
 #include "net/base/static_cookie_policy.h"
@@ -100,8 +100,10 @@ HostContentSettingsMap::HostContentSettingsMap(Profile* profile)
   // The order in which the content settings providers are created is critical,
   // as providers that are further up in the list (i.e. added earlier) override
   // providers further down.
-  content_settings_providers_.push_back(ProviderPtr(
-      new content_settings::PrefProvider(profile)));
+  content_settings_providers_.push_back(
+      make_linked_ptr(new content_settings::PolicyProvider(profile)));
+  content_settings_providers_.push_back(
+      make_linked_ptr(new content_settings::PrefProvider(profile)));
 
   pref_change_registrar_.Init(prefs);
   pref_change_registrar_.Add(prefs::kBlockThirdPartyCookies, this);
@@ -124,6 +126,7 @@ void HostContentSettingsMap::RegisterUserPrefs(PrefService* prefs) {
   content_settings::PrefDefaultProvider::RegisterUserPrefs(prefs);
   content_settings::PolicyDefaultProvider::RegisterUserPrefs(prefs);
   content_settings::PrefProvider::RegisterUserPrefs(prefs);
+  content_settings::PolicyProvider::RegisterUserPrefs(prefs);
 }
 
 ContentSetting HostContentSettingsMap::GetDefaultContentSetting(
@@ -151,10 +154,8 @@ ContentSetting HostContentSettingsMap::GetContentSetting(
   ContentSetting setting = GetNonDefaultContentSetting(url,
                                                        content_type,
                                                        resource_identifier);
-  if (setting == CONTENT_SETTING_DEFAULT ||
-      IsDefaultContentSettingManaged(content_type)) {
+  if (setting == CONTENT_SETTING_DEFAULT)
     return GetDefaultContentSetting(content_type);
-  }
   return setting;
 }
 
@@ -173,8 +174,9 @@ ContentSetting HostContentSettingsMap::GetNonDefaultContentSetting(
        ++provider) {
     provided_setting = (*provider)->GetContentSetting(
         url, url, content_type, resource_identifier);
-    if (provided_setting != CONTENT_SETTING_DEFAULT)
-      break;
+    bool isManaged = (*provider)->ContentSettingsTypeIsManaged(content_type);
+    if (provided_setting != CONTENT_SETTING_DEFAULT || isManaged)
+      return provided_setting;
   }
   return provided_setting;
 }
@@ -188,9 +190,8 @@ ContentSettings HostContentSettingsMap::GetContentSettings(
   for (int j = 0; j < CONTENT_SETTINGS_NUM_TYPES; ++j) {
     // A managed default content setting has the highest priority and hence
     // will overwrite any previously set value.
-    if ((output.settings[j] == CONTENT_SETTING_DEFAULT &&
-         j != CONTENT_SETTINGS_TYPE_PLUGINS) ||
-         IsDefaultContentSettingManaged(ContentSettingsType(j))) {
+    if (output.settings[j] == CONTENT_SETTING_DEFAULT &&
+        j != CONTENT_SETTINGS_TYPE_PLUGINS) {
       output.settings[j] = GetDefaultContentSetting(ContentSettingsType(j));
     }
   }
@@ -225,8 +226,14 @@ void HostContentSettingsMap::GetSettingsForOneType(
        ++provider) {
     // TODO(markusheintz): Only the rules that are applied should be collected.
     // Merge rules.
+    // TODO(markusheintz): GetAllContentSettingsRules should maybe not clear the
+    // passed vector in case rule sets are just unified.
+    Rules rules;
     (*provider)->GetAllContentSettingsRules(
-      content_type, resource_identifier, &content_settings_rules);
+        content_type, resource_identifier, &rules);
+    content_settings_rules.insert(content_settings_rules.end(),
+                                  rules.begin(),
+                                  rules.end());
   }
 
   // convert Rules to SettingsForOneType

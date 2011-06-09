@@ -8,6 +8,8 @@
 
 // File utility functions used only by tests.
 
+#include <string>
+
 class FilePath;
 
 namespace file_util {
@@ -35,8 +37,16 @@ bool CopyRecursiveDirNoCache(const FilePath& source_dir,
 bool VolumeSupportsADS(const FilePath& path);
 
 // Returns true if the ZoneIdentifier is correctly set to "Internet" (3).
+// Note that this function must be called from the same process as
+// the one that set the zone identifier.  I.e. don't use it in UI/automation
+// based tests.
 bool HasInternetZoneIdentifier(const FilePath& full_path);
 #endif  // defined(OS_WIN)
+
+// In general it's not reliable to convert a FilePath to a wstring and we use
+// string16 elsewhere for Unicode strings, but in tests it is frequently
+// convenient to be able to compare paths to literals like L"foobar".
+std::wstring FilePathAsWString(const FilePath& path);
 
 }  // namespace file_util
 

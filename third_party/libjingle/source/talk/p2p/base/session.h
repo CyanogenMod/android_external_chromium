@@ -42,8 +42,6 @@
 #include "talk/xmllite/xmlelement.h"
 #include "talk/xmpp/constants.h"
 
-class JingleMessageHandler;
-
 namespace cricket {
 
 class P2PTransportChannel;
@@ -163,6 +161,7 @@ class BaseSession : public sigslot::has_slots<>,
     ERROR_TIME = 1,      // no response to signaling
     ERROR_RESPONSE = 2,  // error during signaling
     ERROR_NETWORK = 3,   // network error, could not allocate network resources
+    ERROR_CONTENT = 4,   // channel errors in SetLocalContent/SetRemoteContent
   };
 
   explicit BaseSession(talk_base::Thread *signaling_thread);
@@ -172,7 +171,7 @@ class BaseSession : public sigslot::has_slots<>,
   void SetState(State state);
 
   // Updates the error state, signaling if necessary.
-  void SetError(Error error);
+  virtual void SetError(Error error);
 
   // Handles messages posted to us.
   virtual void OnMessage(talk_base::Message *pmsg);
@@ -364,8 +363,19 @@ class Session : public BaseSession {
   virtual void DestroyChannel(const std::string& content_name,
                               const std::string& channel_name);
 
+  // Updates the error state, signaling if necessary.
+  virtual void SetError(Error error);
+
   // Handles messages posted to us.
   virtual void OnMessage(talk_base::Message *pmsg);
+
+  // Fired when notification of media sources is received from the server.
+  // Passes a map whose keys are strings containing nick names for users
+  // in the session and whose values contain the SSRCs for each user.
+  sigslot::signal1<const StringToMediaSourcesMap&> SignalMediaSources;
+
+  // Sets the video streams to receive from the server.
+  bool SetVideoView(const VideoViewRequestVector& view_requests);
 
  private:
   // Creates or destroys a session.  (These are called only SessionManager.)
@@ -439,6 +449,7 @@ class Session : public BaseSession {
   bool SendTerminateMessage(const std::string& reason, SessionError* error);
   bool SendTransportInfoMessage(const TransportInfo& tinfo,
                                 SessionError* error);
+  bool SendViewMessage(const SessionView& view, SessionError* error);
   bool ResendAllTransportInfoMessages(SessionError* error);
 
   // Both versions of SendMessage send a message of the given type to
@@ -510,6 +521,8 @@ class Session : public BaseSession {
   bool OnTerminateMessage(const SessionMessage& msg, MessageError* error);
   bool OnTransportInfoMessage(const SessionMessage& msg, MessageError* error);
   bool OnTransportAcceptMessage(const SessionMessage& msg, MessageError* error);
+  bool OnNotifyMessage(const SessionMessage& msg, MessageError* error);
+  bool OnUpdateMessage(const SessionMessage& msg, MessageError* error);
   bool OnRedirectError(const SessionRedirect& redirect, SessionError* error);
 
   // Verifies that we are in the appropriate state to receive this message.

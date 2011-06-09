@@ -22,6 +22,11 @@ class ProxyConfigServiceImpl;
 }
 #endif
 
+namespace fileapi {
+class FileSystemContext;
+class SandboxedFileSystemContext;
+}
+
 namespace history {
 class TopSites;
 }
@@ -32,15 +37,15 @@ class SSLConfigService;
 }
 
 namespace policy {
-class ProfilePolicyContext;
+class ProfilePolicyConnector;
+}
+
+namespace prerender {
+class PrerenderManager;
 }
 
 namespace webkit_database {
 class DatabaseTracker;
-}
-
-namespace fileapi {
-class FileSystemContext;
 }
 
 class AutocompleteClassifier;
@@ -58,11 +63,11 @@ class Extension;
 class ExtensionDevToolsManager;
 class ExtensionEventRouter;
 class ExtensionInfoMap;
-class ExtensionIOEventRouter;
 class ExtensionMessageService;
 class ExtensionPrefValueMap;
 class ExtensionProcessManager;
 class ExtensionService;
+class ExtensionSpecialStoragePolicy;
 class FaviconService;
 class FilePath;
 class FindBarState;
@@ -78,12 +83,10 @@ class PersonalDataManager;
 class PinnedTabService;
 class PrefProxyConfigTracker;
 class PrefService;
-class PrerenderManager;
 class ProfileSyncFactory;
 class ProfileSyncService;
-class ProfileSyncService;
 class PromoCounter;
-class PromoCounter;
+class ProtocolHandlerRegistry;
 class SQLitePersistentCookieStore;
 class SSLConfigServiceManager;
 class SSLHostState;
@@ -102,7 +105,7 @@ class VisitedLinkEventListener;
 class VisitedLinkMaster;
 class WebDataService;
 class WebKitContext;
-class WebResourceService;
+class PromoResourceService;
 
 typedef intptr_t ProfileId;
 
@@ -137,7 +140,7 @@ class Profile {
   static const char* kProfileKey;
 
   // Value that represents no profile Id.
-  static const ProfileId InvalidProfileId;
+  static const ProfileId kInvalidProfileId;
 
   Profile();
   virtual ~Profile() {}
@@ -222,8 +225,9 @@ class Profile {
   // Accessor. The instance is created at startup.
   virtual ExtensionEventRouter* GetExtensionEventRouter() = 0;
 
-  // Accessor. The instance is created at startup.
-  virtual ExtensionIOEventRouter* GetExtensionIOEventRouter() = 0;
+  // Accessor. The instance is created upon first access.
+  virtual ExtensionSpecialStoragePolicy*
+      GetExtensionSpecialStoragePolicy() = 0;
 
   // Retrieves a pointer to the SSLHostState associated with this profile.
   // The SSLHostState is lazily created the first time that this method is
@@ -413,6 +417,9 @@ class Profile {
   // Returns the BookmarkModel, creating if not yet created.
   virtual BookmarkModel* GetBookmarkModel() = 0;
 
+  // Returns the ProtocolHandlerRegistry, creating if not yet created.
+  virtual ProtocolHandlerRegistry* GetProtocolHandlerRegistry() = 0;
+
   // Returns the Gaia Token Service, creating if not yet created.
   virtual TokenService* GetTokenService() = 0;
 
@@ -474,8 +481,12 @@ class Profile {
 
   virtual void InitExtensions() = 0;
 
-  // Start up service that gathers data from a web resource feed.
-  virtual void InitWebResources() = 0;
+  // Start up service that gathers data from a promo resource feed.
+  virtual void InitPromoResources() = 0;
+
+  // Register URLRequestFactories for protocols registered with
+  // registerProtocolHandler.
+  virtual void InitRegisteredProtocolHandlers() = 0;
 
   // Returns the new tab page resource cache.
   virtual NTPResourceCache* GetNTPResourceCache() = 0;
@@ -494,8 +505,8 @@ class Profile {
   // Returns the PromoCounter for Instant, or NULL if not applicable.
   virtual PromoCounter* GetInstantPromoCounter() = 0;
 
-  // Gets the policy context associated with this profile.
-  virtual policy::ProfilePolicyContext* GetPolicyContext() = 0;
+  // Gets the policy connector associated with this profile.
+  virtual policy::ProfilePolicyConnector* GetPolicyConnector() = 0;
 
   // Returns the ChromeURLDataManager for this profile.
   virtual ChromeURLDataManager* GetChromeURLDataManager() = 0;
@@ -516,12 +527,18 @@ class Profile {
   virtual void ChangeAppLocale(
       const std::string& locale, AppLocaleChangedVia via) = 0;
 
+  // Called after login.
+  virtual void OnLogin() = 0;
+
   // Returns ChromeOS's ProxyConfigServiceImpl, creating if not yet created.
   virtual chromeos::ProxyConfigServiceImpl*
       GetChromeOSProxyConfigServiceImpl() = 0;
 
   // Creates ChromeOS's EnterpriseExtensionListener.
   virtual void SetupChromeOSEnterpriseExtensionObserver() = 0;
+
+  // Initializes Chrome OS's preferences.
+  virtual void InitChromeOSPreferences() = 0;
 
 #endif  // defined(OS_CHROMEOS)
 
@@ -531,7 +548,7 @@ class Profile {
 
   // Returns the PrerenderManager used to prerender entire webpages for this
   // profile.
-  virtual PrerenderManager* GetPrerenderManager() = 0;
+  virtual prerender::PrerenderManager* GetPrerenderManager() = 0;
 
   // Returns whether it is a guest session.
   static bool IsGuestSession();

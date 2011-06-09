@@ -19,7 +19,6 @@
 #include "base/task.h"
 #include "base/time.h"
 #include "base/tuple.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/default_apps.h"
 #include "chrome/browser/extensions/extension_icon_manager.h"
 #include "chrome/browser/extensions/extension_menu_manager.h"
@@ -28,12 +27,14 @@
 #include "chrome/browser/extensions/extension_toolbar_model.h"
 #include "chrome/browser/extensions/extensions_quota_service.h"
 #include "chrome/browser/extensions/external_extension_provider_interface.h"
+#include "chrome/browser/extensions/pending_extension_info.h"
 #include "chrome/browser/extensions/sandboxed_extension_unpacker.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/property_bag.h"
+#include "content/browser/browser_thread.h"
 
 class ExtensionBrowserEventRouter;
 class ExtensionServiceBackend;
@@ -42,40 +43,6 @@ class ExtensionUpdater;
 class GURL;
 class Profile;
 class Version;
-
-typedef bool (*ShouldInstallExtensionPredicate)(const Extension&);
-
-// A pending extension is an extension that hasn't been installed yet
-// and is intended to be installed in the next auto-update cycle.  The
-// update URL of a pending extension may be blank, in which case a
-// default one is assumed.
-struct PendingExtensionInfo {
-  PendingExtensionInfo(
-      const GURL& update_url,
-      ShouldInstallExtensionPredicate should_install_extension,
-      bool is_from_sync,
-      bool install_silently,
-      bool enable_on_install,
-      bool enable_incognito_on_install,
-      Extension::Location install_source);
-
-  PendingExtensionInfo();
-
-  GURL update_url;
-  // When the extension is about to be installed, this function is
-  // called.  If this function returns true, the install proceeds.  If
-  // this function returns false, the install is aborted.
-  ShouldInstallExtensionPredicate should_install_extension;
-  bool is_from_sync;  // This update check was initiated from sync.
-  bool install_silently;
-  bool enable_on_install;
-  bool enable_incognito_on_install;
-  Extension::Location install_source;
-};
-
-// A PendingExtensionMap is a map from IDs of pending extensions to
-// their info.
-typedef std::map<std::string, PendingExtensionInfo> PendingExtensionMap;
 
 // This is an interface class to encapsulate the dependencies that
 // ExtensionUpdater has on ExtensionService. This allows easy mocking.
@@ -217,13 +184,9 @@ class ExtensionService
   virtual const Extension* GetExtensionById(const std::string& id,
                                             bool include_disabled);
 
-  // Install the extension file at |extension_path|.  Will install as an
-  // update if an older version is already installed.
-  // For fresh installs, this method also causes the extension to be
-  // immediately loaded.
-  // TODO(aa): This method can be removed. It is only used by the unit tests,
-  // and they could use CrxInstaller directly instead.
-  void InstallExtension(const FilePath& extension_path);
+  // Looks up a terminated (crashed) extension by ID. GetExtensionById does
+  // not include terminated extensions.
+  virtual const Extension* GetTerminatedExtension(const std::string& id);
 
   // Updates a currently-installed extension with the contents from
   // |extension_path|.
@@ -243,7 +206,7 @@ class ExtensionService
   // pre-enabled permissions.
   void AddPendingExtensionFromSync(
       const std::string& id, const GURL& update_url,
-      ShouldInstallExtensionPredicate should_install_extension,
+      PendingExtensionInfo::ShouldAllowInstallPredicate should_allow_install,
       bool install_silently, bool enable_on_install,
       bool enable_incognito_on_install);
 
@@ -404,10 +367,6 @@ class ExtensionService
     return browser_event_router_.get();
   }
 
-  const std::map<GURL, int>& protected_storage_map() const {
-    return protected_storage_map_;
-  }
-
   // Notify the frontend that there was an error loading an extension.
   // This method is public because ExtensionServiceBackend can post to here.
   void ReportExtensionLoadError(const FilePath& extension_path,
@@ -454,7 +413,7 @@ class ExtensionService
   ExtensionIdSet GetAppIds() const;
 
  private:
-  friend class BrowserThread;
+  friend struct BrowserThread::DeleteOnThread<BrowserThread::UI>;
   friend class DeleteTask<ExtensionService>;
 
   // Contains Extension data that can change during the life of the process,
@@ -494,7 +453,7 @@ class ExtensionService
   // extension with the same id is not already installed.
   void AddPendingExtensionInternal(
       const std::string& id, const GURL& update_url,
-      ShouldInstallExtensionPredicate should_install_extension,
+      PendingExtensionInfo::ShouldAllowInstallPredicate should_allow_install,
       bool is_from_sync, bool install_silently,
       bool enable_on_install, bool enable_incognito_on_install,
       Extension::Location install_source);
@@ -511,12 +470,6 @@ class ExtensionService
 
   // Helper method. Loads extension from prefs.
   void LoadInstalledExtension(const ExtensionInfo& info, bool write_to_prefs);
-
-  // Helper methods to configure the storage services accordingly.
-  void GrantProtectedStorage(const Extension* extension);
-  void RevokeProtectedStorage(const Extension* extension);
-  void GrantUnlimitedStorage(const Extension* extension);
-  void RevokeUnlimitedStorage(const Extension* extension);
 
   // The profile this ExtensionService is part of.
   Profile* profile_;
@@ -598,18 +551,6 @@ class ExtensionService
   // List of registered component extensions (see Extension::Location).
   typedef std::vector<ComponentExtensionInfo> RegisteredComponentExtensions;
   RegisteredComponentExtensions component_extension_manifests_;
-
-  // Collection of origins we've granted unlimited storage to. This is a
-  // map from origin to the number of extensions requiring unlimited
-  // storage within that origin.
-  typedef std::map<GURL, int> UnlimitedStorageMap;
-  UnlimitedStorageMap unlimited_storage_map_;
-
-  // Collection of origins whose storage is protected by "Clear browsing data."
-  // A map from origin to the number of Apps currently installed and therefore
-  // intrinsically protected.
-  typedef std::map<GURL, int> ProtectedStorageMap;
-  ProtectedStorageMap protected_storage_map_;
 
   // Manages the installation of default apps and the promotion of them in the
   // app launcher.

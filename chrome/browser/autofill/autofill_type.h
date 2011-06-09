@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,7 @@
 
 // The high-level description of AutoFill types, used to categorize form fields
 // and for associating form fields with form values in the Web Database.
-class AutoFillType {
+class AutofillType {
  public:
   enum FieldTypeGroup {
     NO_GROUP,
@@ -46,35 +46,35 @@ class AutoFillType {
     PHONE_WHOLE_NUMBER
   };
 
-  struct AutoFillTypeDefinition {
+  struct AutofillTypeDefinition {
     FieldTypeGroup group;
     FieldTypeSubGroup subgroup;
   };
 
-  explicit AutoFillType(AutoFillFieldType field_type);
-  AutoFillType(const AutoFillType& autofill_type);
-  AutoFillType& operator=(const AutoFillType& autofill_type);
+  explicit AutofillType(AutofillFieldType field_type);
+  AutofillType(const AutofillType& autofill_type);
+  AutofillType& operator=(const AutofillType& autofill_type);
 
-  AutoFillFieldType field_type() const;
+  AutofillFieldType field_type() const;
   FieldTypeGroup group() const;
   FieldTypeSubGroup subgroup() const;
 
   // Maps |field_type| to a field type that can be directly stored in a profile
   // (in the sense that it makes sense to call |AutoFillProfile::SetInfo()| with
   // the returned field type as the first parameter).
-  static AutoFillFieldType GetEquivalentFieldType(AutoFillFieldType field_type);
+  static AutofillFieldType GetEquivalentFieldType(AutofillFieldType field_type);
 
-  // Utilities for serializing and deserializing an |AutoFillFieldType|.
-  static std::string FieldTypeToString(AutoFillFieldType field_type);
-  static AutoFillFieldType StringToFieldType(const std::string& str);
+  // Utilities for serializing and deserializing an |AutofillFieldType|.
+  static std::string FieldTypeToString(AutofillFieldType field_type);
+  static AutofillFieldType StringToFieldType(const std::string& str);
 
  private:
-  AutoFillFieldType field_type_;
+  AutofillFieldType field_type_;
 };
 
-typedef AutoFillType::FieldTypeGroup FieldTypeGroup;
-typedef AutoFillType::FieldTypeSubGroup FieldTypeSubGroup;
-typedef std::set<AutoFillFieldType> FieldTypeSet;
-typedef std::map<string16, AutoFillFieldType> FieldTypeMap;
+typedef AutofillType::FieldTypeGroup FieldTypeGroup;
+typedef AutofillType::FieldTypeSubGroup FieldTypeSubGroup;
+typedef std::set<AutofillFieldType> FieldTypeSet;
+typedef std::map<string16, AutofillFieldType> FieldTypeMap;
 
 #endif  // CHROME_BROWSER_AUTOFILL_AUTOFILL_TYPE_H_

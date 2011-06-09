@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_PRINTING_PRINT_PREVIEW_MESSAGE_HANDLER_H_
 #pragma once
 
-#include "chrome/browser/tab_contents/tab_contents_observer.h"
+#include "content/browser/tab_contents/tab_contents_observer.h"
 
 struct ViewHostMsg_DidPreviewDocument_Params;
 
@@ -17,7 +17,7 @@ namespace printing {
 // TabContents that owns it.
 class PrintPreviewMessageHandler : public TabContentsObserver {
  public:
-  explicit PrintPreviewMessageHandler(TabContents* owner);
+  explicit PrintPreviewMessageHandler(TabContents* tab_contents);
   virtual ~PrintPreviewMessageHandler();
 
   void OnPagesReadyForPreview(
@@ -29,9 +29,6 @@ class PrintPreviewMessageHandler : public TabContentsObserver {
  private:
   // Gets the print preview tab associated with |owner_|.
   TabContents* GetPrintPreviewTab();
-
-  // The TabContents that owns this PrintPreviewMessageHandler.
-  TabContents* owner_;
 
   DISALLOW_COPY_AND_ASSIGN(PrintPreviewMessageHandler);
 };

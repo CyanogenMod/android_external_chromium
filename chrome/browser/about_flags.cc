@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -130,13 +130,14 @@ const Experiment kExperiments[] = {
     IDS_FLAGS_CLOUD_PRINT_PROXY_NAME,
     IDS_FLAGS_CLOUD_PRINT_PROXY_DESCRIPTION,
 #if defined(GOOGLE_CHROME_BUILD)
-    // For a Chrome build, we know we have a PDF plug-in, and so we'll
-    // enable by platform as we get things working.
-    0,
+    // For a Chrome build, we know we have a PDF plug-in on Windows, so it's
+    // fully enabled. Linux still need some final polish.
+    kOsLinux,
 #else
-    // Otherwise, where we know it could be working if a viable PDF
-    // plug-in could be supplied, we'll keep the lab enabled.
-    kOsWin,
+    // Otherwise, where we know Windows could be working if a viable PDF
+    // plug-in could be supplied, we'll keep the lab enabled. Mac always has
+    // PDF rasterization available, so no flag needed there.
+    kOsWin | kOsLinux,
 #endif
     SINGLE_VALUE_TYPE(switches::kEnableCloudPrintProxy)
   },
@@ -148,18 +149,18 @@ const Experiment kExperiments[] = {
     SINGLE_VALUE_TYPE(switches::kEnableCrxlessWebApps)
   },
   {
-    "gpu-compositing",
-    IDS_FLAGS_ACCELERATED_COMPOSITING_NAME,
-    IDS_FLAGS_ACCELERATED_COMPOSITING_DESCRIPTION,
-    kOsAll,
-    SINGLE_VALUE_TYPE(switches::kEnableAcceleratedLayers)
-  },
-  {
     "composited-layer-borders",
     IDS_FLAGS_COMPOSITED_LAYER_BORDERS,
     IDS_FLAGS_COMPOSITED_LAYER_BORDERS_DESCRIPTION,
     kOsAll,
     SINGLE_VALUE_TYPE(switches::kShowCompositedLayerBorders)
+  },
+  {
+    "show-fps-counter",
+    IDS_FLAGS_SHOW_FPS_COUNTER,
+    IDS_FLAGS_SHOW_FPS_COUNTER_DESCRIPTION,
+    kOsAll,
+    SINGLE_VALUE_TYPE(switches::kShowFPSCounter)
   },
   {
     "gpu-canvas-2d",  // FLAGS:RECORD_UMA
@@ -204,13 +205,6 @@ const Experiment kExperiments[] = {
     IDS_FLAGS_PAGE_PRERENDER_DESCRIPTION,
     kOsAll,
     MULTI_VALUE_TYPE(kPagePrerenderChoices)
-  },
-  {
-    "confirm-to-quit",  // FLAGS:RECORD_UMA
-    IDS_FLAGS_CONFIRM_TO_QUIT_NAME,
-    IDS_FLAGS_CONFIRM_TO_QUIT_DESCRIPTION,
-    kOsMac,
-    SINGLE_VALUE_TYPE(switches::kEnableConfirmToQuit)
   },
   {
     "extension-apis",  // FLAGS:RECORD_UMA
@@ -260,6 +254,27 @@ const Experiment kExperiments[] = {
     IDS_FLAGS_WEBAUDIO_DESCRIPTION,
     kOsMac,  // TODO(crogers): add windows and linux when FFT is ready.
     SINGLE_VALUE_TYPE(switches::kEnableWebAudio)
+  },
+  {
+    "enable-history-quick-provider",
+    IDS_FLAGS_ENABLE_HISTORY_QUICK_PROVIDER,
+    IDS_FLAGS_ENABLE_HISTORY_QUICK_PROVIDER_DESCRIPTION,
+    kOsAll,
+    SINGLE_VALUE_TYPE(switches::kEnableHistoryQuickProvider)
+  },
+  {
+    "p2papi",
+    IDS_FLAGS_P2P_API_NAME,
+    IDS_FLAGS_P2P_API_DESCRIPTION,
+    kOsAll,
+    SINGLE_VALUE_TYPE(switches::kEnableP2PApi)
+  },
+  {
+    "focus-existing-tab-on-open",  // FLAGS:RECORD_UMA
+    IDS_FLAGS_FOCUS_EXISTING_TAB_ON_OPEN_NAME,
+    IDS_FLAGS_FOCUS_EXISTING_TAB_ON_OPEN_DESCRIPTION,
+    kOsAll,
+    SINGLE_VALUE_TYPE(switches::kFocusExistingTabOnOpen)
   },
 };
 
@@ -328,8 +343,8 @@ void SetEnabledFlags(
 
 // Returns the name used in prefs for the choice at the specified index.
 std::string NameForChoice(const Experiment& e, int index) {
-  DCHECK(e.type == Experiment::MULTI_VALUE);
-  DCHECK(index < e.num_choices);
+  DCHECK_EQ(Experiment::MULTI_VALUE, e.type);
+  DCHECK_LT(index, e.num_choices);
   return std::string(e.internal_name) + about_flags::testing::kMultiSeparator +
       base::IntToString(index);
 }
@@ -339,7 +354,7 @@ void AddInternalName(const Experiment& e, std::set<std::string>* names) {
   if (e.type == Experiment::SINGLE_VALUE) {
     names->insert(e.internal_name);
   } else {
-    DCHECK(e.type == Experiment::MULTI_VALUE);
+    DCHECK_EQ(Experiment::MULTI_VALUE, e.type);
     for (int i = 0; i < e.num_choices; ++i)
       names->insert(NameForChoice(e, i));
   }
@@ -421,7 +436,7 @@ void GetSanitizedEnabledFlagsForCurrentPlatform(
 // Returns the Value representing the choice data in the specified experiment.
 Value* CreateChoiceData(const Experiment& experiment,
                         const std::set<std::string>& enabled_experiments) {
-  DCHECK(experiment.type == Experiment::MULTI_VALUE);
+  DCHECK_EQ(Experiment::MULTI_VALUE, experiment.type);
   ListValue* result = new ListValue;
   for (int i = 0; i < experiment.num_choices; ++i) {
     const Experiment::Choice& choice = experiment.choices[i];

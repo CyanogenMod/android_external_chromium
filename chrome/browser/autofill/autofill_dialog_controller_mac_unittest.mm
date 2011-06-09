@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@
 #include "chrome/browser/ui/cocoa/browser_test_helper.h"
 #import "chrome/browser/ui/cocoa/cocoa_test_helper.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/test/testing_browser_process.h"
 #include "chrome/test/testing_pref_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -161,6 +162,8 @@ class AutoFillDialogControllerTest : public CocoaTest {
     return helper_.test_profile_->test_manager_->test_credit_cards_;
   }
 
+  ScopedTestingBrowserProcess browser_process_;
+
   BrowserMock helper_;
   AutoFillDialogObserverMock observer_;
   AutoFillDialogController* controller_;  // weak reference
@@ -205,23 +208,23 @@ TEST_F(AutoFillDialogControllerTest, NoEditsDoNotChangeObserverCreditCards) {
 
 TEST_F(AutoFillDialogControllerTest, AutoFillDataMutation) {
   AutoFillProfile profile;
-  profile.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("John"));
-  profile.SetInfo(AutoFillType(NAME_MIDDLE), ASCIIToUTF16("C"));
-  profile.SetInfo(AutoFillType(NAME_LAST), ASCIIToUTF16("Smith"));
-  profile.SetInfo(AutoFillType(EMAIL_ADDRESS),
+  profile.SetInfo(AutofillType(NAME_FIRST), ASCIIToUTF16("John"));
+  profile.SetInfo(AutofillType(NAME_MIDDLE), ASCIIToUTF16("C"));
+  profile.SetInfo(AutofillType(NAME_LAST), ASCIIToUTF16("Smith"));
+  profile.SetInfo(AutofillType(EMAIL_ADDRESS),
                   ASCIIToUTF16("john@chromium.org"));
-  profile.SetInfo(AutoFillType(COMPANY_NAME), ASCIIToUTF16("Google Inc."));
-  profile.SetInfo(AutoFillType(ADDRESS_HOME_LINE1),
+  profile.SetInfo(AutofillType(COMPANY_NAME), ASCIIToUTF16("Google Inc."));
+  profile.SetInfo(AutofillType(ADDRESS_HOME_LINE1),
                   ASCIIToUTF16("1122 Mountain View Road"));
-  profile.SetInfo(AutoFillType(ADDRESS_HOME_LINE2), ASCIIToUTF16("Suite #1"));
-  profile.SetInfo(AutoFillType(ADDRESS_HOME_CITY),
+  profile.SetInfo(AutofillType(ADDRESS_HOME_LINE2), ASCIIToUTF16("Suite #1"));
+  profile.SetInfo(AutofillType(ADDRESS_HOME_CITY),
                   ASCIIToUTF16("Mountain View"));
-  profile.SetInfo(AutoFillType(ADDRESS_HOME_STATE), ASCIIToUTF16("CA"));
-  profile.SetInfo(AutoFillType(ADDRESS_HOME_ZIP), ASCIIToUTF16("94111"));
-  profile.SetInfo(AutoFillType(ADDRESS_HOME_COUNTRY), ASCIIToUTF16("USA"));
-  profile.SetInfo(AutoFillType(PHONE_HOME_WHOLE_NUMBER),
+  profile.SetInfo(AutofillType(ADDRESS_HOME_STATE), ASCIIToUTF16("CA"));
+  profile.SetInfo(AutofillType(ADDRESS_HOME_ZIP), ASCIIToUTF16("94111"));
+  profile.SetInfo(AutofillType(ADDRESS_HOME_COUNTRY), ASCIIToUTF16("USA"));
+  profile.SetInfo(AutofillType(PHONE_HOME_WHOLE_NUMBER),
                   ASCIIToUTF16("014155552258"));
-  profile.SetInfo(AutoFillType(PHONE_FAX_WHOLE_NUMBER),
+  profile.SetInfo(AutofillType(PHONE_FAX_WHOLE_NUMBER),
                   ASCIIToUTF16("024087172258"));
   profiles().push_back(&profile);
 
@@ -254,11 +257,11 @@ TEST_F(AutoFillDialogControllerTest, AutoFillDataMutation) {
 
 TEST_F(AutoFillDialogControllerTest, CreditCardDataMutation) {
   CreditCard credit_card;
-  credit_card.SetInfo(AutoFillType(CREDIT_CARD_NAME), ASCIIToUTF16("DCH"));
-  credit_card.SetInfo(AutoFillType(CREDIT_CARD_NUMBER),
+  credit_card.SetInfo(AutofillType(CREDIT_CARD_NAME), ASCIIToUTF16("DCH"));
+  credit_card.SetInfo(AutofillType(CREDIT_CARD_NUMBER),
                       ASCIIToUTF16("1234 5678 9101 1121"));
-  credit_card.SetInfo(AutoFillType(CREDIT_CARD_EXP_MONTH), ASCIIToUTF16("01"));
-  credit_card.SetInfo(AutoFillType(CREDIT_CARD_EXP_4_DIGIT_YEAR),
+  credit_card.SetInfo(AutofillType(CREDIT_CARD_EXP_MONTH), ASCIIToUTF16("01"));
+  credit_card.SetInfo(AutofillType(CREDIT_CARD_EXP_4_DIGIT_YEAR),
                       ASCIIToUTF16("2012"));
   credit_cards().push_back(&credit_card);
 
@@ -290,10 +293,10 @@ TEST_F(AutoFillDialogControllerTest, CreditCardDataMutation) {
 
 TEST_F(AutoFillDialogControllerTest, TwoProfiles) {
   AutoFillProfile profile1;
-  profile1.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("Joe"));
+  profile1.SetInfo(AutofillType(NAME_FIRST), ASCIIToUTF16("Joe"));
   profiles().push_back(&profile1);
   AutoFillProfile profile2;
-  profile2.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("Bob"));
+  profile2.SetInfo(AutofillType(NAME_FIRST), ASCIIToUTF16("Bob"));
   profiles().push_back(&profile2);
   LoadDialog();
   [controller_ closeDialog];
@@ -313,10 +316,10 @@ TEST_F(AutoFillDialogControllerTest, TwoProfiles) {
 
 TEST_F(AutoFillDialogControllerTest, TwoCreditCards) {
   CreditCard credit_card1;
-  credit_card1.SetInfo(AutoFillType(CREDIT_CARD_NAME), ASCIIToUTF16("Joe"));
+  credit_card1.SetInfo(AutofillType(CREDIT_CARD_NAME), ASCIIToUTF16("Joe"));
   credit_cards().push_back(&credit_card1);
   CreditCard credit_card2;
-  credit_card2.SetInfo(AutoFillType(CREDIT_CARD_NAME), ASCIIToUTF16("Bob"));
+  credit_card2.SetInfo(AutofillType(CREDIT_CARD_NAME), ASCIIToUTF16("Bob"));
   credit_cards().push_back(&credit_card2);
   LoadDialog();
   [controller_ closeDialog];
@@ -336,7 +339,7 @@ TEST_F(AutoFillDialogControllerTest, TwoCreditCards) {
 
 TEST_F(AutoFillDialogControllerTest, AddNewProfile) {
   AutoFillProfile profile;
-  profile.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("Joe"));
+  profile.SetInfo(AutofillType(NAME_FIRST), ASCIIToUTF16("Joe"));
   profiles().push_back(&profile);
   LoadDialog();
   [controller_ addNewAddress:nil];
@@ -357,13 +360,13 @@ TEST_F(AutoFillDialogControllerTest, AddNewProfile) {
 
   // New address should match.  Don't compare labels.
   AutoFillProfile new_profile;
-  new_profile.SetInfo(AutoFillType(NAME_FULL), ASCIIToUTF16("Don"));
+  new_profile.SetInfo(AutofillType(NAME_FULL), ASCIIToUTF16("Don"));
   ASSERT_EQ(0, observer_.profiles_[1].Compare(new_profile));
 }
 
 TEST_F(AutoFillDialogControllerTest, AddNewCreditCard) {
   CreditCard credit_card;
-  credit_card.SetInfo(AutoFillType(CREDIT_CARD_NAME), ASCIIToUTF16("Joe"));
+  credit_card.SetInfo(AutofillType(CREDIT_CARD_NAME), ASCIIToUTF16("Joe"));
   credit_cards().push_back(&credit_card);
   LoadDialog();
   [controller_ addNewCreditCard:nil];
@@ -385,13 +388,13 @@ TEST_F(AutoFillDialogControllerTest, AddNewCreditCard) {
 
   // New credit card should match.  Don't compare labels.
   CreditCard new_credit_card;
-  new_credit_card.SetInfo(AutoFillType(CREDIT_CARD_NAME), ASCIIToUTF16("Don"));
+  new_credit_card.SetInfo(AutofillType(CREDIT_CARD_NAME), ASCIIToUTF16("Don"));
   ASSERT_EQ(0, observer_.credit_cards_[1].Compare(new_credit_card));
 }
 
 TEST_F(AutoFillDialogControllerTest, AddNewEmptyProfile) {
   AutoFillProfile profile;
-  profile.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("Joe"));
+  profile.SetInfo(AutofillType(NAME_FIRST), ASCIIToUTF16("Joe"));
   profiles().push_back(&profile);
   LoadDialog();
   [controller_ addNewAddress:nil];
@@ -409,7 +412,7 @@ TEST_F(AutoFillDialogControllerTest, AddNewEmptyProfile) {
 
 TEST_F(AutoFillDialogControllerTest, AddNewEmptyCreditCard) {
   CreditCard credit_card;
-  credit_card.SetInfo(AutoFillType(CREDIT_CARD_NAME), ASCIIToUTF16("Joe"));
+  credit_card.SetInfo(AutofillType(CREDIT_CARD_NAME), ASCIIToUTF16("Joe"));
   credit_cards().push_back(&credit_card);
   LoadDialog();
   [controller_ addNewCreditCard:nil];
@@ -428,7 +431,7 @@ TEST_F(AutoFillDialogControllerTest, AddNewEmptyCreditCard) {
 
 TEST_F(AutoFillDialogControllerTest, DeleteProfile) {
   AutoFillProfile profile;
-  profile.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("Joe"));
+  profile.SetInfo(AutofillType(NAME_FIRST), ASCIIToUTF16("Joe"));
   profiles().push_back(&profile);
   LoadDialog();
   [controller_ selectAddressAtIndex:0];
@@ -445,7 +448,7 @@ TEST_F(AutoFillDialogControllerTest, DeleteProfile) {
 
 TEST_F(AutoFillDialogControllerTest, DeleteCreditCard) {
   CreditCard credit_card;
-  credit_card.SetInfo(AutoFillType(CREDIT_CARD_NAME), ASCIIToUTF16("Joe"));
+  credit_card.SetInfo(AutofillType(CREDIT_CARD_NAME), ASCIIToUTF16("Joe"));
   credit_cards().push_back(&credit_card);
   LoadDialog();
   [controller_ selectCreditCardAtIndex:0];
@@ -462,10 +465,10 @@ TEST_F(AutoFillDialogControllerTest, DeleteCreditCard) {
 
 TEST_F(AutoFillDialogControllerTest, TwoProfilesDeleteOne) {
   AutoFillProfile profile;
-  profile.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("Joe"));
+  profile.SetInfo(AutofillType(NAME_FIRST), ASCIIToUTF16("Joe"));
   profiles().push_back(&profile);
   AutoFillProfile profile2;
-  profile2.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("Bob"));
+  profile2.SetInfo(AutofillType(NAME_FIRST), ASCIIToUTF16("Bob"));
   profiles().push_back(&profile2);
   LoadDialog();
   [controller_ selectAddressAtIndex:1];
@@ -483,10 +486,10 @@ TEST_F(AutoFillDialogControllerTest, TwoProfilesDeleteOne) {
 
 TEST_F(AutoFillDialogControllerTest, TwoCreditCardsDeleteOne) {
   CreditCard credit_card;
-  credit_card.SetInfo(AutoFillType(CREDIT_CARD_NAME), ASCIIToUTF16("Joe"));
+  credit_card.SetInfo(AutofillType(CREDIT_CARD_NAME), ASCIIToUTF16("Joe"));
   credit_cards().push_back(&credit_card);
   CreditCard credit_card2;
-  credit_card2.SetInfo(AutoFillType(CREDIT_CARD_NAME), ASCIIToUTF16("Bob"));
+  credit_card2.SetInfo(AutofillType(CREDIT_CARD_NAME), ASCIIToUTF16("Bob"));
   credit_cards().push_back(&credit_card2);
   LoadDialog();
   [controller_ selectCreditCardAtIndex:1];
@@ -506,17 +509,17 @@ TEST_F(AutoFillDialogControllerTest, TwoCreditCardsDeleteOne) {
 
 TEST_F(AutoFillDialogControllerTest, DeleteMultiple) {
   AutoFillProfile profile;
-  profile.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("Joe"));
+  profile.SetInfo(AutofillType(NAME_FIRST), ASCIIToUTF16("Joe"));
   profiles().push_back(&profile);
   AutoFillProfile profile2;
-  profile2.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("Bob"));
+  profile2.SetInfo(AutofillType(NAME_FIRST), ASCIIToUTF16("Bob"));
   profiles().push_back(&profile2);
 
   CreditCard credit_card;
-  credit_card.SetInfo(AutoFillType(CREDIT_CARD_NAME), ASCIIToUTF16("Joe"));
+  credit_card.SetInfo(AutofillType(CREDIT_CARD_NAME), ASCIIToUTF16("Joe"));
   credit_cards().push_back(&credit_card);
   CreditCard credit_card2;
-  credit_card2.SetInfo(AutoFillType(CREDIT_CARD_NAME), ASCIIToUTF16("Bob"));
+  credit_card2.SetInfo(AutofillType(CREDIT_CARD_NAME), ASCIIToUTF16("Bob"));
   credit_cards().push_back(&credit_card2);
 
   LoadDialog();
@@ -609,8 +612,6 @@ TEST_F(AutoFillDialogControllerTest, WaitForDataToLoad) {
   size_t count = profiles().size();
   for (i = 0; i < count; i++) {
     // Do not compare labels.  Label is a derived field.
-    [controller_ profiles][i].set_label(string16());
-    profiles()[i]->set_label(string16());
     ASSERT_EQ([controller_ profiles][i], *profiles()[i]);
   }
   count = credit_cards().size();

@@ -8,14 +8,14 @@
 
 #include "base/string_number_conversions.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/tab_contents/navigation_controller.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/tab_contents/navigation_controller.h"
+#include "content/browser/tab_contents/navigation_entry.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "net/base/registry_controlled_domain.h"
@@ -84,10 +84,13 @@ string16 BackForwardMenuModel::GetLabelAt(int index) const {
           GetString(prefs::kAcceptLanguages)));
   menu_text = ui::ElideText(menu_text, gfx::Font(), kMaxWidth, false);
 
+#if !defined(OS_MACOSX)
   for (size_t i = menu_text.find('&'); i != string16::npos;
        i = menu_text.find('&', i + 2)) {
     menu_text.insert(i, 1, '&');
   }
+#endif
+
   return menu_text;
 }
 
@@ -155,7 +158,7 @@ void BackForwardMenuModel::ActivatedAtWithDisposition(
   if (index == GetItemCount() - 1) {
     UserMetrics::RecordComputedAction(BuildActionName("ShowFullHistory", -1),
                                       profile);
-    browser_->ShowSingletonTab(GURL(chrome::kChromeUIHistoryURL), false);
+    browser_->ShowSingletonTab(GURL(chrome::kChromeUIHistoryURL));
     return;
   }
 

@@ -187,6 +187,9 @@ void PopulateURLResponse(
   response->setWasAlternateProtocolAvailable(
       info.was_alternate_protocol_available);
   response->setWasFetchedViaProxy(info.was_fetched_via_proxy);
+  response->setRemoteIPAddress(
+      WebString::fromUTF8(info.socket_address.host()));
+  response->setRemotePort(info.socket_address.port());
   response->setConnectionID(info.connection_id);
   response->setConnectionReused(info.connection_reused);
   response->setDownloadFilePath(FilePathToWebString(info.download_file_path));
@@ -289,8 +292,7 @@ class WebURLLoaderImpl::Context : public base::RefCounted<Context>,
       const ResourceResponseInfo& info,
       bool* has_new_first_party_for_cookies,
       GURL* new_first_party_for_cookies);
-  virtual void OnReceivedResponse(
-      const ResourceResponseInfo& info, bool content_filtered);
+  virtual void OnReceivedResponse(const ResourceResponseInfo& info);
   virtual void OnDownloadedData(int len);
   virtual void OnReceivedData(const char* data, int len);
   virtual void OnReceivedCachedMetadata(const char* data, int len);
@@ -531,15 +533,13 @@ bool WebURLLoaderImpl::Context::OnReceivedRedirect(
 }
 
 void WebURLLoaderImpl::Context::OnReceivedResponse(
-    const ResourceResponseInfo& info,
-    bool content_filtered) {
+    const ResourceResponseInfo& info) {
   if (!client_)
     return;
 
   WebURLResponse response;
   response.initialize();
   PopulateURLResponse(request_.url(), info, &response);
-  response.setIsContentFiltered(content_filtered);
 
   bool show_raw_listing = (GURL(request_.url()).query() == "raw");
 
@@ -691,7 +691,7 @@ void WebURLLoaderImpl::Context::HandleDataURL() {
   std::string data;
 
   if (GetInfoFromDataURL(request_.url(), &info, &data, &status)) {
-    OnReceivedResponse(info, false);
+    OnReceivedResponse(info);
     if (!data.empty())
       OnReceivedData(data.data(), data.size());
   }

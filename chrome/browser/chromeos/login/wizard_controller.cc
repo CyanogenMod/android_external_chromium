@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,9 +44,9 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/notification_service.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
+#include "content/common/notification_service.h"
+#include "content/common/notification_type.h"
 #include "third_party/cros/chromeos_wm_ipc_enums.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "unicode/timezone.h"
@@ -68,7 +68,7 @@ const char kDeviceRegistered[] = "DeviceRegistered";
 
 // Path to OEM partner startup customization manifest.
 const char kStartupCustomizationManifestPath[] =
-    "/mnt/partner_partition/etc/chromeos/startup_manifest.json";
+    "/opt/oem/etc/startup_manifest.json";
 
 // Path to flag file indicating that both parts of OOBE were completed.
 const char kOobeCompleteFlagFilePath[] = "/home/chronos/.oobe_completed";
@@ -438,8 +438,7 @@ chromeos::ExistingUserController* WizardController::ShowLoginScreen() {
     users = chromeos::UserManager::Get()->GetUsers();
 
   // ExistingUserController deletes itself.
-  gfx::Rect screen_bounds;
-  background_widget_->GetBounds(&screen_bounds, true);
+  gfx::Rect screen_bounds = background_widget_->GetWindowScreenBounds();
   chromeos::ExistingUserController* controller =
       new chromeos::ExistingUserController(screen_bounds);
   controller->OwnBackground(background_widget_, background_view_);
@@ -712,7 +711,7 @@ void WizardController::ShowCurrentScreen() {
 
   gfx::Rect current_bounds;
   if (widget_)
-    widget_->GetBounds(&current_bounds, false);
+    current_bounds = widget_->GetClientAreaScreenBounds();
   gfx::Size new_screen_size = current_screen_->GetScreenSize();
   gfx::Rect new_bounds = GetWizardScreenBounds(new_screen_size.width(),
                                                new_screen_size.height());

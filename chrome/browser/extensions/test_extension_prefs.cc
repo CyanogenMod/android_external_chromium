@@ -9,7 +9,6 @@
 #include "base/message_loop_proxy.h"
 #include "base/scoped_ptr.h"
 #include "base/values.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extension_pref_store.h"
 #include "chrome/browser/extensions/extension_pref_value_map.h"
 #include "chrome/browser/extensions/extension_prefs.h"
@@ -19,6 +18,7 @@
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/json_pref_store.h"
+#include "content/browser/browser_thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -98,7 +98,7 @@ scoped_refptr<Extension> TestExtensionPrefs::AddExtensionWithManifest(
   FilePath path =  extensions_dir_.AppendASCII(name);
   std::string errors;
   scoped_refptr<Extension> extension = Extension::Create(
-      path, location, manifest, false, &errors);
+      path, location, manifest, false, true, &errors);
   EXPECT_TRUE(extension);
   if (!extension)
     return NULL;

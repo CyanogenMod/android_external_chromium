@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,12 +26,12 @@ class CreditCard : public FormGroup {
   virtual void GetPossibleFieldTypes(const string16& text,
                                      FieldTypeSet* possible_types) const;
   virtual void GetAvailableFieldTypes(FieldTypeSet* available_types) const;
-  virtual void FindInfoMatches(const AutoFillType& type,
+  virtual void FindInfoMatches(const AutofillType& type,
                                const string16& info,
                                std::vector<string16>* matched_text) const;
-  virtual string16 GetFieldText(const AutoFillType& type) const;
-  virtual string16 GetPreviewText(const AutoFillType& type) const;
-  virtual void SetInfo(const AutoFillType& type, const string16& value);
+  virtual string16 GetFieldText(const AutofillType& type) const;
+  virtual string16 GetPreviewText(const AutofillType& type) const;
+  virtual void SetInfo(const AutofillType& type, const string16& value);
   virtual const string16 Label() const;
 
   // Special method to set value for HTML5 month input type.
@@ -64,7 +64,6 @@ class CreditCard : public FormGroup {
   // Used by tests.
   bool operator==(const CreditCard& credit_card) const;
   bool operator!=(const CreditCard& credit_card) const;
-  void set_label(const string16& label) { label_ = label; }
 
   // Returns true if |value| is a credit card number.  Uses the Luhn formula to
   // validate the number.
@@ -111,7 +110,7 @@ class CreditCard : public FormGroup {
 
   // A helper function for FindInfoMatches that only handles matching the info
   // with the requested field type.
-  bool FindInfoMatchesHelper(const AutoFillFieldType& field_type,
+  bool FindInfoMatchesHelper(const AutofillFieldType& field_type,
                              const string16& info,
                              string16* match) const;
 

@@ -5,6 +5,7 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
+#include "chrome/test/testing_browser_process.h"
 #include "chrome/test/testing_profile.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -62,6 +63,7 @@ class TestingAutocompleteEditView : public AutocompleteEditView {
 
 #if defined(TOOLKIT_VIEWS)
   virtual views::View* AddToView(views::View* parent) { return NULL; }
+  virtual int OnPerformDrop(const views::DropTargetEvent& event) { return 0; }
 #endif
 
  private:
@@ -71,27 +73,21 @@ class TestingAutocompleteEditView : public AutocompleteEditView {
 class TestingAutocompleteEditController : public AutocompleteEditController {
  public:
   TestingAutocompleteEditController() {}
-  virtual void OnAutocompleteWillClosePopup() {}
-  virtual void OnAutocompleteLosingFocus(gfx::NativeView view_gaining_focus) {}
-  virtual void OnAutocompleteWillAccept() {}
-  virtual bool OnCommitSuggestedText(bool skip_inline_autocomplete) {
-    return false;
-  }
-  virtual bool AcceptCurrentInstantPreview() {
-    return false;
-  }
-  virtual void OnPopupBoundsChanged(const gfx::Rect& bounds) {}
   virtual void OnAutocompleteAccept(const GURL& url,
                                     WindowOpenDisposition disposition,
                                     PageTransition::Type transition,
-                                    const GURL& alternate_nav_url) {}
-  virtual void OnChanged() {}
-  virtual void OnSelectionBoundsChanged() {}
-  virtual void OnInputInProgress(bool in_progress) {}
-  virtual void OnKillFocus() {}
-  virtual void OnSetFocus() {}
-  virtual SkBitmap GetFavIcon() const { return SkBitmap(); }
-  virtual string16 GetTitle() const { return string16(); }
+                                    const GURL& alternate_nav_url) OVERRIDE {}
+  virtual void OnChanged() OVERRIDE {}
+  virtual void OnSelectionBoundsChanged() OVERRIDE {}
+  virtual void OnInputInProgress(bool in_progress) OVERRIDE {}
+  virtual void OnKillFocus() OVERRIDE {}
+  virtual void OnSetFocus() OVERRIDE {}
+  virtual SkBitmap GetFavIcon() const OVERRIDE { return SkBitmap(); }
+  virtual string16 GetTitle() const OVERRIDE { return string16(); }
+  virtual InstantController* GetInstant() OVERRIDE { return NULL; }
+  virtual TabContentsWrapper* GetTabContentsWrapper() OVERRIDE {
+    return NULL;
+  }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestingAutocompleteEditController);
@@ -140,6 +136,7 @@ TEST(AutocompleteEditTest, AdjustTextForCopy) {
     // Tests that we don't get double http if the user manually inserts http.
     { "a.b/", 0, false, "http://a.b/", "http://a.b/", true, "http://a.b/" },
   };
+  ScopedTestingBrowserProcess browser_process;
   TestingAutocompleteEditView view;
   TestingAutocompleteEditController controller;
   TestingProfile profile;

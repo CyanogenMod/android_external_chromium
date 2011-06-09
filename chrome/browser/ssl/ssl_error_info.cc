@@ -5,8 +5,8 @@
 #include "chrome/browser/ssl/ssl_error_info.h"
 
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/cert_store.h"
 #include "chrome/common/time_format.h"
+#include "content/browser/cert_store.h"
 #include "googleurl/src/gurl.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -153,9 +153,15 @@ SSLErrorInfo SSLErrorInfo::CreateError(ErrorType error_type,
       break;
     case CERT_INVALID:
       title = l10n_util::GetStringUTF16(IDS_CERT_ERROR_INVALID_CERT_TITLE);
-      details = l10n_util::GetStringUTF16(IDS_CERT_ERROR_INVALID_CERT_DETAILS);
+      details = l10n_util::GetStringFUTF16(
+          IDS_CERT_ERROR_INVALID_CERT_DETAILS,
+          UTF8ToUTF16(request_url.host()));
       short_description =
           l10n_util::GetStringUTF16(IDS_CERT_ERROR_INVALID_CERT_DESCRIPTION);
+      extra_info.push_back(
+          l10n_util::GetStringUTF16(IDS_CERT_ERROR_EXTRA_INFO_1));
+      extra_info.push_back(l10n_util::GetStringUTF16(
+          IDS_CERT_ERROR_INVALID_CERT_EXTRA_INFO_2));
       break;
     case CERT_WEAK_SIGNATURE_ALGORITHM:
       title = l10n_util::GetStringUTF16(

@@ -9,20 +9,23 @@
 #include <map>
 
 #include "base/callback.h"
+#include "base/metrics/histogram.h"
 #include "base/scoped_vector.h"
 #include "base/stl_util-inl.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/sessions/session_command.h"
 #include "chrome/browser/sessions/session_types.h"
 #include "chrome/browser/sessions/tab_restore_service_observer.h"
-#include "chrome/browser/tab_contents/navigation_controller.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/common/extensions/extension.h"
+#include "chrome/common/extensions/extension_constants.h"
+#include "content/browser/tab_contents/navigation_controller.h"
+#include "content/browser/tab_contents/navigation_entry.h"
+#include "content/browser/tab_contents/tab_contents.h"
 
 using base::Time;
 
@@ -147,6 +150,18 @@ void RemoveEntryByID(SessionID::id_type id,
       }
     }
   }
+}
+
+void RecordAppLaunch(Browser* browser, const TabRestoreService::Tab& tab) {
+  GURL url = tab.navigations.at(tab.current_navigation_index).virtual_url();
+  Profile* profile = browser->profile();
+  DCHECK(profile->GetExtensionService());
+  if (!profile->GetExtensionService()->IsInstalledApp(url))
+    return;
+
+  UMA_HISTOGRAM_ENUMERATION(extension_misc::kAppLaunchHistogram,
+                            extension_misc::APP_LAUNCH_NTP_RECENTLY_CLOSED,
+                            extension_misc::APP_LAUNCH_BUCKET_BOUNDARY);
 }
 
 }  // namespace
@@ -343,8 +358,10 @@ void TabRestoreService::RestoreEntryById(Browser* browser,
                                         window->selected_tab_index),
                                     tab.pinned, tab.from_last_session,
                                     tab.session_storage_namespace);
-        if (restored_tab)
+        if (restored_tab) {
           restored_tab->controller().LoadIfNecessary();
+          RecordAppLaunch(browser, tab);
+        }
       }
       // All the window's tabs had the same former browser_id.
       if (window->tabs[0].has_browser()) {
@@ -899,6 +916,7 @@ Browser* TabRestoreService::RestoreTab(const Tab& tab,
                             true, tab.pinned, tab.from_last_session,
                             tab.session_storage_namespace);
   }
+  RecordAppLaunch(browser, tab);
   return browser;
 }
 

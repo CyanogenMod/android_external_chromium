@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,21 @@
 #include <signal.h>
 #include <sys/resource.h>
 
+#include <string>
+
 #include "base/command_line.h"
 #include "base/eintr_wrapper.h"
 #include "base/logging.h"
 #include "base/string_number_conversions.h"
 #include "base/threading/platform_thread.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_thread.h"
+#include "chrome/browser/defaults.h"
 #include "chrome/common/chrome_switches.h"
+#include "content/browser/browser_thread.h"
+
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#include "chrome/browser/printing/print_dialog_gtk.h"
+#endif
 
 namespace {
 
@@ -199,6 +206,16 @@ void BrowserMainPartsPosix::PreEarlyInitialization() {
 #endif  // OS_MACOSX
   if (fd_limit > 0)
     SetFileDescriptorLimit(fd_limit);
+
+#if defined(OS_CHROMEOS)
+  if (parsed_command_line().HasSwitch(switches::kGuestSession)) {
+    // Disable sync and extensions if we're in "browse without sign-in" mode.
+    CommandLine* singleton_command_line = CommandLine::ForCurrentProcess();
+    singleton_command_line->AppendSwitch(switches::kDisableSync);
+    singleton_command_line->AppendSwitch(switches::kDisableExtensions);
+    browser_defaults::bookmarks_enabled = false;
+  }
+#endif
 }
 
 void BrowserMainPartsPosix::PostMainMessageLoopStart() {
@@ -218,4 +235,10 @@ void BrowserMainPartsPosix::PostMainMessageLoopStart() {
       LOG(DFATAL) << "Failed to create shutdown detector task.";
     }
   }
+
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+  printing::PrintingContextCairo::SetPrintingFunctions(
+      &PrintDialogGtk::CreatePrintDialog,
+      &PrintDialogGtk::PrintDocument);
+#endif  // defined(OS_LINUX) && !defined(OS_CHROMEOS)
 }

@@ -2,9 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "content/common/common_param_traits.h"
+
 #define IPC_MESSAGE_IMPL
 #include "chrome/common/automation_messages.h"
-
 
 AutomationURLRequest::AutomationURLRequest()
     : resource_type(0),
@@ -35,18 +36,18 @@ AutomationURLResponse::AutomationURLResponse()
       redirect_status(0) {
 }
 
-AutomationURLResponse::AutomationURLResponse(const std::string& in_mime_type,
-                                             const std::string& in_headers,
-                                             int64 in_content_length,
-                                             const base::Time& in_last_modified,
-                                             const std::string& in_redirect_url,
-                                             int in_redirect_status)
+AutomationURLResponse::AutomationURLResponse(
+    const std::string& in_mime_type, const std::string& in_headers,
+    int64 in_content_length, const base::Time& in_last_modified,
+    const std::string& in_redirect_url, int in_redirect_status,
+    const net::HostPortPair& host_socket_address)
     : mime_type(in_mime_type),
       headers(in_headers),
       content_length(in_content_length),
       last_modified(in_last_modified),
       redirect_url(in_redirect_url),
-      redirect_status(in_redirect_status) {
+      redirect_status(in_redirect_status),
+      socket_address(host_socket_address) {
 }
 
 
@@ -445,6 +446,7 @@ void ParamTraits<AutomationURLResponse>::Write(Message* m,
   WriteParam(m, p.last_modified);
   WriteParam(m, p.redirect_url);
   WriteParam(m, p.redirect_status);
+  WriteParam(m, p.socket_address);
 }
 
 // static
@@ -456,7 +458,8 @@ bool ParamTraits<AutomationURLResponse>::Read(const Message* m,
       ReadParam(m, iter, &p->content_length) &&
       ReadParam(m, iter, &p->last_modified) &&
       ReadParam(m, iter, &p->redirect_url) &&
-      ReadParam(m, iter, &p->redirect_status);
+      ReadParam(m, iter, &p->redirect_status) &&
+      ReadParam(m, iter, &p->socket_address);
 }
 
 // static
@@ -474,6 +477,8 @@ void ParamTraits<AutomationURLResponse>::Log(const param_type& p,
   LogParam(p.redirect_url, l);
   l->append(", ");
   LogParam(p.redirect_status, l);
+  l->append(", ");
+  LogParam(p.socket_address, l);
   l->append(")");
 }
 

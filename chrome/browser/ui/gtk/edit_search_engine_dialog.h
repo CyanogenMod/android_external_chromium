@@ -14,7 +14,6 @@
 #include "base/string16.h"
 #include "ui/base/gtk/gtk_signal.h"
 
-class AccessibleWidgetHelper;
 class EditSearchEngineController;
 class EditSearchEngineControllerDelegate;
 class Profile;
@@ -50,7 +49,7 @@ class EditSearchEngineDialog {
                      GtkEditable*);
 
   // Callback for dialog buttons.
-  CHROMEG_CALLBACK_1(EditSearchEngineDialog, void, OnResponse, GtkDialog*, int);
+  CHROMEGTK_CALLBACK_1(EditSearchEngineDialog, void, OnResponse, int);
 
   // Callback for window destruction.
   CHROMEGTK_CALLBACK_0(EditSearchEngineDialog, void, OnWindowDestroy);
@@ -73,9 +72,6 @@ class EditSearchEngineDialog {
   GtkWidget* ok_button_;
 
   scoped_ptr<EditSearchEngineController> controller_;
-
-  // Helper object to manage accessibility metadata.
-  scoped_ptr<AccessibleWidgetHelper> accessible_widget_helper_;
 
   DISALLOW_COPY_AND_ASSIGN(EditSearchEngineDialog);
 };

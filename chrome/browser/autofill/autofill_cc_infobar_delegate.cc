@@ -5,7 +5,6 @@
 #include "chrome/browser/autofill/autofill_cc_infobar_delegate.h"
 
 #include "base/metrics/histogram.h"
-#include "chrome/browser/autofill/autofill_cc_infobar.h"
 #include "chrome/browser/autofill/autofill_manager.h"
 #include "chrome/browser/browser_list.h"
 #include "grit/generated_resources.h"
@@ -14,7 +13,7 @@
 #include "ui/base/resource/resource_bundle.h"
 
 AutoFillCCInfoBarDelegate::AutoFillCCInfoBarDelegate(TabContents* tab_contents,
-                                                     AutoFillManager* host)
+                                                     AutofillManager* host)
     : ConfirmInfoBarDelegate(tab_contents),
       host_(host) {
 }
@@ -80,9 +79,3 @@ bool AutoFillCCInfoBarDelegate::LinkClicked(WindowOpenDisposition disposition) {
   browser->OpenAutoFillHelpTabAndActivate();
   return false;
 }
-
-#if defined(OS_WIN)
-InfoBar* AutoFillCCInfoBarDelegate::CreateInfoBar() {
-  return CreateAutofillCcInfoBar(this);
-}
-#endif  // defined(OS_WIN)

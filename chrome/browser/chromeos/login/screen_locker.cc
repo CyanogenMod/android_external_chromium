@@ -4,24 +4,23 @@
 
 #include "chrome/browser/chromeos/login/screen_locker.h"
 
+#include <X11/extensions/XTest.h>
+#include <X11/keysym.h>
 #include <gdk/gdkkeysyms.h>
 #include <gdk/gdkx.h>
 #include <string>
 #include <vector>
-#include <X11/extensions/XTest.h>
-#include <X11/keysym.h>
 // Evil hack to undo X11 evil #define. See crosbug.com/
 #undef Status
 
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
-#include "base/metrics/histogram.h"
 #include "base/message_loop.h"
+#include "base/metrics/histogram.h"
 #include "base/string_util.h"
 #include "base/timer.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/chromeos/cros/input_method_library.h"
 #include "chrome/browser/chromeos/cros/keyboard_library.h"
@@ -37,14 +36,15 @@
 #include "chrome/browser/chromeos/login/screen_lock_view.h"
 #include "chrome/browser/chromeos/login/shutdown_button.h"
 #include "chrome/browser/chromeos/system_key_event_listener.h"
-#include "chrome/browser/chromeos/wm_ipc.h"
 #include "chrome/browser/chromeos/view_ids.h"
+#include "chrome/browser/chromeos/wm_ipc.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/notification_service.h"
+#include "content/browser/browser_thread.h"
+#include "content/common/notification_service.h"
 #include "googleurl/src/gurl.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -1106,8 +1106,7 @@ void ScreenLocker::ShowErrorBubble(const std::wstring& message,
 
   gfx::Rect rect = screen_lock_view_->GetPasswordBoundsRelativeTo(
       lock_widget_->GetRootView());
-  gfx::Rect lock_widget_bounds;
-  lock_widget_->GetBounds(&lock_widget_bounds, false);
+  gfx::Rect lock_widget_bounds = lock_widget_->GetClientAreaScreenBounds();
   rect.Offset(lock_widget_bounds.x(), lock_widget_bounds.y());
   error_info_ = MessageBubble::ShowNoGrab(
       lock_window_,

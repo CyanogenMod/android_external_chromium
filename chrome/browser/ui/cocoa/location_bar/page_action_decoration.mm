@@ -10,13 +10,13 @@
 #include "chrome/browser/extensions/extension_browser_event_router.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #import "chrome/browser/ui/cocoa/extensions/extension_action_context_menu.h"
 #import "chrome/browser/ui/cocoa/extensions/extension_popup_controller.h"
 #import "chrome/browser/ui/cocoa/location_bar/location_bar_view_mac.h"
 #include "chrome/common/extensions/extension_action.h"
 #include "chrome/common/extensions/extension_resource.h"
 #include "chrome/common/notification_service.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "skia/ext/skia_utils_mac.h"
 
 namespace {
@@ -72,6 +72,10 @@ PageActionDecoration::~PageActionDecoration() {}
 // image centered.
 CGFloat PageActionDecoration::GetWidthForSpace(CGFloat width) {
   return Extension::kPageActionIconMaxSize;
+}
+
+bool PageActionDecoration::AcceptsMousePress() {
+  return true;
 }
 
 // Either notify listeners or show a popup depending on the Page

@@ -21,20 +21,17 @@
 #include "chrome/browser/bookmarks/bookmark_utils.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/debugger/devtools_window.h"
-#include "chrome/browser/dom_ui/bug_report_ui.h"
 #include "chrome/browser/download/download_manager.h"
+#include "chrome/browser/extensions/extension_tts_api.h"
 #include "chrome/browser/instant/instant_controller.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/ntp_background_util.h"
 #include "chrome/browser/page_info_window.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/sidebar/sidebar_container.h"
 #include "chrome/browser/sidebar/sidebar_manager.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/ui/app_modal_dialogs/app_modal_dialog_queue.h"
@@ -44,7 +41,7 @@
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/browser/ui/toolbar/wrench_menu_model.h"
 #include "chrome/browser/ui/view_ids.h"
-#include "chrome/browser/ui/views/bookmark_bar_view.h"
+#include "chrome/browser/ui/views/bookmarks/bookmark_bar_view.h"
 #include "chrome/browser/ui/views/browser_dialogs.h"
 #include "chrome/browser/ui/views/default_search_view.h"
 #include "chrome/browser/ui/views/download_shelf_view.h"
@@ -60,6 +57,7 @@
 #include "chrome/browser/ui/views/toolbar_view.h"
 #include "chrome/browser/ui/views/update_recommended_message_box.h"
 #include "chrome/browser/ui/views/window.h"
+#include "chrome/browser/ui/webui/bug_report_ui.h"
 #include "chrome/browser/ui/window_sizer.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_resource.h"
@@ -67,6 +65,9 @@
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/renderer_host/render_widget_host_view.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_view.h"
 #include "grit/app_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -235,7 +236,7 @@ class ResizeCorner : public views::View {
     EnableCanvasFlippingForRTLUI(true);
   }
 
-  virtual void Paint(gfx::Canvas* canvas) {
+  virtual void OnPaint(gfx::Canvas* canvas) {
     views::Window* window = GetWindow();
     if (!window || (window->IsMaximized() || window->IsFullscreen()))
       return;
@@ -610,12 +611,13 @@ bool BrowserView::ShouldShowOffTheRecordAvatar() const {
 
 bool BrowserView::AcceleratorPressed(const views::Accelerator& accelerator) {
 #if defined(OS_CHROMEOS)
-  // If accessibility is enabled, ignore accelerators involving the Search
-  // key so that key combinations involving Search can be used for extra
-  // accessibility functionality.
+  // If accessibility is enabled, stop speech and return false so that key
+  // combinations involving Search can be used for extra accessibility
+  // functionality.
   if (accelerator.GetKeyCode() == ui::VKEY_LWIN &&
       g_browser_process->local_state()->GetBoolean(
           prefs::kAccessibilityEnabled)) {
+    ExtensionTtsController::GetInstance()->Stop();
     return false;
   }
 #endif
@@ -965,7 +967,7 @@ void BrowserView::RotatePaneFocus(bool forwards) {
   int count = static_cast<int>(accessible_views.size());
 
   // Figure out which view (if any) currently has the focus.
-  views::View* focused_view = GetRootView()->GetFocusedView();
+  views::View* focused_view = GetFocusManager()->GetFocusedView();
   int index = -1;
   if (focused_view) {
     for (int i = 0; i < count; ++i) {
@@ -1007,7 +1009,7 @@ void BrowserView::SaveFocusedView() {
   views::ViewStorage* view_storage = views::ViewStorage::GetInstance();
   if (view_storage->RetrieveView(last_focused_view_storage_id_))
     view_storage->RemoveView(last_focused_view_storage_id_);
-  views::View* focused_view = GetRootView()->GetFocusedView();
+  views::View* focused_view = GetFocusManager()->GetFocusedView();
   if (focused_view)
     view_storage->StoreView(last_focused_view_storage_id_, focused_view);
 }
@@ -1053,7 +1055,7 @@ void BrowserView::ConfirmSetDefaultSearchProvider(
   DefaultSearchView::Show(tab_contents, template_url, template_url_model);
 #else
   // TODO(levin): Implement for other platforms. Right now this is behind
-  // a command line flag which is off.
+  // a command line flag which is off. http://crbug.com/38475
 #endif
 }
 
@@ -1067,7 +1069,11 @@ void BrowserView::ToggleBookmarkBar() {
   bookmark_utils::ToggleWhenVisible(browser_->profile());
 }
 
-views::Window* BrowserView::ShowAboutChromeDialog() {
+void BrowserView::ShowAboutChromeDialog() {
+  DoShowAboutChromeDialog();
+}
+
+views::Window* BrowserView::DoShowAboutChromeDialog() {
   return browser::ShowAboutChromeView(GetWindow()->GetNativeWindow(),
                                       browser_->profile());
 }
@@ -1126,7 +1132,7 @@ void BrowserView::ShowClearBrowsingDataDialog() {
 }
 
 void BrowserView::ShowImportDialog() {
-  browser::ShowImporterView(GetWidget(), browser_->profile());
+  browser::ShowImportDialogView(GetWidget(), browser_->profile());
 }
 
 void BrowserView::ShowSearchEnginesDialog() {
@@ -1467,7 +1473,7 @@ void BrowserView::TabDetachedAt(TabContentsWrapper* contents, int index) {
   }
 }
 
-void BrowserView::TabDeselectedAt(TabContentsWrapper* contents, int index) {
+void BrowserView::TabDeselected(TabContentsWrapper* contents) {
   // We do not store the focus when closing the tab to work-around bug 4633.
   // Some reports seem to show that the focus manager and/or focused view can
   // be garbage at that point, it is not clear why.
@@ -1479,7 +1485,8 @@ void BrowserView::TabSelectedAt(TabContentsWrapper* old_contents,
                                 TabContentsWrapper* new_contents,
                                 int index,
                                 bool user_gesture) {
-  DCHECK(old_contents != new_contents);
+  if (old_contents == new_contents)
+    return;
 
   ProcessTabSelected(new_contents, true);
 }
@@ -1653,7 +1660,7 @@ bool BrowserView::GetSavedWindowBounds(gfx::Rect* bounds) const {
           bounds->height() + toolbar_->GetPreferredSize().height());
     }
 
-    gfx::Rect window_rect = frame_->GetWindow()->GetNonClientView()->
+    gfx::Rect window_rect = frame_->GetWindow()->non_client_view()->
         GetWindowBoundsForClientBounds(*bounds);
     window_rect.set_origin(bounds->origin());
 
@@ -1862,12 +1869,12 @@ void BrowserView::Init() {
   SetLayoutManager(CreateLayoutManager());
   // Stow a pointer to this object onto the window handle so that we can get at
   // it later when all we have is a native view.
-  GetWidget()->SetNativeWindowProperty(kBrowserViewKey, this);
+  GetWidget()->native_widget()->SetNativeWindowProperty(kBrowserViewKey, this);
 
   // Stow a pointer to the browser's profile onto the window handle so that we
   // can get it later when all we have is a native view.
-  GetWindow()->SetNativeWindowProperty(Profile::kProfileKey,
-                                       browser_->profile());
+  GetWidget()->native_widget()->SetNativeWindowProperty(Profile::kProfileKey,
+                                                        browser_->profile());
 
   // Start a hung plugin window detector for this browser object (as long as
   // hang detection is not disabled).
@@ -2566,7 +2573,7 @@ BrowserWindow* BrowserWindow::CreateBrowserWindow(Browser* browser) {
   BrowserView* view = new BrowserView(browser);
   BrowserFrame::Create(view, browser->profile());
 
-  view->GetWindow()->GetNonClientView()->SetAccessibleName(
+  view->GetWindow()->non_client_view()->SetAccessibleName(
       l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
 
   return view;

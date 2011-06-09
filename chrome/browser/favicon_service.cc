@@ -4,11 +4,11 @@
 
 #include "chrome/browser/favicon_service.h"
 
-#include "chrome/browser/dom_ui/web_ui_factory.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/history/history_backend.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/webui/web_ui_factory.h"
 
 FaviconService::FaviconService(Profile* profile) : profile_(profile) {
 }

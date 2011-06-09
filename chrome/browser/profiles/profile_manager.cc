@@ -11,7 +11,6 @@
 #include "base/path_service.h"
 #include "base/string_util.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/chrome_constants.h"
@@ -21,6 +20,7 @@
 #include "chrome/common/net/url_request_context_getter.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
+#include "content/browser/browser_thread.h"
 #include "grit/generated_resources.h"
 #include "net/http/http_transaction_factory.h"
 #include "net/url_request/url_request_context.h"
@@ -139,6 +139,31 @@ Profile* ProfileManager::GetProfile(const FilePath& profile_dir) {
   return GetProfile(profile_dir, true);
 }
 
+Profile* ProfileManager::GetProfileWithId(ProfileId profile_id) {
+  DCHECK_NE(Profile::kInvalidProfileId, profile_id);
+  for (iterator i = begin(); i != end(); ++i) {
+    if ((*i)->GetRuntimeId() == profile_id)
+      return *i;
+    if ((*i)->HasOffTheRecordProfile() &&
+        (*i)->GetOffTheRecordProfile()->GetRuntimeId() == profile_id) {
+      return (*i)->GetOffTheRecordProfile();
+    }
+  }
+  return NULL;
+}
+
+bool ProfileManager::IsValidProfile(Profile* profile) {
+  for (iterator i = begin(); i != end(); ++i) {
+    if (*i == profile)
+      return true;
+    if ((*i)->HasOffTheRecordProfile() &&
+        (*i)->GetOffTheRecordProfile() == profile) {
+      return true;
+    }
+  }
+  return false;
+}
+
 Profile* ProfileManager::GetProfile(
     const FilePath& profile_dir, bool init_extensions) {
   // If the profile is already loaded (e.g., chrome.exe launched twice), just
@@ -162,6 +187,10 @@ Profile* ProfileManager::GetProfile(
   return profile;
 }
 
+void ProfileManager::RegisterProfile(Profile* profile) {
+  profiles_.insert(profiles_.end(), profile);
+}
+
 bool ProfileManager::AddProfile(Profile* profile, bool init_extensions) {
   DCHECK(profile);
 
@@ -179,7 +208,7 @@ bool ProfileManager::AddProfile(Profile* profile, bool init_extensions) {
     profile->InitExtensions();
   const CommandLine& command_line = *CommandLine::ForCurrentProcess();
   if (!command_line.HasSwitch(switches::kDisableWebResources))
-    profile->InitWebResources();
+    profile->InitPromoResources();
   return true;
 }
 

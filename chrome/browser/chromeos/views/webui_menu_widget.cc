@@ -13,11 +13,11 @@
 #include "chrome/browser/chromeos/views/menu_locator.h"
 #include "chrome/browser/chromeos/views/native_menu_webui.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_widget_host_view.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/views/dom_view.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_widget_host_view.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "googleurl/src/gurl.h"
 #include "third_party/cros/chromeos_wm_ipc_enums.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
@@ -190,8 +190,7 @@ void WebUIMenuWidget::OnSizeAllocate(GtkWidget* widget,
                                      GtkAllocation* allocation) {
   views::WidgetGtk::OnSizeAllocate(widget, allocation);
   // Adjust location when menu gets resized.
-  gfx::Rect bounds;
-  GetBounds(&bounds, false);
+  gfx::Rect bounds = GetClientAreaScreenBounds();
   // Don't move until the menu gets contents.
   if (bounds.height() > 1) {
     menu_locator_->Move(this);
@@ -298,8 +297,7 @@ void WebUIMenuWidget::SetSize(const gfx::Size& new_size) {
   gfx::Size real_size(std::max(new_size.width(), width),
                       new_size.height());
   // Ignore the size request with the same size.
-  gfx::Rect bounds;
-  GetBounds(&bounds, false);
+  gfx::Rect bounds = GetClientAreaScreenBounds();
   if (bounds.size() == real_size)
     return;
   menu_locator_->SetBounds(this, real_size);

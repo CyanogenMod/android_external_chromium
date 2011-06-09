@@ -28,6 +28,7 @@
 #include "talk/p2p/base/transport.h"
 
 #include "talk/base/common.h"
+#include "talk/base/logging.h"
 #include "talk/p2p/base/candidate.h"
 #include "talk/p2p/base/constants.h"
 #include "talk/p2p/base/sessionmanager.h"
@@ -145,11 +146,13 @@ void Transport::DestroyChannel(const std::string& name) {
 
 void Transport::DestroyChannel_w(const std::string& name) {
   ASSERT(worker_thread()->IsCurrent());
+
   TransportChannelImpl* impl = NULL;
   {
     talk_base::CritScope cs(&crit_);
     ChannelMap::iterator iter = channels_.find(name);
-    ASSERT(iter != channels_.end());
+    if (iter == channels_.end())
+      return;
     impl = iter->second;
     channels_.erase(iter);
   }
@@ -173,7 +176,7 @@ void Transport::ConnectChannels() {
 
 void Transport::ConnectChannels_w() {
   ASSERT(worker_thread()->IsCurrent());
-  if (connect_requested_)
+  if (connect_requested_ || channels_.empty())
     return;
   connect_requested_ = true;
   signaling_thread()->Post(
@@ -192,6 +195,8 @@ void Transport::OnConnecting_s() {
 void Transport::DestroyAllChannels() {
   ASSERT(signaling_thread()->IsCurrent());
   worker_thread()->Send(this, MSG_DESTROYALLCHANNELS, NULL);
+  worker_thread()->Clear(this);
+  signaling_thread()->Clear(this);
   destroyed_ = true;
 }
 
@@ -233,6 +238,8 @@ void Transport::ResetChannels_w() {
 
 void Transport::OnSignalingReady() {
   ASSERT(signaling_thread()->IsCurrent());
+  if (destroyed_) return;
+
   worker_thread()->Post(this, MSG_ONSIGNALINGREADY, NULL);
 
   // Notify the subclass.
@@ -283,7 +290,13 @@ void Transport::OnRemoteCandidates(const std::vector<Candidate>& candidates) {
 
 void Transport::OnRemoteCandidate(const Candidate& candidate) {
   ASSERT(signaling_thread()->IsCurrent());
-  ASSERT(HasChannel(candidate.name()));
+  if (destroyed_) return;
+  if (!HasChannel(candidate.name())) {
+    LOG(LS_WARNING) << "Ignoring candidate for unknown channel "
+                    << candidate.name();
+    return;
+  }
+
   // new candidate deleted when params is deleted
   ChannelParams* params = new ChannelParams(new Candidate(candidate));
   ChannelMessage* msg = new ChannelMessage(params);
@@ -445,7 +458,7 @@ bool TransportParser::ParseAddress(const buzz::XmlElement* elem,
 
   address->SetIP(elem->Attr(address_name));
   std::istringstream ist(elem->Attr(port_name));
-  int port;
+  int port = 0;
   ist >> port;
   address->SetPort(port);
 

@@ -4,27 +4,23 @@
 
 #include "chrome/browser/ssl/ssl_error_handler.h"
 
-#include "chrome/browser/browser_thread.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
 #include "chrome/browser/ssl/ssl_cert_error_handler.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_util.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/resource_dispatcher_host.h"
+#include "content/browser/renderer_host/resource_dispatcher_host_request_info.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "net/base/net_errors.h"
 #include "net/url_request/url_request.h"
 
 SSLErrorHandler::SSLErrorHandler(ResourceDispatcherHost* rdh,
                                  net::URLRequest* request,
-                                 ResourceType::Type resource_type,
-                                 const std::string& frame_origin,
-                                 const std::string& main_frame_origin)
+                                 ResourceType::Type resource_type)
     : manager_(NULL),
       request_id_(0, 0),
       resource_dispatcher_host_(rdh),
       request_url_(request->url()),
       resource_type_(resource_type),
-      frame_origin_(frame_origin),
-      main_frame_origin_(main_frame_origin),
       request_has_been_notified_(false) {
   DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::UI));
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,18 +9,18 @@
 #include "base/command_line.h"
 #include "base/synchronization/lock.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/password_manager/password_manager.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_view_host_delegate.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
-#include "chrome/browser/tab_contents/constrained_window.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/notification_service.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/render_view_host_delegate.h"
+#include "content/browser/renderer_host/resource_dispatcher_host.h"
+#include "content/browser/renderer_host/resource_dispatcher_host_request_info.h"
+#include "content/browser/tab_contents/constrained_window.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "grit/generated_resources.h"
 #include "net/base/auth.h"
 #include "net/base/net_util.h"
@@ -407,7 +407,7 @@ class LoginDialogTask : public Task {
         TabContentsWrapper::GetCurrentWrapperForContents(parent_contents);
     if (!wrapper)
       return;
-    PasswordManager* password_manager = wrapper->GetPasswordManager();
+    PasswordManager* password_manager = wrapper->password_manager();
     std::vector<PasswordForm> v;
     MakeInputForPasswordManager(&v);
     password_manager->OnPasswordFormsFound(v);

@@ -71,7 +71,10 @@ const GUID IEImporter::kPStoreAutocompleteGUID = {0xe161255a, 0x37c3, 0x11d2,
 const GUID IEImporter::kUnittestGUID = { 0xa79029d6, 0x753e, 0x4e27,
     {0xb8, 0x7, 0x3d, 0x46, 0xab, 0x15, 0x45, 0xdf}};
 
-void IEImporter::StartImport(const ProfileInfo& profile_info,
+IEImporter::IEImporter() {
+}
+
+void IEImporter::StartImport(const importer::ProfileInfo& profile_info,
                              uint16 items,
                              ImporterBridge* bridge) {
   bridge_ = bridge;
@@ -110,6 +113,9 @@ void IEImporter::StartImport(const ProfileInfo& profile_info,
     bridge_->NotifyItemEnded(importer::PASSWORDS);
   }
   bridge_->NotifyEnded();
+}
+
+IEImporter::~IEImporter() {
 }
 
 void IEImporter::ImportFavorites() {
@@ -526,7 +532,7 @@ void IEImporter::ParseFavoritesFolder(const FavoritesInfo& info,
     //   C:\Users\Foo\Favorites\Links\Bar\Baz.url -> "Links\Bar"
     FilePath::StringType relative_string =
         shortcut.DirName().value().substr(favorites_path_len);
-    if (relative_string.size() > 0 && FilePath::IsSeparator(relative_string[0]))
+    if (!relative_string.empty() && FilePath::IsSeparator(relative_string[0]))
       relative_string = relative_string.substr(1);
     FilePath relative_path(relative_string);
 
@@ -541,7 +547,7 @@ void IEImporter::ParseFavoritesFolder(const FavoritesInfo& info,
     // Flatten the bookmarks in Link folder onto bookmark toolbar. Otherwise,
     // put it into "Other bookmarks".
     if (import_to_bookmark_bar() &&
-        (entry.path.size() > 0 && entry.path[0] == info.links_folder)) {
+        (!entry.path.empty() && entry.path[0] == info.links_folder)) {
       entry.in_toolbar = true;
       entry.path.erase(entry.path.begin());
       toolbar_bookmarks.push_back(entry);

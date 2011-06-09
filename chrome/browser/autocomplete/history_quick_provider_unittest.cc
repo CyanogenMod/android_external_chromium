@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,12 +14,14 @@
 #include "base/scoped_ptr.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/history/url_database.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/test/testing_browser_process.h"
+#include "chrome/test/testing_browser_process_test.h"
 #include "chrome/test/testing_profile.h"
+#include "content/browser/browser_thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::Time;
@@ -64,7 +66,7 @@ struct TestURLInfo {
   {"http://xyzabcdefghijklmnopqrstuvw.com/a", "An XYZ", 1, 1, 0},
 };
 
-class HistoryQuickProviderTest : public testing::Test,
+class HistoryQuickProviderTest : public TestingBrowserProcessTest,
                                  public ACProviderListener {
  public:
   HistoryQuickProviderTest()
@@ -137,7 +139,8 @@ void HistoryQuickProviderTest::FillData() {
                                          history::SOURCE_BROWSED);
   }
 
-  history::InMemoryURLIndex* index = new history::InMemoryURLIndex();
+  history::InMemoryURLIndex* index =
+      new history::InMemoryURLIndex(FilePath(FILE_PATH_LITERAL("/dummy")));
   PrefService* prefs = profile_->GetPrefs();
   std::string languages(prefs->GetString(prefs::kAcceptLanguages));
   index->Init(db, languages);

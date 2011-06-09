@@ -9,12 +9,12 @@
 #include "base/win/windows_version.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/tab_contents/tab_contents_delegate.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_resource.h"
 #include "chrome/common/pref_names.h"
+#include "content/browser/tab_contents/tab_contents.h"
+#include "content/browser/tab_contents/tab_contents_delegate.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "net/base/load_flags.h"
@@ -50,7 +50,7 @@ class AppInfoView : public views::View {
   void UpdateIcon(const SkBitmap& new_icon);
 
   // Overridden from views::View:
-  virtual void Paint(gfx::Canvas* canvas);
+  virtual void OnPaint(gfx::Canvas* canvas);
 
  private:
   // Initializes the controls
@@ -155,7 +155,7 @@ void AppInfoView::UpdateIcon(const SkBitmap& new_icon) {
   icon_->SetImage(new_icon);
 }
 
-void AppInfoView::Paint(gfx::Canvas* canvas) {
+void AppInfoView::OnPaint(gfx::Canvas* canvas) {
   gfx::Rect bounds = GetLocalBounds();
 
   SkRect border_rect = {
@@ -280,11 +280,11 @@ void CreateApplicationShortcutView::InitControls() {
   layout->StartRow(0, kHeaderColumnSetId);
   layout->AddView(app_info_);
 
-  layout->AddPaddingRow(0, kPanelSubVerticalSpacing);
+  layout->AddPaddingRow(0, views::kPanelSubVerticalSpacing);
   layout->StartRow(0, kHeaderColumnSetId);
   layout->AddView(create_shortcuts_label_);
 
-  layout->AddPaddingRow(0, kLabelToControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kLabelToControlVerticalSpacing);
   layout->StartRow(0, kTableColumnSetId);
   layout->AddView(desktop_check_box_);
 
@@ -475,7 +475,7 @@ CreateChromeApplicationShortcutView::CreateChromeApplicationShortcutView(
       app_(app),
       ALLOW_THIS_IN_INITIALIZER_LIST(tracker_(this)) {
 
-  shortcut_info_.extension_id = UTF8ToUTF16(app_->id());
+  shortcut_info_.extension_id = app_->id();
   shortcut_info_.url = GURL(app_->launch_web_url());
   shortcut_info_.title = UTF8ToUTF16(app_->name());
   shortcut_info_.description = UTF8ToUTF16(app_->description());

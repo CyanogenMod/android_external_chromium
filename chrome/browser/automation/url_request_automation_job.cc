@@ -8,12 +8,13 @@
 #include "base/message_loop.h"
 #include "base/time.h"
 #include "chrome/browser/automation/automation_resource_message_filter.h"
-#include "chrome/browser/browser_thread.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host.h"
-#include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
 #include "chrome/common/automation_messages.h"
+#include "content/browser/browser_thread.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/renderer_host/resource_dispatcher_host.h"
+#include "content/browser/renderer_host/resource_dispatcher_host_request_info.h"
 #include "net/base/cookie_monster.h"
+#include "net/base/host_port_pair.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_response_headers.h"
@@ -248,6 +249,10 @@ uint64 URLRequestAutomationJob::GetUploadProgress() const {
   return 0;
 }
 
+net::HostPortPair URLRequestAutomationJob::GetSocketAddress() const {
+  return socket_address_;
+}
+
 bool URLRequestAutomationJob::MayFilterMessage(const IPC::Message& message,
                                                int* request_id) {
   switch (message.type()) {
@@ -296,6 +301,7 @@ void URLRequestAutomationJob::OnRequestStarted(
         net::HttpUtil::AssembleRawHeaders(response.headers.data(),
                                           response.headers.size()));
   }
+  socket_address_ = response.socket_address;
   NotifyHeadersComplete();
 }
 
@@ -376,7 +382,7 @@ void URLRequestAutomationJob::Cleanup() {
   id_ = 0;
   tab_ = 0;
 
-  DCHECK(message_filter_ == NULL);
+  DCHECK(!message_filter_);
   DisconnectFromMessageFilter();
 
   pending_buf_ = NULL;

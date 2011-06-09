@@ -5,16 +5,13 @@
 #include "chrome/browser/extensions/extension_process_manager.h"
 
 #include "chrome/browser/browser_window.h"
-#include "chrome/browser/browsing_instance.h"
+#include "content/browser/browsing_instance.h"
 #if defined(OS_MACOSX)
 #include "chrome/browser/extensions/extension_host_mac.h"
 #endif
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/site_instance.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_action.h"
@@ -22,6 +19,9 @@
 #include "chrome/common/notification_type.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/site_instance.h"
+#include "content/browser/tab_contents/tab_contents.h"
 
 namespace {
 

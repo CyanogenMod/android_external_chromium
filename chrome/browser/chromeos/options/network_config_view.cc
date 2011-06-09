@@ -22,7 +22,7 @@ using views::WidgetGtk;
 
 namespace chromeos {
 
-NetworkConfigView::NetworkConfigView(const WifiNetwork* wifi)
+NetworkConfigView::NetworkConfigView(WifiNetwork* wifi)
     : browser_mode_(true),
       title_(ASCIIToWide(wifi->name())),
       wificonfig_view_(new WifiConfigView(this, wifi)),
@@ -35,6 +35,8 @@ NetworkConfigView::NetworkConfigView()
           l10n_util::GetStringUTF16(IDS_OPTIONS_SETTINGS_OTHER_NETWORKS))),
       wificonfig_view_(new WifiConfigView(this)),
       delegate_(NULL) {
+  SetAccessibleName(
+      l10n_util::GetStringUTF16(IDS_OPTIONS_SETTINGS_OTHER_NETWORKS));
 }
 
 gfx::NativeWindow NetworkConfigView::GetNativeWindow() const {
@@ -53,7 +55,7 @@ bool NetworkConfigView::IsDialogButtonEnabled(
     MessageBoxFlags::DialogButton button) const {
   // Disable connect button if cannot login.
   if (button == MessageBoxFlags::DIALOGBUTTON_OK)
-    return wificonfig_view_->can_login();
+    return wificonfig_view_->CanLogin();
   return true;
 }
 

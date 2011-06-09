@@ -10,13 +10,13 @@
 #include "chrome/browser/extensions/extension_test_message_listener.h"
 #include "chrome/browser/extensions/extension_updater.h"
 #include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/prefs/scoped_pref_update.h"
+#include "chrome/browser/prefs/scoped_user_pref_update.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/ui_test_utils.h"
+#include "content/browser/renderer_host/render_view_host.h"
 
 class ExtensionManagementTest : public ExtensionBrowserTest {
  protected:
@@ -251,7 +251,6 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, AutoUpdate) {
   ASSERT_EQ("2.0", extensions->at(size_before)->VersionString());
 }
 
-// See http://crbug.com/57378 for flakiness details.
 IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, ExternalUrlUpdate) {
   ExtensionService* service = browser()->profile()->GetExtensionService();
   const char* kExtensionId = "ogjcoiohnmldgjemafoockdghcjciccf";
@@ -347,7 +346,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, ExternalPolicyRefresh) {
   PrefService* prefs = browser()->profile()->GetPrefs();
   {
     // Set the policy as a user preference and fire notification observers.
-    ScopedPrefUpdate pref_update(prefs, prefs::kExtensionInstallForceList);
+    ScopedUserPrefUpdate pref_update(prefs, prefs::kExtensionInstallForceList);
     ListValue* forcelist =
         prefs->GetMutableList(prefs::kExtensionInstallForceList);
     ASSERT_TRUE(forcelist->empty());
@@ -367,7 +366,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, ExternalPolicyRefresh) {
 
   // Check that emptying the list triggers uninstall.
   {
-    ScopedPrefUpdate pref_update(prefs, prefs::kExtensionInstallForceList);
+    ScopedUserPrefUpdate pref_update(prefs, prefs::kExtensionInstallForceList);
     prefs->ClearPref(prefs::kExtensionInstallForceList);
   }
   EXPECT_EQ(size_before, extensions->size());

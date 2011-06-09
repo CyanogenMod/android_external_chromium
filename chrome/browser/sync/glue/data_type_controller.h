@@ -9,10 +9,10 @@
 #include <map>
 
 #include "base/callback.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/sync/engine/model_safe_worker.h"
 #include "chrome/browser/sync/syncable/model_type.h"
 #include "chrome/browser/sync/unrecoverable_error_handler.h"
+#include "content/browser/browser_thread.h"
 
 namespace browser_sync {
 
@@ -89,15 +89,12 @@ class DataTypeController
   // Current state of the data type controller.
   virtual State state() = 0;
 
-  // TODO(sync): Make this protected.  It currently causes a build error on
-  // Linux to do so.
-  virtual ~DataTypeController() {}
-
  protected:
-  friend class base::RefCountedThreadSafe<DataTypeController>;
-  friend class BrowserThread;
+  friend struct BrowserThread::DeleteOnThread<BrowserThread::UI>;
   friend class DeleteTask<DataTypeController>;
   friend class ShutdownTask;
+
+  virtual ~DataTypeController() {}
 };
 
 }  // namespace browser_sync

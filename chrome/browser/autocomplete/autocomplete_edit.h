@@ -6,23 +6,25 @@
 #define CHROME_BROWSER_AUTOCOMPLETE_AUTOCOMPLETE_EDIT_H_
 #pragma once
 
+#include "base/scoped_ptr.h"
 #include "base/string16.h"
+#include "chrome/browser/autocomplete/autocomplete_controller_delegate.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
 #include "chrome/common/page_transition_types.h"
 #include "googleurl/src/gurl.h"
 #include "ui/gfx/native_widget_types.h"
 #include "webkit/glue/window_open_disposition.h"
 
-class AutocompletePopupModel;
-class Profile;
-class SkBitmap;
-
+class AutocompleteController;
 class AutocompleteEditController;
 class AutocompleteEditModel;
 class AutocompleteEditView;
+class AutocompletePopupModel;
 class AutocompleteResult;
+class InstantController;
+class Profile;
+class SkBitmap;
+class TabContentsWrapper;
 
 namespace gfx {
 class Rect;
@@ -35,32 +37,6 @@ class Rect;
 // Embedders of an AutocompleteEdit widget must implement this class.
 class AutocompleteEditController {
  public:
-  // Sent when the autocomplete popup is about to close.
-  virtual void OnAutocompleteWillClosePopup() = 0;
-
-  // Sent when the edit is losing focus. |view_gaining_focus| is the view
-  // gaining focus and may be null.
-  virtual void OnAutocompleteLosingFocus(
-      gfx::NativeView view_gaining_focus) = 0;
-
-  // Sent prior to OnAutoCompleteAccept and before the model has been reverted.
-  // This is only invoked if the popup is closed before invoking
-  // OnAutoCompleteAccept.
-  virtual void OnAutocompleteWillAccept() = 0;
-
-  // Commits the suggested text. If |skip_inline_autocomplete| is true then the
-  // suggested text will be committed as final text as if it's inputted by the
-  // user, rather than as inline autocomplete suggest.
-  // Returns true if the text was committed.
-  virtual bool OnCommitSuggestedText(bool skip_inline_autocomplete) = 0;
-
-  // Accepts the currently showing instant preview, if any, and returns true.
-  // Returns false if there is no instant preview showing.
-  virtual bool AcceptCurrentInstantPreview() = 0;
-
-  // Invoked when the popup is going to change its bounds to |bounds|.
-  virtual void OnPopupBoundsChanged(const gfx::Rect& bounds) = 0;
-
   // When the user presses enter or selects a line with the mouse, this
   // function will get called synchronously with the url to open and
   // disposition and transition to use when opening it.
@@ -98,11 +74,17 @@ class AutocompleteEditController {
   // Returns the title of the current page.
   virtual string16 GetTitle() const = 0;
 
+  // Returns the InstantController, or NULL if instant is not enabled.
+  virtual InstantController* GetInstant() = 0;
+
+  // Returns the TabContentsWrapper of the currently selected tab.
+  virtual TabContentsWrapper* GetTabContentsWrapper() = 0;
+
  protected:
   virtual ~AutocompleteEditController();
 };
 
-class AutocompleteEditModel : public NotificationObserver {
+class AutocompleteEditModel : public AutocompleteControllerDelegate {
  public:
   struct State {
     State(bool user_input_in_progress,
@@ -122,7 +104,13 @@ class AutocompleteEditModel : public NotificationObserver {
                         Profile* profile);
   ~AutocompleteEditModel();
 
-  void SetPopupModel(AutocompletePopupModel* popup_model);
+  AutocompleteController* autocomplete_controller() const {
+    return autocomplete_controller_.get();
+  }
+
+  void set_popup_model(AutocompletePopupModel* popup_model) {
+    popup_ = popup_model;
+  }
 
   // TODO: The edit and popup should be siblings owned by the LocationBarView,
   // making this accessor unnecessary.
@@ -189,6 +177,9 @@ class AutocompleteEditModel : public NotificationObserver {
   // editing or the edit does not have focus.
   bool UpdatePermanentText(const string16& new_permanent_text);
 
+  // Returns the URL corresponding to the permanent text.
+  GURL PermanentURL();
+
   // Sets the user_text_ to |text|.  Only the View should call this.
   void SetUserText(const string16& text);
 
@@ -199,6 +190,24 @@ class AutocompleteEditModel : public NotificationObserver {
                             const string16& suggest_text,
                             bool skip_inline_autocomplete);
 
+  // Sets the suggestion text.
+  void SetSuggestedText(const string16& text);
+
+  // Commits the suggested text. If |skip_inline_autocomplete| is true then the
+  // suggested text will be committed as final text as if it's inputted by the
+  // user, rather than as inline autocomplete suggest.
+  // Returns true if the text was committed.
+  // TODO: can the return type be void?
+  bool CommitSuggestedText(bool skip_inline_autocomplete);
+
+  // Accepts the currently showing instant preview, if any, and returns true.
+  // Returns false if there is no instant preview showing.
+  bool AcceptCurrentInstantPreview();
+
+  // Invoked any time the text may have changed in the edit. Updates instant and
+  // notifies the controller.
+  void OnChanged();
+
   // Reverts the edit model back to its unedited state (permanent text showing,
   // no user input in progress).
   void Revert();
@@ -206,6 +215,9 @@ class AutocompleteEditModel : public NotificationObserver {
   // Directs the popup to start autocomplete.
   void StartAutocomplete(bool has_selected_text,
                          bool prevent_inline_autocomplete) const;
+
+  // Closes the popup and cancels any pending asynchronous queries.
+  void StopAutocomplete();
 
   // Determines whether the user can "paste and go", given the specified text.
   // This also updates the internal paste-and-go-related state variables as
@@ -256,12 +268,6 @@ class AutocompleteEditModel : public NotificationObserver {
   // currently visible in the edit.
   void ClearKeyword(const string16& visible_text);
 
-  // Returns true if a query to an autocomplete provider is currently
-  // in progress.  This logic should in the future live in
-  // AutocompleteController but resides here for now.  This method is used by
-  // AutomationProvider::AutocompleteEditIsQueryInProgress.
-  bool query_in_progress() const;
-
   // Returns the current autocomplete result.  This logic should in the future
   // live in AutocompleteController but resides here for now.  This method is
   // used by AutomationProvider::AutocompleteEditGetMatches.
@@ -270,6 +276,9 @@ class AutocompleteEditModel : public NotificationObserver {
   // Called when the view is gaining focus.  |control_down| is whether the
   // control key is down (at the time we're gaining focus).
   void OnSetFocus(bool control_down);
+
+  // Sent before |OnKillFocus| and before the popup is closed.
+  void OnWillKillFocus(gfx::NativeView view_gaining_focus);
 
   // Called when the view is losing focus.  Resets some state.
   void OnKillFocus();
@@ -350,10 +359,14 @@ class AutocompleteEditModel : public NotificationObserver {
                           // he intended to hit "ctrl-enter".
   };
 
-  // NotificationObserver
-  virtual void Observe(NotificationType type,
-                       const NotificationSource& source,
-                       const NotificationDetails& details);
+  // AutocompleteControllerDelegate:
+  virtual void OnResultChanged(bool default_match_changed);
+
+  // Returns true if a query to an autocomplete provider is currently
+  // in progress.  This logic should in the future live in
+  // AutocompleteController but resides here for now.  This method is used by
+  // AutomationProvider::AutocompleteEditIsQueryInProgress.
+  bool query_in_progress() const;
 
   // Called whenever user_text_ should change.
   void InternalSetUserText(const string16& text);
@@ -366,6 +379,19 @@ class AutocompleteEditModel : public NotificationObserver {
   // two are different if a keyword is selected.
   string16 DisplayTextFromUserText(const string16& text) const;
   string16 UserTextFromDisplayText(const string16& text) const;
+
+  // Copies the selected match into |match|.  If an update is in progress,
+  // "selected" means "default in the latest matches".  If there are no matches,
+  // does not update |match|.
+  //
+  // If |alternate_nav_url| is non-NULL, it will be set to the alternate
+  // navigation URL for |url| if one exists, or left unchanged otherwise.  See
+  // comments on AutocompleteResult::GetAlternateNavURL().
+  //
+  // TODO(pkasting): When manually_selected_match_ moves to the controller, this
+  // can move too.
+  void InfoForCurrentSelection(AutocompleteMatch* match,
+                               GURL* alternate_nav_url) const;
 
   // Returns the default match for the current text, as well as the alternate
   // nav URL, if |alternate_nav_url| is non-NULL and there is such a URL.
@@ -394,13 +420,13 @@ class AutocompleteEditModel : public NotificationObserver {
   // keyword.
   static bool IsSpaceCharForAcceptingKeyword(wchar_t c);
 
+  scoped_ptr<AutocompleteController> autocomplete_controller_;
+
   AutocompleteEditView* view_;
 
   AutocompletePopupModel* popup_;
 
   AutocompleteEditController* controller_;
-
-  NotificationRegistrar registrar_;
 
   // Whether the edit has focus.
   bool has_focus_;
@@ -490,6 +516,12 @@ class AutocompleteEditModel : public NotificationObserver {
   mutable GURL paste_and_go_alternate_nav_url_;
 
   Profile* profile_;
+
+  // Should instant be updated? This is needed as prior to accepting the current
+  // text the model is reverted, which triggers resetting instant. We don't want
+  // to update instant in this case, so we use the flag to determine if this is
+  // happening.
+  bool update_instant_;
 
   DISALLOW_COPY_AND_ASSIGN(AutocompleteEditModel);
 };

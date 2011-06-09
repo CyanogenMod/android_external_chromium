@@ -35,6 +35,7 @@ class AutocompleteEditController;
 class AutocompleteEditModel;
 class AutocompleteEditView;
 class AutocompletePopupView;
+class LocationBarView;
 
 // Provides the implementation of an edit control with a drop-down
 // autocomplete box. The box itself is implemented in autocomplete_popup.cc
@@ -64,7 +65,7 @@ class AutocompleteEditViewWin
   AutocompleteEditViewWin(const gfx::Font& font,
                           AutocompleteEditController* controller,
                           ToolbarModel* toolbar_model,
-                          views::View* parent_view,
+                          LocationBarView* parent_view,
                           HWND hwnd,
                           Profile* profile,
                           CommandUpdater* command_updater,
@@ -72,7 +73,7 @@ class AutocompleteEditViewWin
                           const views::View* location_bar);
   ~AutocompleteEditViewWin();
 
-  views::View* parent_view() const { return parent_view_; }
+  views::View* parent_view() const;
 
   // Returns the width in pixels needed to display the text from one character
   // before the caret to the end of the string. See comments in
@@ -134,11 +135,12 @@ class AutocompleteEditViewWin
   virtual gfx::NativeView GetNativeView() const;
   virtual CommandUpdater* GetCommandUpdater();
   virtual void SetInstantSuggestion(const string16& suggestion);
-  virtual string16 GetInstantSuggestion() const;
   virtual int TextWidth() const;
+  virtual string16 GetInstantSuggestion() const;
   virtual bool IsImeComposing() const;
 
   virtual views::View* AddToView(views::View* parent);
+  virtual int OnPerformDrop(const views::DropTargetEvent& event);
 
   int GetPopupMaxYCoordinate();
 
@@ -243,6 +245,9 @@ class AutocompleteEditViewWin
 
     DISALLOW_COPY_AND_ASSIGN(ScopedFreeze);
   };
+
+  class EditDropTarget;
+  friend class EditDropTarget;
 
   // This object suspends placing any operations on the edit's undo stack until
   // the object is destroyed.  If we don't do this, some of the operations we
@@ -412,6 +417,9 @@ class AutocompleteEditViewWin
   // triggerred no matter if the text is actually changed or not.
   bool OnAfterPossibleChangeInternal(bool force_text_changed);
 
+  // Common implementation for performing a drop on the edit view.
+  int OnPerformDropImpl(const views::DropTargetEvent& event, bool in_drag);
+
   scoped_ptr<AutocompleteEditModel> model_;
 
   scoped_ptr<AutocompletePopupView> popup_view_;
@@ -420,7 +428,7 @@ class AutocompleteEditViewWin
 
   // The parent view for the edit, used to align the popup and for
   // accessibility.
-  views::View* parent_view_;
+  LocationBarView* parent_view_;
 
   ToolbarModel* toolbar_model_;
 

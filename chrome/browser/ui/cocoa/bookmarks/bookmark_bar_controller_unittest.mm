@@ -5,12 +5,14 @@
 #import <Cocoa/Cocoa.h>
 
 #include "base/basictypes.h"
+#include "base/command_line.h"
 #include "base/scoped_nsobject.h"
 #include "base/string16.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
+#import "chrome/browser/ui/cocoa/animation_utils.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_constants.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_controller.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_folder_window.h"
@@ -257,6 +259,9 @@ class BookmarkBarControllerTestBase : public CocoaTest {
   scoped_nsobject<ViewResizerPong> resizeDelegate_;
 
   BookmarkBarControllerTestBase() {
+    FilePath extension_dir;
+    helper_.profile()->CreateExtensionService(CommandLine::ForCurrentProcess(),
+                                              extension_dir);
     resizeDelegate_.reset([[ViewResizerPong alloc] init]);
     NSRect parent_frame = NSMakeRect(0, 0, 800, 50);
     parent_view_.reset([[NSView alloc] initWithFrame:parent_frame]);
@@ -873,6 +878,7 @@ TEST_F(BookmarkBarControllerTest, TestButtonMarch) {
 }
 
 TEST_F(BookmarkBarControllerTest, CheckForGrowth) {
+  WithNoAnimation at_all; // Turn off Cocoa auto animation in this scope.
   BookmarkModel* model = helper_.profile()->GetBookmarkModel();
   GURL gurl1("http://www.google.com");
   string16 title1(ASCIIToUTF16("x"));
@@ -1105,6 +1111,7 @@ TEST_F(BookmarkBarControllerTest, TestMenuNodeAndDisable) {
 }
 
 TEST_F(BookmarkBarControllerTest, TestDragButton) {
+  WithNoAnimation at_all;
   BookmarkModel* model = helper_.profile()->GetBookmarkModel();
 
   GURL gurls[] = { GURL("http://www.google.com/a"),

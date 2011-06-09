@@ -606,13 +606,11 @@ bool CreateTemporaryDirInDir(const FilePath& base_dir,
   for (int count = 0; count < 50; ++count) {
     // Try create a new temporary directory with random generated name. If
     // the one exists, keep trying another path name until we reach some limit.
-    path_to_create = base_dir;
-
     string16 new_dir_name;
     new_dir_name.assign(prefix);
     new_dir_name.append(base::IntToString16(rand() % kint16max));
 
-    path_to_create = path_to_create.Append(new_dir_name);
+    path_to_create = base_dir.Append(new_dir_name);
     if (::CreateDirectory(path_to_create.value().c_str(), NULL)) {
       *new_dir = path_to_create;
       return true;
@@ -940,7 +938,31 @@ MemoryMappedFile::MemoryMappedFile()
       length_(INVALID_FILE_SIZE) {
 }
 
+bool MemoryMappedFile::InitializeAsImageSection(const FilePath& file_name) {
+  if (IsValid())
+    return false;
+  file_ = base::CreatePlatformFile(
+      file_name, base::PLATFORM_FILE_OPEN | base::PLATFORM_FILE_READ,
+      NULL, NULL);
+
+  if (file_ == base::kInvalidPlatformFileValue) {
+    LOG(ERROR) << "Couldn't open " << file_name.value();
+    return false;
+  }
+
+  if (!MapFileToMemoryInternalEx(SEC_IMAGE)) {
+    CloseHandles();
+    return false;
+  }
+
+  return true;
+}
+
 bool MemoryMappedFile::MapFileToMemoryInternal() {
+  return MapFileToMemoryInternalEx(0);
+}
+
+bool MemoryMappedFile::MapFileToMemoryInternalEx(int flags) {
   base::ThreadRestrictions::AssertIOAllowed();
 
   if (file_ == INVALID_HANDLE_VALUE)
@@ -952,7 +974,7 @@ bool MemoryMappedFile::MapFileToMemoryInternal() {
 
   // length_ value comes from GetFileSize() above. GetFileSize() returns DWORD,
   // therefore the cast here is safe.
-  file_mapping_ = ::CreateFileMapping(file_, NULL, PAGE_READONLY,
+  file_mapping_ = ::CreateFileMapping(file_, NULL, PAGE_READONLY | flags,
                                       0, static_cast<DWORD>(length_), NULL);
   if (!file_mapping_) {
     // According to msdn, system error codes are only reserved up to 15999.

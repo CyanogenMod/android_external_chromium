@@ -34,7 +34,7 @@ class Widget;
 class ThemeInstallBubbleView : public NotificationObserver,
                                public views::Label {
  public:
-  ~ThemeInstallBubbleView();
+  virtual ~ThemeInstallBubbleView();
 
   // NotificationObserver
   virtual void Observe(NotificationType type,
@@ -51,12 +51,12 @@ class ThemeInstallBubbleView : public NotificationObserver,
   void Reposition();
 
   // Inherited from views.
-  gfx::Size GetPreferredSize();
+  virtual gfx::Size GetPreferredSize();
 
   // Shut down the popup and remove our notifications.
   void Close();
 
-  virtual void Paint(gfx::Canvas* canvas);
+  virtual void OnPaint(gfx::Canvas* canvas);
 
   // The content area at the start of the animation.
   gfx::Rect tab_contents_bounds_;

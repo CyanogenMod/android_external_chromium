@@ -7,15 +7,12 @@
 #include <map>
 
 #include "base/process_util.h"
-#include "base/singleton.h"
 #include "base/ref_counted.h"
+#include "base/singleton.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
-#include "chrome/browser/dom_ui/chrome_url_data_manager.h"
-#include "chrome/browser/dom_ui/web_ui_favicon_source.h"
-#include "chrome/browser/external_protocol_handler.h"
 #include "chrome/browser/extensions/execute_code_in_tab_function.h"
 #include "chrome/browser/extensions/extension_accessibility_api.h"
 #include "chrome/browser/extensions/extension_bookmark_manager_api.h"
@@ -26,8 +23,8 @@
 #include "chrome/browser/extensions/extension_cookies_api.h"
 #include "chrome/browser/extensions/extension_function.h"
 #include "chrome/browser/extensions/extension_history_api.h"
-#include "chrome/browser/extensions/extension_idle_api.h"
 #include "chrome/browser/extensions/extension_i18n_api.h"
+#include "chrome/browser/extensions/extension_idle_api.h"
 #include "chrome/browser/extensions/extension_infobar_module.h"
 #include "chrome/browser/extensions/extension_management_api.h"
 #include "chrome/browser/extensions/extension_message_service.h"
@@ -35,10 +32,12 @@
 #include "chrome/browser/extensions/extension_module.h"
 #include "chrome/browser/extensions/extension_omnibox_api.h"
 #include "chrome/browser/extensions/extension_page_actions_module.h"
+#include "chrome/browser/extensions/extension_preference_api.h"
 #include "chrome/browser/extensions/extension_process_manager.h"
 #include "chrome/browser/extensions/extension_processes_api.h"
 #include "chrome/browser/extensions/extension_proxy_api.h"
 #include "chrome/browser/extensions/extension_rlz_module.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_sidebar_api.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
 #include "chrome/browser/extensions/extension_test_api.h"
@@ -47,16 +46,18 @@
 #include "chrome/browser/extensions/extension_webrequest_api.h"
 #include "chrome/browser/extensions/extension_webstore_private_api.h"
 #include "chrome/browser/extensions/extensions_quota_service.h"
-#include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/external_protocol_handler.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
+#include "chrome/browser/ui/webui/chrome_url_data_manager.h"
+#include "chrome/browser/ui/webui/favicon_source.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/render_messages_params.h"
 #include "chrome/common/result_codes.h"
 #include "chrome/common/url_constants.h"
+#include "content/browser/renderer_host/render_process_host.h"
+#include "content/browser/renderer_host/render_view_host.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 #if defined(TOOLKIT_VIEWS)
@@ -258,9 +259,8 @@ void FactoryRegistry::ResetFunctions() {
   RegisterFunction<OmniboxSetDefaultSuggestionFunction>();
 
   // Proxies.
-  RegisterFunction<UseCustomProxySettingsFunction>();
-  RegisterFunction<RemoveCustomProxySettingsFunction>();
-  RegisterFunction<GetCurrentProxySettingsFunction>();
+  RegisterFunction<SetProxySettingsFunction>();
+  RegisterFunction<GetProxySettingsFunction>();
 
   // Sidebar.
   RegisterFunction<CollapseSidebarFunction>();
@@ -298,6 +298,11 @@ void FactoryRegistry::ResetFunctions() {
 
   // WebRequest.
   RegisterFunction<WebRequestAddEventListener>();
+
+  // Preferences.
+  RegisterFunction<GetPreferenceFunction>();
+  RegisterFunction<SetPreferenceFunction>();
+  RegisterFunction<ClearPreferenceFunction>();
 }
 
 void FactoryRegistry::GetAllNames(std::vector<std::string>* names) {
@@ -388,10 +393,10 @@ ExtensionFunctionDispatcher::ExtensionFunctionDispatcher(
                                 render_view_host->process()->id());
 
   // If the extension has permission to load chrome://favicon/ resources we need
-  // to make sure that the WebUIFavIconSource is registered with the
+  // to make sure that the FavIconSource is registered with the
   // ChromeURLDataManager.
   if (extension->HasHostPermission(GURL(chrome::kChromeUIFavIconURL))) {
-    WebUIFavIconSource* favicon_source = new WebUIFavIconSource(profile_);
+    FavIconSource* favicon_source = new FavIconSource(profile_);
     profile_->GetChromeURLDataManager()->AddDataSource(favicon_source);
   }
 

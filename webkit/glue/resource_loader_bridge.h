@@ -31,6 +31,7 @@
 #include "base/time.h"
 #include "base/values.h"
 #include "googleurl/src/gurl.h"
+#include "net/base/host_port_pair.h"
 #include "net/url_request/url_request_status.h"
 #include "webkit/glue/resource_type.h"
 
@@ -182,6 +183,9 @@ struct ResourceResponseInfo {
   // transparent proxy). The proxy could be any type of proxy, HTTP or SOCKS.
   // Note: we cannot tell if a transparent proxy may have been involved.
   bool was_fetched_via_proxy;
+
+  // Remote address of the socket which fetched this resource.
+  net::HostPortPair socket_address;
 };
 
 class ResourceLoaderBridge {
@@ -286,11 +290,8 @@ class ResourceLoaderBridge {
                                     GURL* new_first_party_for_cookies) = 0;
 
     // Called when response headers are available (after all redirects have
-    // been followed).  |content_filtered| is set to true if the contents is
-    // altered or replaced (usually for security reasons when the resource is
-    // deemed unsafe).
-    virtual void OnReceivedResponse(const ResourceResponseInfo& info,
-                                    bool content_filtered) = 0;
+    // been followed).
+    virtual void OnReceivedResponse(const ResourceResponseInfo& info) = 0;
 
     // Called when a chunk of response data is downloaded.  This method may be
     // called multiple times or not at all if an error occurs.  This method is

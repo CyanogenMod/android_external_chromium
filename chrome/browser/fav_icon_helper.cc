@@ -12,18 +12,18 @@
 #include "base/ref_counted_memory.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/tab_contents/navigation_controller.h"
-#include "chrome/browser/tab_contents/navigation_entry.h"
-#include "chrome/browser/tab_contents/tab_contents_delegate.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/render_messages.h"
+#include "content/browser/renderer_host/render_view_host.h"
+#include "content/browser/tab_contents/navigation_controller.h"
+#include "content/browser/tab_contents/navigation_entry.h"
+#include "content/browser/tab_contents/tab_contents_delegate.h"
+#include "content/browser/tab_contents/tab_contents.h"
 #include "skia/ext/image_operations.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/favicon_size.h"
 
 FavIconHelper::FavIconHelper(TabContents* tab_contents)
-    : tab_contents_(tab_contents),
+    : TabContentsObserver(tab_contents),
       got_fav_icon_url_(false),
       got_fav_icon_from_history_(false),
       fav_icon_expired_(false) {
@@ -65,7 +65,7 @@ int FavIconHelper::DownloadImage(const GURL& image_url,
 }
 
 Profile* FavIconHelper::profile() {
-  return tab_contents_->profile();
+  return tab_contents()->profile();
 }
 
 FaviconService* FavIconHelper::GetFaviconService() {
@@ -109,7 +109,7 @@ void FavIconHelper::UpdateFavIcon(NavigationEntry* entry,
     return;
 
   entry->favicon().set_bitmap(image);
-  tab_contents_->NotifyNavigationStateChanged(TabContents::INVALIDATE_TAB);
+  tab_contents()->NotifyNavigationStateChanged(TabContents::INVALIDATE_TAB);
 }
 
 void FavIconHelper::OnUpdateFavIconURL(int32 page_id, const GURL& icon_url) {
@@ -170,9 +170,9 @@ void FavIconHelper::OnDidDownloadFavIcon(int id,
 }
 
 NavigationEntry* FavIconHelper::GetEntry() {
-  NavigationEntry* entry = tab_contents_->controller().GetActiveEntry();
+  NavigationEntry* entry = tab_contents()->controller().GetActiveEntry();
   if (entry && entry->url() == url_ &&
-      tab_contents_->IsActiveEntry(entry->page_id())) {
+      tab_contents()->IsActiveEntry(entry->page_id())) {
     return entry;
   }
   // If the URL has changed out from under us (as will happen with redirects)
@@ -282,7 +282,7 @@ int FavIconHelper::ScheduleDownload(const GURL& url,
                                     const GURL& image_url,
                                     int image_size,
                                     ImageDownloadCallback* callback) {
-  const int download_id = tab_contents_->render_view_host()->DownloadFavIcon(
+  const int download_id = tab_contents()->render_view_host()->DownloadFavIcon(
       image_url, image_size);
 
   if (download_id) {

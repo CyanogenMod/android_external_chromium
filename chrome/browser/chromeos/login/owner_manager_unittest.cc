@@ -13,8 +13,8 @@
 #include "base/logging.h"
 #include "base/nss_util.h"
 #include "base/scoped_temp_dir.h"
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/login/mock_owner_key_utils.h"
+#include "content/browser/browser_thread.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -132,74 +132,6 @@ TEST_F(OwnerManagerTest, LoadOwnerKey) {
       BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(manager.get(),
                         &OwnerManager::LoadOwnerKey));
-
-  message_loop_.Run();
-}
-
-TEST_F(OwnerManagerTest, KeyGenerationFail) {
-  StartUnowned();
-  MockKeyLoadObserver loader;
-  loader.ExpectKeyFetchSuccess(false);
-  scoped_refptr<OwnerManager> manager(new OwnerManager);
-
-  EXPECT_CALL(*mock_, GenerateKeyPair())
-      .WillOnce(Return(reinterpret_cast<RSAPrivateKey*>(NULL)))
-      .RetiresOnSaturation();
-  EXPECT_CALL(*mock_, GetOwnerKeyFilePath())
-      .WillRepeatedly(Return(tmpfile_));
-
-  BrowserThread::PostTask(
-      BrowserThread::FILE, FROM_HERE,
-      NewRunnableMethod(manager.get(),
-                        &OwnerManager::GenerateKeysAndExportPublic));
-
-  message_loop_.Run();
-}
-
-TEST_F(OwnerManagerTest, KeyExportFail) {
-  StartUnowned();
-  MockKeyLoadObserver loader;
-  loader.ExpectKeyFetchSuccess(false);
-  scoped_refptr<OwnerManager> manager(new OwnerManager);
-
-  EXPECT_CALL(*mock_, ExportPublicKeyViaDbus(fake_private_key_.get(),
-                                             manager.get()))
-      .WillOnce(Invoke(MockKeyUtils::ExportPublicKeyViaDbusFail))
-      .RetiresOnSaturation();
-  EXPECT_CALL(*mock_, GenerateKeyPair())
-      .WillOnce(Return(fake_private_key_.release()))
-      .RetiresOnSaturation();
-  EXPECT_CALL(*mock_, GetOwnerKeyFilePath())
-      .WillRepeatedly(Return(tmpfile_));
-
-  BrowserThread::PostTask(
-      BrowserThread::FILE, FROM_HERE,
-      NewRunnableMethod(manager.get(),
-                        &OwnerManager::GenerateKeysAndExportPublic));
-
-  message_loop_.Run();
-}
-
-TEST_F(OwnerManagerTest, TakeOwnership) {
-  StartUnowned();
-  MockKeyLoadObserver loader;
-  loader.ExpectKeyFetchSuccess(true);
-  scoped_refptr<OwnerManager> manager(new OwnerManager);
-
-  EXPECT_CALL(*mock_, ExportPublicKeyViaDbus(fake_private_key_.get(),
-                                             manager.get()))
-      .WillOnce(Invoke(MockKeyUtils::ExportPublicKeyViaDbusWin))
-      .RetiresOnSaturation();
-  EXPECT_CALL(*mock_, GenerateKeyPair())
-      .WillOnce(Return(fake_private_key_.release()))
-      .RetiresOnSaturation();
-  EXPECT_CALL(*mock_, GetOwnerKeyFilePath())
-      .WillRepeatedly(Return(tmpfile_));
-
-  BrowserThread::PostTask(
-      BrowserThread::FILE, FROM_HERE,
-      NewRunnableMethod(manager.get(),
-                        &OwnerManager::GenerateKeysAndExportPublic));
 
   message_loop_.Run();
 }
