@@ -8,9 +8,9 @@
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/path_service.h"
+#include "base/platform_thread.h"
 #include "base/process_util.h"
 #include "base/stringprintf.h"
-#include "base/threading/platform_thread.h"
 #include "base/utf_string_conversions.h"
 #include "base/time.h"
 
@@ -29,7 +29,6 @@ static const FilePath::CharType* kLogFileName =
     FILE_PATH_LITERAL("trace_%d.log");
 
 TraceLog::TraceLog() : enabled_(false), log_file_(NULL) {
-#ifndef ANDROID
   base::ProcessHandle proc = base::GetCurrentProcessHandle();
 #if !defined(OS_MACOSX)
   process_metrics_.reset(base::ProcessMetrics::CreateProcessMetrics(proc));
@@ -38,14 +37,11 @@ TraceLog::TraceLog() : enabled_(false), log_file_(NULL) {
   // process.
   process_metrics_.reset(base::ProcessMetrics::CreateProcessMetrics(proc,
                                                                     NULL));
-#endif // !defined(OS_MACOSX)
-#endif // !ANDROID
+#endif
 }
 
 TraceLog::~TraceLog() {
-#ifndef ANDROID
   Stop();
-#endif
 }
 
 // static
@@ -64,7 +60,6 @@ bool TraceLog::StartTracing() {
 }
 
 bool TraceLog::Start() {
-#ifndef ANDROID
   if (enabled_)
     return true;
   enabled_ = OpenLogFile();
@@ -74,9 +69,6 @@ bool TraceLog::Start() {
     timer_.Start(TimeDelta::FromMilliseconds(250), this, &TraceLog::Heartbeat);
   }
   return enabled_;
-#else
-  return false;
-#endif
 }
 
 // static
@@ -94,22 +86,17 @@ void TraceLog::Stop() {
 }
 
 void TraceLog::Heartbeat() {
-#ifndef ANDROID
   std::string cpu = StringPrintf("%.0f", process_metrics_->GetCPUUsage());
   TRACE_EVENT_INSTANT("heartbeat.cpu", 0, cpu);
-#endif
 }
 
 void TraceLog::CloseLogFile() {
-#ifndef ANDROID
   if (log_file_) {
     file_util::CloseFile(log_file_);
   }
-#endif
 }
 
 bool TraceLog::OpenLogFile() {
-#ifndef ANDROID
   FilePath::StringType pid_filename =
       StringPrintf(kLogFileName, base::GetCurrentProcId());
   FilePath log_file_path;
@@ -125,9 +112,6 @@ bool TraceLog::OpenLogFile() {
     }
   }
   return true;
-#else
-  return false;
-#endif
 }
 
 void TraceLog::Trace(const std::string& name,
@@ -147,7 +131,6 @@ void TraceLog::Trace(const std::string& name,
                      const std::string& extra,
                      const char* file,
                      int line) {
-#ifndef ANDROID
   if (!enabled_)
     return;
 
@@ -173,15 +156,12 @@ void TraceLog::Trace(const std::string& name,
                  usec);
 
   Log(msg);
-#endif
 }
 
 void TraceLog::Log(const std::string& msg) {
-#ifndef ANDROID
   AutoLock lock(file_lock_);
 
   fprintf(log_file_, "%s", msg.c_str());
-#endif
 }
 
 }  // namespace debug
