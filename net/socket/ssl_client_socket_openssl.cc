@@ -538,6 +538,7 @@ int SSLClientSocketOpenSSL::ClientCertRequestCallback(SSL* ssl,
         X509_PUBKEY_get(X509_get_X509_PUBKEY(
             ssl_config_.client_cert->os_cert_handle())));
     if (privkey) {
+      CRYPTO_add(&privkey->references, 1, CRYPTO_LOCK_EVP_PKEY);
       // TODO(joth): (copied from NSS) We should wait for server certificate
       // verification before sending our credentials. See http://crbug.com/13934
       *x509 = X509Certificate::DupOSCertHandle(
