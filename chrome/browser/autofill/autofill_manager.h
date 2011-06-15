@@ -52,11 +52,15 @@ class AutoFillManager :
   explicit AutoFillManager(TabContents* tab_contents);
   virtual ~AutoFillManager();
 
+#ifndef ANDROID
   // Registers our browser prefs.
   static void RegisterBrowserPrefs(PrefService* prefs);
+#endif
 
+#ifndef ANDROID
   // Registers our Enable/Disable AutoFill pref.
   static void RegisterUserPrefs(PrefService* prefs);
+#endif
 
   // Returns the TabContents hosting this AutoFillManager.
   TabContents* tab_contents() const { return tab_contents_; }

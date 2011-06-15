@@ -239,11 +239,14 @@ AutoFillManager::~AutoFillManager() {
   download_manager_.SetObserver(NULL);
 }
 
+#ifndef ANDROID
 // static
 void AutoFillManager::RegisterBrowserPrefs(PrefService* prefs) {
   prefs->RegisterDictionaryPref(prefs::kAutoFillDialogPlacement);
 }
+#endif
 
+#ifndef ANDROID
 // static
 void AutoFillManager::RegisterUserPrefs(PrefService* prefs) {
   prefs->RegisterBooleanPref(prefs::kAutoFillEnabled, true);
@@ -257,6 +260,7 @@ void AutoFillManager::RegisterUserPrefs(PrefService* prefs) {
   prefs->RegisterDoublePref(prefs::kAutoFillNegativeUploadRate,
                             kAutoFillNegativeUploadRateDefaultValue);
 }
+#endif
 
 #ifndef ANDROID
 void AutoFillManager::DidNavigateMainFramePostCommit(

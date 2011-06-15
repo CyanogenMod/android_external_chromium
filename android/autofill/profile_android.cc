@@ -64,10 +64,7 @@ PersonalDataManager* ProfileImplAndroid::GetPersonalDataManager()
 
 
 PrefService* ProfileImplAndroid::GetPrefs() {
-  if (!preferences_.get()) {
-    preferences_.reset(PrefService::CreatePrefService(path_, NULL, NULL));
-  }
-  return preferences_.get();
+  return NULL;
 }
 
 URLRequestContextGetter* ProfileImplAndroid::GetRequestContext() {

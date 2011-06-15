@@ -364,18 +364,9 @@ LOCAL_SRC_FILES += \
     chrome/browser/autofill/phone_number.cc \
     chrome/browser/autofill/select_control_handler.cc \
     \
-    chrome/browser/prefs/default_pref_store.cc \
-    chrome/browser/prefs/overlay_persistent_pref_store.cc \
-    chrome/browser/prefs/pref_service.cc \
-    chrome/browser/prefs/pref_value_map.cc \
-    chrome/browser/prefs/pref_value_store.cc \
-    chrome/browser/prefs/value_map_pref_store.cc \
-    \
     chrome/common/guid.cc \
     chrome/common/guid_posix.cc \
     chrome/common/json_value_serializer.cc \
-    chrome/common/pref_names.cc \
-    chrome/common/pref_store.cc \
     chrome/common/url_constants.cc \
     \
     chrome/common/net/url_fetcher.cc \

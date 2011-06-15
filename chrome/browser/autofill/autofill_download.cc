@@ -166,8 +166,10 @@ void AutoFillDownloadManager::SetPositiveUploadRate(double rate) {
   DCHECK_GE(rate, 0.0);
   DCHECK_LE(rate, 1.0);
   DCHECK(profile_);
+#ifndef ANDROID
   PrefService* preferences = profile_->GetPrefs();
   preferences->SetDouble(prefs::kAutoFillPositiveUploadRate, rate);
+#endif
 }
 
 void AutoFillDownloadManager::SetNegativeUploadRate(double rate) {
@@ -177,8 +179,10 @@ void AutoFillDownloadManager::SetNegativeUploadRate(double rate) {
   DCHECK_GE(rate, 0.0);
   DCHECK_LE(rate, 1.0);
   DCHECK(profile_);
+#ifndef ANDROID
   PrefService* preferences = profile_->GetPrefs();
   preferences->SetDouble(prefs::kAutoFillNegativeUploadRate, rate);
+#endif
 }
 
 bool AutoFillDownloadManager::StartRequest(
