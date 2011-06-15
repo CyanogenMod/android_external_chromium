@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -62,10 +62,13 @@ void ManagedPrefsBannerBase::Init(PrefService* local_state,
       AddUserPref(prefs::kDefaultSearchProviderEnabled);
       AddUserPref(prefs::kDefaultSearchProviderName);
       AddUserPref(prefs::kDefaultSearchProviderKeyword);
+      AddUserPref(prefs::kDefaultSearchProviderInstantURL);
       AddUserPref(prefs::kDefaultSearchProviderSearchURL);
       AddUserPref(prefs::kDefaultSearchProviderSuggestURL);
       AddUserPref(prefs::kDefaultSearchProviderIconURL);
       AddUserPref(prefs::kDefaultSearchProviderEncodings);
+      AddUserPref(prefs::kInstantEnabled);
+      AddLocalStatePref(prefs::kDefaultBrowserSettingEnabled);
       break;
     case OPTIONS_PAGE_CONTENT:
       AddUserPref(prefs::kSyncManaged);
@@ -84,10 +87,8 @@ void ManagedPrefsBannerBase::Init(PrefService* local_state,
 #if defined(GOOGLE_CHROME_BUILD)
       AddLocalStatePref(prefs::kMetricsReportingEnabled);
 #endif
-      AddUserPref(prefs::kProxyMode);
-      AddUserPref(prefs::kProxyServer);
-      AddUserPref(prefs::kProxyPacUrl);
-      AddUserPref(prefs::kProxyBypassList);
+      AddUserPref(prefs::kProxy);
+      AddUserPref(prefs::kCloudPrintProxyEnabled);
       break;
     default:
       NOTREACHED();

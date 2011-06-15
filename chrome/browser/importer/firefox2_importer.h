@@ -52,6 +52,7 @@ class Firefox2Importer : public Importer {
  private:
   FRIEND_TEST_ALL_PREFIXES(FirefoxImporterTest, Firefox2BookmarkParse);
   FRIEND_TEST_ALL_PREFIXES(FirefoxImporterTest, Firefox2CookesParse);
+  FRIEND_TEST_ALL_PREFIXES(FirefoxImporterTest, Firefox2BookmarkFileImport);
 
   virtual ~Firefox2Importer();
 
@@ -84,7 +85,8 @@ class Firefox2Importer : public Importer {
   static bool ParseFolderNameFromLine(const std::string& line,
                                       const std::string& charset,
                                       std::wstring* folder_name,
-                                      bool* is_toolbar_folder);
+                                      bool* is_toolbar_folder,
+                                      base::Time* add_date);
   // See above, this will also put the data: URL of the favicon into *favicon
   // if there is a favicon given.  |post_data| is set for POST base keywords to
   // the contents of the actual POST (with %s for the search term).
@@ -96,6 +98,18 @@ class Firefox2Importer : public Importer {
                                     std::wstring* shortcut,
                                     base::Time* add_date,
                                     std::wstring* post_data);
+  // Save bookmarks imported from browsers with Firefox2 compatible bookmark
+  // systems such as Epiphany. This bookmark format is the same as that of the
+  // basic Firefox bookmark, but it misses additional properties and uses
+  // lower-case tag:
+  //   ...<h1>Bookmarks</h1><dl>
+  //   <dt><a href="url">name</a></dt>
+  //   <dt><a href="url">name</a></dt>
+  //   </dl>
+  static bool ParseMinimumBookmarkFromLine(const std::string& line,
+                                           const std::string& charset,
+                                           std::wstring* title,
+                                           GURL* url);
 
   // Fetches the given attribute value from the |tag|. Returns true if
   // successful, and |value| will contain the value.

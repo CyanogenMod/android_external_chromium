@@ -1,35 +1,35 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/tabs/tab_strip.h"
+#include "chrome/browser/ui/views/tabs/tab_strip.h"
 
-#include "app/drag_drop_types.h"
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
+#include <algorithm>
+
 #include "base/compiler_specific.h"
 #include "base/stl_util-inl.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
-#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/tabs/tab.h"
 #include "chrome/browser/ui/views/tabs/tab_strip_controller.h"
-#include "chrome/common/pref_names.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/path.h"
-#include "gfx/size.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "ui/base/animation/animation_container.h"
+#include "ui/base/dragdrop/drag_drop_types.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/path.h"
+#include "ui/gfx/size.h"
 #include "views/controls/image_view.h"
 #include "views/widget/default_theme_provider.h"
 #include "views/window/non_client_view.h"
 #include "views/window/window.h"
 
 #if defined(OS_WIN)
-#include "app/win/win_util.h"
+#include "views/widget/monitor_win.h"
 #include "views/widget/widget_win.h"
 #elif defined(OS_LINUX)
 #include "views/widget/widget_gtk.h"
@@ -149,7 +149,7 @@ void TabStrip::InitTabStripButtons() {
   }
   LoadNewTabButtonImage();
   newtab_button_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_NEWTAB)));
+      l10n_util::GetStringUTF16(IDS_ACCNAME_NEWTAB));
   AddChildView(newtab_button_);
 }
 
@@ -164,13 +164,9 @@ void TabStrip::MouseMovedOutOfView() {
 ////////////////////////////////////////////////////////////////////////////////
 // TabStrip, BaseTabStrip implementation:
 
-int TabStrip::GetPreferredHeight() {
-  return GetPreferredSize().height();
-}
-
 void TabStrip::SetBackgroundOffset(const gfx::Point& offset) {
   for (int i = 0; i < tab_count(); ++i)
-    GetTabAtTabDataIndex(i)->SetBackgroundOffset(offset);
+    GetTabAtTabDataIndex(i)->set_background_offset(offset);
 }
 
 bool TabStrip::IsPositionInWindowCaption(const gfx::Point& point) {
@@ -310,7 +306,7 @@ void TabStrip::PaintChildren(gfx::Canvas* canvas) {
 }
 
 // Overridden to support automation. See automation_proxy_uitest.cc.
-views::View* TabStrip::GetViewByID(int view_id) const {
+const views::View* TabStrip::GetViewByID(int view_id) const {
   if (tab_count() > 0) {
     if (view_id == VIEW_ID_TAB_LAST) {
       return GetTabAtTabDataIndex(tab_count() - 1);
@@ -349,7 +345,7 @@ void TabStrip::OnDragExited() {
 
 int TabStrip::OnPerformDrop(const DropTargetEvent& event) {
   if (!drop_info_.get())
-    return DragDropTypes::DRAG_NONE;
+    return ui::DragDropTypes::DRAG_NONE;
 
   const int drop_index = drop_info_->drop_index;
   const bool drop_before = drop_info_->drop_before;
@@ -359,8 +355,8 @@ int TabStrip::OnPerformDrop(const DropTargetEvent& event) {
 
   GURL url;
   std::wstring title;
-  if (!event.GetData().GetURLAndTitle(&url, &title) || !url.is_valid())
-    return DragDropTypes::DRAG_NONE;
+  if (!event.data().GetURLAndTitle(&url, &title) || !url.is_valid())
+    return ui::DragDropTypes::DRAG_NONE;
 
   controller()->PerformDrop(drop_before, drop_index, url);
 
@@ -429,13 +425,6 @@ void TabStrip::StartInsertTabAnimation(int model_index, bool foreground) {
   AnimateToIdealBounds();
 }
 
-void TabStrip::StartMoveTabAnimation() {
-  PrepareForAnimation();
-
-  GenerateIdealBounds();
-  AnimateToIdealBounds();
-}
-
 void TabStrip::AnimateToIdealBounds() {
   for (int i = 0; i < tab_count(); ++i) {
     Tab* tab = GetTabAtTabDataIndex(i);
@@ -453,7 +442,7 @@ bool TabStrip::ShouldHighlightCloseButtonAfterRemove() {
 void TabStrip::DoLayout() {
   BaseTabStrip::DoLayout();
 
-  newtab_button_->SetBounds(newtab_button_bounds_);
+  newtab_button_->SetBoundsRect(newtab_button_bounds_);
 }
 
 void TabStrip::ViewHierarchyChanged(bool is_add,
@@ -498,7 +487,7 @@ void TabStrip::Init() {
 }
 
 void TabStrip::LoadNewTabButtonImage() {
-  ThemeProvider* tp = GetThemeProvider();
+  ui::ThemeProvider* tp = GetThemeProvider();
 
   // If we don't have a theme provider yet, it means we do not have a
   // root view, and are therefore in a test.
@@ -678,7 +667,7 @@ gfx::Rect TabStrip::GetDropBounds(int drop_index,
   }
 
   // Mirror the center point if necessary.
-  center_x = MirroredXCoordinateInsideView(center_x);
+  center_x = GetMirroredXInView(center_x);
 
   // Determine the screen bounds.
   gfx::Point drop_loc(center_x - drop_indicator_width / 2,
@@ -689,7 +678,7 @@ gfx::Rect TabStrip::GetDropBounds(int drop_index,
 
   // If the rect doesn't fit on the monitor, push the arrow to the bottom.
 #if defined(OS_WIN)
-  gfx::Rect monitor_bounds = app::win::GetMonitorBoundsForRect(drop_bounds);
+  gfx::Rect monitor_bounds = views::GetMonitorBoundsForRect(drop_bounds);
   *is_beneath = (monitor_bounds.IsEmpty() ||
                  !monitor_bounds.Contains(drop_bounds));
 #else
@@ -706,7 +695,7 @@ void TabStrip::UpdateDropIndex(const DropTargetEvent& event) {
   // If the UI layout is right-to-left, we need to mirror the mouse
   // coordinates since we calculate the drop index based on the
   // original (and therefore non-mirrored) positions of the tabs.
-  const int x = MirroredXCoordinateInsideView(event.x());
+  const int x = GetMirroredXInView(event.x());
   // We don't allow replacing the urls of mini-tabs.
   for (int i = GetMiniTabCount(); i < tab_count(); ++i) {
     Tab* tab = GetTabAtTabDataIndex(i);
@@ -769,12 +758,12 @@ void TabStrip::SetDropIndex(int tab_data_index, bool drop_before) {
 }
 
 int TabStrip::GetDropEffect(const views::DropTargetEvent& event) {
-  const int source_ops = event.GetSourceOperations();
-  if (source_ops & DragDropTypes::DRAG_COPY)
-    return DragDropTypes::DRAG_COPY;
-  if (source_ops & DragDropTypes::DRAG_LINK)
-    return DragDropTypes::DRAG_LINK;
-  return DragDropTypes::DRAG_MOVE;
+  const int source_ops = event.source_operations();
+  if (source_ops & ui::DragDropTypes::DRAG_COPY)
+    return ui::DragDropTypes::DRAG_COPY;
+  if (source_ops & ui::DragDropTypes::DRAG_LINK)
+    return ui::DragDropTypes::DRAG_LINK;
+  return ui::DragDropTypes::DRAG_MOVE;
 }
 
 // static
@@ -940,18 +929,6 @@ void TabStrip::StartMouseInitiatedRemoveTabAnimation(int model_index) {
   bounds_animator().SetAnimationDelegate(tab_closing,
                                          CreateRemoveTabDelegate(tab_closing),
                                          true);
-}
-
-void TabStrip::StopAnimating(bool layout) {
-  if (!IsAnimating())
-    return;
-
-  bounds_animator().Cancel();
-
-  DCHECK(!IsAnimating());
-
-  if (layout)
-    DoLayout();
 }
 
 int TabStrip::GetMiniTabCount() const {

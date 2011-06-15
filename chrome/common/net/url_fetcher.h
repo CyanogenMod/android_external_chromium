@@ -136,6 +136,21 @@ class URLFetcher {
   void set_upload_data(const std::string& upload_content_type,
                        const std::string& upload_content);
 
+  // Indicates that the POST data is sent via chunked transfer encoding.
+  // This may only be called before calling Start().
+  // Use AppendChunkToUpload() to give the data chunks after calling Start().
+  void set_chunked_upload(const std::string& upload_content_type);
+
+  // Adds the given bytes to a request's POST data transmitted using chunked
+  // transfer encoding.
+  // This method should be called ONLY after calling Start().
+  void AppendChunkToUpload(const std::string& data);
+
+  // Signals the end of a chunked transfer encoded data stream. This method
+  // should be called ONLY after calling Start(), set_chunked_upload() and
+  // typically one or more calls to AppendChunkToUpload.
+  void MarkEndOfChunks();
+
   // Set one or more load flags as defined in net/base/load_flags.h.  Must be
   // called before the request is started.
   void set_load_flags(int load_flags);
@@ -143,11 +158,15 @@ class URLFetcher {
   // Returns the current load flags.
   int load_flags() const;
 
+  // The referrer URL for the request. Must be called before the request is
+  // started.
+  void set_referrer(const std::string& referrer);
+
   // Set extra headers on the request.  Must be called before the request
   // is started.
   void set_extra_request_headers(const std::string& extra_request_headers);
 
-  // Set the URLRequestContext on the request.  Must be called before the
+  // Set the net::URLRequestContext on the request.  Must be called before the
   // request is started.
 #ifdef ANDROID
   // TODO: Upstream.

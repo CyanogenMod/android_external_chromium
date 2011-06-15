@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,18 +20,18 @@
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
 #include "chrome/browser/defaults.h"
-#include "chrome/browser/gtk/gtk_theme_provider.h"
-#include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
+#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/common/notification_service.h"
-#include "gfx/color_utils.h"
-#include "gfx/font.h"
-#include "gfx/gtk_util.h"
-#include "gfx/rect.h"
-#include "gfx/skia_utils_gtk.h"
 #include "grit/theme_resources.h"
+#include "ui/gfx/color_utils.h"
+#include "ui/gfx/font.h"
+#include "ui/gfx/gtk_util.h"
+#include "ui/gfx/rect.h"
+#include "ui/gfx/skia_utils_gtk.h"
 
 namespace {
 
@@ -76,6 +76,10 @@ const float kContentWidthPercentage = 0.7;
 // How much to offset the popup from the bottom of the location bar.
 const int kVerticalOffset = 3;
 
+// The size delta between the font used for the edit and the result rows. Passed
+// to gfx::Font::DeriveFont.
+const int kEditFontAdjust = -1;
+
 // UTF-8 Left-to-right embedding.
 const char* kLRE = "\xe2\x80\xaa";
 
@@ -106,8 +110,8 @@ void DrawFullPixbuf(GdkDrawable* drawable, GdkGC* gc, GdkPixbuf* pixbuf,
 }
 
 // TODO(deanm): Find some better home for this, and make it more efficient.
-size_t GetUTF8Offset(const std::wstring& wide_text, size_t wide_text_offset) {
-  return WideToUTF8(wide_text.substr(0, wide_text_offset)).size();
+size_t GetUTF8Offset(const string16& text, size_t text_offset) {
+  return UTF16ToUTF8(text.substr(0, text_offset)).size();
 }
 
 // Generates the normal URL color, a green color used in unhighlighted URL
@@ -170,7 +174,7 @@ GdkColor SelectedURLColor(GdkColor foreground, GdkColor background) {
 
 void AutocompletePopupViewGtk::SetupLayoutForMatch(
     PangoLayout* layout,
-    const std::wstring& text,
+    const string16& text,
     const AutocompleteMatch::ACMatchClassifications& classifications,
     const GdkColor* base_color,
     const GdkColor* dim_color,
@@ -180,21 +184,21 @@ void AutocompletePopupViewGtk::SetupLayoutForMatch(
   // RTL characters inside it, so the ending punctuation displays correctly
   // and the eliding ellipsis displays correctly. We only mark the text with
   // LRE. Wrapping it with LRE and PDF by calling AdjustStringForLocaleDirection
-  // will render the elllipsis at the left of the elided pure LTR text.
+  // or WrapStringWithLTRFormatting will render the elllipsis at the left of the
+  // elided pure LTR text.
   bool marked_with_lre = false;
-  std::wstring localized_text = text;
+  string16 localized_text = text;
   bool is_rtl = base::i18n::IsRTL();
   if (is_rtl && !base::i18n::StringContainsStrongRTLChars(localized_text)) {
-    localized_text.insert(0, 1,
-        static_cast<wchar_t>(base::i18n::kLeftToRightEmbeddingMark));
+    localized_text.insert(0, 1, base::i18n::kLeftToRightEmbeddingMark);
     marked_with_lre = true;
   }
 
   // We can have a prefix, or insert additional characters while processing the
   // classifications.  We need to take this in to account when we translate the
-  // wide offsets in the classification into text_utf8 byte offsets.
+  // UTF-16 offsets in the classification into text_utf8 byte offsets.
   size_t additional_offset = prefix_text.size();  // Length in utf-8 bytes.
-  std::string text_utf8 = prefix_text + WideToUTF8(localized_text);
+  std::string text_utf8 = prefix_text + UTF16ToUTF8(localized_text);
 
   PangoAttrList* attrs = pango_attr_list_new();
 
@@ -256,6 +260,7 @@ void AutocompletePopupViewGtk::SetupLayoutForMatch(
 }
 
 AutocompletePopupViewGtk::AutocompletePopupViewGtk(
+    const gfx::Font& font,
     AutocompleteEditView* edit_view,
     AutocompleteEditModel* edit_model,
     Profile* profile,
@@ -266,6 +271,7 @@ AutocompletePopupViewGtk::AutocompletePopupViewGtk(
       window_(gtk_window_new(GTK_WINDOW_POPUP)),
       layout_(NULL),
       theme_provider_(GtkThemeProvider::GetFrom(profile)),
+      font_(font.DeriveFont(kEditFontAdjust)),
       ignore_mouse_drag_(false),
       opened_(false) {
   GTK_WIDGET_UNSET_FLAGS(window_, GTK_CAN_FOCUS);
@@ -284,15 +290,6 @@ AutocompletePopupViewGtk::AutocompletePopupViewGtk(
   pango_layout_set_auto_dir(layout_, FALSE);
   // We always ellipsize when drawing our text runs.
   pango_layout_set_ellipsize(layout_, PANGO_ELLIPSIZE_END);
-  // TODO(deanm): We might want to eventually follow what Windows does and
-  // plumb a gfx::Font through.  This is because popup windows have a
-  // different font size, although we could just derive that font here.
-  // For now, force the font size.
-  gfx::Font font(gfx::Font().GetFontName(),
-                 browser_defaults::kAutocompletePopupFontSize);
-  PangoFontDescription* pfd = font.GetNativeFont();
-  pango_layout_set_font_description(layout_, pfd);
-  pango_font_description_free(pfd);
 
   gtk_widget_add_events(window_, GDK_BUTTON_MOTION_MASK |
                                  GDK_POINTER_MOTION_MASK |
@@ -395,6 +392,8 @@ void AutocompletePopupViewGtk::Observe(NotificationType type,
   DCHECK(type == NotificationType::BROWSER_THEME_CHANGED);
 
   if (theme_provider_->UseGtkTheme()) {
+    gtk_util::UndoForceFontSize(window_);
+
     border_color_ = theme_provider_->GetBorderColor();
 
     gtk_util::GetTextColors(
@@ -407,6 +406,8 @@ void AutocompletePopupViewGtk::Observe(NotificationType type,
     url_selected_text_color_ = SelectedURLColor(selected_content_text_color_,
                                                 selected_background_color_);
   } else {
+    gtk_util::ForceFontSizePixels(window_, font_.GetFontSize());
+
     border_color_ = kBorderColor;
     background_color_ = kBackgroundColor;
     selected_background_color_ = kSelectedBackgroundColor;
@@ -473,10 +474,10 @@ void AutocompletePopupViewGtk::AcceptLine(size_t line,
   // extension, |match| and its contents.  So copy the relevant strings out to
   // make sure they stay alive until the call completes.
   const GURL url(match.destination_url);
-  std::wstring keyword;
+  string16 keyword;
   const bool is_keyword_hint = model_->GetKeywordForMatch(match, &keyword);
   edit_view_->OpenURL(url, disposition, match.transition, GURL(), line,
-                      is_keyword_hint ? std::wstring() : keyword);
+                      is_keyword_hint ? string16() : keyword);
 }
 
 GdkPixbuf* AutocompletePopupViewGtk::IconForMatch(
@@ -495,7 +496,6 @@ GdkPixbuf* AutocompletePopupViewGtk::IconForMatch(
       case IDR_OMNIBOX_HTTP:    icon = IDR_OMNIBOX_HTTP_DARK; break;
       case IDR_OMNIBOX_HISTORY: icon = IDR_OMNIBOX_HISTORY_DARK; break;
       case IDR_OMNIBOX_SEARCH:  icon = IDR_OMNIBOX_SEARCH_DARK; break;
-      case IDR_OMNIBOX_MORE:    icon = IDR_OMNIBOX_MORE_DARK; break;
       case IDR_OMNIBOX_STAR:    icon = IDR_OMNIBOX_STAR_DARK; break;
       default:                  NOTREACHED(); break;
     }
@@ -514,7 +514,7 @@ gboolean AutocompletePopupViewGtk::HandleMotion(GtkWidget* widget,
   model_->SetHoveredLine(line);
   // Select the line if the user has the left mouse button down.
   if (!ignore_mouse_drag_ && (event->state & GDK_BUTTON1_MASK))
-    model_->SetSelectedLine(line, false);
+    model_->SetSelectedLine(line, false, false);
   return TRUE;
 }
 
@@ -525,7 +525,7 @@ gboolean AutocompletePopupViewGtk::HandleButtonPress(GtkWidget* widget,
   size_t line = LineFromY(static_cast<int>(event->y));
   model_->SetHoveredLine(line);
   if (event->button == 1)
-    model_->SetSelectedLine(line, false);
+    model_->SetSelectedLine(line, false, false);
   return TRUE;
 }
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 
 #include "base/string16.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 #include "chrome/browser/cancelable_request.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/common/notification_registrar.h"
@@ -39,14 +39,14 @@ class HistoryUIHTMLSource2 : public ChromeURLDataManager::DataSource {
 };
 
 // The handler for Javascript messages related to the "history" view.
-class BrowsingHistoryHandler2 : public DOMMessageHandler,
+class BrowsingHistoryHandler2 : public WebUIMessageHandler,
                                 public NotificationObserver {
  public:
   BrowsingHistoryHandler2();
   virtual ~BrowsingHistoryHandler2();
 
-  // DOMMessageHandler implementation.
-  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+  // WebUIMessageHandler implementation.
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
   virtual void RegisterMessages();
 
   // Callback for the "getHistory" message.
@@ -96,7 +96,7 @@ class BrowsingHistoryHandler2 : public DOMMessageHandler,
   DISALLOW_COPY_AND_ASSIGN(BrowsingHistoryHandler2);
 };
 
-class HistoryUI2 : public DOMUI {
+class HistoryUI2 : public WebUI {
  public:
   explicit HistoryUI2(TabContents* contents);
 

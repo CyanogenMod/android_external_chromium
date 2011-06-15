@@ -1,15 +1,13 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/first_run_search_engine_view.h"
+#include "chrome/browser/ui/views/first_run_search_engine_view.h"
 
 #include <algorithm>
 #include <map>
 #include <vector>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/i18n/rtl.h"
 #include "base/rand_util.h"
 #include "base/time.h"
@@ -19,19 +17,21 @@
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/ui/options/options_window.h"
-#include "gfx/canvas.h"
-#include "gfx/font.h"
 #include "grit/browser_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/google_chrome_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/font.h"
 #include "views/controls/button/button.h"
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
 #include "views/controls/separator.h"
-#include "views/standard_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/view_text_utils.h"
 #include "views/widget/widget.h"
 #include "views/window/window.h"
@@ -92,7 +92,7 @@ SearchEngineChoice::SearchEngineChoice(views::ButtonListener* listener,
   // screenreaders. It uses the browser name rather than the text of the
   // button "Choose", since it's not obvious to a screenreader user which
   // browser each button corresponds to.
-  SetAccessibleName(search_engine_->short_name());
+  SetAccessibleName(WideToUTF16Hack(search_engine_->short_name()));
 }
 
 int SearchEngineChoice::GetChoiceViewWidth() {

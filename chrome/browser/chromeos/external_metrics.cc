@@ -18,58 +18,41 @@
 #include "base/metrics/histogram.h"
 #include "base/perftimer.h"
 #include "base/time.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
+#include "chrome/browser/metrics/metrics_service.h"
 #include "chrome/browser/metrics/user_metrics.h"
-
-// Steps to add an action.
-//
-// 1. Enter a helper function that calls UserMetrics::RecordAction.
-//
-// 2. Add a line for that function in InitializeUserActions.
-//
-// 3. Enjoy the recompilation.
-//
-// TODO(semenzato): should see if it is possible to avoid recompiling code
-// every time a new user action is added, and register it in some other way.
 
 namespace chromeos {
 
 // The interval between external metrics collections, in milliseconds.
 static const int kExternalMetricsCollectionIntervalMs = 30 * 1000;
 
-// There is one of the following functions for every user action as we have to
-// call RecordAction in a way that gets picked up by the processing scripts.
-static void RecordTabOverviewKeystroke() {
-  UserMetrics::RecordAction(UserMetricsAction("TabOverview_Keystroke"));
-}
-
-static void RecordTabOverviewExitMouse() {
-  UserMetrics::RecordAction(UserMetricsAction("TabOverview_ExitMouse"));
+ExternalMetrics::ExternalMetrics()
+    : test_recorder_(NULL) {
 }
 
 void ExternalMetrics::Start() {
-  InitializeUserActions();
+  // Register user actions external to the browser.
+  // chrome/tools/extract_actions.py won't understand these lines, so all of
+  // these are explicitly added in that script.
+  // TODO(derat): We shouldn't need to verify actions before reporting them;
+  // remove all of this once http://crosbug.com/11125 is fixed.
+  valid_user_actions_.insert("Accel_NextWindow_Tab");
+  valid_user_actions_.insert("Accel_PrevWindow_Tab");
+  valid_user_actions_.insert("Accel_NextWindow_F5");
+  valid_user_actions_.insert("Accel_PrevWindow_F5");
+  valid_user_actions_.insert("Accel_BrightnessDown_F6");
+  valid_user_actions_.insert("Accel_BrightnessUp_F7");
+
   ScheduleCollector();
 }
 
-void ExternalMetrics::DefineUserAction(const std::string& name,
-                                       RecordFunctionType f) {
-  DCHECK(action_recorders_.find(name) == action_recorders_.end());
-  action_recorders_[name] = f;
-}
-
-void ExternalMetrics::InitializeUserActions() {
-  DefineUserAction("TabOverviewExitMouse", RecordTabOverviewExitMouse);
-  DefineUserAction("TabOverviewKeystroke", RecordTabOverviewKeystroke);
-}
-
 void ExternalMetrics::RecordActionUI(std::string action_string) {
-  base::hash_map<std::string, RecordFunctionType>::const_iterator iterator;
-  iterator = action_recorders_.find(action_string);
-  if (iterator == action_recorders_.end()) {
-    LOG(ERROR) << "undefined UMA action: " << action_string;
+  if (valid_user_actions_.count(action_string)) {
+    UserMetrics::RecordComputedAction(action_string);
   } else {
-    iterator->second();
+    LOG(ERROR) << "undefined UMA action: " << action_string;
   }
 }
 
@@ -77,7 +60,19 @@ void ExternalMetrics::RecordAction(const char* action) {
   std::string action_string(action);
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
-      NewRunnableMethod(this, &ExternalMetrics::RecordActionUI, action));
+      NewRunnableMethod(this, &ExternalMetrics::RecordActionUI, action_string));
+}
+
+void ExternalMetrics::RecordCrashUI(const std::string& crash_kind) {
+  if (g_browser_process && g_browser_process->metrics_service()) {
+    g_browser_process->metrics_service()->LogChromeOSCrash(crash_kind);
+  }
+}
+
+void ExternalMetrics::RecordCrash(const std::string& crash_kind) {
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
+      NewRunnableMethod(this, &ExternalMetrics::RecordCrashUI, crash_kind));
 }
 
 void ExternalMetrics::RecordHistogram(const char* histogram_data) {
@@ -194,6 +189,8 @@ void ExternalMetrics::CollectEvents() {
       char* value = reinterpret_cast<char*>(p + 1);
       if (test_recorder_ != NULL) {
         test_recorder_(name, value);
+      } else if (strcmp(name, "crash") == 0) {
+        RecordCrash(value);
       } else if (strcmp(name, "histogram") == 0) {
         RecordHistogram(value);
       } else if (strcmp(name, "linearhistogram") == 0) {

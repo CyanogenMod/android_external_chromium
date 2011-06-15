@@ -6,15 +6,9 @@
 
 #include <limits>
 
-#include "app/resource_bundle.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/favicon_size.h"
-#include "gfx/font.h"
-#include "gfx/path.h"
-#include "gfx/skbitmap_operations.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -22,6 +16,12 @@
 #include "ui/base/animation/multi_animation.h"
 #include "ui/base/animation/slide_animation.h"
 #include "ui/base/animation/throb_animation.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/favicon_size.h"
+#include "ui/gfx/font.h"
+#include "ui/gfx/path.h"
+#include "ui/gfx/skbitmap_operations.h"
 #include "views/controls/button/image_button.h"
 #include "views/widget/tooltip_manager.h"
 #include "views/widget/widget.h"
@@ -52,10 +52,11 @@ static const int kMiniTabRendererAsNormalTabWidth =
 
 // How opaque to make the hover state (out of 1).
 static const double kHoverOpacity = 0.33;
+static const double kHoverSlideOpacity = 0.5;
 
-Tab::TabImage Tab::tab_alpha = {0};
-Tab::TabImage Tab::tab_active = {0};
-Tab::TabImage Tab::tab_inactive = {0};
+Tab::TabImage Tab::tab_alpha_ = {0};
+Tab::TabImage Tab::tab_active_ = {0};
+Tab::TabImage Tab::tab_inactive_ = {0};
 
 // Durations for the various parts of the mini tab title animation.
 static const int kMiniTitleChangeAnimationDuration1MS = 1600;
@@ -81,19 +82,6 @@ static const SkColor kMiniTitleChangeGradientColor2 =
 static const SkScalar kTabCapWidth = 15;
 static const SkScalar kTabTopCurveWidth = 4;
 static const SkScalar kTabBottomCurveWidth = 3;
-
-namespace {
-
-void InitTabResources() {
-  static bool initialized = false;
-  if (initialized)
-    return;
-
-  initialized = true;
-  Tab::LoadTabImages();
-}
-
-}  // namespace
 
 // static
 const char Tab::kViewClassName[] = "browser/tabs/Tab";
@@ -140,10 +128,6 @@ void Tab::StopMiniTabTitleAnimation() {
     mini_title_animation_->Stop();
 }
 
-void Tab::PaintIcon(gfx::Canvas* canvas) {
-  BaseTab::PaintIcon(canvas, favicon_bounds_.x(), favicon_bounds_.y());
-}
-
 // static
 gfx::Size Tab::GetMinimumUnselectedSize() {
   InitTabResources();
@@ -152,7 +136,7 @@ gfx::Size Tab::GetMinimumUnselectedSize() {
   minimum_size.set_width(kLeftPadding + kRightPadding);
   // Since we use bitmap images, the real minimum height of the image is
   // defined most accurately by the height of the end cap images.
-  minimum_size.set_height(tab_active.image_l->height());
+  minimum_size.set_height(tab_active_.image_l->height());
   return minimum_size;
 }
 
@@ -228,7 +212,7 @@ void Tab::Paint(gfx::Canvas* canvas) {
 }
 
 void Tab::Layout() {
-  gfx::Rect lb = GetLocalBounds(false);
+  gfx::Rect lb = GetContentsBounds();
   if (lb.IsEmpty())
     return;
   lb.Inset(kLeftPadding, kTopPadding, kRightPadding, kBottomPadding);
@@ -317,11 +301,11 @@ void Tab::Layout() {
   // instance) are automatically mirrored by the mirroring infrastructure in
   // views. The elements Tab draws directly on the canvas need to be manually
   // mirrored if the View's layout is right-to-left.
-  title_bounds_.set_x(MirroredLeftPointForRect(title_bounds_));
+  title_bounds_.set_x(GetMirroredXForRect(title_bounds_));
 }
 
 void Tab::OnThemeChanged() {
-  Tab::LoadTabImages();
+  LoadTabImages();
 }
 
 bool Tab::HasHitTestMask() const {
@@ -369,6 +353,10 @@ void Tab::OnMouseMoved(const views::MouseEvent& e) {
 
 ////////////////////////////////////////////////////////////////////////////////
 // Tab, private
+
+void Tab::PaintIcon(gfx::Canvas* canvas) {
+  BaseTab::PaintIcon(canvas, favicon_bounds_.x(), favicon_bounds_.y());
+}
 
 void Tab::PaintTabBackground(gfx::Canvas* canvas) {
   if (IsSelected()) {
@@ -451,8 +439,7 @@ void Tab::PaintInactiveTabBackground(gfx::Canvas* canvas) {
   // The tab image needs to be lined up with the background image
   // so that it feels partially transparent.  These offsets represent the tab
   // position within the frame background image.
-  int offset = GetX(views::View::APPLY_MIRRORING_TRANSFORMATION) +
-      background_offset_.x();
+  int offset = GetMirroredX() + background_offset_.x();
 
   int tab_id;
   if (GetWidget() &&
@@ -465,9 +452,9 @@ void Tab::PaintInactiveTabBackground(gfx::Canvas* canvas) {
 
   SkBitmap* tab_bg = GetThemeProvider()->GetBitmapNamed(tab_id);
 
-  TabImage* tab_image = &tab_active;
-  TabImage* tab_inactive_image = &tab_inactive;
-  TabImage* alpha = &tab_alpha;
+  TabImage* tab_image = &tab_active_;
+  TabImage* tab_inactive_image = &tab_inactive_;
+  TabImage* alpha = &tab_alpha_;
 
   // If the theme is providing a custom background image, then its top edge
   // should be at the top of the tab. Otherwise, we assume that the background
@@ -516,7 +503,8 @@ void Tab::PaintInactiveTabBackground(gfx::Canvas* canvas) {
   canvas->DrawBitmapInt(background_canvas.ExtractBitmap(), 0, 0);
 
   if (!GetThemeProvider()->HasCustomImage(tab_id) &&
-      hover_animation() && hover_animation()->IsShowing()) {
+      hover_animation() &&
+      (hover_animation()->IsShowing() || hover_animation()->is_animating())) {
     SkBitmap hover_glow = DrawHoverGlowBitmap(width(), height());
     // Draw the hover glow clipped to the background into hover_image.
     SkBitmap hover_image = SkBitmapOperations::CreateMaskedBitmap(
@@ -536,16 +524,14 @@ void Tab::PaintInactiveTabBackground(gfx::Canvas* canvas) {
 }
 
 void Tab::PaintActiveTabBackground(gfx::Canvas* canvas) {
-  int offset = GetX(views::View::APPLY_MIRRORING_TRANSFORMATION) +
-      background_offset_.x();
-  ThemeProvider* tp = GetThemeProvider();
-  if (!tp)
-    NOTREACHED() << "Unable to get theme provider";
+  int offset = GetMirroredX() + background_offset_.x();
+  ui::ThemeProvider* tp = GetThemeProvider();
+  DCHECK(tp) << "Unable to get theme provider";
 
   SkBitmap* tab_bg = GetThemeProvider()->GetBitmapNamed(IDR_THEME_TOOLBAR);
 
-  TabImage* tab_image = &tab_active;
-  TabImage* alpha = &tab_alpha;
+  TabImage* tab_image = &tab_active_;
+  TabImage* alpha = &tab_alpha_;
 
   // Draw left edge.
   SkBitmap tab_l = SkBitmapOperations::CreateTiledBitmap(
@@ -594,8 +580,8 @@ SkBitmap Tab::DrawHoverGlowBitmap(int width_input, int height_input) {
   const ui::SlideAnimation* hover_slide = hover_animation();
   int hover_alpha = 0;
   if (hover_slide) {
-    hover_alpha =
-        static_cast<int>(255 * kHoverOpacity * hover_slide->GetCurrentValue());
+    hover_alpha = static_cast<int>(255 * kHoverSlideOpacity *
+                                   hover_slide->GetCurrentValue());
   }
   colors[0] = SkColorSetARGB(hover_alpha, 255, 255, 255);
   colors[1] = SkColorSetARGB(0, 255, 255, 255);
@@ -655,22 +641,34 @@ double Tab::GetThrobValue() {
 // Tab, private:
 
 // static
+void Tab::InitTabResources() {
+  static bool initialized = false;
+  if (initialized)
+    return;
+
+  initialized = true;
+
+  // Load the tab images once now, and maybe again later if the theme changes.
+  LoadTabImages();
+}
+
+// static
 void Tab::LoadTabImages() {
   // We're not letting people override tab images just yet.
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
 
-  tab_alpha.image_l = rb.GetBitmapNamed(IDR_TAB_ALPHA_LEFT);
-  tab_alpha.image_r = rb.GetBitmapNamed(IDR_TAB_ALPHA_RIGHT);
+  tab_alpha_.image_l = rb.GetBitmapNamed(IDR_TAB_ALPHA_LEFT);
+  tab_alpha_.image_r = rb.GetBitmapNamed(IDR_TAB_ALPHA_RIGHT);
 
-  tab_active.image_l = rb.GetBitmapNamed(IDR_TAB_ACTIVE_LEFT);
-  tab_active.image_c = rb.GetBitmapNamed(IDR_TAB_ACTIVE_CENTER);
-  tab_active.image_r = rb.GetBitmapNamed(IDR_TAB_ACTIVE_RIGHT);
-  tab_active.l_width = tab_active.image_l->width();
-  tab_active.r_width = tab_active.image_r->width();
+  tab_active_.image_l = rb.GetBitmapNamed(IDR_TAB_ACTIVE_LEFT);
+  tab_active_.image_c = rb.GetBitmapNamed(IDR_TAB_ACTIVE_CENTER);
+  tab_active_.image_r = rb.GetBitmapNamed(IDR_TAB_ACTIVE_RIGHT);
+  tab_active_.l_width = tab_active_.image_l->width();
+  tab_active_.r_width = tab_active_.image_r->width();
 
-  tab_inactive.image_l = rb.GetBitmapNamed(IDR_TAB_INACTIVE_LEFT);
-  tab_inactive.image_c = rb.GetBitmapNamed(IDR_TAB_INACTIVE_CENTER);
-  tab_inactive.image_r = rb.GetBitmapNamed(IDR_TAB_INACTIVE_RIGHT);
-  tab_inactive.l_width = tab_inactive.image_l->width();
-  tab_inactive.r_width = tab_inactive.image_r->width();
+  tab_inactive_.image_l = rb.GetBitmapNamed(IDR_TAB_INACTIVE_LEFT);
+  tab_inactive_.image_c = rb.GetBitmapNamed(IDR_TAB_INACTIVE_CENTER);
+  tab_inactive_.image_r = rb.GetBitmapNamed(IDR_TAB_INACTIVE_RIGHT);
+  tab_inactive_.l_width = tab_inactive_.image_l->width();
+  tab_inactive_.r_width = tab_inactive_.image_r->width();
 }

@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 cr.define('options', function() {
-
   var OptionsPage = options.OptionsPage;
 
   /**
@@ -20,6 +19,13 @@ cr.define('options', function() {
   AlertOverlay.prototype = {
     // Inherit AlertOverlay from OptionsPage.
     __proto__: OptionsPage.prototype,
+
+    /**
+     * Whether the page can be shown. Used to make sure the page is only
+     * shown via AlertOverlay.Show(), and not via the address bar.
+     * @private
+     */
+    canShow_: false,
 
     /**
      * Initialize the page.
@@ -44,7 +50,7 @@ cr.define('options', function() {
      * @private
      */
     handleOK_: function() {
-      OptionsPage.clearOverlays();
+      OptionsPage.closeOverlay();
       if (this.okCallback != undefined) {
         this.okCallback.call();
       }
@@ -56,11 +62,23 @@ cr.define('options', function() {
      * @private
      */
     handleCancel_: function() {
-      OptionsPage.clearOverlays();
+      OptionsPage.closeOverlay();
       if (this.cancelCallback != undefined) {
         this.cancelCallback.call();
       }
-    }
+    },
+
+    /**
+     * The page is getting hidden. Don't let it be shown again.
+     */
+    willHidePage: function() {
+      canShow_ = false;
+    },
+
+    /** @inheritDoc */
+    canShowPage: function() {
+      return this.canShow_;
+    },
   };
 
   /**
@@ -109,15 +127,18 @@ cr.define('options', function() {
       $('alertOverlayCancel').style.display = 'none';
     }
 
-    AlertOverlay.getInstance().okCallback = okCallback;
-    AlertOverlay.getInstance().cancelCallback = cancelCallback;
+    var alertOverlay = AlertOverlay.getInstance();
+    alertOverlay.okCallback = okCallback;
+    alertOverlay.cancelCallback = cancelCallback;
+    alertOverlay.canShow_ = true;
 
-    OptionsPage.showOverlay('alertOverlay');
+    // Intentionally don't show the URL in the location bar as we don't want
+    // people trying to navigate here by hand.
+    OptionsPage.showPageByName('alertOverlay', false);
   }
 
   // Export
   return {
     AlertOverlay: AlertOverlay
   };
-
 });

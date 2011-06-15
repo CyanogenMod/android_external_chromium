@@ -4,8 +4,6 @@
 
 #include "chrome/browser/ui/cocoa/history_menu_bridge.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/callback.h"
 #include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
@@ -20,12 +18,14 @@
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
-#include "gfx/codec/png_codec.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "skia/ext/skia_utils_mac.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/codec/png_codec.h"
 
 namespace {
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,15 @@
 
 #include <algorithm>
 
-#include "app/l10n_util.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/options/wifi_config_view.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/widget_gtk.h"
 #include "views/window/window.h"
 
@@ -38,7 +38,8 @@ NetworkConfigView::NetworkConfigView()
 }
 
 gfx::NativeWindow NetworkConfigView::GetNativeWindow() const {
-  return GTK_WINDOW(static_cast<WidgetGtk*>(GetWidget())->GetNativeView());
+  return
+      GTK_WINDOW(static_cast<const WidgetGtk*>(GetWidget())->GetNativeView());
 }
 
 std::wstring NetworkConfigView::GetDialogButtonLabel(

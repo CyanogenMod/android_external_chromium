@@ -36,7 +36,7 @@ void RenderViewContextMenuGtk::PlatformInit() {
 
 bool RenderViewContextMenuGtk::GetAcceleratorForCommandId(
     int command_id,
-    menus::Accelerator* accelerator) {
+    ui::Accelerator* accelerator) {
   return false;
 }
 
@@ -44,7 +44,7 @@ void RenderViewContextMenuGtk::Popup(const gfx::Point& point) {
   RenderWidgetHostView* rwhv = source_tab_contents_->GetRenderWidgetHostView();
   if (rwhv)
     rwhv->ShowingContextMenu(true);
-  menu_gtk_->PopupAsContextAt(triggering_event_time_, point);
+  menu_gtk_->PopupAsContext(point, triggering_event_time_);
 }
 
 void RenderViewContextMenuGtk::StoppedShowing() {

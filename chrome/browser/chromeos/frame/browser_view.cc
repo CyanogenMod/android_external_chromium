@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include <string>
 #include <vector>
 
-#include "app/menus/simple_menu_model.h"
 #include "base/command_line.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/chromeos/frame/panel_browser_view.h"
@@ -18,18 +17,19 @@
 #include "chrome/browser/chromeos/status/status_area_view.h"
 #include "chrome/browser/chromeos/view_ids.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
-#include "chrome/browser/gtk/gtk_util.h"
-#include "chrome/browser/views/frame/browser_frame_gtk.h"
-#include "chrome/browser/views/frame/browser_view.h"
-#include "chrome/browser/views/frame/browser_view_layout.h"
-#include "chrome/browser/views/tabs/tab.h"
-#include "chrome/browser/views/tabs/tab_strip.h"
-#include "chrome/browser/views/theme_background.h"
-#include "chrome/browser/views/toolbar_view.h"
+#include "chrome/browser/ui/gtk/gtk_util.h"
+#include "chrome/browser/ui/views/frame/browser_frame_gtk.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/browser_view_layout.h"
+#include "chrome/browser/ui/views/tabs/tab.h"
+#include "chrome/browser/ui/views/tabs/tab_strip.h"
+#include "chrome/browser/ui/views/theme_background.h"
+#include "chrome/browser/ui/views/toolbar_view.h"
 #include "chrome/common/chrome_switches.h"
-#include "gfx/canvas.h"
 #include "grit/generated_resources.h"
 #include "third_party/cros/chromeos_wm_ipc_enums.h"
+#include "ui/base/models/simple_menu_model.h"
+#include "ui/gfx/canvas.h"
 #include "views/controls/button/button.h"
 #include "views/controls/button/image_button.h"
 #include "views/controls/menu/menu_2.h"
@@ -89,7 +89,7 @@ class BrowserViewLayout : public ::BrowserViewLayout {
     gfx::Rect tabstrip_bounds(
         browser_view_->frame()->GetBoundsForTabStrip(tabstrip_));
     gfx::Point tabstrip_origin = tabstrip_bounds.origin();
-    views::View::ConvertPointToView(browser_view_->GetParent(), browser_view_,
+    views::View::ConvertPointToView(browser_view_->parent(), browser_view_,
                                     &tabstrip_origin);
     tabstrip_bounds.set_origin(tabstrip_origin);
     return browser_view_->UseVerticalTabs() ?
@@ -115,7 +115,7 @@ class BrowserViewLayout : public ::BrowserViewLayout {
   virtual int NonClientHitTest(const gfx::Point& point) {
     gfx::Point point_in_browser_view_coords(point);
     views::View::ConvertPointToView(
-        browser_view_->GetParent(), browser_view_,
+        browser_view_->parent(), browser_view_,
         &point_in_browser_view_coords);
     return IsPointInViewsInTitleArea(point_in_browser_view_coords) ?
         HTCLIENT : ::BrowserViewLayout::NonClientHitTest(point);
@@ -313,7 +313,7 @@ void BrowserView::ShowContextMenu(views::View* source,
   // - HTCAPTION: in title bar or unobscured part of tabstrip
   // - HTNOWHERE: as the name implies.
   gfx::Point point_in_parent_coords(p);
-  views::View::ConvertPointToView(NULL, GetParent(), &point_in_parent_coords);
+  views::View::ConvertPointToView(NULL, parent(), &point_in_parent_coords);
   int hit_test = NonClientHitTest(point_in_parent_coords);
   if (hit_test == HTCAPTION || hit_test == HTNOWHERE)
     system_menu_menu_->RunMenuAt(p, views::Menu2::ALIGN_TOPLEFT);
@@ -352,12 +352,8 @@ void BrowserView::OpenButtonOptions(const views::View* button_view) {
   }
 }
 
-bool BrowserView::IsBrowserMode() const {
-  return true;
-}
-
-bool BrowserView::IsScreenLockerMode() const {
-  return false;
+StatusAreaHost::ScreenMode BrowserView::GetScreenMode() const {
+  return kBrowserMode;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -373,7 +369,7 @@ void BrowserView::GetAccessiblePanes(
 // BrowserView private:
 
 void BrowserView::InitSystemMenu() {
-  system_menu_contents_.reset(new menus::SimpleMenuModel(this));
+  system_menu_contents_.reset(new ui::SimpleMenuModel(this));
   system_menu_contents_->AddItemWithStringId(IDC_RESTORE_TAB,
                                                IDS_RESTORE_TAB);
   system_menu_contents_->AddItemWithStringId(IDC_NEW_TAB, IDS_NEW_TAB);

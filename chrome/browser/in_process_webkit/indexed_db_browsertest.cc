@@ -12,7 +12,6 @@
 #include "chrome/browser/in_process_webkit/webkit_context.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/testing_profile.h"
 #include "chrome/test/thread_test_helper.h"
@@ -49,39 +48,39 @@ class IndexedDBBrowserTest : public InProcessBrowserTest {
   }
 };
 
-IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, CursorTest) {
+IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DISABLED_CursorTest) {
   SimpleTest(testUrl(FilePath(FILE_PATH_LITERAL("cursor_test.html"))));
 }
 
-// TODO(hans): Keep an eye out for these tests going flaky. See crbug.com/63675.
-// Crashy, http://crbug.com/67422.
+// http://code.google.com/p/chromium/issues/detail?id=70773
 IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DISABLED_IndexTest) {
   SimpleTest(testUrl(FilePath(FILE_PATH_LITERAL("index_test.html"))));
 }
 
-IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, KeyPathTest) {
+// http://code.google.com/p/chromium/issues/detail?id=70773
+IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DISABLED_KeyPathTest) {
   SimpleTest(testUrl(FilePath(FILE_PATH_LITERAL("key_path_test.html"))));
 }
 
-IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, TransactionGetTest) {
+IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DISABLED_TransactionGetTest) {
   SimpleTest(testUrl(FilePath(FILE_PATH_LITERAL("transaction_get_test.html"))));
 }
 
-// Crashy, http://crbug.com/68446.
+// http://code.google.com/p/chromium/issues/detail?id=70773
 IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DISABLED_ObjectStoreTest) {
   SimpleTest(testUrl(FilePath(FILE_PATH_LITERAL("object_store_test.html"))));
 }
 
-IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DatabaseTest) {
+IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DISABLED_DatabaseTest) {
   SimpleTest(testUrl(FilePath(FILE_PATH_LITERAL("database_test.html"))));
 }
 
-// Crashy, http://crbug.com/67422.
+// http://code.google.com/p/chromium/issues/detail?id=70773
 IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DISABLED_TransactionTest) {
   SimpleTest(testUrl(FilePath(FILE_PATH_LITERAL("transaction_test.html"))));
 }
 
-// Crashy, http://crbug.com/66394.
+// http://code.google.com/p/chromium/issues/detail?id=70773
 IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DISABLED_DoesntHangTest) {
   SimpleTest(testUrl(FilePath(
       FILE_PATH_LITERAL("transaction_run_forever.html"))));
@@ -91,7 +90,7 @@ IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DISABLED_DoesntHangTest) {
 
 // In proc browser test is needed here because ClearLocalState indirectly calls
 // WebKit's isMainThread through WebSecurityOrigin->SecurityOrigin.
-IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, ClearLocalState) {
+IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DISABLED_ClearLocalState) {
   // Create test files.
   ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());

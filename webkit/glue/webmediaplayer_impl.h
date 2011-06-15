@@ -53,19 +53,20 @@
 #ifndef WEBKIT_GLUE_WEBMEDIAPLAYER_IMPL_H_
 #define WEBKIT_GLUE_WEBMEDIAPLAYER_IMPL_H_
 
-#include "base/lock.h"
 #include "base/message_loop.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/threading/thread.h"
+#include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
-#include "gfx/rect.h"
-#include "gfx/size.h"
 #include "media/base/filters.h"
+#include "media/base/message_loop_factory.h"
 #include "media/base/pipeline.h"
 #include "skia/ext/platform_canvas.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebMediaPlayer.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebMediaPlayerClient.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebMediaPlayer.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebMediaPlayerClient.h"
+#include "ui/gfx/rect.h"
+#include "ui/gfx/size.h"
 
 class GURL;
 
@@ -148,7 +149,7 @@ class WebMediaPlayerImpl : public WebKit::WebMediaPlayer,
     scoped_refptr<WebDataSource> data_source_;
     scoped_refptr<WebVideoRenderer> video_renderer_;
 
-    Lock lock_;
+    base::Lock lock_;
     int outstanding_repaints_;
   };
 
@@ -175,7 +176,8 @@ class WebMediaPlayerImpl : public WebKit::WebMediaPlayer,
   //
   // Callers must call |Initialize()| before they can use the object.
   WebMediaPlayerImpl(WebKit::WebMediaPlayerClient* client,
-                     media::FilterCollection* collection);
+                     media::FilterCollection* collection,
+                     media::MessageLoopFactory* message_loop_factory);
   virtual ~WebMediaPlayerImpl();
 
   // Finalizes initialization of the object.
@@ -288,7 +290,8 @@ class WebMediaPlayerImpl : public WebKit::WebMediaPlayer,
 
   // The actual pipeline and the thread it runs on.
   scoped_refptr<media::Pipeline> pipeline_;
-  base::Thread pipeline_thread_;
+
+  scoped_ptr<media::MessageLoopFactory> message_loop_factory_;
 
   // Playback state.
   //

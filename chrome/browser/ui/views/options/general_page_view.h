@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,17 @@
 #include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/shell_integration.h"
-#include "chrome/browser/views/options/options_page_view.h"
-#include "chrome/browser/views/url_picker.h"
+#include "chrome/browser/ui/views/options/options_page_view.h"
+#include "chrome/browser/ui/views/url_picker.h"
 #include "views/controls/combobox/combobox.h"
 #include "views/controls/button/button.h"
 #include "views/controls/link.h"
 #include "views/controls/table/table_view_observer.h"
 #include "views/view.h"
+
+class CustomHomePagesTableModel;
+class OptionsGroupView;
+class SearchEngineListModel;
 
 namespace views {
 class Checkbox;
@@ -26,10 +30,6 @@ class RadioButton;
 class TableView;
 class Textfield;
 }
-class CustomHomePagesTableModel;
-class OptionsGroupView;
-class SearchEngineListModel;
-class TableModel;
 
 ///////////////////////////////////////////////////////////////////////////////
 // GeneralPageView
@@ -160,6 +160,7 @@ class GeneralPageView : public OptionsPageView,
   OptionsGroupView* default_browser_group_;
   views::Label* default_browser_status_label_;
   views::NativeButton* default_browser_use_as_default_button_;
+  BooleanPrefMember default_browser_policy_;
 
   // The helper object that performs default browser set/check tasks.
   scoped_refptr<ShellIntegration::DefaultBrowserWorker> default_browser_worker_;

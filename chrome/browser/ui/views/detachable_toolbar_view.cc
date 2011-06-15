@@ -1,16 +1,16 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/detachable_toolbar_view.h"
+#include "chrome/browser/ui/views/detachable_toolbar_view.h"
 
-#include "app/resource_bundle.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/skia_util.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkShader.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/skia_util.h"
 #include "views/window/non_client_view.h"
 
 // How round the 'new tab' style bookmarks bar is.
@@ -26,7 +26,7 @@ void DetachableToolbarView::PaintBackgroundAttachedMode(
     gfx::Canvas* canvas,
     views::View* view,
     const gfx::Point& background_origin) {
-  ThemeProvider* tp = view->GetThemeProvider();
+  ui::ThemeProvider* tp = view->GetThemeProvider();
   SkColor theme_toolbar_color =
       tp->GetColor(BrowserThemeProvider::COLOR_TOOLBAR);
   canvas->FillRectInt(theme_toolbar_color, 0, 0,
@@ -63,7 +63,7 @@ void DetachableToolbarView::PaintHorizontalBorder(gfx::Canvas* canvas,
 
 // static
 void DetachableToolbarView::PaintContentAreaBackground(
-    gfx::Canvas* canvas, ThemeProvider* theme_provider,
+    gfx::Canvas* canvas, ui::ThemeProvider* theme_provider,
     const SkRect& rect, double roundness) {
   SkPaint paint;
   paint.setAntiAlias(true);
@@ -75,7 +75,7 @@ void DetachableToolbarView::PaintContentAreaBackground(
 
 // static
 void DetachableToolbarView::PaintContentAreaBorder(
-    gfx::Canvas* canvas, ThemeProvider* theme_provider,
+    gfx::Canvas* canvas, ui::ThemeProvider* theme_provider,
     const SkRect& rect, double roundness) {
   SkPaint border_paint;
   border_paint.setColor(

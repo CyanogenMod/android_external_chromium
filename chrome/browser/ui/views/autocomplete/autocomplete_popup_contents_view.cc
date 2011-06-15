@@ -1,15 +1,11 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/autocomplete/autocomplete_popup_contents_view.h"
+#include "chrome/browser/ui/views/autocomplete/autocomplete_popup_contents_view.h"
 
-#include "app/bidi_line_iterator.h"
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
-#include "app/theme_provider.h"
-#include "app/text_elider.h"
 #include "base/compiler_specific.h"
+#include "base/i18n/bidi_line_iterator.h"
 #include "base/i18n/rtl.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
@@ -18,37 +14,41 @@
 #include "chrome/browser/instant/instant_confirm_dialog.h"
 #include "chrome/browser/instant/promo_counter.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/views/bubble_border.h"
-#include "chrome/browser/views/location_bar/location_bar_view.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/color_utils.h"
-#include "gfx/insets.h"
-#include "gfx/path.h"
+#include "chrome/browser/ui/views/bubble_border.h"
+#include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkShader.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/text/text_elider.h"
+#include "ui/base/theme_provider.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/color_utils.h"
+#include "ui/gfx/insets.h"
+#include "ui/gfx/path.h"
 #include "unicode/ubidi.h"
 #include "views/controls/button/text_button.h"
 #include "views/controls/label.h"
-#include "views/grid_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/painter.h"
-#include "views/standard_layout.h"
 #include "views/widget/widget.h"
 #include "views/window/window.h"
 
 #if defined(OS_WIN)
-#include <objidl.h>
 #include <commctrl.h>
 #include <dwmapi.h>
+#include <objidl.h>
 
-#include "app/win/hwnd_util.h"
 #include "base/win/scoped_gdi_object.h"
+#include "views/widget/widget_win.h"
 #endif
 
 #if defined(OS_LINUX)
-#include "chrome/browser/gtk/gtk_util.h"
-#include "gfx/skia_utils_gtk.h"
+#include "chrome/browser/ui/gtk/gtk_util.h"
+#include "ui/gfx/skia_utils_gtk.h"
 #endif
 
 namespace {
@@ -108,7 +108,7 @@ SkColor GetColor(ResultViewState state, ColorKind kind) {
   return colors[state][kind];
 }
 
-const wchar_t kEllipsis[] = L"\x2026";
+const char16 kEllipsis[] = { 0x2026 };
 
 const SkAlpha kGlassPopupAlpha = 240;
 const SkAlpha kOpaquePopupAlpha = 255;
@@ -122,8 +122,8 @@ const int kIconVerticalPadding = 2;
 const int kTextVerticalPadding = 3;
 // The size delta between the font used for the edit and the result rows. Passed
 // to gfx::Font::DeriveFont.
-#if defined(OS_CHROMEOS) && !defined(CROS_FONTS_USING_BCI)
-// Don't adjust font on chromeos as it becomes too small.
+#if defined(OS_CHROMEOS)
+// Don't adjust the size on Chrome OS (http://crbug.com/61433).
 const int kEditFontAdjust = 0;
 #else
 const int kEditFontAdjust = -1;
@@ -214,7 +214,7 @@ class AutocompletePopupContentsView::InstantOptInView
     views::ColumnSet* column_set = layout->AddColumnSet(first_column_set);
     column_set->AddColumn(views::GridLayout::TRAILING, v_align, 1,
                           views::GridLayout::USE_PREF, 0, 0);
-    column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+    column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
     column_set->AddColumn(views::GridLayout::CENTER, v_align, 0,
                           views::GridLayout::USE_PREF, 0, 0);
     column_set->AddPaddingColumn(0, kOptInButtonPadding);
@@ -293,7 +293,7 @@ class AutocompleteResultView : public views::View {
   // Precalculated data used to draw the portion of a match classification that
   // fits entirely within one run.
   struct ClassificationData {
-    std::wstring text;
+    string16 text;
     const gfx::Font* font;
     SkColor color;
     int pixel_width;
@@ -327,7 +327,7 @@ class AutocompleteResultView : public views::View {
   // added to all of the classifications. Returns the x position to the right
   // of the string.
   int DrawString(gfx::Canvas* canvas,
-                 const std::wstring& text,
+                 const string16& text,
                  const ACMatchClassifications& classifications,
                  bool force_dim,
                  int x,
@@ -422,7 +422,7 @@ AutocompleteResultView::AutocompleteResultView(
       model_index_(model_index),
       normal_font_(font),
       bold_font_(bold_font),
-      ellipsis_width_(font.GetStringWidth(WideToUTF16(kEllipsis))),
+      ellipsis_width_(font.GetStringWidth(string16(kEllipsis))),
       mirroring_context_(new MirroringContext()),
       match_(NULL, 0, false, AutocompleteMatch::URL_WHAT_YOU_TYPED) {
   CHECK(model_index >= 0);
@@ -442,11 +442,11 @@ void AutocompleteResultView::Paint(gfx::Canvas* canvas) {
     canvas->AsCanvasSkia()->drawColor(GetColor(state, BACKGROUND));
 
   // Paint the icon.
-  canvas->DrawBitmapInt(*GetIcon(), MirroredLeftPointForRect(icon_bounds_),
+  canvas->DrawBitmapInt(*GetIcon(), GetMirroredXForRect(icon_bounds_),
                         icon_bounds_.y());
 
   // Paint the text.
-  int x = MirroredLeftPointForRect(text_bounds_);
+  int x = GetMirroredXForRect(text_bounds_);
   mirroring_context_->Initialize(x, text_bounds_.width());
   x = DrawString(canvas, match_.contents, match_.contents_class, false, x,
                  text_bounds_.y());
@@ -458,8 +458,8 @@ void AutocompleteResultView::Paint(gfx::Canvas* canvas) {
   // would also let us use a more properly-localizable string than we get with
   // just the IDS_AUTOCOMPLETE_MATCH_DESCRIPTION_SEPARATOR.
   if (!match_.description.empty()) {
-    std::wstring separator = UTF16ToWide(l10n_util::GetStringUTF16(
-        IDS_AUTOCOMPLETE_MATCH_DESCRIPTION_SEPARATOR));
+    string16 separator =
+        l10n_util::GetStringUTF16(IDS_AUTOCOMPLETE_MATCH_DESCRIPTION_SEPARATOR);
     ACMatchClassifications classifications;
     classifications.push_back(
         ACMatchClassification(0, ACMatchClassification::NONE));
@@ -525,7 +525,6 @@ const SkBitmap* AutocompleteResultView::GetIcon() const {
       case IDR_OMNIBOX_HTTP:    icon = IDR_OMNIBOX_HTTP_SELECTED; break;
       case IDR_OMNIBOX_HISTORY: icon = IDR_OMNIBOX_HISTORY_SELECTED; break;
       case IDR_OMNIBOX_SEARCH:  icon = IDR_OMNIBOX_SEARCH_SELECTED; break;
-      case IDR_OMNIBOX_MORE:    icon = IDR_OMNIBOX_MORE_SELECTED; break;
       case IDR_OMNIBOX_STAR:    icon = IDR_OMNIBOX_STAR_SELECTED; break;
       default:             NOTREACHED(); break;
     }
@@ -535,7 +534,7 @@ const SkBitmap* AutocompleteResultView::GetIcon() const {
 
 int AutocompleteResultView::DrawString(
     gfx::Canvas* canvas,
-    const std::wstring& text,
+    const string16& text,
     const ACMatchClassifications& classifications,
     bool force_dim,
     int x,
@@ -558,7 +557,7 @@ int AutocompleteResultView::DrawString(
   // worry about whether our eliding might change the visual display in
   // unintended ways, e.g. by removing directional markings or by adding an
   // ellipsis that's not enclosed in appropriate markings.
-  BiDiLineIterator bidi_line;
+  base::i18n::BiDiLineIterator bidi_line;
   if (!bidi_line.Open(text, base::i18n::IsRTL(), is_url))
     return x;
   const int num_runs = bidi_line.CountRuns();
@@ -614,8 +613,7 @@ int AutocompleteResultView::DrawString(
       else
         current_data->color = GetColor(state, force_dim ? DIMMED_TEXT : TEXT);
       current_data->pixel_width =
-          current_data->font->GetStringWidth(
-              WideToUTF16Hack(current_data->text));
+          current_data->font->GetStringWidth(current_data->text);
       current_run->pixel_width += current_data->pixel_width;
     }
     DCHECK(!current_run->classifications.empty());
@@ -671,8 +669,8 @@ int AutocompleteResultView::DrawString(
     for (Classifications::const_iterator j(i->classifications.begin());
          j != i->classifications.end(); ++j) {
       int left = mirroring_context_->mirrored_left_coord(x, x + j->pixel_width);
-      canvas->DrawStringInt(j->text, *j->font, j->color, left, y,
-                            j->pixel_width, j->font->GetHeight(), flags);
+      canvas->DrawStringInt(j->text, *j->font, j->color, left,
+                            y, j->pixel_width, j->font->GetHeight(), flags);
       x += j->pixel_width;
     }
   }
@@ -710,9 +708,8 @@ void AutocompleteResultView::Elide(Runs* runs, int remaining_width) const {
       first_classification = false;
 
       // Can we fit at least an ellipsis?
-      std::wstring elided_text(UTF16ToWideHack(
-          gfx::ElideText(WideToUTF16Hack(j->text), *j->font, remaining_width,
-                         false)));
+      string16 elided_text =
+          ui::ElideText(j->text, *j->font, remaining_width, false);
       Classifications::reverse_iterator prior_classification(j);
       ++prior_classification;
       const bool on_first_classification =
@@ -741,7 +738,7 @@ void AutocompleteResultView::Elide(Runs* runs, int remaining_width) const {
              (prior_classification->font == &normal_font_)))
           j->font = &normal_font_;
 
-        j->pixel_width = j->font->GetStringWidth(WideToUTF16Hack(elided_text));
+        j->pixel_width = j->font->GetStringWidth(elided_text);
 
         // Erase any other classifications that come after the elided one.
         i->classifications.erase(j.base(), i->classifications.end());
@@ -840,7 +837,7 @@ void AutocompletePopupContentsView::UpdatePopupAppearance() {
   // Update the match cached by each row, in the process of doing so make sure
   // we have enough row views.
   int total_child_height = 0;
-  size_t child_rv_count = GetChildViewCount();
+  size_t child_rv_count = child_count();
   if (opt_in_view_) {
     DCHECK(child_rv_count > 0);
     child_rv_count--;
@@ -850,7 +847,7 @@ void AutocompletePopupContentsView::UpdatePopupAppearance() {
     if (i >= child_rv_count) {
       result_view =
           new AutocompleteResultView(this, i, result_font_, result_bold_font_);
-      AddChildView(static_cast<int>(i), result_view);
+      AddChildViewAt(result_view, static_cast<int>(i));
     } else {
       result_view = static_cast<AutocompleteResultView*>(GetChildViewAt(i));
       result_view->SetVisible(true);
@@ -980,7 +977,7 @@ void AutocompletePopupContentsView::Paint(gfx::Canvas* canvas) {
   shader->unref();
 
   gfx::Path path;
-  MakeContentsPath(&path, GetLocalBounds(false));
+  MakeContentsPath(&path, GetContentsBounds());
   canvas->AsCanvasSkia()->drawPath(path, paint);
 
   // Now we paint the border, so it will be alpha-blended atop the contents.
@@ -993,10 +990,9 @@ void AutocompletePopupContentsView::Layout() {
   UpdateBlurRegion();
 
   // Size our children to the available content area.
-  gfx::Rect contents_rect = GetLocalBounds(false);
-  int child_count = GetChildViewCount();
+  gfx::Rect contents_rect = GetContentsBounds();
   int top = contents_rect.y();
-  for (int i = 0; i < child_count; ++i) {
+  for (int i = 0; i < child_count(); ++i) {
     View* v = GetChildViewAt(i);
     if (v->IsVisible()) {
       v->SetBounds(contents_rect.x(), top, contents_rect.width(),
@@ -1033,7 +1029,7 @@ bool AutocompletePopupContentsView::OnMousePressed(
     size_t index = GetIndexForPoint(event.location());
     model_->SetHoveredLine(index);
     if (HasMatchAt(index) && event.IsLeftMouseButton())
-      model_->SetSelectedLine(index, false);
+      model_->SetSelectedLine(index, false, false);
   }
   return true;
 }
@@ -1059,7 +1055,7 @@ bool AutocompletePopupContentsView::OnMouseDragged(
     size_t index = GetIndexForPoint(event.location());
     model_->SetHoveredLine(index);
     if (!ignore_mouse_drag_ && HasMatchAt(index) && event.IsLeftMouseButton())
-      model_->SetSelectedLine(index, false);
+      model_->SetSelectedLine(index, false, false);
   }
   return true;
 }
@@ -1074,7 +1070,7 @@ views::View* AutocompletePopupContentsView::GetViewForPoint(
   views::View* child = views::View::GetViewForPoint(point);
   views::View* ancestor = child;
   while (ancestor && ancestor != opt_in_view_)
-    ancestor = ancestor->GetParent();
+    ancestor = ancestor->parent();
   return ancestor ? child : this;
 }
 
@@ -1107,7 +1103,7 @@ void AutocompletePopupContentsView::MakeContentsPath(
 void AutocompletePopupContentsView::UpdateBlurRegion() {
 #if defined(OS_WIN)
   // We only support background blurring on Vista with Aero-Glass enabled.
-  if (!app::win::ShouldUseVistaFrame() || !GetWidget())
+  if (!views::WidgetWin::IsAeroGlassEnabled() || !GetWidget())
     return;
 
   // Provide a blurred background effect within the contents region of the
@@ -1118,7 +1114,7 @@ void AutocompletePopupContentsView::UpdateBlurRegion() {
 
   // Translate the contents rect into widget coordinates, since that's what
   // DwmEnableBlurBehindWindow expects a region in.
-  gfx::Rect contents_rect = GetLocalBounds(false);
+  gfx::Rect contents_rect = GetContentsBounds();
   gfx::Point origin(contents_rect.origin());
   views::View::ConvertPointToWidget(this, &origin);
   contents_rect.set_origin(origin);
@@ -1153,10 +1149,10 @@ void AutocompletePopupContentsView::OpenIndex(
   // extension, |match| and its contents.  So copy the relevant strings out to
   // make sure they stay alive until the call completes.
   const GURL url(match.destination_url);
-  std::wstring keyword;
+  string16 keyword;
   const bool is_keyword_hint = model_->GetKeywordForMatch(match, &keyword);
   edit_view_->OpenURL(url, disposition, match.transition, GURL(), index,
-                      is_keyword_hint ? std::wstring() : keyword);
+                      is_keyword_hint ? string16() : keyword);
 }
 
 size_t AutocompletePopupContentsView::GetIndexForPoint(
@@ -1165,7 +1161,7 @@ size_t AutocompletePopupContentsView::GetIndexForPoint(
     return AutocompletePopupModel::kNoMatch;
 
   int nb_match = model_->result().size();
-  DCHECK(nb_match <= GetChildViewCount());
+  DCHECK(nb_match <= child_count());
   for (int i = 0; i < nb_match; ++i) {
     views::View* child = GetChildViewAt(i);
     gfx::Point point_in_child_coords(point);
@@ -1177,7 +1173,7 @@ size_t AutocompletePopupContentsView::GetIndexForPoint(
 }
 
 gfx::Rect AutocompletePopupContentsView::CalculateTargetBounds(int h) {
-  gfx::Rect location_bar_bounds(gfx::Point(), location_bar_->size());
+  gfx::Rect location_bar_bounds(location_bar_->GetContentsBounds());
   const views::Border* border = location_bar_->border();
   if (border) {
     // Adjust for the border so that the bubble and location bar borders are

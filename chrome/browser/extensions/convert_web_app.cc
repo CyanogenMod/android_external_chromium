@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,11 +22,12 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
+#include "chrome/common/extensions/extension_file_util.h"
 #include "chrome/common/json_value_serializer.h"
 #include "chrome/common/web_apps.h"
-#include "gfx/codec/png_codec.h"
 #include "googleurl/src/gurl.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/codec/png_codec.h"
 
 namespace keys = extension_manifest_keys;
 
@@ -84,8 +85,11 @@ std::string ConvertTimeToExtensionVersion(const Time& create_time) {
 scoped_refptr<Extension> ConvertWebAppToExtension(
     const WebApplicationInfo& web_app,
     const Time& create_time) {
-  FilePath user_data_temp_dir;
-  CHECK(PathService::Get(chrome::DIR_USER_DATA_TEMP, &user_data_temp_dir));
+  FilePath user_data_temp_dir = extension_file_util::GetUserDataTempDir();
+  if (user_data_temp_dir.empty()) {
+    LOG(ERROR) << "Could not get path to profile temporary directory.";
+    return NULL;
+  }
 
   ScopedTempDir temp_dir;
   if (!temp_dir.CreateUniqueTempDirUnderPath(user_data_temp_dir)) {

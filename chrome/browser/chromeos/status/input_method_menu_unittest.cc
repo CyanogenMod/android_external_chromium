@@ -5,11 +5,13 @@
 #include "chrome/browser/chromeos/status/input_method_menu.h"
 
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/chromeos/cros/cros_library.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace chromeos {
 
 TEST(InputMethodMenuTest, GetTextForIndicatorTest) {
+  ScopedStubCrosEnabler enabler;
   // Test normal cases. Two-letter language code should be returned.
   {
     InputMethodDescriptor desc("m17n:fa:isiri",  // input method engine id
@@ -45,6 +47,11 @@ TEST(InputMethodMenuTest, GetTextForIndicatorTest) {
   {
     InputMethodDescriptor desc("xkb:us:intl:eng", "US intl", "us", "eng");
     EXPECT_EQ(L"INTL", InputMethodMenu::GetTextForIndicator(desc));
+  }
+  {
+    InputMethodDescriptor desc("xkb:de:neo:ger", "Germany - Neo 2", "de(neo)",
+                               "ger");
+    EXPECT_EQ(L"NEO", InputMethodMenu::GetTextForIndicator(desc));
   }
   {
     InputMethodDescriptor desc("mozc", "Mozc", "us", "ja");

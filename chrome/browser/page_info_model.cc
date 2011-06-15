@@ -6,24 +6,22 @@
 
 #include <string>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/command_line.h"
 #include "base/i18n/time_formatting.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/cert_store.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ssl/ssl_error_info.h"
 #include "chrome/browser/ssl/ssl_manager.h"
-#include "chrome/common/chrome_switches.h"
-#include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "net/base/cert_status_flags.h"
 #include "net/base/ssl_connection_status_flags.h"
 #include "net/base/ssl_cipher_suite_names.h"
 #include "net/base/x509_certificate.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_MACOSX)
 #include "base/mac/mac_util.h"
@@ -141,6 +139,15 @@ PageInfoModel::PageInfoModel(Profile* profile,
         IDS_PAGE_INFO_SECURITY_TAB_INSECURE_IDENTITY));
     icon_id = ssl.security_style() == SECURITY_STYLE_UNAUTHENTICATED ?
         ICON_STATE_WARNING_MAJOR : ICON_STATE_ERROR;
+
+    const string16 bullet = UTF8ToUTF16("\n • ");
+    std::vector<SSLErrorInfo> errors;
+    SSLErrorInfo::GetErrorsForCertStatus(ssl.cert_id(), ssl.cert_status(),
+                                         url, &errors);
+    for (size_t i = 0; i < errors.size(); ++i) {
+      description += bullet;
+      description += errors[i].short_description();
+    }
 
     if (ssl.cert_status() & net::CERT_STATUS_NON_UNIQUE_NAME) {
       description += ASCIIToUTF16("\n\n");

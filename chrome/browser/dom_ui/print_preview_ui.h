@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,24 @@
 #define CHROME_BROWSER_DOM_UI_PRINT_PREVIEW_UI_H_
 #pragma once
 
-#include <string>
+#include "base/ref_counted.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 
-#include "chrome/browser/dom_ui/dom_ui.h"
+class PrintPreviewUIHTMLSource;
 
-class PrintPreviewUI : public DOMUI {
+class PrintPreviewUI : public WebUI {
  public:
   explicit PrintPreviewUI(TabContents* contents);
   virtual ~PrintPreviewUI();
 
+  PrintPreviewUIHTMLSource* html_source();
+
+  // Notify the Web UI renderer that preview data is available.
+  void PreviewDataIsAvailable();
+
  private:
+  scoped_refptr<PrintPreviewUIHTMLSource> html_source_;
+
   DISALLOW_COPY_AND_ASSIGN(PrintPreviewUI);
 };
 

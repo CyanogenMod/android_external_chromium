@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -65,8 +65,8 @@ static bool IsSuitableHost(RenderProcessHost* host, Profile* profile,
     return false;
 
   RenderProcessHost::Type host_type = RenderProcessHost::TYPE_NORMAL;
-  if (ChildProcessSecurityPolicy::GetInstance()->HasDOMUIBindings(host->id()))
-    host_type = RenderProcessHost::TYPE_DOMUI;
+  if (ChildProcessSecurityPolicy::GetInstance()->HasWebUIBindings(host->id()))
+    host_type = RenderProcessHost::TYPE_WEBUI;
   if (ChildProcessSecurityPolicy::GetInstance()->
         HasExtensionBindings(host->id()))
     host_type = RenderProcessHost::TYPE_EXTENSION;

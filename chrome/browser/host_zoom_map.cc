@@ -21,7 +21,7 @@
 #include "chrome/common/pref_names.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/net_util.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebView.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebView.h"
 
 using WebKit::WebView;
 
@@ -30,7 +30,7 @@ HostZoomMap::HostZoomMap(Profile* profile)
       updating_preferences_(false) {
   Load();
   default_zoom_level_ =
-      profile_->GetPrefs()->GetReal(prefs::kDefaultZoomLevel);
+      profile_->GetPrefs()->GetDouble(prefs::kDefaultZoomLevel);
   registrar_.Add(this, NotificationType::PROFILE_DESTROYED,
                  Source<Profile>(profile));
   // Don't observe pref changes (e.g. from sync) in Incognito; once we create
@@ -51,7 +51,7 @@ void HostZoomMap::Load() {
   if (!profile_)
     return;
 
-  AutoLock auto_lock(lock_);
+  base::AutoLock auto_lock(lock_);
   host_zoom_levels_.clear();
   const DictionaryValue* host_zoom_dictionary =
       profile_->GetPrefs()->GetDictionary(prefs::kPerHostZoomLevels);
@@ -62,7 +62,7 @@ void HostZoomMap::Load() {
       const std::string& host(*i);
       double zoom_level = 0;
 
-      bool success = host_zoom_dictionary->GetRealWithoutPathExpansion(
+      bool success = host_zoom_dictionary->GetDoubleWithoutPathExpansion(
           host, &zoom_level);
       if (!success) {
         // The data used to be stored as ints, so try that.
@@ -95,7 +95,7 @@ void HostZoomMap::RegisterUserPrefs(PrefService* prefs) {
 
 double HostZoomMap::GetZoomLevel(const GURL& url) const {
   std::string host(net::GetHostOrSpecFromURL(url));
-  AutoLock auto_lock(lock_);
+  base::AutoLock auto_lock(lock_);
   HostZoomLevels::const_iterator i(host_zoom_levels_.find(host));
   return (i == host_zoom_levels_.end()) ? default_zoom_level_ : i->second;
 }
@@ -108,7 +108,7 @@ void HostZoomMap::SetZoomLevel(const GURL& url, double level) {
   std::string host(net::GetHostOrSpecFromURL(url));
 
   {
-    AutoLock auto_lock(lock_);
+    base::AutoLock auto_lock(lock_);
     if (level == default_zoom_level_)
       host_zoom_levels_.erase(host);
     else
@@ -133,7 +133,7 @@ void HostZoomMap::SetZoomLevel(const GURL& url, double level) {
       host_zoom_dictionary->RemoveWithoutPathExpansion(host, NULL);
     } else {
       host_zoom_dictionary->SetWithoutPathExpansion(
-          host, Value::CreateRealValue(level));
+          host, Value::CreateDoubleValue(level));
     }
   }
   updating_preferences_ = false;
@@ -141,7 +141,7 @@ void HostZoomMap::SetZoomLevel(const GURL& url, double level) {
 
 double HostZoomMap::GetTemporaryZoomLevel(int render_process_id,
                                           int render_view_id) const {
-  AutoLock auto_lock(lock_);
+  base::AutoLock auto_lock(lock_);
   for (size_t i = 0; i < temporary_zoom_levels_.size(); ++i) {
     if (temporary_zoom_levels_[i].render_process_id == render_process_id &&
         temporary_zoom_levels_[i].render_view_id == render_view_id) {
@@ -159,7 +159,7 @@ void HostZoomMap::SetTemporaryZoomLevel(int render_process_id,
     return;
 
   {
-    AutoLock auto_lock(lock_);
+    base::AutoLock auto_lock(lock_);
     size_t i;
     for (i = 0; i < temporary_zoom_levels_.size(); ++i) {
       if (temporary_zoom_levels_[i].render_process_id == render_process_id &&
@@ -193,7 +193,7 @@ void HostZoomMap::ResetToDefaults() {
     return;
 
   {
-    AutoLock auto_lock(lock_);
+    base::AutoLock auto_lock(lock_);
     host_zoom_levels_.clear();
   }
 
@@ -224,7 +224,7 @@ void HostZoomMap::Observe(
       Shutdown();
       break;
     case NotificationType::RENDER_VIEW_HOST_WILL_CLOSE_RENDER_VIEW: {
-      AutoLock auto_lock(lock_);
+      base::AutoLock auto_lock(lock_);
       int render_view_id = Source<RenderViewHost>(source)->routing_id();
       int render_process_id = Source<RenderViewHost>(source)->process()->id();
 
@@ -245,7 +245,7 @@ void HostZoomMap::Observe(
           Load();
         else if (prefs::kDefaultZoomLevel == *name) {
           default_zoom_level_ =
-              profile_->GetPrefs()->GetReal(prefs::kDefaultZoomLevel);
+              profile_->GetPrefs()->GetDouble(prefs::kDefaultZoomLevel);
         }
       }
       break;

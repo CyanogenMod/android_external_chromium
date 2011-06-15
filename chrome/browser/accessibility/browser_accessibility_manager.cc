@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "base/logging.h"
 #include "chrome/browser/accessibility/browser_accessibility.h"
+#include "chrome/common/render_messages_params.h"
 
 using webkit_glue::WebAccessibility;
 
@@ -307,6 +308,9 @@ BrowserAccessibility* BrowserAccessibilityManager::UpdateNode(
     DCHECK_EQ(old_browser_acc, root_);
     root_ = new_browser_acc;
   }
+  if (focus_ && focus_->IsDescendantOf(old_browser_acc))
+    focus_ = root_;
+
   old_browser_acc->ReleaseTree();
   old_browser_acc->ReleaseReference();
   child_id_map_[child_id] = new_browser_acc;

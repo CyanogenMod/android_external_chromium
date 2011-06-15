@@ -1,12 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/bookmark_bubble_view.h"
+#include "chrome/browser/ui/views/bookmark_bubble_view.h"
 
-#include "app/keyboard_codes.h"
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/string16.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -16,17 +13,21 @@
 #include "chrome/browser/bookmarks/bookmark_utils.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/views/info_bubble.h"
+#include "chrome/browser/ui/views/info_bubble.h"
 #include "chrome/common/notification_service.h"
-#include "gfx/canvas.h"
-#include "gfx/color_utils.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
-#include "views/event.h"
-#include "views/standard_layout.h"
+#include "ui/base/keycodes/keyboard_codes.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/color_utils.h"
 #include "views/controls/button/native_button.h"
 #include "views/controls/textfield/textfield.h"
+#include "views/events/event.h"
 #include "views/focus/focus_manager.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/window/client_view.h"
 #include "views/window/window.h"
 
@@ -92,6 +93,13 @@ void BookmarkBubbleView::Show(views::Window* parent,
   InfoBubble* info_bubble = InfoBubble::Show(
       parent->GetClientView()->GetWidget(), bounds, BubbleBorder::TOP_RIGHT,
       bubble_, bubble_);
+  // |bubble_| can be set to NULL in InfoBubbleClosing when we close the bubble
+  // asynchronously. However, that can happen during the Show call above if the
+  // window loses activation while we are getting to ready to show the bubble,
+  // so we must check to make sure we still have a valid bubble before
+  // proceeding.
+  if (!bubble_)
+    return;
   bubble_->set_info_bubble(info_bubble);
   info_bubble->SizeToContents();
   GURL url_ptr(url);
@@ -123,15 +131,10 @@ BookmarkBubbleView::~BookmarkBubbleView() {
   }
 }
 
-void BookmarkBubbleView::DidChangeBounds(const gfx::Rect& previous,
-                                         const gfx::Rect& current) {
-  Layout();
-}
-
 void BookmarkBubbleView::BubbleShown() {
   DCHECK(GetWidget());
   GetFocusManager()->RegisterAccelerator(
-      views::Accelerator(app::VKEY_RETURN, false, false, false), this);
+      views::Accelerator(ui::VKEY_RETURN, false, false, false), this);
 
   title_tf_->RequestFocus();
   title_tf_->SelectAll();
@@ -139,7 +142,7 @@ void BookmarkBubbleView::BubbleShown() {
 
 bool BookmarkBubbleView::AcceleratorPressed(
     const views::Accelerator& accelerator) {
-  if (accelerator.GetKeyCode() != app::VKEY_RETURN)
+  if (accelerator.GetKeyCode() != ui::VKEY_RETURN)
     return false;
 
   if (edit_button_->HasFocus())
@@ -199,7 +202,8 @@ void BookmarkBubbleView::Init() {
   parent_combobox_ = new Combobox(&parent_model_);
   parent_combobox_->SetSelectedItem(parent_model_.node_parent_index());
   parent_combobox_->set_listener(this);
-  parent_combobox_->SetAccessibleName(combobox_label->GetText());
+  parent_combobox_->SetAccessibleName(
+      WideToUTF16Hack(combobox_label->GetText()));
 
   Label* title_label = new Label(UTF16ToWide(l10n_util::GetStringUTF16(
       newly_bookmarked_ ? IDS_BOOMARK_BUBBLE_PAGE_BOOKMARKED :
@@ -216,7 +220,7 @@ void BookmarkBubbleView::Init() {
   // Top (title) row.
   cs->AddColumn(GridLayout::CENTER, GridLayout::CENTER, 0, GridLayout::USE_PREF,
                 0, 0);
-  cs->AddPaddingColumn(1, kUnrelatedControlHorizontalSpacing);
+  cs->AddPaddingColumn(1, views::kUnrelatedControlHorizontalSpacing);
   cs->AddColumn(GridLayout::CENTER, GridLayout::CENTER, 0, GridLayout::USE_PREF,
                 0, 0);
 
@@ -224,19 +228,19 @@ void BookmarkBubbleView::Init() {
   cs = layout->AddColumnSet(2);
   cs->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                 GridLayout::USE_PREF, 0, 0);
-  cs->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  cs->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   cs->AddColumn(GridLayout::FILL, GridLayout::CENTER, 1,
                 GridLayout::USE_PREF, 0, kMinimumFieldSize);
 
   // Bottom (buttons) row.
   cs = layout->AddColumnSet(3);
-  cs->AddPaddingColumn(1, kRelatedControlHorizontalSpacing);
+  cs->AddPaddingColumn(1, views::kRelatedControlHorizontalSpacing);
   cs->AddColumn(GridLayout::LEADING, GridLayout::TRAILING, 0,
                 GridLayout::USE_PREF, 0, 0);
   // We subtract 2 to account for the natural button padding, and
   // to bring the separation visually in line with the row separation
   // height.
-  cs->AddPaddingColumn(0, kRelatedButtonHSpacing - 2);
+  cs->AddPaddingColumn(0, views::kRelatedButtonHSpacing - 2);
   cs->AddColumn(GridLayout::LEADING, GridLayout::TRAILING, 0,
                 GridLayout::USE_PREF, 0, 0);
 
@@ -244,7 +248,7 @@ void BookmarkBubbleView::Init() {
   layout->AddView(title_label);
   layout->AddView(remove_link_);
 
-  layout->AddPaddingRow(0, kRelatedControlSmallVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlSmallVerticalSpacing);
   layout->StartRow(0, 2);
   layout->AddView(new Label(UTF16ToWide(
       l10n_util::GetStringUTF16(IDS_BOOMARK_BUBBLE_TITLE_TEXT))));
@@ -252,12 +256,12 @@ void BookmarkBubbleView::Init() {
   title_tf_->SetText(GetTitle());
   layout->AddView(title_tf_);
 
-  layout->AddPaddingRow(0, kRelatedControlSmallVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlSmallVerticalSpacing);
 
   layout->StartRow(0, 2);
   layout->AddView(combobox_label);
   layout->AddView(parent_combobox_);
-  layout->AddPaddingRow(0, kRelatedControlSmallVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlSmallVerticalSpacing);
 
   layout->StartRow(0, 3);
   layout->AddView(edit_button_);

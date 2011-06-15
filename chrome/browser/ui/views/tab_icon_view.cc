@@ -1,27 +1,27 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/tab_icon_view.h"
+#include "chrome/browser/ui/views/tab_icon_view.h"
 
 #if defined(OS_WIN)
 #include <windows.h>
 #include <shellapi.h>
 #endif
 
-#include "app/resource_bundle.h"
-#include "app/theme_provider.h"
 #include "base/file_util.h"
 #include "base/logging.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "gfx/canvas.h"
-#include "gfx/favicon_size.h"
 #include "grit/app_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/theme_provider.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/favicon_size.h"
 
 #if defined(OS_WIN)
 #include "chrome/browser/app_icon_win.h"
-#include "gfx/icon_util.h"
+#include "ui/gfx/icon_util.h"
 #endif
 
 static bool g_initialized = false;

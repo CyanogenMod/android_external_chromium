@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,8 +46,38 @@ const char kURLsToRestoreOnStartup[] = "session.urls_to_restore_on_startup";
 // while user's profile determines his personal locale preference.
 const char kApplicationLocale[] = "intl.app_locale";
 #if defined(OS_CHROMEOS)
-// Non-syncable item.  Used for two-step initialization of locale in ChromeOS
-// because synchronization of kApplicationLocale is not instant.
+// Locale preference of device' owner.  ChromeOS device appears in this locale
+// after startup/wakeup/signout.
+const char kOwnerLocale[] = "intl.owner_locale";
+// Locale accepted by user.  Non-syncable.
+// Used to determine whether we need to show Locale Change notification.
+const char kApplicationLocaleAccepted[] = "intl.app_locale_accepted";
+// Non-syncable item.
+// It is used in two distinct ways.
+// (1) Used for two-step initialization of locale in ChromeOS
+//     because synchronization of kApplicationLocale is not instant.
+// (2) Used to detect locale change.  Locale change is detected by
+//     LocaleChangeGuard in case values of kApplicationLocaleBackup and
+//     kApplicationLocale are both non-empty and differ.
+// Following is a table showing how state of those prefs may change upon
+// common real-life use cases:
+//                                  AppLocale Backup Accepted
+// Initial login                       -        A       -
+// Sync                                B        A       -
+// Accept (B)                          B        B       B
+// -----------------------------------------------------------
+// Initial login                       -        A       -
+// No sync and second login            A        A       -
+// Change options                      B        B       -
+// -----------------------------------------------------------
+// Initial login                       -        A       -
+// Sync                                A        A       -
+// Locale changed on login screen      A        C       -
+// Accept (A)                          A        A       A
+// -----------------------------------------------------------
+// Initial login                       -        A       -
+// Sync                                B        A       -
+// Revert                              A        A       -
 const char kApplicationLocaleBackup[] = "intl.app_locale_backup";
 #endif
 
@@ -130,6 +160,9 @@ const char kSafeBrowsingEnabled[] = "safebrowsing.enabled";
 // Boolean that is true when SafeBrowsing Malware Report is enabled.
 const char kSafeBrowsingReportingEnabled[] =
     "safebrowsing.reporting_enabled";
+
+// Boolean that is true when Incognito support is enabled.
+const char kIncognitoEnabled[] = "incognito.enabled";
 
 // Boolean that is true when Suggest support is enabled.
 const char kSearchSuggestEnabled[] = "search.suggest_enabled";
@@ -245,11 +278,13 @@ const char kInstantPromo[] = "instant.promo";
 
 // Used to migrate preferences from local state to user preferences to
 // enable multiple profiles.
-// Holds possible values:
-// 0: no preferences migrated yet.
-// 1: dns prefetching preferences stored in user preferences.
+// BITMASK with possible values (see browser_prefs.cc for enum):
+// 0: No preferences migrated.
+// 1: DNS preferences migrated: kDnsPrefetchingStartupList and HostReferralList
+// 2: Browser window preferences migrated: kDevToolsSplitLocation and
+//    kBrowserWindowPlacement
 const char kMultipleProfilePrefMigration[] =
-    "profile.multiple_profile_prefs_version";
+    "local_state.multiple_profile_prefs_version";
 
 #if defined(USE_NSS) || defined(USE_OPENSSL)
 // Prefs for SSLConfigServicePref.  Currently, these are only present on
@@ -260,6 +295,12 @@ const char kTLS1Enabled[] = "ssl.tls1.enabled";
 #endif
 
 #if defined(OS_CHROMEOS)
+// An integer pref to initially mute volume if 1.
+const char kAudioMute[] = "settings.audio.mute";
+
+// A double pref to set initial volume.
+const char kAudioVolume[] = "settings.audio.volume";
+
 // A boolean pref set to true if TapToClick is being done in browser.
 const char kTapToClickEnabled[] = "settings.touchpad.enable_tap_to_click";
 
@@ -467,7 +508,6 @@ const char kDeleteCache[] = "browser.clear_data.cache";
 const char kDeleteCookies[] = "browser.clear_data.cookies";
 const char kDeletePasswords[] = "browser.clear_data.passwords";
 const char kDeleteFormData[] = "browser.clear_data.form_data";
-const char kDeleteLSOData[] = "browser.clear_data.lso_data";
 const char kDeleteTimePeriod[] = "browser.clear_data.time_period";
 
 // Whether there is a Flash version installed that supports clearing LSO data.
@@ -528,9 +568,20 @@ const char kPluginsPluginsBlacklist[] = "plugins.plugins_blacklist";
 // enable it by default, we'll want to do so only once.
 const char kPluginsEnabledInternalPDF[] = "plugins.enabled_internal_pdf3";
 
+const char kPluginsShowSetReaderDefaultInfobar[] =
+    "plugins.show_set_reader_default";
+
+// Whether about:plugins is shown in the details mode or not.
+const char kPluginsShowDetails[] = "plugins.show_details";
+
 // Boolean that indicates whether we should check if we are the default browser
 // on start-up.
 const char kCheckDefaultBrowser[] = "browser.check_default_browser";
+
+// Policy setting whether default browser check should be disabled and default
+// browser registration should take place.
+const char kDefaultBrowserSettingEnabled[] =
+    "browser.default_browser_setting_enabled";
 
 #if defined(OS_MACOSX)
 // Boolean that indicates whether the application should show the info bar
@@ -587,11 +638,6 @@ const char kBlockNonsandboxedPlugins[] = "profile.block_nonsandboxed_plugins";
 // storage, etc..) should be deleted on exit.
 const char kClearSiteDataOnExit[] = "profile.clear_site_data_on_exit";
 
-// Boolean that is true when plug-in locally stored data ("Flash cookies")
-// should be deleted on exit.
-const char kClearPluginLSODataOnExit[] =
-    "profile.clear_plugin_lso_data_on_exit";
-
 // Double that indicates the default zoom level.
 const char kDefaultZoomLevel[] = "profile.default_zoom_level";
 
@@ -627,6 +673,11 @@ const char kUseVerticalTabs[] = "tabs.use_vertical_tabs";
 const char kEnableTranslate[] = "translate.enabled";
 
 const char kPinnedTabs[] = "pinned_tabs";
+
+// Integer that specifies the policy refresh rate in milliseconds. Not all
+// values are meaningful, so it is clamped to a sane range by the policy
+// provider.
+const char kPolicyRefreshRate[] = "policy.refresh_rate";
 
 // Integer containing the default Geolocation content setting.
 const char kGeolocationDefaultContentSetting[] =
@@ -743,6 +794,20 @@ const char kStabilityRendererHangCount[] =
 const char kStabilityChildProcessCrashCount[] =
     "user_experience_metrics.stability.child_process_crash_count";
 
+// On Chrome OS, total number of non-Chrome user process crashes
+// since the last report.
+const char kStabilityOtherUserCrashCount[] =
+    "user_experience_metrics.stability.other_user_crash_count";
+
+// On Chrome OS, total number of kernel crashes since the last report.
+const char kStabilityKernelCrashCount[] =
+    "user_experience_metrics.stability.kernel_crash_count";
+
+// On Chrome OS, total number of unclean system shutdowns since the
+// last report.
+const char kStabilitySystemUncleanShutdownCount[] =
+    "user_experience_metrics.stability.system_unclean_shutdowns";
+
 // Number of times the browser has been able to register crash reporting.
 const char kStabilityBreakpadRegistrationSuccess[] =
     "user_experience_metrics.stability.breakpad_registration_ok";
@@ -809,6 +874,10 @@ const char kDownloadDirUpgraded[] = "download.directory_upgrade";
 
 // String which specifies where to save html files to by default.
 const char kSaveFileDefaultDirectory[] = "savefile.default_directory";
+
+// The type used to save the page. See the enum SavePackage::SavePackageType in
+// the chrome/browser/download/save_package.h for the possible values.
+const char kSaveFileType[] = "savefile.type";
 
 // String which specifies the last directory that was chosen for uploading
 // or opening a file.
@@ -996,16 +1065,27 @@ const char kNTPPrefVersion[] = "ntp.pref_version";
 const char kNTPCustomLogoStart[] = "ntp.alt_logo_start";
 const char kNTPCustomLogoEnd[] = "ntp.alt_logo_end";
 
-// Dates between which the NTP should show a promotional line downloaded
-// from the promo server.
-const char kNTPPromoStart[] = "ntp.promo_start";
-const char kNTPPromoEnd[] = "ntp.promo_end";
+// Whether promo should be shown to Dev builds, Beta and Dev, or all builds.
+const char kNTPPromoBuild[] = "ntp.promo_build";
+
+// True if user has explicitly closed the promo line.
+const char kNTPPromoClosed[] = "ntp.promo_closed";
+
+// Users are randomly divided into 16 groups in order to slowly roll out
+// special promos.
+const char kNTPPromoGroup[] = "ntp.promo_group";
+
+// Amount of time each promo group should be shown a promo that is being slowly
+// rolled out, in hours.
+const char kNTPPromoGroupTimeSlice[] = "ntp.promo_group_timeslice";
 
 // Promo line from server.
 const char kNTPPromoLine[] = "ntp.promo_line";
 
-// True if user has explicitly closed the promo line.
-const char kNTPPromoClosed[] = "ntp.promo_closed";
+// Dates between which the NTP should show a promotional line downloaded
+// from the promo server.
+const char kNTPPromoStart[] = "ntp.promo_start";
+const char kNTPPromoEnd[] = "ntp.promo_end";
 
 const char kDevToolsDisabled[] = "devtools.disabled";
 
@@ -1116,6 +1196,10 @@ const char kGSSAPILibraryName[] = "auth.gssapi_library_name";
 // Dictionary for transient storage of settings that should go into signed
 // settings storage before owner has been assigned.
 const char kSignedSettingsTempStorage[] = "signed_settings_temp_storage";
+
+// The hardware keyboard layout of the device. This should look like
+// "xkb:us::eng".
+const char kHardwareKeyboardLayout[] = "intl.hardware_keyboard";
 #endif
 
 // *************** SERVICE PREFS ***************
@@ -1139,18 +1223,8 @@ const char kCloudPrintPrintSystemSettings[] =
 // Used by the service process to determine if the remoting host is enabled.
 const char kRemotingHostEnabled[] = "remoting.host_enabled";
 
-// Integer to specify the type of proxy settings.
-// See ProxyPrefs for possible values and interactions with the other proxy
-// preferences.
-const char kProxyMode[] = "proxy.mode";
-// String specifying the proxy server. For a specification of the expected
-// syntax see net::ProxyConfig::ProxyRules::ParseFromString().
-const char kProxyServer[] = "proxy.server";
-// URL to the proxy .pac file.
-const char kProxyPacUrl[] = "proxy.pac_url";
-// String containing proxy bypass rules. For a specification of the
-// expected syntax see net::ProxyBypassRules::ParseFromString().
-const char kProxyBypassList[] = "proxy.bypass_list";
+// Preference to story proxy settings.
+const char kProxy[] = "proxy";
 
 // Preferences that are exclusivly used to store managed values for default
 // content settings.

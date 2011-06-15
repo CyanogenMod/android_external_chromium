@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cmath>
 
-#include "app/l10n_util.h"
 #include "base/callback.h"
 #include "base/i18n/icu_string_conversions.h"
 #include "base/message_loop.h"
@@ -31,6 +30,7 @@
 #include "net/base/escape.h"
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_request_status.h"
+#include "ui/base/l10n/l10n_util.h"
 
 using base::Time;
 using base::TimeDelta;
@@ -63,8 +63,8 @@ SearchProvider::SearchProvider(ACProviderListener* listener, Profile* profile)
       instant_finalized_(false) {
 }
 
-void SearchProvider::FinalizeInstantQuery(const std::wstring& input_text,
-                                          const std::wstring& suggest_text) {
+void SearchProvider::FinalizeInstantQuery(const string16& input_text,
+                                          const string16& suggest_text) {
   if (done_ || instant_finalized_)
     return;
 
@@ -78,11 +78,13 @@ void SearchProvider::FinalizeInstantQuery(const std::wstring& input_text,
     return;
   }
 
-  std::wstring adjusted_input_text(input_text);
+  default_provider_suggest_text_ = suggest_text;
+
+  string16 adjusted_input_text(input_text);
   AutocompleteInput::RemoveForcedQueryStringIfNecessary(input_.type(),
                                                         &adjusted_input_text);
 
-  const std::wstring text = adjusted_input_text + suggest_text;
+  const string16 text = adjusted_input_text + suggest_text;
   // Remove any matches that are identical to |text|. We don't use the
   // destination_url for comparison as it varies depending upon the index passed
   // to TemplateURL::ReplaceSearchTerms.
@@ -162,9 +164,15 @@ void SearchProvider::Start(const AutocompleteInput& input,
 
   // If we're still running an old query but have since changed the query text
   // or the providers, abort the query.
-  if (!done_ && (!minimal_changes ||
-                 !providers_.equals(default_provider, keyword_provider))) {
-    Stop();
+  if (!minimal_changes ||
+      !providers_.equals(default_provider, keyword_provider)) {
+    if (done_)
+      default_provider_suggest_text_.clear();
+    else
+      Stop();
+  } else if (minimal_changes &&
+             (input_.original_text() != input.original_text())) {
+    default_provider_suggest_text_.clear();
   }
 
   providers_.Set(default_provider, keyword_provider);
@@ -175,8 +183,7 @@ void SearchProvider::Start(const AutocompleteInput& input,
     if (default_provider) {
       AutocompleteMatch match;
       match.provider = this;
-      match.contents.assign(UTF16ToWideHack(
-          l10n_util::GetStringUTF16(IDS_EMPTY_KEYWORD_VALUE)));
+      match.contents.assign(l10n_util::GetStringUTF16(IDS_EMPTY_KEYWORD_VALUE));
       match.contents_class.push_back(
           ACMatchClassification(0, ACMatchClassification::NONE));
       matches_.push_back(match);
@@ -218,11 +225,12 @@ void SearchProvider::Run() {
 void SearchProvider::Stop() {
   StopSuggest();
   done_ = true;
+  default_provider_suggest_text_.clear();
 }
 
 void SearchProvider::OnURLFetchComplete(const URLFetcher* source,
                                         const GURL& url,
-                                        const URLRequestStatus& status,
+                                        const net::URLRequestStatus& status,
                                         int response_code,
                                         const ResponseCookies& cookie,
                                         const std::string& data) {
@@ -238,12 +246,12 @@ void SearchProvider::OnURLFetchComplete(const URLFetcher* source,
   if (response_headers) {
     std::string charset;
     if (response_headers->GetCharset(&charset)) {
-      std::wstring wide_data;
+      string16 data_16;
       // TODO(jungshik): Switch to CodePageToUTF8 after it's added.
-      if (base::CodepageToWide(data, charset.c_str(),
-                               base::OnStringConversionError::FAIL,
-                               &wide_data))
-        json_data = WideToUTF8(wide_data);
+      if (base::CodepageToUTF16(data, charset.c_str(),
+                                base::OnStringConversionError::FAIL,
+                                &data_16))
+        json_data = UTF16ToUTF8(data_16);
     }
   }
 
@@ -255,7 +263,7 @@ void SearchProvider::OnURLFetchComplete(const URLFetcher* source,
     JSONStringValueSerializer deserializer(json_data);
     deserializer.set_allow_trailing_comma(true);
     scoped_ptr<Value> root_val(deserializer.Deserialize(NULL, NULL));
-    const std::wstring& input_text =
+    const string16& input_text =
         is_keyword_results ? keyword_input_text_ : input_.text();
     have_suggest_results_ =
         root_val.get() &&
@@ -290,14 +298,14 @@ void SearchProvider::DoHistoryQuery(bool minimal_changes) {
   if (providers_.valid_keyword_provider()) {
     url_db->GetMostRecentKeywordSearchTerms(
         providers_.keyword_provider().id(),
-        WideToUTF16(keyword_input_text_),
+        keyword_input_text_,
         static_cast<int>(kMaxMatches),
         &keyword_history_results_);
   }
   if (providers_.valid_default_provider()) {
     url_db->GetMostRecentKeywordSearchTerms(
         providers_.default_provider().id(),
-        WideToUTF16(input_.text()),
+        input_.text(),
         static_cast<int>(kMaxMatches),
         &default_history_results_);
   }
@@ -367,8 +375,9 @@ bool SearchProvider::IsQuerySuitableForSuggest() const {
   // probably a URL that's being entered and happens to currently be invalid --
   // in which case we again want to run our checks below.  Other QUERY cases are
   // less likely to be URLs and thus we assume we're OK.
-  if ((input_.scheme() != L"http") && (input_.scheme() != L"https") &&
-      (input_.scheme() != L"ftp"))
+  if (!LowerCaseEqualsASCII(input_.scheme(), chrome::kHttpScheme) &&
+      !LowerCaseEqualsASCII(input_.scheme(), chrome::kHttpsScheme) &&
+      !LowerCaseEqualsASCII(input_.scheme(), chrome::kFtpScheme))
     return (input_.type() == AutocompleteInput::QUERY);
 
   // Don't send URLs with usernames, queries or refs.  Some of these are
@@ -385,7 +394,8 @@ bool SearchProvider::IsQuerySuitableForSuggest() const {
   // Don't send anything for https except the hostname.  Hostnames are OK
   // because they are visible when the TCP connection is established, but the
   // specific path may reveal private information.
-  if ((input_.scheme() == L"https") && parts.path.is_nonempty())
+  if (LowerCaseEqualsASCII(input_.scheme(), chrome::kHttpsScheme) &&
+      parts.path.is_nonempty())
     return false;
 
   return true;
@@ -406,13 +416,13 @@ void SearchProvider::StopSuggest() {
 
 URLFetcher* SearchProvider::CreateSuggestFetcher(int id,
                                                  const TemplateURL& provider,
-                                                 const std::wstring& text) {
+                                                 const string16& text) {
   const TemplateURLRef* const suggestions_url = provider.suggestions_url();
   DCHECK(suggestions_url->SupportsReplacement());
   URLFetcher* fetcher = URLFetcher::Create(id,
       GURL(suggestions_url->ReplaceSearchTerms(
-           provider, text, TemplateURLRef::NO_SUGGESTIONS_AVAILABLE,
-           std::wstring())),
+           provider, text,
+           TemplateURLRef::NO_SUGGESTIONS_AVAILABLE, string16())),
       URLFetcher::GET, this);
   fetcher->set_request_context(profile_->GetRequestContext());
   fetcher->Start();
@@ -421,7 +431,7 @@ URLFetcher* SearchProvider::CreateSuggestFetcher(int id,
 
 bool SearchProvider::ParseSuggestResults(Value* root_val,
                                          bool is_keyword,
-                                         const std::wstring& input_text,
+                                         const string16& input_text,
                                          SuggestResults* suggest_results) {
   if (!root_val->IsType(Value::TYPE_LIST))
     return false;
@@ -432,7 +442,7 @@ bool SearchProvider::ParseSuggestResults(Value* root_val,
   Value* result_val;
   if ((root_list->GetSize() < 2) || !root_list->Get(0, &query_val) ||
       !query_val->GetAsString(&query_str) ||
-      (query_str != WideToUTF16Hack(input_text)) ||
+      (query_str != input_text) ||
       !root_list->Get(1, &result_val) || !result_val->IsType(Value::TYPE_LIST))
     return false;
 
@@ -497,15 +507,14 @@ bool SearchProvider::ParseSuggestResults(Value* root_val,
         GURL result_url(URLFixerUpper::FixupURL(UTF16ToUTF8(suggestion_str),
                                                 std::string()));
         if (result_url.is_valid()) {
-          navigation_results.push_back(NavigationResult(result_url,
-              UTF16ToWideHack(site_name)));
+          navigation_results.push_back(NavigationResult(result_url, site_name));
         }
       }
     } else {
       // TODO(kochi): Currently we treat a calculator result as a query, but it
       // is better to have better presentation for caluculator results.
       if (suggest_results->size() < kMaxMatches)
-        suggest_results->push_back(UTF16ToWideHack(suggestion_str));
+        suggest_results->push_back(suggestion_str);
     }
   }
 
@@ -531,6 +540,13 @@ void SearchProvider::ConvertResultsToAutocompleteMatches() {
                   AutocompleteMatch::SEARCH_WHAT_YOU_TYPED,
                   did_not_accept_default_suggestion, false,
                   input_.initial_prevent_inline_autocomplete(), &map);
+    if (!default_provider_suggest_text_.empty()) {
+      AddMatchToMap(input_.text() + default_provider_suggest_text_,
+                    input_.text(), CalculateRelevanceForWhatYouTyped() + 1,
+                    AutocompleteMatch::SEARCH_SUGGEST,
+                    did_not_accept_default_suggestion, false,
+                    input_.initial_prevent_inline_autocomplete(), &map);
+    }
   }
 
   AddHistoryResultsToMap(keyword_history_results_, true,
@@ -599,7 +615,7 @@ void SearchProvider::AddHistoryResultsToMap(const HistoryResults& results,
     if (i != results.begin() && relevance >= last_relevance)
       relevance = last_relevance - 1;
     last_relevance = relevance;
-    AddMatchToMap(UTF16ToWide(i->term),
+    AddMatchToMap(i->term,
                   is_keyword ? keyword_input_text_ : input_.text(),
                   relevance,
                   AutocompleteMatch::SEARCH_HISTORY, did_not_accept_suggestion,
@@ -704,8 +720,8 @@ int SearchProvider::CalculateRelevanceForNavigation(size_t num_results,
       static_cast<int>(num_results - 1 - result_number);
 }
 
-void SearchProvider::AddMatchToMap(const std::wstring& query_string,
-                                   const std::wstring& input_text,
+void SearchProvider::AddMatchToMap(const string16& query_string,
+                                   const string16& input_text,
                                    int relevance,
                                    AutocompleteMatch::Type type,
                                    int accepted_suggestion,
@@ -722,7 +738,7 @@ void SearchProvider::AddMatchToMap(const std::wstring& query_string,
   // "youtube", so we'll bold the "tube" section: you*tube*.
   if (input_text != query_string) {
     size_t input_position = match.contents.find(input_text);
-    if (input_position == std::wstring::npos) {
+    if (input_position == string16::npos) {
       // The input text is not a substring of the query string, e.g. input
       // text is "slasdot" and the query string is "slashdot", so we bold the
       // whole thing.
@@ -761,11 +777,12 @@ void SearchProvider::AddMatchToMap(const std::wstring& query_string,
   // suggestion, non-Search results will suddenly appear.
   size_t search_start = 0;
   if (input_.type() == AutocompleteInput::FORCED_QUERY) {
-    match.fill_into_edit.assign(L"?");
+    match.fill_into_edit.assign(ASCIIToUTF16("?"));
     ++search_start;
   }
   if (is_keyword) {
-    match.fill_into_edit.append(providers_.keyword_provider().keyword() + L" ");
+    match.fill_into_edit.append(
+        providers_.keyword_provider().keyword() + char16(' '));
     match.template_url = &providers_.keyword_provider();
   }
   match.fill_into_edit.append(query_string);
@@ -791,8 +808,8 @@ void SearchProvider::AddMatchToMap(const std::wstring& query_string,
   // |map|, replace it if |match| is more relevant.
   // NOTE: Keep this ToLower() call in sync with url_database.cc.
   const std::pair<MatchMap::iterator, bool> i = map->insert(
-      std::pair<std::wstring, AutocompleteMatch>(
-      UTF16ToWide(l10n_util::ToLower(WideToUTF16(query_string))), match));
+      std::pair<string16, AutocompleteMatch>(
+          l10n_util::ToLower(query_string), match));
   // NOTE: We purposefully do a direct relevance comparison here instead of
   // using AutocompleteMatch::MoreRelevant(), so that we'll prefer "items added
   // first" rather than "items alphabetically first" when the scores are equal.
@@ -809,7 +826,7 @@ AutocompleteMatch SearchProvider::NavigationToMatch(
     const NavigationResult& navigation,
     int relevance,
     bool is_keyword) {
-  const std::wstring& input_text =
+  const string16& input_text =
       is_keyword ? keyword_input_text_ : input_.text();
   AutocompleteMatch match(this, relevance, false,
                           AutocompleteMatch::NAVSUGGEST);
@@ -829,7 +846,7 @@ AutocompleteMatch SearchProvider::NavigationToMatch(
   // values preserve that property.  Otherwise, if the user starts editing a
   // suggestion, non-Search results will suddenly appear.
   if (input_.type() == AutocompleteInput::FORCED_QUERY)
-    match.fill_into_edit.assign(L"?");
+    match.fill_into_edit.assign(ASCIIToUTF16("?"));
   match.fill_into_edit.append(
       AutocompleteInput::FormattedStringWithEquivalentMeaning(navigation.url,
                                                               match.contents));
@@ -856,11 +873,10 @@ void SearchProvider::UpdateFirstSearchMatchDescription() {
       case AutocompleteMatch::SEARCH_WHAT_YOU_TYPED:
       case AutocompleteMatch::SEARCH_HISTORY:
       case AutocompleteMatch::SEARCH_SUGGEST:
-        match.description.assign(
-            UTF16ToWideHack(l10n_util::GetStringFUTF16(
-                IDS_AUTOCOMPLETE_SEARCH_DESCRIPTION,
-                WideToUTF16Hack(providers_.default_provider().
-                                AdjustedShortNameForLocaleDirection()))));
+        match.description.assign(l10n_util::GetStringFUTF16(
+            IDS_AUTOCOMPLETE_SEARCH_DESCRIPTION,
+            providers_.default_provider().
+                AdjustedShortNameForLocaleDirection()));
         match.description_class.push_back(
             ACMatchClassification(0, ACMatchClassification::DIM));
         // Only the first search match gets a description.

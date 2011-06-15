@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include "base/string_util.h"
 #include "chrome/browser/browser_about_handler.h"
-#include "chrome/browser/dom_ui/dom_ui_factory.h"
-#include "chrome/browser/extensions/extension_dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui_factory.h"
+#include "chrome/browser/extensions/extension_web_ui.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
 #include "googleurl/src/gurl.h"
@@ -59,9 +59,9 @@ static bool ReverseViewSource(GURL* url, Profile* profile) {
   return true;
 }
 
-// Handles rewriting DOM UI URLs.
-static bool HandleDOMUI(GURL* url, Profile* profile) {
-  if (!DOMUIFactory::UseDOMUIForURL(profile, *url))
+// Handles rewriting Web UI URLs.
+static bool HandleWebUI(GURL* url, Profile* profile) {
+  if (!WebUIFactory::UseWebUIForURL(profile, *url))
     return false;
 
   // Special case the new tab page. In older versions of Chrome, the new tab
@@ -83,13 +83,23 @@ void BrowserURLHandler::InitURLHandlers() {
   if (!url_handlers_.empty())
     return;
 
+  // Visual Studio 2010 has problems converting NULL to the null pointer for
+  // std::pair.  See http://connect.microsoft.com/VisualStudio/feedback/details/520043/error-converting-from-null-to-a-pointer-type-in-std-pair
+  // It will work if we pass nullptr.
+#if defined(_MSC_VER) && _MSC_VER >= 1600
+  URLHandler null_handler = nullptr;
+#else
+  URLHandler null_handler = NULL;
+#endif
+
   // Add the default URL handlers.
   url_handlers_.push_back(
-      HandlerPair(&ExtensionDOMUI::HandleChromeURLOverride, NULL));
+      HandlerPair(&ExtensionWebUI::HandleChromeURLOverride, null_handler));
   // about:
-  url_handlers_.push_back(HandlerPair(&WillHandleBrowserAboutURL, NULL));
+  url_handlers_.push_back(HandlerPair(&WillHandleBrowserAboutURL,
+                                      null_handler));
   // chrome: & friends.
-  url_handlers_.push_back(HandlerPair(&HandleDOMUI, NULL));
+  url_handlers_.push_back(HandlerPair(&HandleWebUI, null_handler));
   // view-source:
   url_handlers_.push_back(HandlerPair(&HandleViewSource, &ReverseViewSource));
 }

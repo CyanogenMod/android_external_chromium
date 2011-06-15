@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,7 @@
 #include "chrome/browser/password_manager/password_manager_delegate.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/notification_registrar.h"
+#include "chrome/common/autofill_messages.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages_params.h"
 #include "grit/generated_resources.h"
@@ -158,7 +158,19 @@ void PasswordManager::DidNavigateAnyFramePostCommit(
     ProvisionallySavePassword(params.password_form);
 }
 
-void PasswordManager::PasswordFormsFound(
+bool PasswordManager::OnMessageReceived(const IPC::Message& message) {
+  bool handled = true;
+  IPC_BEGIN_MESSAGE_MAP(PasswordManager, message)
+    IPC_MESSAGE_HANDLER(AutoFillHostMsg_PasswordFormsFound,
+                        OnPasswordFormsFound)
+    IPC_MESSAGE_HANDLER(AutoFillHostMsg_PasswordFormsVisible,
+                        OnPasswordFormsVisible)
+    IPC_MESSAGE_UNHANDLED(handled = false)
+  IPC_END_MESSAGE_MAP()
+  return handled;
+}
+
+void PasswordManager::OnPasswordFormsFound(
     const std::vector<PasswordForm>& forms) {
   if (!delegate_->GetProfileForPasswordManager())
     return;
@@ -179,7 +191,7 @@ void PasswordManager::PasswordFormsFound(
   }
 }
 
-void PasswordManager::PasswordFormsVisible(
+void PasswordManager::OnPasswordFormsVisible(
     const std::vector<PasswordForm>& visible_forms) {
   if (!provisional_save_manager_.get())
     return;

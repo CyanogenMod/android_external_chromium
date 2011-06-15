@@ -1,9 +1,8 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 cr.define('options', function() {
-
   var OptionsPage = options.OptionsPage;
 
   /////////////////////////////////////////////////////////////////////////////
@@ -14,8 +13,8 @@ cr.define('options', function() {
    * @constructor
    */
   function InternetOptions() {
-    OptionsPage.call(this, 'internet', localStrings.getString('internetPage'),
-        'internetPage');
+    OptionsPage.call(this, 'internet', templateData.internetPageTabTitle,
+                     'internetPage');
   }
 
   cr.addSingletonGetter(InternetOptions);
@@ -31,6 +30,11 @@ cr.define('options', function() {
     initializePage: function() {
       OptionsPage.prototype.initializePage.call(this);
 
+      if (templateData.accessLocked) {
+        var page = $('internetPage');
+        page.setAttribute('accesslocked', true);
+      }
+
       options.internet.NetworkElement.decorate($('wiredList'));
       $('wiredList').load(templateData.wiredList);
       options.internet.NetworkElement.decorate($('wirelessList'));
@@ -45,7 +49,7 @@ cr.define('options', function() {
       $('rememberedSection').hidden = (templateData.rememberedList.length == 0);
       InternetOptions.setupAttributes(templateData);
       $('detailsInternetDismiss').addEventListener('click', function(event) {
-        OptionsPage.clearOverlays();
+        OptionsPage.closeOverlay();
       });
       $('detailsInternetLogin').addEventListener('click', function(event) {
         InternetOptions.loginFromDetails();
@@ -71,7 +75,7 @@ cr.define('options', function() {
       });
       $('buyplanDetails').addEventListener('click', function(event) {
         chrome.send('buyDataPlan', []);
-        OptionsPage.clearOverlays();
+        OptionsPage.closeOverlay();
       });
       this.showNetworkDetails_();
     },
@@ -89,7 +93,7 @@ cr.define('options', function() {
   };
 
   // A boolean flag from InternerOptionsHandler to indicate whether to use
-  // inline DOMUI for ethernet/wifi login/options.
+  // inline WebUI for ethernet/wifi login/options.
   InternetOptions.useSettingsUI = false;
 
   // Network status update will be blocked while typing in WEP password etc.
@@ -116,7 +120,7 @@ cr.define('options', function() {
                                             servicePath,
                                             'connect']);
     }
-    OptionsPage.clearOverlays();
+    OptionsPage.closeOverlay();
   };
 
   InternetOptions.activateFromDetails = function () {
@@ -127,7 +131,7 @@ cr.define('options', function() {
                                           servicePath,
                                           'activate']);
     }
-    OptionsPage.clearOverlays();
+    OptionsPage.closeOverlay();
   };
 
   InternetOptions.setupAttributes = function(data) {
@@ -175,6 +179,12 @@ cr.define('options', function() {
   //Chrome callbacks
   //
   InternetOptions.refreshNetworkData = function (data) {
+    var page = $('internetPage');
+    if (data.accessLocked) {
+      page.setAttribute('accesslocked', true);
+      return;
+    }
+    page.removeAttribute('accesslocked');
     if (InternetOptions.updateLocked) {
       InternetOptions.updateData = data;
       InternetOptions.updatePending = true;
@@ -347,12 +357,11 @@ cr.define('options', function() {
       page.removeAttribute('cellular');
       page.removeAttribute('gsm');
     }
-    OptionsPage.showOverlay('detailsInternetPage');
+    OptionsPage.navigateToPage('detailsInternetPage');
   };
 
   // Export
   return {
     InternetOptions: InternetOptions
   };
-
 });

@@ -1,33 +1,33 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <sstream>
 #include <string>
 
-#include "build/build_config.h"
-#if defined(OS_WIN)
-#include <shlwapi.h>
-#endif
-
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/path_service.h"
 #include "base/string_util.h"
 #include "base/test/test_file_util.h"
+#include "base/test/test_timeouts.h"
 #include "base/threading/platform_thread.h"
+#include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/download/download_util.h"
 #include "chrome/browser/net/url_request_mock_http_job.h"
 #include "chrome/browser/net/url_request_slow_download_job.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/test/ui/ui_test.h"
 #include "chrome/test/automation/tab_proxy.h"
 #include "chrome/test/automation/browser_proxy.h"
 #include "net/base/net_util.h"
-#include "net/url_request/url_request_unittest.h"
+#include "net/url_request/url_request_test_util.h"
+
+#if defined(OS_WIN)
+#include <shlwapi.h>
+#endif
 
 namespace {
 
@@ -79,8 +79,8 @@ class DownloadTest : public UITest {
 
  protected:
   void RunSizeTest(const GURL& url,
-                   const std::wstring& expected_title_in_progress,
-                   const std::wstring& expected_title_finished) {
+                   const string16& expected_title_in_progress,
+                   const string16& expected_title_finished) {
     FilePath filename;
     net::FileURLToFilePath(url, &filename);
     filename = filename.BaseName();
@@ -154,7 +154,7 @@ TEST_F(DownloadTest, FLAKY_NoDownload) {
   WaitUntilTabCount(1);
 
   // Wait to see if the file will be downloaded.
-  base::PlatformThread::Sleep(sleep_timeout_ms());
+  base::PlatformThread::Sleep(TestTimeouts::action_timeout_ms());
 
   EXPECT_FALSE(file_util::PathExists(file_path));
   if (file_util::PathExists(file_path))
@@ -242,8 +242,9 @@ TEST_F(DownloadTest, FLAKY_UnknownSize) {
   FilePath filename;
   net::FileURLToFilePath(url, &filename);
   filename = filename.BaseName();
-  RunSizeTest(url, L"32.0 KB - " + filename.ToWStringHack(),
-              L"100% - " + filename.ToWStringHack());
+  RunSizeTest(url,
+              ASCIIToUTF16("32.0 KB - ") + filename.LossyDisplayName(),
+              ASCIIToUTF16("100% - ") + filename.LossyDisplayName());
 }
 
 // All download tests are flaky on all platforms, http://crbug.com/35275,
@@ -254,8 +255,9 @@ TEST_F(DownloadTest, FLAKY_KnownSize) {
   FilePath filename;
   net::FileURLToFilePath(url, &filename);
   filename = filename.BaseName();
-  RunSizeTest(url, L"71% - " + filename.ToWStringHack(),
-              L"100% - " + filename.ToWStringHack());
+  RunSizeTest(url,
+              ASCIIToUTF16("71% - ") + filename.LossyDisplayName(),
+              ASCIIToUTF16("100% - ") + filename.LossyDisplayName());
 }
 
 // Test that when downloading an item in Incognito mode, we don't crash when

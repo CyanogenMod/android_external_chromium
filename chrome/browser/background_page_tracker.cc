@@ -4,7 +4,9 @@
 
 #include "chrome/browser/background_page_tracker.h"
 
+#include <set>
 #include <string>
+#include <vector>
 
 #include "base/command_line.h"
 #include "base/utf_string_conversions.h"
@@ -17,7 +19,6 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
@@ -189,6 +190,10 @@ bool BackgroundPageTracker::UpdateExtensionList() {
   PrefService* prefs = GetPrefService();
   std::set<std::string> keys_to_delete;
   bool pref_modified = false;
+  // If we've never set any prefs, then this is the first launch ever, so we
+  // want to automatically mark all existing extensions as acknowledged.
+  bool first_launch =
+      prefs->GetDictionary(prefs::kKnownBackgroundPages) == NULL;
   DictionaryValue* contents =
       prefs->GetMutableDictionary(prefs::kKnownBackgroundPages);
   for (DictionaryValue::key_iterator it = contents->begin_keys();
@@ -220,7 +225,7 @@ bool BackgroundPageTracker::UpdateExtensionList() {
       // If we have not seen this extension ID before, add it to our list.
       if (!contents->HasKey((*iter)->id())) {
         contents->SetWithoutPathExpansion(
-            (*iter)->id(), Value::CreateBooleanValue(false));
+            (*iter)->id(), Value::CreateBooleanValue(first_launch));
         pref_modified = true;
       }
     }
@@ -239,7 +244,7 @@ bool BackgroundPageTracker::UpdateExtensionList() {
          background_contents_service->GetParentApplicationId(*iter));
      if (!contents->HasKey(application_id)) {
         contents->SetWithoutPathExpansion(
-            application_id, Value::CreateBooleanValue(false));
+            application_id, Value::CreateBooleanValue(first_launch));
         pref_modified = true;
      }
   }

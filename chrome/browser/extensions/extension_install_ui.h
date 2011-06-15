@@ -12,8 +12,8 @@
 #include "base/string16.h"
 #include "chrome/browser/extensions/image_loading_tracker.h"
 #include "chrome/common/extensions/url_pattern.h"
-#include "gfx/native_widget_types.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/native_widget_types.h"
 
 class Extension;
 class MessageLoop;
@@ -96,12 +96,6 @@ class ExtensionInstallUI : public ImageLoadingTracker::Observer {
   // 1) Set off a 'load icon' task.
   // 2) Handle the load icon response and show the UI (OnImageLoaded).
   void ShowConfirmation(PromptType prompt_type);
-
-#if defined(OS_MACOSX)
-  // When an extension is installed on Mac with neither browser action nor
-  // page action icons, show an infobar instead of a popup bubble.
-  void ShowGenericExtensionInstalledInfoBar(const Extension* new_extension);
-#endif
 
   // Returns the delegate to control the browser's info bar. This is
   // within its own function due to its platform-specific nature.

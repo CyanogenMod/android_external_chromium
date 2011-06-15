@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include <vector>
 
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 #include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/sync/glue/session_model_associator.h"
 #include "chrome/common/notification_observer.h"
@@ -16,10 +16,10 @@
 
 namespace browser_sync {
 
-class ForeignSessionHandler : public DOMMessageHandler,
+class ForeignSessionHandler : public WebUIMessageHandler,
                               public NotificationObserver {
  public:
-  // DOMMessageHandler implementation.
+  // WebUIMessageHandler implementation.
   virtual void RegisterMessages();
 
   ForeignSessionHandler();

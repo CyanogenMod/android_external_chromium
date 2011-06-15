@@ -4,8 +4,6 @@
 
 #include "chrome/browser/themes/browser_theme_pack.h"
 
-#include "app/data_pack.h"
-#include "app/resource_bundle.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/threading/thread_restrictions.h"
@@ -13,13 +11,15 @@
 #include "base/values.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
-#include "gfx/codec/png_codec.h"
-#include "gfx/skbitmap_operations.h"
 #include "grit/app_resources.h"
 #include "grit/theme_resources.h"
 #include "net/base/file_stream.h"
 #include "net/base/net_errors.h"
 #include "third_party/skia/include/core/SkCanvas.h"
+#include "ui/base/resource/data_pack.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/codec/png_codec.h"
+#include "ui/gfx/skbitmap_operations.h"
 
 namespace {
 
@@ -298,8 +298,8 @@ RefCountedMemory* ReadFileData(const FilePath& path) {
 
 // Does error checking for invalid incoming data while trying to read an
 // floating point value.
-bool ValidRealValue(ListValue* tint_list, int index, double* out) {
-  if (tint_list->GetReal(index, out))
+bool ValidDoubleValue(ListValue* tint_list, int index, double* out) {
+  if (tint_list->GetDouble(index, out))
     return true;
 
   int value = 0;
@@ -370,7 +370,7 @@ scoped_refptr<BrowserThemePack> BrowserThemePack::BuildFromDataPack(
     FilePath path, const std::string& expected_id) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   scoped_refptr<BrowserThemePack> pack(new BrowserThemePack);
-  pack->data_pack_.reset(new app::DataPack);
+  pack->data_pack_.reset(new ui::DataPack);
 
   if (!pack->data_pack_->Load(path)) {
     LOG(ERROR) << "Failed to load theme data pack.";
@@ -448,7 +448,7 @@ bool BrowserThemePack::WriteToDisk(FilePath path) const {
   RepackImages(prepared_images_, &reencoded_images);
   AddRawImagesTo(reencoded_images, &resources);
 
-  return app::DataPack::WritePack(path, resources);
+  return ui::DataPack::WritePack(path, resources);
 }
 
 bool BrowserThemePack::GetTint(int id, color_utils::HSL* hsl) const {
@@ -583,7 +583,7 @@ void BrowserThemePack::BuildHeader(const Extension* extension) {
   header_->version = kThemePackVersion;
 
   // TODO(erg): Need to make this endian safe on other computers. Prerequisite
-  // is that app::DataPack removes this same check.
+  // is that ui::DataPack removes this same check.
 #if defined(__BYTE_ORDER)
   // Linux check
   COMPILE_ASSERT(__BYTE_ORDER == __LITTLE_ENDIAN,
@@ -619,9 +619,9 @@ void BrowserThemePack::BuildTintsFromJSON(DictionaryValue* tints_value) {
         (tint_list->GetSize() == 3)) {
       color_utils::HSL hsl = { -1, -1, -1 };
 
-      if (ValidRealValue(tint_list, 0, &hsl.h) &&
-          ValidRealValue(tint_list, 1, &hsl.s) &&
-          ValidRealValue(tint_list, 2, &hsl.l)) {
+      if (ValidDoubleValue(tint_list, 0, &hsl.h) &&
+          ValidDoubleValue(tint_list, 1, &hsl.s) &&
+          ValidDoubleValue(tint_list, 2, &hsl.l)) {
         int id = GetIntForString(*iter, kTintTable);
         if (id != -1) {
           temp_tints[id] = hsl;
@@ -680,7 +680,7 @@ void BrowserThemePack::ReadColorsFromJSON(
         if (color_list->GetSize() == 4) {
           double alpha;
           int alpha_int;
-          if (color_list->GetReal(3, &alpha)) {
+          if (color_list->GetDouble(3, &alpha)) {
             color = SkColorSetARGB(static_cast<int>(alpha * 255), r, g, b);
           } else if (color_list->GetInteger(3, &alpha_int) &&
                      (alpha_int == 0 || alpha_int == 1)) {

@@ -12,7 +12,7 @@ namespace base {
 namespace subtle {
 
 RefCountedBase::RefCountedBase()
-    : ref_count_(0)
+    : counter_holder_(new CounterHolder)
 #ifndef NDEBUG
     , in_dtor_(false)
 #endif
@@ -20,6 +20,7 @@ RefCountedBase::RefCountedBase()
 }
 
 RefCountedBase::~RefCountedBase() {
+  delete counter_holder_;
 #ifndef NDEBUG
   DCHECK(in_dtor_) << "RefCounted object deleted without calling Release()";
 #endif
@@ -32,7 +33,7 @@ void RefCountedBase::AddRef() const {
 #ifndef NDEBUG
   DCHECK(!in_dtor_);
 #endif
-  ++ref_count_;
+  ++(counter_holder_->ref_count);
 }
 
 bool RefCountedBase::Release() const {
@@ -42,41 +43,7 @@ bool RefCountedBase::Release() const {
 #ifndef NDEBUG
   DCHECK(!in_dtor_);
 #endif
-  if (--ref_count_ == 0) {
-#ifndef NDEBUG
-    in_dtor_ = true;
-#endif
-    return true;
-  }
-  return false;
-}
-
-RefCountedThreadSafeBase::RefCountedThreadSafeBase() : ref_count_(0) {
-#ifndef NDEBUG
-  in_dtor_ = false;
-#endif
-}
-
-RefCountedThreadSafeBase::~RefCountedThreadSafeBase() {
-#ifndef NDEBUG
-  DCHECK(in_dtor_) << "RefCountedThreadSafe object deleted without "
-                      "calling Release()";
-#endif
-}
-
-void RefCountedThreadSafeBase::AddRef() const {
-#ifndef NDEBUG
-  DCHECK(!in_dtor_);
-#endif
-  AtomicRefCountInc(&ref_count_);
-}
-
-bool RefCountedThreadSafeBase::Release() const {
-#ifndef NDEBUG
-  DCHECK(!in_dtor_);
-  DCHECK(!AtomicRefCountIsZero(&ref_count_));
-#endif
-  if (!AtomicRefCountDec(&ref_count_)) {
+  if (--(counter_holder_->ref_count) == 0) {
 #ifndef NDEBUG
     in_dtor_ = true;
 #endif
@@ -87,7 +54,44 @@ bool RefCountedThreadSafeBase::Release() const {
 
 bool RefCountedThreadSafeBase::HasOneRef() const {
   return AtomicRefCountIsOne(
-      &const_cast<RefCountedThreadSafeBase*>(this)->ref_count_);
+      &const_cast<RefCountedThreadSafeBase*>(this)->
+          counter_holder_->ref_count);
+}
+
+RefCountedThreadSafeBase::RefCountedThreadSafeBase()
+  : counter_holder_(new CounterHolder) {
+#ifndef NDEBUG
+  in_dtor_ = false;
+#endif
+}
+
+RefCountedThreadSafeBase::~RefCountedThreadSafeBase() {
+  delete counter_holder_;
+#ifndef NDEBUG
+  DCHECK(in_dtor_) << "RefCountedThreadSafe object deleted without "
+                      "calling Release()";
+#endif
+}
+
+void RefCountedThreadSafeBase::AddRef() const {
+#ifndef NDEBUG
+  DCHECK(!in_dtor_);
+#endif
+  AtomicRefCountInc(&counter_holder_->ref_count);
+}
+
+bool RefCountedThreadSafeBase::Release() const {
+#ifndef NDEBUG
+  DCHECK(!in_dtor_);
+  DCHECK(!AtomicRefCountIsZero(&counter_holder_->ref_count));
+#endif
+  if (!AtomicRefCountDec(&counter_holder_->ref_count)) {
+#ifndef NDEBUG
+    in_dtor_ = true;
+#endif
+    return true;
+  }
+  return false;
 }
 
 }  // namespace subtle

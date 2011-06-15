@@ -1,10 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "app/l10n_util.h"
 #include "base/command_line.h"
 #include "base/string16.h"
+#include "base/test/test_timeouts.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/common/chrome_switches.h"
@@ -13,9 +13,9 @@
 #include "chrome/test/automation/tab_proxy.h"
 #include "chrome/test/automation/window_proxy.h"
 #include "chrome/test/ui/ui_test.h"
-
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
@@ -29,7 +29,9 @@ class OptionsUITest : public UITest {
     std::wstring title;
     ASSERT_TRUE(tab->GetTabTitle(&title));
     string16 expected_title = l10n_util::GetStringUTF16(IDS_SETTINGS_TITLE);
-    ASSERT_EQ(expected_title, WideToUTF16Hack(title));
+    // The only guarantee we can make about the title of a settings tab is that
+    // it should contain IDS_SETTINGS_TITLE somewhere.
+    ASSERT_FALSE(WideToUTF16Hack(title).find(expected_title) == string16::npos);
   }
 };
 
@@ -45,7 +47,8 @@ TEST_F(OptionsUITest, LoadOptionsByURL) {
   AssertIsOptionsPage(tab);
 }
 
-TEST_F(OptionsUITest, CommandOpensOptionsTab) {
+// Flaky, and takes very long to fail. http://crbug.com/64619.
+TEST_F(OptionsUITest, DISABLED_CommandOpensOptionsTab) {
   scoped_refptr<BrowserProxy> browser(automation()->GetBrowserWindow(0));
   ASSERT_TRUE(browser.get());
 
@@ -63,17 +66,8 @@ TEST_F(OptionsUITest, CommandOpensOptionsTab) {
   AssertIsOptionsPage(tab);
 }
 
-// TODO(csilv): Investigate why this fails and fix. http://crbug.com/48521
-// Also, crashing on linux/views.
-#if defined(OS_LINUX) && defined(TOOLKIT_VIEWS)
-#define MAYBE_CommandAgainGoesBackToOptionsTab \
-    DISABLED_CommandAgainGoesBackToOptionsTab
-#else
-#define MAYBE_CommandAgainGoesBackToOptionsTab \
-    FLAKY_CommandAgainGoesBackToOptionsTab
-#endif
-
-TEST_F(OptionsUITest, MAYBE_CommandAgainGoesBackToOptionsTab) {
+// Flaky, and takes very long to fail. http://crbug.com/48521
+TEST_F(OptionsUITest, DISABLED_CommandAgainGoesBackToOptionsTab) {
   scoped_refptr<BrowserProxy> browser(automation()->GetBrowserWindow(0));
   ASSERT_TRUE(browser.get());
 
@@ -92,24 +86,19 @@ TEST_F(OptionsUITest, MAYBE_CommandAgainGoesBackToOptionsTab) {
 
   // Switch to first tab and run command again.
   ASSERT_TRUE(browser->ActivateTab(0));
-  ASSERT_TRUE(browser->WaitForTabToBecomeActive(0, action_max_timeout_ms()));
+  ASSERT_TRUE(browser->WaitForTabToBecomeActive(
+      0, TestTimeouts::action_max_timeout_ms()));
   ASSERT_TRUE(browser->RunCommand(IDC_OPTIONS));
 
   // Ensure the options ui tab is active.
-  ASSERT_TRUE(browser->WaitForTabToBecomeActive(1, action_max_timeout_ms()));
+  ASSERT_TRUE(browser->WaitForTabToBecomeActive(
+      1, TestTimeouts::action_max_timeout_ms()));
   ASSERT_TRUE(browser->GetTabCount(&tab_count));
   ASSERT_EQ(2, tab_count);
 }
 
-// TODO(csilv): Investigate why this fails (sometimes) on 10.5 and fix.
-// http://crbug.com/48521. Also, crashing on linux/views.
-#if defined(OS_LINUX) && defined(TOOLKIT_VIEWS)
-#define MAYBE_TwoCommandsOneTab DISABLED_TwoCommandsOneTab
-#else
-#define MAYBE_TwoCommandsOneTab FLAKY_TwoCommandsOneTab
-#endif
-
-TEST_F(OptionsUITest, MAYBE_TwoCommandsOneTab) {
+// Flaky, and takes very long to fail. http://crbug.com/48521
+TEST_F(OptionsUITest, DISABLED_TwoCommandsOneTab) {
   scoped_refptr<BrowserProxy> browser(automation()->GetBrowserWindow(0));
   ASSERT_TRUE(browser.get());
 

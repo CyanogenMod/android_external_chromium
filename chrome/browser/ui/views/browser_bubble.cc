@@ -1,10 +1,10 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/browser_bubble.h"
+#include "chrome/browser/ui/views/browser_bubble.h"
 
-#include "chrome/browser/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
 #if defined(OS_WIN)
 #include "chrome/browser/external_tab_container_win.h"
 #endif
@@ -24,28 +24,19 @@ BrowserBubbleHost* GetBubbleHostFromFrame(views::Widget* frame) {
         window->GetNativeWindow());
     DCHECK(bubble_host);
   }
-#if defined(OS_WIN)
-  // The frame may also be an ExternalTabContainer, which is also capable of
-  // hosting BrowserBubbles.
-  gfx::NativeView native_view = frame->GetNativeView();
-  if (!bubble_host) {
-    bubble_host =
-        ExternalTabContainer::GetExternalContainerFromNativeWindow(native_view);
-  }
-#endif
+
   return bubble_host;
 }
 
 }  // namespace
 
 BrowserBubble::BrowserBubble(views::View* view, views::Widget* frame,
-                             const gfx::Point& origin, bool drop_shadow)
+                             const gfx::Point& origin)
     : frame_(frame),
       view_(view),
       visible_(false),
       delegate_(NULL),
       attached_(false),
-      drop_shadow_enabled_(drop_shadow),
       bubble_host_(GetBubbleHostFromFrame(frame)) {
   gfx::Size size = view->GetPreferredSize();
   bounds_.SetRect(origin.x(), origin.y(), size.width(), size.height());

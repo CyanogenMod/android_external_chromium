@@ -1,9 +1,12 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/printing/print_dialog_cloud.h"
 #include "chrome/browser/printing/print_dialog_cloud_internal.h"
+
+#include <string>
+#include <vector>
 
 #include "base/file_path.h"
 #include "base/file_util.h"
@@ -16,8 +19,6 @@
 #include "chrome/browser/printing/cloud_print/cloud_print_url.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/notification_details.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/url_constants.h"
@@ -103,8 +104,8 @@ class MockCloudPrintHtmlDialogDelegate : public CloudPrintHtmlDialogDelegate {
       std::wstring());
   MOCK_CONST_METHOD0(GetDialogContentURL,
       GURL());
-  MOCK_CONST_METHOD1(GetDOMMessageHandlers,
-      void(std::vector<DOMMessageHandler*>* handlers));
+  MOCK_CONST_METHOD1(GetWebUIMessageHandlers,
+      void(std::vector<WebUIMessageHandler*>* handlers));
   MOCK_CONST_METHOD1(GetDialogSize,
       void(gfx::Size* size));
   MOCK_CONST_METHOD0(GetDialogArgs,
@@ -204,7 +205,7 @@ TEST_F(CloudPrintURLTest, CheckDefaultURLs) {
   EXPECT_TRUE(test_page_url.has_query());
 }
 
-// Testing for CloudPrintDataSender needs a mock DOMUI.
+// Testing for CloudPrintDataSender needs a mock WebUI.
 class CloudPrintDataSenderTest : public testing::Test {
  public:
   CloudPrintDataSenderTest()
@@ -274,7 +275,7 @@ TEST_F(CloudPrintDataSenderTest, EmptyFile) {
 
 // Testing for CloudPrintFlowHandler needs a mock
 // CloudPrintHtmlDialogDelegate, mock CloudPrintDataSender, and a mock
-// DOMUI.
+// WebUI.
 
 // Testing for CloudPrintHtmlDialogDelegate needs a mock
 // CloudPrintFlowHandler.
@@ -297,7 +298,7 @@ class CloudPrintHtmlDialogDelegateTest : public testing::Test {
     EXPECT_CALL(*mock_flow_handler_.get(), SetDialogDelegate(_));
     EXPECT_CALL(*mock_flow_handler_.get(), SetDialogDelegate(NULL));
     delegate_.reset(new CloudPrintHtmlDialogDelegate(
-        mock_flow_handler_.get(), 100, 100, std::string()));
+        mock_flow_handler_.get(), 100, 100, std::string(), true));
   }
 
   virtual void TearDown() {
@@ -329,8 +330,8 @@ TEST_F(CloudPrintHtmlDialogDelegateTest, OwnedFlowDestroyed) {
 }
 
 TEST_F(CloudPrintHtmlDialogDelegateTest, UnownedFlowLetGo) {
-  std::vector<DOMMessageHandler*> handlers;
-  delegate_->GetDOMMessageHandlers(&handlers);
+  std::vector<WebUIMessageHandler*> handlers;
+  delegate_->GetWebUIMessageHandlers(&handlers);
   delegate_.reset();
   EXPECT_THAT(mock_flow_handler_.get(), NotNull());
 }

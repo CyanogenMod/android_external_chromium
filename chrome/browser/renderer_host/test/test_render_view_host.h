@@ -53,12 +53,12 @@ class TestRenderWidgetHostView : public RenderWidgetHostView {
 
   virtual void InitAsPopup(RenderWidgetHostView* parent_host_view,
                            const gfx::Rect& pos) {}
-  virtual void InitAsFullscreen(RenderWidgetHostView* parent_host_view) {}
-  virtual RenderWidgetHost* GetRenderWidgetHost() const { return NULL; }
+  virtual void InitAsFullscreen() {}
+  virtual RenderWidgetHost* GetRenderWidgetHost() const;
   virtual void DidBecomeSelected() {}
   virtual void WasHidden() {}
   virtual void SetSize(const gfx::Size& size) {}
-  virtual gfx::NativeView GetNativeView() { return NULL; }
+  virtual gfx::NativeView GetNativeView();
   virtual void MovePluginWindows(
       const std::vector<webkit::npapi::WebPluginGeometry>& moves) {}
 #if defined(OS_WIN)
@@ -68,11 +68,11 @@ class TestRenderWidgetHostView : public RenderWidgetHostView {
 #endif
   virtual void Focus() {}
   virtual void Blur() {}
-  virtual bool HasFocus() { return true; }
+  virtual bool HasFocus();
   virtual void AdvanceFocus(bool reverse) {}
-  virtual void Show() { is_showing_ = true; }
-  virtual void Hide() { is_showing_ = false; }
-  virtual bool IsShowing() { return is_showing_; }
+  virtual void Show();
+  virtual void Hide();
+  virtual bool IsShowing();
   virtual gfx::Rect GetViewBounds() const;
   virtual void SetIsLoading(bool is_loading) {}
   virtual void UpdateCursor(const WebCursor& cursor) {}
@@ -84,7 +84,7 @@ class TestRenderWidgetHostView : public RenderWidgetHostView {
       const gfx::Rect& scroll_rect, int scroll_dx, int scroll_dy,
       const std::vector<gfx::Rect>& rects) {}
   virtual void RenderViewGone(base::TerminationStatus status,
-                              int error_code) { delete this; }
+                              int error_code);
   virtual void WillDestroyRenderWidget(RenderWidgetHost* rwh) { }
   virtual void Destroy() {}
   virtual void PrepareToDestroy() {}
@@ -98,12 +98,13 @@ class TestRenderWidgetHostView : public RenderWidgetHostView {
                                   int selected_item,
                                   const std::vector<WebMenuItem>& items,
                                   bool right_aligned);
-  virtual gfx::Rect GetWindowRect();
+  virtual gfx::Rect GetViewCocoaBounds() const;
   virtual gfx::Rect GetRootWindowRect();
   virtual void SetActive(bool active);
   virtual void SetWindowVisibility(bool visible) {}
   virtual void WindowFrameChanged() {}
-  virtual void SetPluginImeEnabled(bool enabled, int plugin_id);
+  virtual void PluginFocusChanged(bool focused, int plugin_id);
+  virtual void StartPluginIme();
   virtual bool PostProcessEventForPluginIme(
       const NativeWebKeyboardEvent& event);
   virtual gfx::PluginWindowHandle AllocateFakePluginWindowHandle(
@@ -139,9 +140,7 @@ class TestRenderWidgetHostView : public RenderWidgetHostView {
   virtual void AcceleratedCompositingActivated(bool activated) { }
 #endif
 
-  virtual bool ContainsNativeView(gfx::NativeView native_view) const {
-    return false;
-  }
+  virtual bool ContainsNativeView(gfx::NativeView native_view) const;
 
   bool is_showing() const { return is_showing_; }
 

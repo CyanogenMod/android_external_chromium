@@ -13,6 +13,7 @@
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/download/download_status_updater.h"
 #include "chrome/browser/download/download_util.h"
+#include "chrome/browser/download/mock_download_manager.h"
 #include "chrome/browser/history/download_create_info.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/pref_names.h"
@@ -20,17 +21,6 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gmock_mutant.h"
 #include "testing/gtest/include/gtest/gtest.h"
-
-class MockDownloadManager : public DownloadManager {
- public:
-  explicit MockDownloadManager(DownloadStatusUpdater* updater)
-      : DownloadManager(updater) {
-  }
-
-  // Override some functions.
-  virtual void UpdateHistoryForDownload(DownloadItem*) { }
-  virtual void ContinueDownloadFinished(DownloadItem*) { }
-};
 
 class DownloadManagerTest : public testing::Test {
  public:
@@ -157,30 +147,31 @@ const struct {
   bool will_delete_crdownload;
   int expected_rename_count;
 } kDownloadRenameCases[] = {
-  // Safe download, download finishes BEFORE rename.
-  // Needs to be renamed only once.  Crdownload file needs to be deleted.
+  // Safe download, download finishes BEFORE file name determined.
+  // Renamed twice (linear path through UI).  Crdownload file does not need
+  // to be deleted.
   { FILE_PATH_LITERAL("foo.zip"),
     false,
     true,
-    true,
-    1, },
-  // Dangerous download, download finishes BEFORE rename.
+    false,
+    2, },
+  // Dangerous download, download finishes BEFORE file name determined.
   // Needs to be renamed only once.
-  { FILE_PATH_LITERAL("unconfirmed xxx.crdownload"),
+  { FILE_PATH_LITERAL("Unconfirmed xxx.crdownload"),
     true,
     true,
     false,
     1, },
-  // Safe download, download finishes AFTER rename.
+  // Safe download, download finishes AFTER file name determined.
   // Needs to be renamed twice.
   { FILE_PATH_LITERAL("foo.zip"),
     false,
     false,
     false,
     2, },
-  // Dangerous download, download finishes AFTER rename.
+  // Dangerous download, download finishes AFTER file name determined.
   // Needs to be renamed only once.
-  { FILE_PATH_LITERAL("unconfirmed xxx.crdownload"),
+  { FILE_PATH_LITERAL("Unconfirmed xxx.crdownload"),
     true,
     false,
     false,
@@ -193,7 +184,7 @@ class MockDownloadFile : public DownloadFile {
       : DownloadFile(info, NULL), renamed_count_(0) { }
   virtual ~MockDownloadFile() { Destructed(); }
   MOCK_METHOD2(Rename, bool(const FilePath&, bool));
-  MOCK_METHOD0(DeleteCrDownload, void());
+  MOCK_METHOD0(DeleteCrDownload, bool());
   MOCK_METHOD0(Destructed, void());
 
   bool TestMultipleRename(

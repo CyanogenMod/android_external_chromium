@@ -6,6 +6,8 @@
 #define CHROME_BROWSER_DEBUGGER_DEVTOOLS_CLIENT_HOST_H_
 #pragma once
 
+#include <string>
+
 #include "base/basictypes.h"
 
 namespace IPC {
@@ -13,6 +15,7 @@ class Message;
 }
 
 class DevToolsWindow;
+class TabContentsWrapper;
 
 // Describes interface for managing devtools clients from browser process. There
 // are currently two types of clients: devtools windows and TCP socket
@@ -34,6 +37,10 @@ class DevToolsClientHost {
   // closing.
   virtual void InspectedTabClosing() = 0;
 
+  // This method is called when tab inspected by this devtools client is
+  // navigating to |url|.
+  virtual void FrameNavigating(const std::string& url) = 0;
+
   // Sends the message to the devtools client hosted by this object.
   virtual void SendMessageToClient(const IPC::Message& msg) = 0;
 
@@ -42,6 +49,10 @@ class DevToolsClientHost {
   }
 
   virtual DevToolsWindow* AsDevToolsWindow();
+
+  // Invoked when a tab is replaced by another tab. This is triggered by
+  // TabStripModel::ReplaceTabContentsAt.
+  virtual void TabReplaced(TabContentsWrapper* new_tab) = 0;
 
  protected:
   DevToolsClientHost() : close_listener_(NULL) {}

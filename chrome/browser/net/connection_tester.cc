@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/compiler_specific.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
+#include "base/task.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/importer/firefox_proxy_settings.h"
@@ -25,7 +26,7 @@
 #include "net/ftp/ftp_network_layer.h"
 #include "net/http/http_auth_handler_factory.h"
 #include "net/http/http_cache.h"
-#include "net/http/http_network_layer.h"
+#include "net/http/http_network_session.h"
 #include "net/proxy/proxy_config_service_fixed.h"
 #include "net/proxy/proxy_script_fetcher_impl.h"
 #include "net/url_request/url_request.h"
@@ -38,9 +39,10 @@ namespace {
 // An instance of ExperimentURLRequestContext is created for each experiment
 // run by ConnectionTester. The class initializes network dependencies according
 // to the specified "experiment".
-class ExperimentURLRequestContext : public URLRequestContext {
+class ExperimentURLRequestContext : public net::URLRequestContext {
  public:
-  explicit ExperimentURLRequestContext(URLRequestContext* proxy_request_context)
+  explicit ExperimentURLRequestContext(
+      net::URLRequestContext* proxy_request_context)
       : proxy_request_context_(proxy_request_context) {}
 
   int Init(const ConnectionTester::Experiment& experiment) {
@@ -66,12 +68,18 @@ class ExperimentURLRequestContext : public URLRequestContext {
     ssl_config_service_ = new net::SSLConfigServiceDefaults;
     http_auth_handler_factory_ = net::HttpAuthHandlerFactory::CreateDefault(
         host_resolver_);
+
+    net::HttpNetworkSession::Params session_params;
+    session_params.host_resolver = host_resolver_;
+    session_params.dnsrr_resolver = dnsrr_resolver_;
+    session_params.cert_verifier = cert_verifier_;
+    session_params.proxy_service = proxy_service_;
+    session_params.http_auth_handler_factory = http_auth_handler_factory_;
+    session_params.ssl_config_service = ssl_config_service_;
+    scoped_refptr<net::HttpNetworkSession> network_session(
+        new net::HttpNetworkSession(session_params));
     http_transaction_factory_ = new net::HttpCache(
-        net::HttpNetworkLayer::CreateFactory(host_resolver_, cert_verifier_,
-            dnsrr_resolver_, NULL /* dns_cert_checker */,
-            NULL /* ssl_host_info_factory */, proxy_service_,
-            ssl_config_service_, http_auth_handler_factory_, NULL, NULL),
-        NULL /* net_log */,
+        network_session,
         net::HttpCache::DefaultBackend::InMemory(0));
     // In-memory cookie store.
     cookie_store_ = new net::CookieMonster(NULL, NULL);
@@ -223,7 +231,7 @@ class ExperimentURLRequestContext : public URLRequestContext {
     return net::ERR_FAILED;
   }
 
-  const scoped_refptr<URLRequestContext> proxy_request_context_;
+  const scoped_refptr<net::URLRequestContext> proxy_request_context_;
 };
 
 }  // namespace
@@ -236,7 +244,9 @@ class ConnectionTester::TestRunner : public net::URLRequest::Delegate {
  public:
   // |tester| must remain alive throughout the TestRunner's lifetime.
   // |tester| will be notified of completion.
-  explicit TestRunner(ConnectionTester* tester) : tester_(tester) {}
+  explicit TestRunner(ConnectionTester* tester)
+      : tester_(tester),
+        ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {}
 
   // Starts running |experiment|. Notifies tester->OnExperimentCompleted() when
   // it is done.
@@ -257,9 +267,12 @@ class ConnectionTester::TestRunner : public net::URLRequest::Delegate {
 
   // Called when the request has completed (for both success and failure).
   void OnResponseCompleted(net::URLRequest* request);
+  void OnExperimentCompletedWithResult(int result);
 
   ConnectionTester* tester_;
   scoped_ptr<net::URLRequest> request_;
+
+  ScopedRunnableMethodFactory<TestRunner> method_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(TestRunner);
 };
@@ -305,11 +318,22 @@ void ConnectionTester::TestRunner::OnResponseCompleted(
     DCHECK_NE(net::ERR_IO_PENDING, request->status().os_error());
     result = request->status().os_error();
   }
+
+  // Post a task to notify the parent rather than handling it right away,
+  // to avoid re-entrancy problems with URLRequest. (Don't want the caller
+  // to end up deleting the URLRequest while in the middle of processing).
+  MessageLoop::current()->PostTask(
+      FROM_HERE,
+      method_factory_.NewRunnableMethod(
+          &TestRunner::OnExperimentCompletedWithResult, result));
+}
+
+void ConnectionTester::TestRunner::OnExperimentCompletedWithResult(int result) {
   tester_->OnExperimentCompleted(result);
 }
 
 void ConnectionTester::TestRunner::Run(const Experiment& experiment) {
-  // Try to create a URLRequestContext for this experiment.
+  // Try to create a net::URLRequestContext for this experiment.
   scoped_refptr<ExperimentURLRequestContext> context(
       new ExperimentURLRequestContext(tester_->proxy_request_context_));
   int rv = context->Init(experiment);
@@ -327,8 +351,9 @@ void ConnectionTester::TestRunner::Run(const Experiment& experiment) {
 
 // ConnectionTester ----------------------------------------------------------
 
-ConnectionTester::ConnectionTester(Delegate* delegate,
-                                   URLRequestContext* proxy_request_context)
+ConnectionTester::ConnectionTester(
+    Delegate* delegate,
+    net::URLRequestContext* proxy_request_context)
     : delegate_(delegate), proxy_request_context_(proxy_request_context) {
   DCHECK(delegate);
   DCHECK(proxy_request_context);

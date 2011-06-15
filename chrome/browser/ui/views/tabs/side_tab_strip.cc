@@ -1,17 +1,17 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/tabs/side_tab_strip.h"
+#include "chrome/browser/ui/views/tabs/side_tab_strip.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/tabs/side_tab.h"
 #include "chrome/browser/ui/views/tabs/tab_strip_controller.h"
-#include "gfx/canvas.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
 #include "views/background.h"
 #include "views/controls/button/image_button.h"
 
@@ -89,10 +89,6 @@ SideTabStrip::~SideTabStrip() {
 ////////////////////////////////////////////////////////////////////////////////
 // SideTabStrip, BaseTabStrip implementation:
 
-int SideTabStrip::GetPreferredHeight() {
-  return 0;
-}
-
 void SideTabStrip::SetBackgroundOffset(const gfx::Point& offset) {
 }
 
@@ -155,7 +151,7 @@ BaseTab* SideTabStrip::CreateTab() {
 }
 
 void SideTabStrip::GenerateIdealBounds() {
-  gfx::Rect layout_rect = GetLocalBounds(false);
+  gfx::Rect layout_rect = GetContentsBounds();
   layout_rect.Inset(kTabStripInset, kTabStripInset);
 
   int y = layout_rect.y();
@@ -214,23 +210,6 @@ void SideTabStrip::StartInsertTabAnimation(int model_index, bool foreground) {
   AnimateToIdealBounds();
 }
 
-void SideTabStrip::StartMoveTabAnimation() {
-  PrepareForAnimation();
-
-  GenerateIdealBounds();
-  AnimateToIdealBounds();
-}
-
-void SideTabStrip::StopAnimating(bool layout) {
-  if (!IsAnimating())
-    return;
-
-  bounds_animator().Cancel();
-
-  if (layout)
-    DoLayout();
-}
-
 void SideTabStrip::AnimateToIdealBounds() {
   for (int i = 0; i < tab_count(); ++i) {
     BaseTab* tab = base_tab_at_tab_index(i);
@@ -246,7 +225,7 @@ void SideTabStrip::AnimateToIdealBounds() {
 void SideTabStrip::DoLayout() {
   BaseTabStrip::DoLayout();
 
-  newtab_button_->SetBounds(newtab_button_bounds_);
+  newtab_button_->SetBoundsRect(newtab_button_bounds_);
 
-  separator_->SetBounds(separator_bounds_);
+  separator_->SetBoundsRect(separator_bounds_);
 }

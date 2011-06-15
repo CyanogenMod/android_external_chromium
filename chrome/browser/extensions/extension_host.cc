@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,6 @@
 
 #include <list>
 
-#include "app/keyboard_codes.h"
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/message_loop.h"
 #include "base/singleton.h"
 #include "base/metrics/histogram.h"
@@ -18,13 +15,13 @@
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/browsing_instance.h"
 #include "chrome/browser/debugger/devtools_manager.h"
-#include "chrome/browser/dom_ui/dom_ui_factory.h"
+#include "chrome/browser/desktop_notification_handler.h"
+#include "chrome/browser/dom_ui/web_ui_factory.h"
 #include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/file_select_helper.h"
 #include "chrome/browser/platform_util.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
@@ -43,13 +40,15 @@
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/native_web_keyboard_event.h"
 #include "chrome/common/notification_service.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/render_messages_params.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/view_types.h"
 #include "grit/browser_resources.h"
 #include "grit/generated_resources.h"
+#include "ui/base/keycodes/keyboard_codes.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "webkit/glue/context_menu.h"
 
 #if defined(TOOLKIT_VIEWS)
@@ -148,6 +147,9 @@ ExtensionHost::ExtensionHost(const Extension* extension,
   // be the same extension that this points to.
   registrar_.Add(this, NotificationType::EXTENSION_UNLOADED,
                  Source<Profile>(profile_));
+
+  desktop_notification_handler_.reset(
+      new DesktopNotificationHandler(NULL, render_process_host()));
 }
 
 ExtensionHost::~ExtensionHost() {
@@ -214,7 +216,11 @@ void ExtensionHost::CreateRenderViewNow() {
         this);
 }
 
-Browser* ExtensionHost::GetBrowser() const {
+const Browser* ExtensionHost::GetBrowser() const {
+  return view() ? view()->browser() : NULL;
+}
+
+Browser* ExtensionHost::GetBrowser() {
   return view() ? view()->browser() : NULL;
 }
 
@@ -518,7 +524,7 @@ WebPreferences ExtensionHost::GetWebkitPrefs() {
   return webkit_prefs;
 }
 
-void ExtensionHost::ProcessDOMUIMessage(
+void ExtensionHost::ProcessWebUIMessage(
     const ViewHostMsg_DomMessage_Params& params) {
   if (extension_function_dispatcher_.get()) {
     extension_function_dispatcher_->HandleRequest(params);
@@ -531,19 +537,18 @@ RenderViewHostDelegate::View* ExtensionHost::GetViewDelegate() {
 
 void ExtensionHost::CreateNewWindow(
     int route_id,
-    WindowContainerType window_container_type,
-    const string16& frame_name) {
+    const ViewHostMsg_CreateWindow_Params& params) {
   // TODO(aa): Use the browser's profile if the extension is split mode
   // incognito.
   TabContents* new_contents = delegate_view_helper_.CreateNewWindow(
       route_id,
       render_view_host()->process()->profile(),
       site_instance(),
-      DOMUIFactory::GetDOMUIType(render_view_host()->process()->profile(),
+      WebUIFactory::GetWebUIType(render_view_host()->process()->profile(),
           url_),
       this,
-      window_container_type,
-      frame_name);
+      params.window_container_type,
+      params.frame_name);
 
   TabContents* associated_contents = associated_tab_contents();
   if (associated_contents && associated_contents->delegate())
@@ -555,8 +560,7 @@ void ExtensionHost::CreateNewWidget(int route_id,
   CreateNewWidgetInternal(route_id, popup_type);
 }
 
-void ExtensionHost::CreateNewFullscreenWidget(int route_id,
-                                              WebKit::WebPopupType popup_type) {
+void ExtensionHost::CreateNewFullscreenWidget(int route_id) {
   NOTREACHED()
       << "ExtensionHost does not support showing full screen popups yet.";
 }
@@ -708,7 +712,7 @@ bool ExtensionHost::PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
                                            bool* is_keyboard_shortcut) {
   if (extension_host_type_ == ViewType::EXTENSION_POPUP &&
       event.type == NativeWebKeyboardEvent::RawKeyDown &&
-      event.windowsKeyCode == app::VKEY_ESCAPE) {
+      event.windowsKeyCode == ui::VKEY_ESCAPE) {
     DCHECK(is_keyboard_shortcut != NULL);
     *is_keyboard_shortcut = true;
   }
@@ -718,7 +722,7 @@ bool ExtensionHost::PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
 void ExtensionHost::HandleKeyboardEvent(const NativeWebKeyboardEvent& event) {
   if (extension_host_type_ == ViewType::EXTENSION_POPUP) {
     if (event.type == NativeWebKeyboardEvent::RawKeyDown &&
-        event.windowsKeyCode == app::VKEY_ESCAPE) {
+        event.windowsKeyCode == ui::VKEY_ESCAPE) {
       NotificationService::current()->Notify(
           NotificationType::EXTENSION_HOST_VIEW_SHOULD_CLOSE,
           Source<Profile>(profile_),
@@ -756,6 +760,20 @@ ViewType::Type ExtensionHost::GetRenderViewType() const {
   return extension_host_type_;
 }
 
+bool ExtensionHost::OnMessageReceived(const IPC::Message& message) {
+  bool handled = true;
+  IPC_BEGIN_MESSAGE_MAP(ExtensionHost, message)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_RunFileChooser, OnRunFileChooser)
+    IPC_MESSAGE_UNHANDLED(handled = false)
+  IPC_END_MESSAGE_MAP()
+
+  if (!handled) {
+    // Pass desktop notification IPCs to the DesktopNotificationHandler.
+    handled = desktop_notification_handler_->OnMessageReceived(message);
+  }
+  return handled;
+}
+
 const GURL& ExtensionHost::GetURL() const {
   return url_;
 }
@@ -778,12 +796,6 @@ void ExtensionHost::RenderViewCreated(RenderViewHost* render_view_host) {
   }
 }
 
-RenderViewHostDelegate::FileSelect* ExtensionHost::GetFileSelectDelegate() {
-  if (file_select_helper_.get() == NULL)
-    file_select_helper_.reset(new FileSelectHelper(profile()));
-  return file_select_helper_.get();
-}
-
 int ExtensionHost::GetBrowserWindowID() const {
   // Hosts not attached to any browser window have an id of -1.  This includes
   // those mentioned below, and background pages.
@@ -793,11 +805,18 @@ int ExtensionHost::GetBrowserWindowID() const {
     // If the host is bound to a browser, then extract its window id.
     // Extensions hosted in ExternalTabContainer objects may not have
     // an associated browser.
-    Browser* browser = GetBrowser();
+    const Browser* browser = GetBrowser();
     if (browser)
       window_id = ExtensionTabUtil::GetWindowId(browser);
   } else if (extension_host_type_ != ViewType::EXTENSION_BACKGROUND_PAGE) {
     NOTREACHED();
   }
   return window_id;
+}
+
+void ExtensionHost::OnRunFileChooser(
+    const ViewHostMsg_RunFileChooser_Params& params) {
+  if (file_select_helper_.get() == NULL)
+    file_select_helper_.reset(new FileSelectHelper(profile()));
+  file_select_helper_->RunFileChooser(render_view_host_, params);
 }

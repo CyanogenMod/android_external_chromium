@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "chrome/browser/dom_ui/dom_ui.h"
-#include "chrome/browser/dom_ui/dom_ui_factory.h"
+#include "chrome/browser/dom_ui/web_ui.h"
+#include "chrome/browser/dom_ui/web_ui_factory.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
@@ -178,8 +178,8 @@ void RenderViewHostManager::DidNavigateMainFrame(
     // We should only hear this from our current renderer.
     DCHECK(render_view_host == render_view_host_);
 
-    // Even when there is no pending RVH, there may be a pending DOM UI.
-    if (pending_dom_ui_.get())
+    // Even when there is no pending RVH, there may be a pending Web UI.
+    if (pending_web_ui_.get())
       CommitPending();
     return;
   }
@@ -199,9 +199,9 @@ void RenderViewHostManager::DidNavigateMainFrame(
   }
 }
 
-void RenderViewHostManager::SetDOMUIPostCommit(DOMUI* dom_ui) {
-  DCHECK(!dom_ui_.get());
-  dom_ui_.reset(dom_ui);
+void RenderViewHostManager::SetWebUIPostCommit(WebUI* web_ui) {
+  DCHECK(!web_ui_.get());
+  web_ui_.reset(web_ui);
 }
 
 void RenderViewHostManager::RendererAbortedProvisionalLoad(
@@ -292,18 +292,32 @@ bool RenderViewHostManager::ShouldSwapProcessesForNavigation(
     const NavigationEntry* new_entry) const {
   DCHECK(new_entry);
 
+  // Check for reasons to swap processes even if we are in a process model that
+  // doesn't usually swap (e.g., process-per-tab).
+
+  // For security, we should transition between processes when one is a Web UI
+  // page and one isn't.  If there's no cur_entry, check the current RVH's
+  // site, which might already be committed to a Web UI URL (such as the NTP).
+  const GURL& current_url = (cur_entry) ? cur_entry->url() :
+      render_view_host_->site_instance()->site();
+  Profile* profile = delegate_->GetControllerForRenderManager().profile();
+  if (WebUIFactory::UseWebUIForURL(profile, current_url)) {
+    // Force swap if it's not an acceptable URL for Web UI.
+    if (!WebUIFactory::IsURLAcceptableForWebUI(profile, new_entry->url()))
+      return true;
+  } else {
+    // Force swap if it's a Web UI URL.
+    if (WebUIFactory::UseWebUIForURL(profile, new_entry->url()))
+      return true;
+  }
+
   if (!cur_entry) {
     // Always choose a new process when navigating to extension URLs. The
     // process grouping logic will combine all of a given extension's pages
     // into the same process.
     if (new_entry->url().SchemeIs(chrome::kExtensionScheme))
       return true;
-    // When a tab is created, it starts as TYPE_NORMAL. If the new entry is a
-    // DOM UI page, it needs to be grouped with other DOM UI pages. This matches
-    // the logic when transitioning between DOM UI and normal pages.
-    Profile* profile = delegate_->GetControllerForRenderManager().profile();
-    if (DOMUIFactory::UseDOMUIForURL(profile, new_entry->url()))
-      return true;
+
     return false;
   }
 
@@ -313,19 +327,6 @@ bool RenderViewHostManager::ShouldSwapProcessesForNavigation(
   // it as a new navigation). So require a view switch.
   if (cur_entry->IsViewSourceMode() != new_entry->IsViewSourceMode())
     return true;
-
-  // For security, we should transition between processes when one is a DOM UI
-  // page and one isn't.
-  Profile* profile = delegate_->GetControllerForRenderManager().profile();
-  if (DOMUIFactory::UseDOMUIForURL(profile, cur_entry->url())) {
-    // Force swap if it's not an acceptable URL for DOM UI.
-    if (!DOMUIFactory::IsURLAcceptableForDOMUI(profile, new_entry->url()))
-      return true;
-  } else {
-    // Force swap if it's a DOM UI URL.
-    if (DOMUIFactory::UseDOMUIForURL(profile, new_entry->url()))
-      return true;
-  }
 
   // Also, we must switch if one is an extension and the other is not the exact
   // same extension.
@@ -366,7 +367,7 @@ SiteInstance* RenderViewHostManager::GetSiteInstanceForEntry(
   // If we haven't used our SiteInstance (and thus RVH) yet, then we can use it
   // for this entry.  We won't commit the SiteInstance to this site until the
   // navigation commits (in DidNavigate), unless the navigation entry was
-  // restored or it's a DOM UI as described below.
+  // restored or it's a Web UI as described below.
   if (!curr_instance->has_site()) {
     // If we've already created a SiteInstance for our destination, we don't
     // want to use this unused SiteInstance; use the existing one.  (We don't
@@ -386,13 +387,13 @@ SiteInstance* RenderViewHostManager::GetSiteInstanceForEntry(
       // we need to set the site first, otherwise after a restore none of the
       // pages would share renderers.
       //
-      // For DOM UI (this mostly comes up for the new tab page), the
+      // For Web UI (this mostly comes up for the new tab page), the
       // SiteInstance has special meaning: we never want to reassign the
-      // process. If you navigate to another site before the DOM UI commits,
+      // process. If you navigate to another site before the Web UI commits,
       // we still want to create a new process rather than re-using the
-      // existing DOM UI process.
+      // existing Web UI process.
       if (entry.restore_type() != NavigationEntry::RESTORE_NONE ||
-          DOMUIFactory::HasDOMUIScheme(dest_url))
+          WebUIFactory::HasWebUIScheme(dest_url))
         curr_instance->SetSite(dest_url);
       return curr_instance;
     }
@@ -479,10 +480,10 @@ bool RenderViewHostManager::CreatePendingRenderView(
 
 bool RenderViewHostManager::InitRenderView(RenderViewHost* render_view_host,
                                            const NavigationEntry& entry) {
-  // If the pending navigation is to a DOMUI, tell the RenderView about any
+  // If the pending navigation is to a WebUI, tell the RenderView about any
   // bindings it will need enabled.
-  if (pending_dom_ui_.get())
-    render_view_host->AllowBindings(pending_dom_ui_->bindings());
+  if (pending_web_ui_.get())
+    render_view_host->AllowBindings(pending_web_ui_->bindings());
 
   // Tell the RenderView whether it will be used for an extension process.
   Profile* profile = delegate_->GetControllerForRenderManager().profile();
@@ -496,18 +497,18 @@ bool RenderViewHostManager::InitRenderView(RenderViewHost* render_view_host,
 void RenderViewHostManager::CommitPending() {
   // First check whether we're going to want to focus the location bar after
   // this commit.  We do this now because the navigation hasn't formally
-  // committed yet, so if we've already cleared |pending_dom_ui_| the call chain
+  // committed yet, so if we've already cleared |pending_web_ui_| the call chain
   // this triggers won't be able to figure out what's going on.
   bool will_focus_location_bar = delegate_->FocusLocationBarByDefault();
 
-  // Next commit the DOM UI, if any.
-  dom_ui_.swap(pending_dom_ui_);
-  if (dom_ui_.get() && pending_dom_ui_.get() && !pending_render_view_host_)
-    dom_ui_->DidBecomeActiveForReusedRenderView();
-  pending_dom_ui_.reset();
+  // Next commit the Web UI, if any.
+  web_ui_.swap(pending_web_ui_);
+  if (web_ui_.get() && pending_web_ui_.get() && !pending_render_view_host_)
+    web_ui_->DidBecomeActiveForReusedRenderView();
+  pending_web_ui_.reset();
 
   // It's possible for the pending_render_view_host_ to be NULL when we aren't
-  // crossing process boundaries. If so, we just needed to handle the DOM UI
+  // crossing process boundaries. If so, we just needed to handle the Web UI
   // committing above and we're done.
   if (!pending_render_view_host_) {
     if (will_focus_location_bar)
@@ -572,13 +573,13 @@ RenderViewHost* RenderViewHostManager::UpdateRendererStateForNavigate(
     cross_navigation_pending_ = false;
   }
 
-  // This will possibly create (set to NULL) a DOM UI object for the pending
+  // This will possibly create (set to NULL) a Web UI object for the pending
   // page. We'll use this later to give the page special access. This must
   // happen before the new renderer is created below so it will get bindings.
   // It must also happen after the above conditional call to CancelPending(),
-  // otherwise CancelPending may clear the pending_dom_ui_ and the page will
+  // otherwise CancelPending may clear the pending_web_ui_ and the page will
   // not have it's bindings set appropriately.
-  pending_dom_ui_.reset(delegate_->CreateDOMUIForRenderManager(entry.url()));
+  pending_web_ui_.reset(delegate_->CreateWebUIForRenderManager(entry.url()));
 
   // render_view_host_ will not be deleted before the end of this method, so we
   // don't have to worry about this SiteInstance's ref count dropping to zero.
@@ -646,8 +647,8 @@ RenderViewHost* RenderViewHostManager::UpdateRendererStateForNavigate(
 
     return pending_render_view_host_;
   } else {
-    if (pending_dom_ui_.get() && render_view_host_->IsRenderViewLive())
-      pending_dom_ui_->RenderViewReused(render_view_host_);
+    if (pending_web_ui_.get() && render_view_host_->IsRenderViewLive())
+      pending_web_ui_->RenderViewReused(render_view_host_);
 
     // The renderer can exit view source mode when any error or cancellation
     // happen. We must overwrite to recover the mode.
@@ -668,7 +669,7 @@ void RenderViewHostManager::CancelPending() {
   pending_render_view_host_ = NULL;
   pending_render_view_host->Shutdown();
 
-  pending_dom_ui_.reset();
+  pending_web_ui_.reset();
 }
 
 void RenderViewHostManager::RenderViewDeleted(RenderViewHost* rvh) {
@@ -686,7 +687,7 @@ void RenderViewHostManager::RenderViewDeleted(RenderViewHost* rvh) {
 }
 
 void RenderViewHostManager::SwapInRenderViewHost(RenderViewHost* rvh) {
-  dom_ui_.reset();
+  web_ui_.reset();
 
   // Hide the current view and prepare to destroy it.
   if (render_view_host_->view())

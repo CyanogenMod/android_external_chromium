@@ -49,9 +49,32 @@
 //   will notify its regular ObserverList.
 //
 ///////////////////////////////////////////////////////////////////////////////
+
+// Forward declaration for ObserverListThreadSafeTraits.
+template <class ObserverType>
+class ObserverListThreadSafe;
+
+// This class is used to work around VS2005 not accepting:
+//
+// friend class
+//     base::RefCountedThreadSafe<ObserverListThreadSafe<ObserverType> >;
+//
+// Instead of friending the class, we could friend the actual function
+// which calls delete.  However, this ends up being
+// RefCountedThreadSafe::DeleteInternal(), which is private.  So we
+// define our own templated traits class so we can friend it.
+template <class T>
+struct ObserverListThreadSafeTraits {
+  static void Destruct(const ObserverListThreadSafe<T>* x) {
+    delete x;
+  }
+};
+
 template <class ObserverType>
 class ObserverListThreadSafe
-    : public base::RefCountedThreadSafe<ObserverListThreadSafe<ObserverType> > {
+    : public base::RefCountedThreadSafe<
+        ObserverListThreadSafe<ObserverType>,
+        ObserverListThreadSafeTraits<ObserverType> > {
  public:
   typedef typename ObserverList<ObserverType>::NotificationType
       NotificationType;
@@ -59,13 +82,6 @@ class ObserverListThreadSafe
   ObserverListThreadSafe()
       : type_(ObserverListBase<ObserverType>::NOTIFY_ALL) {}
   explicit ObserverListThreadSafe(NotificationType type) : type_(type) {}
-
-  ~ObserverListThreadSafe() {
-    typename ObserversListMap::const_iterator it;
-    for (it = observer_lists_.begin(); it != observer_lists_.end(); ++it)
-      delete (*it).second;
-    observer_lists_.clear();
-  }
 
   // Add an observer to the list.
   void AddObserver(ObserverType* obs) {
@@ -77,7 +93,7 @@ class ObserverListThreadSafe
     if (!loop)
       return;  // Some unittests may access this without a message loop.
     {
-      AutoLock lock(list_lock_);
+      base::AutoLock lock(list_lock_);
       if (observer_lists_.find(loop) == observer_lists_.end())
         observer_lists_[loop] = new ObserverList<ObserverType>(type_);
       list = observer_lists_[loop];
@@ -96,7 +112,7 @@ class ObserverListThreadSafe
     if (!loop)
       return;  // On shutdown, it is possible that current() is already null.
     {
-      AutoLock lock(list_lock_);
+      base::AutoLock lock(list_lock_);
       list = observer_lists_[loop];
       if (!list) {
         NOTREACHED() << "RemoveObserver called on for unknown thread";
@@ -137,9 +153,19 @@ class ObserverListThreadSafe
   // TODO(mbelshe):  Add more wrappers for Notify() with more arguments.
 
  private:
+  // See comment above ObserverListThreadSafeTraits' definition.
+  friend struct ObserverListThreadSafeTraits<ObserverType>;
+
+  ~ObserverListThreadSafe() {
+    typename ObserversListMap::const_iterator it;
+    for (it = observer_lists_.begin(); it != observer_lists_.end(); ++it)
+      delete (*it).second;
+    observer_lists_.clear();
+  }
+
   template <class Method, class Params>
   void Notify(const UnboundMethod<ObserverType, Method, Params>& method) {
-    AutoLock lock(list_lock_);
+    base::AutoLock lock(list_lock_);
     typename ObserversListMap::iterator it;
     for (it = observer_lists_.begin(); it != observer_lists_.end(); ++it) {
       MessageLoop* loop = (*it).first;
@@ -161,7 +187,7 @@ class ObserverListThreadSafe
 
     // Check that this list still needs notifications.
     {
-      AutoLock lock(list_lock_);
+      base::AutoLock lock(list_lock_);
       typename ObserversListMap::iterator it =
           observer_lists_.find(MessageLoop::current());
 
@@ -183,7 +209,7 @@ class ObserverListThreadSafe
     // If there are no more observers on the list, we can now delete it.
     if (list->size() == 0) {
       {
-        AutoLock lock(list_lock_);
+        base::AutoLock lock(list_lock_);
         // Remove |list| if it's not already removed.
         // This can happen if multiple observers got removed in a notification.
         // See http://crbug.com/55725.
@@ -199,7 +225,7 @@ class ObserverListThreadSafe
   typedef std::map<MessageLoop*, ObserverList<ObserverType>*> ObserversListMap;
 
   // These are marked mutable to facilitate having NotifyAll be const.
-  Lock list_lock_;  // Protects the observer_lists_.
+  base::Lock list_lock_;  // Protects the observer_lists_.
   ObserversListMap observer_lists_;
   const NotificationType type_;
 

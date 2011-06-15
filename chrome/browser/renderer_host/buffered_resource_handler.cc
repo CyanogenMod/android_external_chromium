@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -89,7 +89,7 @@ bool BufferedResourceHandler::OnResponseStarted(int request_id,
 
 bool BufferedResourceHandler::OnResponseCompleted(
     int request_id,
-    const URLRequestStatus& status,
+    const net::URLRequestStatus& status,
     const std::string& security_info) {
   return real_handler_->OnResponseCompleted(request_id, status, security_info);
 }
@@ -434,7 +434,8 @@ bool BufferedResourceHandler::ShouldDownload(bool* need_plugin_list) {
   webkit::npapi::WebPluginInfo info;
   bool allow_wildcard = false;
   return !webkit::npapi::PluginList::Singleton()->GetPluginInfo(
-      GURL(), type, allow_wildcard, &info, NULL) || !info.enabled;
+      GURL(), type, allow_wildcard, &info, NULL) ||
+      !webkit::npapi::IsPluginEnabled(info);
 }
 
 void BufferedResourceHandler::UseAlternateResourceHandler(
@@ -455,7 +456,7 @@ void BufferedResourceHandler::UseAlternateResourceHandler(
   // Inform the original ResourceHandler that this will be handled entirely by
   // the new ResourceHandler.
   real_handler_->OnResponseStarted(info->request_id(), response_);
-  URLRequestStatus status(URLRequestStatus::HANDLED_EXTERNALLY, 0);
+  net::URLRequestStatus status(net::URLRequestStatus::HANDLED_EXTERNALLY, 0);
   real_handler_->OnResponseCompleted(info->request_id(), status, std::string());
 
   // Remove the non-owning pointer to the CrossSiteResourceHandler, if any,

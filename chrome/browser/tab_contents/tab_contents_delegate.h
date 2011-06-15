@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,7 @@
 #include "chrome/common/content_settings_types.h"
 #include "chrome/common/navigation_types.h"
 #include "chrome/common/page_transition_types.h"
-#include "gfx/native_widget_types.h"
+#include "ui/gfx/native_widget_types.h"
 #include "webkit/glue/window_open_disposition.h"
 
 namespace gfx {
@@ -124,9 +124,6 @@ class TabContentsDelegate : public AutomationResourceRoutingDelegate {
   // Notification that some of our content has changed size as
   // part of an animation.
   virtual void ToolbarSizeChanged(TabContents* source, bool is_animating) = 0;
-
-  // Notification that the starredness of the current URL changed.
-  virtual void URLStarredChanged(TabContents* source, bool starred) = 0;
 
   // Notification that the target URL has changed.
   virtual void UpdateTargetURL(TabContents* source, const GURL& url) = 0;
@@ -274,6 +271,9 @@ class TabContentsDelegate : public AutomationResourceRoutingDelegate {
   virtual void HandleMouseUp();
   virtual void HandleMouseActivate();
 
+  // Render view drag n drop ended.
+  virtual void DragEnded();
+
   // Shows the repost form confirmation dialog box.
   virtual void ShowRepostFormWarningDialog(TabContents* tab_contents);
 
@@ -331,6 +331,9 @@ class TabContentsDelegate : public AutomationResourceRoutingDelegate {
   // Notifies the delegate that the content restrictions for this tab has
   // changed.
   virtual void ContentRestrictionsChanged(TabContents* source);
+
+  // Returns true if the hung renderer dialog should be shown. Default is true.
+  virtual bool ShouldShowHungRendererDialog();
 
  protected:
   virtual ~TabContentsDelegate();

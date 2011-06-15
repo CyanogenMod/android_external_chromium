@@ -4,10 +4,10 @@
 
 #include "net/proxy/polling_proxy_config_service.h"
 
-#include "base/lock.h"
 #include "base/message_loop_proxy.h"
 #include "base/observer_list.h"
 #include "base/scoped_ptr.h"
+#include "base/synchronization/lock.h"
 #include "base/threading/worker_pool.h"
 #include "net/proxy/proxy_config.h"
 
@@ -32,7 +32,7 @@ class PollingProxyConfigService::Core
   // Called when the parent PollingProxyConfigService is destroyed
   // (observers should not be called past this point).
   void Orphan() {
-    AutoLock l(lock_);
+    base::AutoLock l(lock_);
     origin_loop_proxy_ = NULL;
   }
 
@@ -99,7 +99,7 @@ class PollingProxyConfigService::Core
     ProxyConfig config;
     func(&config);
 
-    AutoLock l(lock_);
+    base::AutoLock l(lock_);
     if (origin_loop_proxy_) {
       origin_loop_proxy_->PostTask(
           FROM_HERE,
@@ -145,7 +145,7 @@ class PollingProxyConfigService::Core
   base::TimeTicks last_poll_time_;
   base::TimeDelta poll_interval_;
 
-  Lock lock_;
+  base::Lock lock_;
   scoped_refptr<base::MessageLoopProxy> origin_loop_proxy_;
 
   bool have_initialized_origin_loop_;
@@ -153,16 +153,6 @@ class PollingProxyConfigService::Core
   bool poll_task_outstanding_;
   bool poll_task_queued_;
 };
-
-PollingProxyConfigService::PollingProxyConfigService(
-    base::TimeDelta poll_interval,
-    GetConfigFunction get_config_func)
-    : core_(new Core(poll_interval, get_config_func)) {
-}
-
-PollingProxyConfigService::~PollingProxyConfigService() {
-  core_->Orphan();
-}
 
 void PollingProxyConfigService::AddObserver(Observer* observer) {
   core_->AddObserver(observer);
@@ -178,6 +168,16 @@ bool PollingProxyConfigService::GetLatestProxyConfig(ProxyConfig* config) {
 
 void PollingProxyConfigService::OnLazyPoll() {
   core_->OnLazyPoll();
+}
+
+PollingProxyConfigService::PollingProxyConfigService(
+    base::TimeDelta poll_interval,
+    GetConfigFunction get_config_func)
+    : core_(new Core(poll_interval, get_config_func)) {
+}
+
+PollingProxyConfigService::~PollingProxyConfigService() {
+  core_->Orphan();
 }
 
 void PollingProxyConfigService::CheckForChangesNow() {

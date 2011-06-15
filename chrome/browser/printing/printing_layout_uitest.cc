@@ -1,11 +1,14 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/command_line.h"
+#include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/string_util.h"
 #include "base/test/test_file_util.h"
 #include "base/threading/simple_thread.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/test/automation/tab_proxy.h"
 #include "chrome/test/ui/ui_test.h"
 #include "net/test/test_server.h"
@@ -56,7 +59,7 @@ class PrintingLayoutTest : public PrintingTest<UITest> {
       return 100.;
     }
 
-    std::wstring verification_file(test_data_directory_.ToWStringHack());
+    std::wstring verification_file(test_data_directory_.value());
     file_util::AppendToPath(&verification_file, L"printing");
     file_util::AppendToPath(&verification_file, verification_name);
     FilePath emf(verification_file + L".emf");
@@ -140,22 +143,22 @@ class PrintingLayoutTest : public PrintingTest<UITest> {
       prn_file.clear();
       found_emf = false;
       found_prn = false;
-      std::wstring file;
-      while (!(file = enumerator.Next().ToWStringHack()).empty()) {
-        std::wstring ext = file_util::GetFileExtensionFromPath(file);
-        if (!_wcsicmp(ext.c_str(), L"emf")) {
+      FilePath file;
+      while (!(file = enumerator.Next()).empty()) {
+        std::wstring ext = file.Extension();
+        if (base::strcasecmp(WideToUTF8(ext).c_str(), ".emf") == 0) {
           EXPECT_FALSE(found_emf) << "Found a leftover .EMF file: \"" <<
-              emf_file << "\" and \"" << file << "\" when looking for \"" <<
-              verification_name << "\"";
+              emf_file << "\" and \"" << file.value() <<
+              "\" when looking for \"" << verification_name << "\"";
           found_emf = true;
-          emf_file = file;
+          emf_file = file.value();
           continue;
         }
-        if (!_wcsicmp(ext.c_str(), L"prn")) {
+        if (base::strcasecmp(WideToUTF8(ext).c_str(), ".prn") == 0) {
           EXPECT_FALSE(found_prn) << "Found a leftover .PRN file: \"" <<
-              prn_file << "\" and \"" << file << "\" when looking for \"" <<
-              verification_name << "\"";
-          prn_file = file;
+              prn_file << "\" and \"" << file.value() <<
+              "\" when looking for \"" << verification_name << "\"";
+          prn_file = file.value();
           found_prn = true;
           file_util::Delete(file, false);
           continue;

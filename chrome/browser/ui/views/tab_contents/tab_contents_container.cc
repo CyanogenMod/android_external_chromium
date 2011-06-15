@@ -1,8 +1,8 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/tab_contents/tab_contents_container.h"
+#include "chrome/browser/ui/views/tab_contents/tab_contents_container.h"
 
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
@@ -13,73 +13,13 @@
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_source.h"
 
-#if defined(TOUCH_UI)
-#include "chrome/browser/ui/views/tab_contents/native_tab_contents_container_gtk.h"
-#include "chrome/browser/ui/views/tab_contents/tab_contents_view_views.h"
-#include "views/border.h"
-#include "views/fill_layout.h"
-#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 // TabContentsContainer, public:
 
-TabContentsContainer::TabContentsContainer()
-    : native_container_(NULL),
-      tab_contents_(NULL),
-      reserved_area_delegate_(NULL) {
-  SetID(VIEW_ID_TAB_CONTAINER);
-}
-
 TabContentsContainer::~TabContentsContainer() {
   if (tab_contents_)
     RemoveObservers();
-}
-
-void TabContentsContainer::ChangeTabContents(TabContents* contents) {
-  if (tab_contents_) {
-#if !defined(TOUCH_UI)
-    native_container_->DetachContents(tab_contents_);
-#else
-    views::View *v = static_cast<TabContentsViewViews*>(tab_contents_->view());
-    RemoveChildView(v);
-#endif
-    tab_contents_->WasHidden();
-    RemoveObservers();
-  }
-#if !defined(TOUCH_UI)
-  TabContents* old_contents = tab_contents_;
-#endif
-  tab_contents_ = contents;
-  // When detaching the last tab of the browser ChangeTabContents is invoked
-  // with NULL. Don't attempt to do anything in that case.
-  if (tab_contents_) {
-#if defined(TOUCH_UI)
-    views::View *v = static_cast<TabContentsViewViews*>(contents->view());
-    // Guard against re-adding ourselves, which happens because the NULL
-    // value is ignored by the pre-existing if() above.
-    if (v->GetParent() != this) {
-      AddChildView(v);
-      SetLayoutManager(new views::FillLayout());
-      Layout();
-    }
-#else
-    RenderWidgetHostViewChanged(
-        old_contents ? old_contents->GetRenderWidgetHostView() : NULL,
-        tab_contents_->GetRenderWidgetHostView());
-    native_container_->AttachContents(tab_contents_);
-#endif
-    AddObservers();
-  }
-}
-
-void TabContentsContainer::TabContentsFocused(TabContents* tab_contents) {
-  if (native_container_)
-    native_container_->TabContentsFocused(tab_contents);
-}
-
-void TabContentsContainer::SetFastResize(bool fast_resize) {
-  if (native_container_)
-    native_container_->SetFastResize(fast_resize);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -103,34 +43,8 @@ void TabContentsContainer::Observe(NotificationType type,
 ////////////////////////////////////////////////////////////////////////////////
 // TabContentsContainer, View overrides:
 
-void TabContentsContainer::Layout() {
-#if defined(TOUCH_UI)
-  views::View::Layout();
-#else
-  if (native_container_) {
-    if (reserved_area_delegate_)
-      reserved_area_delegate_->UpdateReservedContentsRect(this);
-    native_container_->GetView()->SetBounds(0, 0, width(), height());
-    native_container_->GetView()->Layout();
-  }
-#endif
-}
-
 AccessibilityTypes::Role TabContentsContainer::GetAccessibleRole() {
   return AccessibilityTypes::ROLE_WINDOW;
-}
-
-void TabContentsContainer::ViewHierarchyChanged(bool is_add,
-                                                views::View* parent,
-                                                views::View* child) {
-#if defined(TOUCH_UI)
-  views::View::ViewHierarchyChanged(is_add, parent, child);
-#else
-  if (is_add && child == this) {
-    native_container_ = NativeTabContentsContainer::CreateNativeContainer(this);
-    AddChildView(native_container_->GetView());
-  }
-#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -153,19 +67,6 @@ void TabContentsContainer::RemoveObservers() {
   registrar_.RemoveAll();
 }
 
-void TabContentsContainer::RenderViewHostChanged(RenderViewHost* old_host,
-                                                 RenderViewHost* new_host) {
-#if defined(TOUCH_UI)
-  NOTIMPLEMENTED();  // TODO(anicolao)
-#else
-  if (new_host) {
-    RenderWidgetHostViewChanged(
-        old_host ? old_host->view() : NULL, new_host->view());
-  }
-  native_container_->RenderViewHostChanged(old_host, new_host);
-#endif
-}
-
 void TabContentsContainer::TabContentsDestroyed(TabContents* contents) {
   // Sometimes, a TabContents is destroyed before we know about it. This allows
   // us to clean up our state in case this happens.
@@ -174,12 +75,7 @@ void TabContentsContainer::TabContentsDestroyed(TabContents* contents) {
 }
 
 void TabContentsContainer::RenderWidgetHostViewChanged(
-    RenderWidgetHostView* old_view, RenderWidgetHostView* new_view) {
-  // Carry over the reserved rect, if possible.
-  if (old_view && new_view) {
-    new_view->set_reserved_contents_rect(old_view->reserved_contents_rect());
-  } else {
-    if (reserved_area_delegate_)
-      reserved_area_delegate_->UpdateReservedContentsRect(this);
-  }
+    RenderWidgetHostView* new_view) {
+  if (new_view)
+    new_view->set_reserved_contents_rect(cached_reserved_rect_);
 }

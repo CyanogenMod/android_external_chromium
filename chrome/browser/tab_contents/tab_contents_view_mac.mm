@@ -19,9 +19,9 @@
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
 #import "chrome/browser/ui/cocoa/focus_tracker.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
-#include "chrome/browser/ui/cocoa/sad_tab_controller.h"
-#import "chrome/browser/ui/cocoa/web_drag_source.h"
-#import "chrome/browser/ui/cocoa/web_drop_target.h"
+#import "chrome/browser/ui/cocoa/tab_contents/sad_tab_controller.h"
+#import "chrome/browser/ui/cocoa/tab_contents/web_drag_source.h"
+#import "chrome/browser/ui/cocoa/tab_contents/web_drop_target.h"
 #import "chrome/browser/ui/cocoa/view_id_util.h"
 #import "chrome/common/chrome_application_mac.h"
 #include "chrome/common/notification_details.h"
@@ -175,7 +175,8 @@ void TabContentsViewMac::SetPageTitle(const std::wstring& title) {
   // Meaningless on the Mac; widgets don't have a "title" attribute
 }
 
-void TabContentsViewMac::OnTabCrashed() {
+void TabContentsViewMac::OnTabCrashed(base::TerminationStatus /* status */,
+                                      int /* error_code */) {
   if (!sad_tab_.get()) {
     TabContents* contents = tab_contents();
     DCHECK(contents);
@@ -319,6 +320,11 @@ void TabContentsViewMac::CloseTabAfterEventTracking() {
   [cocoa_view_ performSelector:@selector(closeTabAfterEvent)
                     withObject:nil
                     afterDelay:0.0];
+}
+
+void TabContentsViewMac::GetViewBounds(gfx::Rect* out) const {
+  // This method is noth currently used on mac.
+  NOTIMPLEMENTED();
 }
 
 void TabContentsViewMac::CloseTab() {

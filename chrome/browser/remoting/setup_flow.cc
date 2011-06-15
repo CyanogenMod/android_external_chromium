@@ -4,8 +4,6 @@
 
 #include "chrome/browser/remoting/setup_flow.h"
 
-#include "app/gfx/font_util.h"
-#include "app/l10n_util.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/utf_string_conversions.h"
@@ -20,9 +18,11 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/pref_names.h"
-#include "gfx/font.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
+#include "ui/base/l10n/l10n_font_util.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/font.h"
 
 namespace remoting {
 
@@ -33,7 +33,9 @@ SetupFlowStep::SetupFlowStep() { }
 SetupFlowStep::~SetupFlowStep() { }
 
 SetupFlowStepBase::SetupFlowStepBase()
-    : flow_(NULL) {
+    : flow_(NULL),
+      done_(false),
+      next_step_(NULL) {
 }
 
 SetupFlowStepBase::~SetupFlowStepBase() { }
@@ -51,11 +53,12 @@ SetupFlowStep* SetupFlowStepBase::GetNextStep() {
 
 void SetupFlowStepBase::ExecuteJavascriptInIFrame(
     const std::wstring& iframe_xpath, const std::wstring& js) {
-  DOMUI* dom_ui = flow()->dom_ui();
-  DCHECK(dom_ui);
+  WebUI* web_ui = flow()->web_ui();
+  DCHECK(web_ui);
 
-  RenderViewHost* rvh = dom_ui->tab_contents()->render_view_host();
-  rvh->ExecuteJavascriptInWebFrame(iframe_xpath, js);
+  RenderViewHost* rvh = web_ui->tab_contents()->render_view_host();
+  rvh->ExecuteJavascriptInWebFrame(WideToUTF16Hack(iframe_xpath),
+                                   WideToUTF16Hack(js));
 }
 
 void SetupFlowStepBase::FinishStep(SetupFlowStep* next_step) {
@@ -81,7 +84,7 @@ void SetupFlowErrorStepBase::DoStart() {
       L"setMessage('" + UTF16ToWide(GetErrorMessage()) + L"');";
   ExecuteJavascriptInIFrame(kErrorIframeXPath, javascript);
 
-  flow()->dom_ui()->CallJavascriptFunction(L"showError");
+  flow()->web_ui()->CallJavascriptFunction(L"showError");
 
   ExecuteJavascriptInIFrame(kErrorIframeXPath, L"onPageShown();");
 }
@@ -107,7 +110,7 @@ void SetupFlowDoneStep::DoStart() {
       L"setMessage('" + UTF16ToWide(message_) + L"');";
   ExecuteJavascriptInIFrame(kDoneIframeXPath, javascript);
 
-  flow()->dom_ui()->CallJavascriptFunction(L"showSetupDone");
+  flow()->web_ui()->CallJavascriptFunction(L"showSetupDone");
 
   ExecuteJavascriptInIFrame(kDoneIframeXPath, L"onPageShown();");
 }
@@ -115,18 +118,16 @@ void SetupFlowDoneStep::DoStart() {
 SetupFlowContext::SetupFlowContext() { }
 SetupFlowContext::~SetupFlowContext() { }
 
-SetupFlow::SetupFlow(const std::string& args, Profile* profile,
+SetupFlow::SetupFlow(const std::string& args,
+                     Profile* profile,
                      SetupFlowStep* first_step)
-    : dom_ui_(NULL),
+    : web_ui_(NULL),
       dialog_start_args_(args),
       profile_(profile),
       current_step_(first_step) {
   // TODO(hclam): The data source should be added once.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(ChromeURLDataManager::GetInstance(),
-                        &ChromeURLDataManager::AddDataSource,
-                        make_scoped_refptr(new RemotingResourcesSource())));
+  profile->GetChromeURLDataManager()->AddDataSource(
+      new RemotingResourcesSource());
 }
 
 SetupFlow::~SetupFlow() { }
@@ -156,8 +157,8 @@ GURL SetupFlow::GetDialogContentURL() const {
   return GURL("chrome://remotingresources/setup");
 }
 
-void SetupFlow::GetDOMMessageHandlers(
-    std::vector<DOMMessageHandler*>* handlers) const {
+void SetupFlow::GetWebUIMessageHandlers(
+    std::vector<WebUIMessageHandler*>* handlers) const {
   // The called will be responsible for deleting this object.
   handlers->push_back(const_cast<SetupFlow*>(this));
 }
@@ -165,11 +166,11 @@ void SetupFlow::GetDOMMessageHandlers(
 void SetupFlow::GetDialogSize(gfx::Size* size) const {
   PrefService* prefs = profile_->GetPrefs();
   gfx::Font approximate_web_font(
-      UTF8ToWide(prefs->GetString(prefs::kWebKitSansSerifFontFamily)),
+      UTF8ToUTF16(prefs->GetString(prefs::kWebKitSansSerifFontFamily)),
       prefs->GetInteger(prefs::kWebKitDefaultFontSize));
 
   // TODO(pranavk) Replace the following SYNC resources with REMOTING Resources.
-  *size = gfx::GetLocalizedContentsSizeForFont(
+  *size = ui::GetLocalizedContentsSizeForFont(
       IDS_SYNC_SETUP_WIZARD_WIDTH_CHARS,
       IDS_SYNC_SETUP_WIZARD_HEIGHT_LINES,
       approximate_web_font);
@@ -202,16 +203,16 @@ bool SetupFlow::ShouldShowDialogTitle() const {
   return true;
 }
 
-DOMMessageHandler* SetupFlow::Attach(DOMUI* dom_ui) {
-  dom_ui_ = dom_ui;
+WebUIMessageHandler* SetupFlow::Attach(WebUI* web_ui) {
+  web_ui_ = web_ui;
   StartCurrentStep();
-  return DOMMessageHandler::Attach(dom_ui);
+  return WebUIMessageHandler::Attach(web_ui);
 }
 
 void SetupFlow::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "SubmitAuth", NewCallback(this, &SetupFlow::HandleSubmitAuth));
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "RemotingSetup", NewCallback(this, &SetupFlow::HandleUIMessage));
 }
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_DETACHABLE_TOOLBAR_VIEW_H_
 #pragma once
 
-#include "chrome/browser/views/accessible_pane_view.h"
+#include "chrome/browser/ui/views/accessible_pane_view.h"
 
 class SkBitmap;
 struct SkRect;
@@ -60,12 +60,12 @@ class DetachableToolbarView : public AccessiblePaneView {
   // bookmarks or extension toolstrips). |rect| is the rectangle to paint
   // the background within. |roundness| describes the roundness of the corners.
   static void PaintContentAreaBackground(gfx::Canvas* canvas,
-                                         ThemeProvider* theme_provider,
+                                         ui::ThemeProvider* theme_provider,
                                          const SkRect& rect,
                                          double roundness);
   // Paint the border around the content area (when in detached mode).
   static void PaintContentAreaBorder(gfx::Canvas* canvas,
-                                     ThemeProvider* theme_provider,
+                                     ui::ThemeProvider* theme_provider,
                                      const SkRect& rect,
                                      double roundness);
 

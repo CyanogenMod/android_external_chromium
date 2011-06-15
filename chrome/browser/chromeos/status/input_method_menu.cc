@@ -7,8 +7,6 @@
 #include <string>
 #include <vector>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/time.h"
@@ -24,6 +22,8 @@
 #include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 // The language menu consists of 3 parts (in this order):
 //
@@ -87,6 +87,7 @@ const struct {
   { "xkb:us:dvorak:eng", "DV" },
   { "xkb:us:intl:eng", "INTL" },
   { "xkb:us:colemak:eng", "CO" },
+  { "xkb:de:neo:ger", "NEO" },
   // To distinguish from "xkb:jp::jpn"
   { "mozc", "\xe3\x81\x82" },  // U+3042, Japanese Hiragana letter A in UTF-8.
   { "mozc-dv", "\xe3\x81\x82" },
@@ -118,9 +119,8 @@ namespace chromeos {
 // InputMethodMenu
 
 InputMethodMenu::InputMethodMenu(PrefService* pref_service,
-                                 bool is_browser_mode,
-                                 bool is_screen_locker_mode,
-                                 bool is_out_of_box_experience_mode)
+                                 StatusAreaHost::ScreenMode screen_mode,
+                                 bool for_out_of_box_experience_dialog)
     : input_method_descriptors_(CrosLibrary::Get()->GetInputMethodLibrary()->
                                 GetActiveInputMethods()),
       model_(NULL),
@@ -130,42 +130,24 @@ InputMethodMenu::InputMethodMenu(PrefService* pref_service,
       ALLOW_THIS_IN_INITIALIZER_LIST(input_method_menu_(this)),
       minimum_input_method_menu_width_(0),
       pref_service_(pref_service),
-      logged_in_(false),
-      is_browser_mode_(is_browser_mode),
-      is_screen_locker_mode_(is_screen_locker_mode),
-      is_out_of_box_experience_mode_(is_out_of_box_experience_mode) {
+      screen_mode_(screen_mode),
+      for_out_of_box_experience_dialog_(for_out_of_box_experience_dialog) {
   DCHECK(input_method_descriptors_.get() &&
          !input_method_descriptors_->empty());
 
-  // Use the same keyboard layout on all windows.
-  CrosLibrary::Get()->GetKeyboardLibrary()->SetKeyboardLayoutPerWindow(false);
-
   // Sync current and previous input methods on Chrome prefs with ibus-daemon.
-  // InputMethodChanged() will be called soon and the indicator will be updated.
-  InputMethodLibrary* library = CrosLibrary::Get()->GetInputMethodLibrary();
-  if (pref_service && is_browser_mode_) {
+  if (pref_service_ && (screen_mode_ == StatusAreaHost::kBrowserMode)) {
     previous_input_method_pref_.Init(
         prefs::kLanguagePreviousInputMethod, pref_service, this);
-    const std::string previous_input_method_id =
-        previous_input_method_pref_.GetValue();
-    if (!previous_input_method_id.empty()) {
-      library->ChangeInputMethod(previous_input_method_id);
-    }
-
     current_input_method_pref_.Init(
         prefs::kLanguageCurrentInputMethod, pref_service, this);
-    const std::string current_input_method_id =
-        current_input_method_pref_.GetValue();
-    if (!current_input_method_id.empty()) {
-      library->ChangeInputMethod(current_input_method_id);
-    }
   }
-  library->AddObserver(this);
 
-  if (is_browser_mode_ || is_screen_locker_mode_) {
-    logged_in_ = true;
-  }
-  if (!logged_in_) {
+  InputMethodLibrary* library = CrosLibrary::Get()->GetInputMethodLibrary();
+  library->AddObserver(this);  // FirstObserverIsAdded() might be called back.
+
+  if (screen_mode_ == StatusAreaHost::kLoginMode) {
+    // This button is for the login screen.
     registrar_.Add(this,
                    NotificationType::LOGIN_USER_CHANGED,
                    NotificationService::AllSources());
@@ -173,14 +155,16 @@ InputMethodMenu::InputMethodMenu(PrefService* pref_service,
 }
 
 InputMethodMenu::~InputMethodMenu() {
+  // RemoveObserver() is no-op if |this| object is already removed from the
+  // observer list.
   CrosLibrary::Get()->GetInputMethodLibrary()->RemoveObserver(this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// menus::MenuModel implementation:
+// ui::MenuModel implementation:
 
 int InputMethodMenu::GetCommandIdAt(int index) const {
-  return 0;  // dummy
+  return index;
 }
 
 bool InputMethodMenu::IsItemDynamicAt(int index) const {
@@ -189,7 +173,7 @@ bool InputMethodMenu::IsItemDynamicAt(int index) const {
 }
 
 bool InputMethodMenu::GetAcceleratorAt(
-    int index, menus::Accelerator* accelerator) const {
+    int index, ui::Accelerator* accelerator) const {
   // Views for Chromium OS does not support accelerators yet.
   return false;
 }
@@ -219,7 +203,7 @@ int InputMethodMenu::GetGroupIdAt(int index) const {
   DCHECK_GE(index, 0);
 
   if (IndexIsInInputMethodList(index)) {
-    return is_out_of_box_experience_mode_ ?
+    return for_out_of_box_experience_dialog_ ?
         kRadioGroupNone : kRadioGroupLanguage;
   }
 
@@ -241,7 +225,7 @@ bool InputMethodMenu::GetIconAt(int index, SkBitmap* icon) const {
   return false;
 }
 
-menus::ButtonMenuItemModel* InputMethodMenu::GetButtonMenuItemAt(
+ui::ButtonMenuItemModel* InputMethodMenu::GetButtonMenuItemAt(
     int index) const {
   return NULL;
 }
@@ -252,7 +236,7 @@ bool InputMethodMenu::IsEnabledAt(int index) const {
   return true;
 }
 
-menus::MenuModel* InputMethodMenu::GetSubmenuModelAt(int index) const {
+ui::MenuModel* InputMethodMenu::GetSubmenuModelAt(int index) const {
   // We don't use nested menus.
   return NULL;
 }
@@ -274,28 +258,28 @@ int InputMethodMenu::GetItemCount() const {
   return model_->GetItemCount();
 }
 
-menus::MenuModel::ItemType InputMethodMenu::GetTypeAt(int index) const {
+ui::MenuModel::ItemType InputMethodMenu::GetTypeAt(int index) const {
   DCHECK_GE(index, 0);
 
   if (IndexPointsToConfigureImeMenuItem(index)) {
-    return menus::MenuModel::TYPE_COMMAND;  // "Customize language and input"
+    return ui::MenuModel::TYPE_COMMAND;  // "Customize language and input"
   }
 
   if (IndexIsInInputMethodList(index)) {
-    return is_out_of_box_experience_mode_ ?
-        menus::MenuModel::TYPE_COMMAND : menus::MenuModel::TYPE_RADIO;
+    return for_out_of_box_experience_dialog_ ?
+        ui::MenuModel::TYPE_COMMAND : ui::MenuModel::TYPE_RADIO;
   }
 
   if (GetPropertyIndex(index, &index)) {
     const ImePropertyList& property_list
         = CrosLibrary::Get()->GetInputMethodLibrary()->current_ime_properties();
     if (property_list.at(index).is_selection_item) {
-      return menus::MenuModel::TYPE_RADIO;
+      return ui::MenuModel::TYPE_RADIO;
     }
-    return menus::MenuModel::TYPE_COMMAND;
+    return ui::MenuModel::TYPE_COMMAND;
   }
 
-  return menus::MenuModel::TYPE_SEPARATOR;
+  return ui::MenuModel::TYPE_SEPARATOR;
 }
 
 string16 InputMethodMenu::GetLabelAt(int index) const {
@@ -335,6 +319,8 @@ void InputMethodMenu::ActivatedAt(int index) {
         = input_method_descriptors_->at(index);
     CrosLibrary::Get()->GetInputMethodLibrary()->ChangeInputMethod(
         input_method.id);
+    UserMetrics::RecordAction(
+        UserMetricsAction("LanguageMenuButton_InputMethodChanged"));
     return;
   }
 
@@ -382,39 +368,61 @@ void InputMethodMenu::RunMenu(
 
 void InputMethodMenu::InputMethodChanged(
     InputMethodLibrary* obj,
-    const InputMethodDescriptor& previous_input_method,
     const InputMethodDescriptor& current_input_method,
     size_t num_active_input_methods) {
-  UserMetrics::RecordAction(
-      UserMetricsAction("LanguageMenuButton_InputMethodChanged"));
   UpdateUIFromInputMethod(current_input_method, num_active_input_methods);
+  PrepareMenu();
 }
 
 void InputMethodMenu::PreferenceUpdateNeeded(
     InputMethodLibrary* obj,
     const InputMethodDescriptor& previous_input_method,
     const InputMethodDescriptor& current_input_method) {
-  if (is_browser_mode_) {
+  if (screen_mode_ == StatusAreaHost::kBrowserMode) {
     if (pref_service_) {  // make sure we're not in unit tests.
       // Sometimes (e.g. initial boot) |previous_input_method.id| is empty.
       previous_input_method_pref_.SetValue(previous_input_method.id);
       current_input_method_pref_.SetValue(current_input_method.id);
     }
-  } else {
-    // We're in the login screen (i.e. not in the normal browser mode nor screen
-    // locker mode). If a user has already logged in, we should not update the
-    // local state since a profile for the user might be loaded before the
-    // buttun for the login screen is destroyed.
-    if (!logged_in_ && g_browser_process && g_browser_process->local_state()) {
-        g_browser_process->local_state()->SetString(
-            language_prefs::kPreferredKeyboardLayout, current_input_method.id);
-        g_browser_process->local_state()->SavePersistentPrefs();
+  } else if (screen_mode_ == StatusAreaHost::kLoginMode) {
+    if (g_browser_process && g_browser_process->local_state()) {
+      g_browser_process->local_state()->SetString(
+          language_prefs::kPreferredKeyboardLayout, current_input_method.id);
+      g_browser_process->local_state()->SavePersistentPrefs();
+    }
+  }
+}
+
+void InputMethodMenu::FirstObserverIsAdded(InputMethodLibrary* obj) {
+  // NOTICE: Since this function might be called from the constructor of this
+  // class, it's better to avoid calling virtual functions.
+
+  if (pref_service_ && (screen_mode_ == StatusAreaHost::kBrowserMode)) {
+    // Get the input method name in the Preferences file which was in use last
+    // time, and switch to the method. We remember two input method names in the
+    // preference so that the Control+space hot-key could work fine from the
+    // beginning. InputMethodChanged() will be called soon and the indicator
+    // will be updated.
+    InputMethodLibrary* library = CrosLibrary::Get()->GetInputMethodLibrary();
+    const std::string previous_input_method_id =
+        previous_input_method_pref_.GetValue();
+    if (!previous_input_method_id.empty()) {
+      library->ChangeInputMethod(previous_input_method_id);
+    }
+    const std::string current_input_method_id =
+        current_input_method_pref_.GetValue();
+    if (!current_input_method_id.empty()) {
+      library->ChangeInputMethod(current_input_method_id);
     }
   }
 }
 
 void InputMethodMenu::PrepareForMenuOpen() {
   UserMetrics::RecordAction(UserMetricsAction("LanguageMenuButton_Open"));
+  PrepareMenu();
+}
+
+void InputMethodMenu::PrepareMenu() {
   input_method_descriptors_.reset(CrosLibrary::Get()->GetInputMethodLibrary()->
                                   GetActiveInputMethods());
   RebuildModel();
@@ -442,7 +450,7 @@ void InputMethodMenu::UpdateUIFromInputMethod(
 }
 
 void InputMethodMenu::RebuildModel() {
-  model_.reset(new menus::SimpleMenuModel(NULL));
+  model_.reset(new ui::SimpleMenuModel(NULL));
   string16 dummy_label = UTF8ToUTF16("");
   // Indicates if separator's needed before each section.
   bool need_separator = false;
@@ -488,7 +496,7 @@ bool InputMethodMenu::IndexIsInInputMethodList(int index) const {
     return false;
   }
 
-  return ((model_->GetTypeAt(index) == menus::MenuModel::TYPE_RADIO) &&
+  return ((model_->GetTypeAt(index) == ui::MenuModel::TYPE_RADIO) &&
           (model_->GetCommandIdAt(index) == COMMAND_ID_INPUT_METHODS) &&
           input_method_descriptors_.get() &&
           (index < static_cast<int>(input_method_descriptors_->size())));
@@ -502,7 +510,7 @@ bool InputMethodMenu::GetPropertyIndex(int index, int* property_index) const {
     return false;
   }
 
-  if ((model_->GetTypeAt(index) == menus::MenuModel::TYPE_RADIO) &&
+  if ((model_->GetTypeAt(index) == ui::MenuModel::TYPE_RADIO) &&
       (model_->GetCommandIdAt(index) == COMMAND_ID_IME_PROPERTIES)) {
     const int tmp_property_index = model_->GetGroupIdAt(index);
     const ImePropertyList& property_list
@@ -522,7 +530,7 @@ bool InputMethodMenu::IndexPointsToConfigureImeMenuItem(int index) const {
     return false;
   }
 
-  return ((model_->GetTypeAt(index) == menus::MenuModel::TYPE_RADIO) &&
+  return ((model_->GetTypeAt(index) == ui::MenuModel::TYPE_RADIO) &&
           (model_->GetCommandIdAt(index) == COMMAND_ID_CUSTOMIZE_LANGUAGE));
 }
 
@@ -540,8 +548,8 @@ std::wstring InputMethodMenu::GetTextForIndicator(
     }
   }
 
-  // Display the keyboard layout name when using ibus-xkb.
-  if (text.empty()) {
+  // Display the keyboard layout name when using a keyboard layout.
+  if (text.empty() && input_method::IsKeyboardLayout(input_method.id)) {
     const size_t kMaxKeyboardLayoutNameLen = 2;
     const std::wstring keyboard_layout = UTF8ToWide(
         input_method::GetKeyboardLayoutName(input_method.id));
@@ -610,7 +618,10 @@ void InputMethodMenu::Observe(NotificationType type,
                               const NotificationSource& source,
                               const NotificationDetails& details) {
   if (type == NotificationType::LOGIN_USER_CHANGED) {
-    logged_in_ = true;
+    // When a user logs in, we should remove |this| object from the observer
+    // list so that PreferenceUpdateNeeded() does not update the local state
+    // anymore.
+    CrosLibrary::Get()->GetInputMethodLibrary()->RemoveObserver(this);
   }
 }
 

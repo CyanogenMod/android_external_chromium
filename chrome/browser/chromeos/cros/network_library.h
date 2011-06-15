@@ -200,6 +200,8 @@ class CellularDataPlan {
   string16 GetPlanExpiration() const;
   // Formats plan usage info.
   string16 GetUsageInfo() const;
+  // Returns a unique string for this plan that can be used for comparisons.
+  std::string GetUniqueIdentifier() const;
   base::TimeDelta remaining_time() const;
   int64 remaining_minutes() const;
   int64 remaining_data() const;
@@ -218,6 +220,7 @@ typedef ScopedVector<CellularDataPlan> CellularDataPlanVector;
 class CellularNetwork : public WirelessNetwork {
  public:
   enum DataLeft {
+    DATA_UNKNOWN,
     DATA_NORMAL,
     DATA_LOW,
     DATA_VERY_LOW,
@@ -495,6 +498,15 @@ class NetworkLibrary {
   // Stop |observer| from observing any networks
   virtual void RemoveObserverForAllNetworks(NetworkObserver* observer) = 0;
 
+  // Temporarily locks down certain functionality in network library to prevent
+  // unplanned side effects. During the lock down, Enable*Device() calls cannot
+  // be made.
+  virtual void Lock() = 0;
+  // Removes temporarily lock of network library.
+  virtual void Unlock() = 0;
+  // Checks if access to network library is locked.
+  virtual bool IsLocked() = 0;
+
   virtual void AddCellularDataPlanObserver(
       CellularDataPlanObserver* observer) = 0;
   virtual void RemoveCellularDataPlanObserver(
@@ -577,6 +589,12 @@ class NetworkLibrary {
   // Initiates cellular data plan refresh. Plan data will be passed through
   // Network::Observer::CellularDataPlanChanged callback.
   virtual void RefreshCellularDataPlans(const CellularNetwork* network) = 0;
+
+  // Records information that cellular play payment had happened.
+  virtual void SignalCellularPlanPayment() = 0;
+
+  // Returns true if cellular plan payment had been recorded recently.
+  virtual bool HasRecentCellularPlanPayment() = 0;
 
   // Disconnect from the specified wireless (either cellular or wifi) network.
   virtual void DisconnectFromWirelessNetwork(

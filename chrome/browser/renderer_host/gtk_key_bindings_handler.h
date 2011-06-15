@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 
 #include <string>
 
-#include "chrome/browser/gtk/owned_widget_gtk.h"
+#include "chrome/browser/ui/gtk/owned_widget_gtk.h"
 #include "chrome/common/edit_command.h"
 
 struct NativeWebKeyboardEvent;
@@ -30,7 +30,7 @@ struct NativeWebKeyboardEvent;
 // class derived from GtkTextView is used, which overrides all signals related
 // to key bindings, to make sure GtkTextView won't receive them.
 //
-// See third_party/WebKit/WebCore/editing/EditorCommand.cpp for detailed
+// See third_party/WebKit/Source/WebCore/editing/EditorCommand.cpp for detailed
 // definition of webkit edit commands.
 // See webkit/glue/editor_client_impl.cc for key bindings predefined in our
 // webkit glue.

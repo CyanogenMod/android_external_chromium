@@ -13,7 +13,6 @@
 #include <vector>
 
 #include "base/debug/trace_event.h"
-#include "base/lock.h"
 #include "base/message_loop.h"
 #include "base/metrics/stats_counters.h"
 #include "base/metrics/histogram.h"
@@ -22,18 +21,20 @@
 #include "base/singleton.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/synchronization/lock.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
+#include "grit/webkit_chromium_resources.h"
 #include "grit/webkit_resources.h"
 #include "grit/webkit_strings.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebCookie.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebData.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebFrameClient.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebPluginListBuilder.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebScreenInfo.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebString.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebVector.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURL.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebCookie.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebData.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebFrameClient.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebPluginListBuilder.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebScreenInfo.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebString.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebVector.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURL.h"
 #include "webkit/glue/media/audio_decoder.h"
 #include "webkit/plugins/npapi/plugin_instance.h"
 #include "webkit/plugins/npapi/webplugininfo.h"
@@ -78,7 +79,7 @@ class MemoryUsageCache {
   // Returns true if the cached value is fresh.
   // Returns false if the cached value is stale, or if |cached_value| is NULL.
   bool IsCachedValueValid(size_t* cached_value) {
-    AutoLock scoped_lock(lock_);
+    base::AutoLock scoped_lock(lock_);
     if (!cached_value)
       return false;
     if (base::Time::Now() - last_updated_time_ > cache_valid_time_)
@@ -89,7 +90,7 @@ class MemoryUsageCache {
 
   // Setter for |memory_value_|, refreshes |last_updated_time_|.
   void SetMemoryValue(const size_t value) {
-    AutoLock scoped_lock(lock_);
+    base::AutoLock scoped_lock(lock_);
     memory_value_ = value;
     last_updated_time_ = base::Time::Now();
   }
@@ -104,7 +105,7 @@ class MemoryUsageCache {
   // The last time the cached value was updated.
   base::Time last_updated_time_;
 
-  Lock lock_;
+  base::Lock lock_;
 };
 
 }  // anonymous namespace
@@ -291,6 +292,59 @@ void WebKitClientImpl::traceEventEnd(const char* name, void* id,
   TRACE_EVENT_END(name, id, extra);
 }
 
+namespace {
+
+WebData loadAudioSpatializationResource(const char* name) {
+#ifdef IDR_AUDIO_SPATIALIZATION_T000_P000
+  const size_t kExpectedSpatializationNameLength = 31;
+  if (strlen(name) != kExpectedSpatializationNameLength) {
+    return WebData();
+  }
+
+  // Extract the azimuth and elevation from the resource name.
+  int azimuth = 0;
+  int elevation = 0;
+  int values_parsed =
+      sscanf(name, "IRC_Composite_C_R0195_T%3d_P%3d", &azimuth, &elevation);
+  if (values_parsed != 2) {
+    return WebData();
+  }
+
+  // The resource index values go through the elevations first, then azimuths.
+  const int kAngleSpacing = 15;
+
+  // 0 <= elevation <= 90 (or 315 <= elevation <= 345)
+  // in increments of 15 degrees.
+  int elevation_index =
+      elevation <= 90 ? elevation / kAngleSpacing :
+      7 + (elevation - 315) / kAngleSpacing;
+  bool is_elevation_index_good = 0 <= elevation_index && elevation_index < 10;
+
+  // 0 <= azimuth < 360 in increments of 15 degrees.
+  int azimuth_index = azimuth / kAngleSpacing;
+  bool is_azimuth_index_good = 0 <= azimuth_index && azimuth_index < 24;
+
+  const int kNumberOfElevations = 10;
+  const int kNumberOfAudioResources = 240;
+  int resource_index = kNumberOfElevations * azimuth_index + elevation_index;
+  bool is_resource_index_good = 0 <= resource_index &&
+      resource_index < kNumberOfAudioResources;
+
+  if (is_azimuth_index_good && is_elevation_index_good &&
+      is_resource_index_good) {
+    const int kFirstAudioResourceIndex = IDR_AUDIO_SPATIALIZATION_T000_P000;
+    base::StringPiece resource =
+        GetDataResource(kFirstAudioResourceIndex + resource_index);
+    return WebData(resource.data(), resource.size());
+  }
+#endif  // IDR_AUDIO_SPATIALIZATION_T000_P000
+
+  NOTREACHED();
+  return WebData();
+}
+
+}  // namespace
+
 WebData WebKitClientImpl::loadResource(const char* name) {
   struct {
     const char* name;
@@ -323,29 +377,17 @@ WebData WebKitClientImpl::loadResource(const char* name) {
     { "masterCardCC", IDR_AUTOFILL_CC_MASTERCARD },
     { "soloCC", IDR_AUTOFILL_CC_SOLO },
     { "visaCC", IDR_AUTOFILL_CC_VISA },
-#if defined(OS_POSIX) && !defined(OS_MACOSX)
-    // TODO(port): rename these to "skia" instead of "Linux".
-    { "linuxCheckboxDisabledIndeterminate",
-        IDR_LINUX_CHECKBOX_DISABLED_INDETERMINATE },
-    { "linuxCheckboxDisabledOff", IDR_LINUX_CHECKBOX_DISABLED_OFF },
-    { "linuxCheckboxDisabledOn", IDR_LINUX_CHECKBOX_DISABLED_ON },
-    { "linuxCheckboxIndeterminate", IDR_LINUX_CHECKBOX_INDETERMINATE },
-    { "linuxCheckboxOff", IDR_LINUX_CHECKBOX_OFF },
-    { "linuxCheckboxOn", IDR_LINUX_CHECKBOX_ON },
-    { "linuxRadioDisabledOff", IDR_LINUX_RADIO_DISABLED_OFF },
-    { "linuxRadioDisabledOn", IDR_LINUX_RADIO_DISABLED_ON },
-    { "linuxRadioOff", IDR_LINUX_RADIO_OFF },
-    { "linuxRadioOn", IDR_LINUX_RADIO_ON },
-    { "linuxProgressBar", IDR_PROGRESS_BAR },
-    { "linuxProgressBorderLeft", IDR_PROGRESS_BORDER_LEFT },
-    { "linuxProgressBorderRight", IDR_PROGRESS_BORDER_RIGHT },
-    { "linuxProgressValue", IDR_PROGRESS_VALUE },
-#endif
   };
-  for (size_t i = 0; i < ARRAYSIZE_UNSAFE(resources); ++i) {
-    if (!strcmp(name, resources[i].name)) {
-      base::StringPiece resource = GetDataResource(resources[i].id);
-      return WebData(resource.data(), resource.size());
+
+  // Check the name prefix to see if it's an audio resource.
+  if (StartsWithASCII(name, "IRC_Composite", true)) {
+    return loadAudioSpatializationResource(name);
+  } else {
+    for (size_t i = 0; i < ARRAYSIZE_UNSAFE(resources); ++i) {
+      if (!strcmp(name, resources[i].name)) {
+        base::StringPiece resource = GetDataResource(resources[i].id);
+        return WebData(resource.data(), resource.size());
+      }
     }
   }
   // TODO(jhawkins): Restore this NOTREACHED once WK stops sending in empty

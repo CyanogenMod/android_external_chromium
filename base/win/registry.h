@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,57 +17,62 @@ namespace win {
 // Utility class to read, write and manipulate the Windows Registry.
 // Registry vocabulary primer: a "key" is like a folder, in which there
 // are "values", which are <name, data> pairs, with an associated data type.
+//
+// Note:
+// ReadValue family of functions guarantee that the return arguments
+// are not touched in case of failure.
 class RegKey {
  public:
   RegKey();
   RegKey(HKEY rootkey, const wchar_t* subkey, REGSAM access);
   ~RegKey();
 
-  bool Create(HKEY rootkey, const wchar_t* subkey, REGSAM access);
+  LONG Create(HKEY rootkey, const wchar_t* subkey, REGSAM access);
 
-  bool CreateWithDisposition(HKEY rootkey, const wchar_t* subkey,
+  LONG CreateWithDisposition(HKEY rootkey, const wchar_t* subkey,
                              DWORD* disposition, REGSAM access);
 
-  bool Open(HKEY rootkey, const wchar_t* subkey, REGSAM access);
+  LONG Open(HKEY rootkey, const wchar_t* subkey, REGSAM access);
 
   // Creates a subkey or open it if it already exists.
-  bool CreateKey(const wchar_t* name, REGSAM access);
+  LONG CreateKey(const wchar_t* name, REGSAM access);
 
   // Opens a subkey
-  bool OpenKey(const wchar_t* name, REGSAM access);
+  LONG OpenKey(const wchar_t* name, REGSAM access);
 
   void Close();
 
   DWORD ValueCount() const;
 
   // Determine the nth value's name.
-  bool ReadName(int index, std::wstring* name) const;
+  LONG ReadName(int index, std::wstring* name) const;
 
   // True while the key is valid.
   bool Valid() const { return key_ != NULL; }
 
   // Kill a key and everything that live below it; please be careful when using
   // it.
-  bool DeleteKey(const wchar_t* name);
+  LONG DeleteKey(const wchar_t* name);
 
   // Deletes a single value within the key.
-  bool DeleteValue(const wchar_t* name);
+  LONG DeleteValue(const wchar_t* name);
 
-  bool ValueExists(const wchar_t* name);
+  bool ValueExists(const wchar_t* name) const;
 
-  bool ReadValue(const wchar_t* name, void* data, DWORD* dsize,
+  LONG ReadValue(const wchar_t* name, void* data, DWORD* dsize,
                  DWORD* dtype) const;
-  bool ReadValue(const wchar_t* name, std::wstring* value) const;
-  bool ReadValueDW(const wchar_t* name, DWORD* value) const;
+  LONG ReadValue(const wchar_t* name, std::wstring* value) const;
+  LONG ReadValueDW(const wchar_t* name, DWORD* value) const;
+  LONG ReadInt64(const wchar_t* name, int64* value) const;
 
-  bool WriteValue(const wchar_t* name, const void* data, DWORD dsize,
+  LONG WriteValue(const wchar_t* name, const void* data, DWORD dsize,
                   DWORD dtype);
-  bool WriteValue(const wchar_t* name, const wchar_t* value);
-  bool WriteValue(const wchar_t* name, DWORD value);
+  LONG WriteValue(const wchar_t* name, const wchar_t* value);
+  LONG WriteValue(const wchar_t* name, DWORD value);
 
   // Starts watching the key to see if any of its values have changed.
   // The key must have been opened with the KEY_NOTIFY access privilege.
-  bool StartWatching();
+  LONG StartWatching();
 
   // If StartWatching hasn't been called, always returns false.
   // Otherwise, returns true if anything under the key has changed.
@@ -76,7 +81,7 @@ class RegKey {
 
   // Will automatically be called by destructor if not manually called
   // beforehand.  Returns true if it was watching, false otherwise.
-  bool StopWatching();
+  LONG StopWatching();
 
   inline bool IsWatching() const { return watch_event_ != 0; }
   HANDLE watch_event() const { return watch_event_; }

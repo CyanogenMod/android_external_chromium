@@ -1,11 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "chrome/browser/ui/cocoa/location_bar/location_bar_view_mac.h"
 
-#include "app/l10n_util_mac.h"
-#include "app/resource_bundle.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
@@ -29,7 +27,7 @@
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#import "chrome/browser/ui/cocoa/content_setting_bubble_cocoa.h"
+#import "chrome/browser/ui/cocoa/content_settings/content_setting_bubble_cocoa.h"
 #include "chrome/browser/ui/cocoa/event_utils.h"
 #import "chrome/browser/ui/cocoa/extensions/extension_action_context_menu.h"
 #import "chrome/browser/ui/cocoa/extensions/extension_popup_controller.h"
@@ -48,12 +46,13 @@
 #include "chrome/common/extensions/extension_action.h"
 #include "chrome/common/extensions/extension_resource.h"
 #include "chrome/common/notification_service.h"
-#include "chrome/common/pref_names.h"
 #include "net/base/net_util.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "skia/ext/skia_utils_mac.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util_mac.h"
+#include "ui/base/resource/resource_bundle.h"
 
 namespace {
 
@@ -140,8 +139,14 @@ std::wstring LocationBarViewMac::GetInputString() const {
 }
 
 void LocationBarViewMac::SetSuggestedText(const string16& text) {
-  edit_view_->SetSuggestText(
-      edit_view_->model()->UseVerbatimInstant() ? string16() : text);
+  // This method is internally invoked to reset suggest text, so we only do
+  // anything if the text isn't empty.
+  // TODO: if we keep autocomplete, make it so this isn't invoked with empty
+  // text.
+  if (!text.empty()) {
+    edit_view_->model()->FinalizeInstantQuery(edit_view_->GetText(), text,
+                                              false);
+  }
 }
 
 WindowOpenDisposition LocationBarViewMac::GetWindowOpenDisposition() const {
@@ -249,17 +254,21 @@ void LocationBarViewMac::OnAutocompleteWillAccept() {
   update_instant_ = false;
 }
 
-bool LocationBarViewMac::OnCommitSuggestedText(const std::wstring& typed_text) {
-  return edit_view_->CommitSuggestText();
+bool LocationBarViewMac::OnCommitSuggestedText(bool skip_inline_autocomplete) {
+  if (!browser_->instant())
+    return false;
+
+  const string16 suggestion = edit_view_->GetInstantSuggestion();
+  if (suggestion.empty())
+    return false;
+
+  edit_view_->model()->FinalizeInstantQuery(
+      edit_view_->GetText(), suggestion, skip_inline_autocomplete);
+  return true;
 }
 
 bool LocationBarViewMac::AcceptCurrentInstantPreview() {
   return InstantController::CommitIfCurrent(browser_->instant());
-}
-
-void LocationBarViewMac::OnSetSuggestedSearchText(
-    const string16& suggested_text) {
-  SetSuggestedText(suggested_text);
 }
 
 void LocationBarViewMac::OnPopupBoundsChanged(const gfx::Rect& bounds) {
@@ -323,17 +332,17 @@ void LocationBarViewMac::OnChanged() {
       instant->Update
           (browser_->GetSelectedTabContentsWrapper(),
            edit_view_->model()->CurrentMatch(),
-           WideToUTF16(edit_view_->GetText()),
+           edit_view_->GetText(),
            edit_view_->model()->UseVerbatimInstant(),
            &suggested_text);
       if (!instant->MightSupportInstant()) {
-        edit_view_->model()->FinalizeInstantQuery(std::wstring(),
-                                                  std::wstring());
+        edit_view_->model()->FinalizeInstantQuery(
+            string16(), string16(), false);
       }
     } else {
       instant->DestroyPreviewContents();
-      edit_view_->model()->FinalizeInstantQuery(std::wstring(),
-                                                std::wstring());
+      edit_view_->model()->FinalizeInstantQuery(
+          string16(), string16(), false);
     }
   }
 
@@ -363,9 +372,9 @@ SkBitmap LocationBarViewMac::GetFavIcon() const {
   return SkBitmap();
 }
 
-std::wstring LocationBarViewMac::GetTitle() const {
+string16 LocationBarViewMac::GetTitle() const {
   NOTIMPLEMENTED();
-  return std::wstring();
+  return string16();
 }
 
 void LocationBarViewMac::Revert() {
@@ -526,7 +535,7 @@ NSPoint LocationBarViewMac::GetPageInfoBubblePoint() const {
   }
 }
 
-NSImage* LocationBarViewMac::GetKeywordImage(const std::wstring& keyword) {
+NSImage* LocationBarViewMac::GetKeywordImage(const string16& keyword) {
   const TemplateURL* template_url =
       profile_->GetTemplateURLModel()->GetTemplateURLForKeyword(keyword);
   if (template_url && template_url->IsExtensionKeyword()) {
@@ -656,8 +665,8 @@ void LocationBarViewMac::Layout() {
   keyword_hint_decoration_->SetVisible(false);
 
   // Get the keyword to use for keyword-search and hinting.
-  const std::wstring keyword(edit_view_->model()->keyword());
-  std::wstring short_name;
+  const string16 keyword = edit_view_->model()->keyword();
+  string16 short_name;
   bool is_extension_keyword = false;
   if (!keyword.empty()) {
     short_name = profile_->GetTemplateURLModel()->
@@ -680,7 +689,7 @@ void LocationBarViewMac::Layout() {
     std::wstring label(toolbar_model_->GetEVCertName());
     ev_bubble_decoration_->SetFullLabel(base::SysWideToNSString(label));
   } else if (!keyword.empty() && is_keyword_hint) {
-    keyword_hint_decoration_->SetKeyword(WideToUTF16Hack(short_name),
+    keyword_hint_decoration_->SetKeyword(short_name,
                                          is_extension_keyword);
     keyword_hint_decoration_->SetVisible(true);
   }

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,6 @@
 #include "chrome/browser/clipboard_dispatcher.h"
 #include "chrome/browser/download/download_types.h"
 #include "chrome/browser/extensions/extension_message_service.h"
-#include "chrome/browser/gpu_process_host.h"
 #include "chrome/browser/host_zoom_map.h"
 #include "chrome/browser/metrics/histogram_synchronizer.h"
 #include "chrome/browser/metrics/user_metrics.h"
@@ -62,19 +61,19 @@
 #include "net/http/http_cache.h"
 #include "net/http/http_network_layer.h"
 #include "net/url_request/url_request_context.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebNotificationPresenter.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebNotificationPresenter.h"
 #include "webkit/glue/context_menu.h"
 #include "webkit/glue/webcookie.h"
 #include "webkit/glue/webkit_glue.h"
 #include "webkit/plugins/npapi/plugin_group.h"
 #include "webkit/plugins/npapi/plugin_list.h"
 #include "webkit/plugins/npapi/webplugin.h"
+#include "webkit/plugins/npapi/webplugininfo.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/plugin_selection_policy.h"
 #endif
 #if defined(OS_MACOSX)
-#include "chrome/browser/ui/cocoa/task_helpers.h"
 #include "chrome/common/font_descriptor_mac.h"
 #include "chrome/common/font_loader_mac.h"
 #endif
@@ -83,6 +82,9 @@
 #endif
 #if defined(OS_WIN)
 #include "chrome/common/child_process_host.h"
+#endif
+#if defined(USE_NSS)
+#include "chrome/browser/ui/crypto_module_password_dialog.h"
 #endif
 #if defined(USE_TCMALLOC)
 #include "chrome/browser/browser_about_handler.h"
@@ -131,7 +133,7 @@ class ContextMenuMessageDispatcher : public Task {
 // contents.
 class WriteClipboardTask : public Task {
  public:
-  explicit WriteClipboardTask(Clipboard::ObjectMap* objects)
+  explicit WriteClipboardTask(ui::Clipboard::ObjectMap* objects)
       : objects_(objects) {}
   ~WriteClipboardTask() {}
 
@@ -140,7 +142,7 @@ class WriteClipboardTask : public Task {
   }
 
  private:
-  scoped_ptr<Clipboard::ObjectMap> objects_;
+  scoped_ptr<ui::Clipboard::ObjectMap> objects_;
 };
 
 void RenderParamsFromPrintSettings(const printing::PrintSettings& settings,
@@ -162,41 +164,65 @@ void RenderParamsFromPrintSettings(const printing::PrintSettings& settings,
   // Always use an invalid cookie.
   params->document_cookie = 0;
   params->selection_only = settings.selection_only;
+  params->supports_alpha_blend = settings.supports_alpha_blend();
 }
 
-class ClearCacheCompletion : public net::CompletionCallback {
+// Common functionality for converting a sync renderer message to a callback
+// function in the browser. Derive from this, create it on the heap when
+// issuing your callback. When done, write your reply parameters into
+// reply_msg(), and then call SendReplyAndDeleteThis().
+class RenderMessageCompletionCallback {
  public:
-  ClearCacheCompletion(IPC::Message* reply_msg,
-                       RenderMessageFilter* filter)
-      : reply_msg_(reply_msg),
-        filter_(filter) {
+  RenderMessageCompletionCallback(RenderMessageFilter* filter,
+                                  IPC::Message* reply_msg)
+      : filter_(filter),
+        reply_msg_(reply_msg) {
   }
 
-  virtual void RunWithParams(const Tuple1<int>& params) {
-    ViewHostMsg_ClearCache::WriteReplyParams(reply_msg_, params.a);
+  virtual ~RenderMessageCompletionCallback() {
+  }
+
+  RenderMessageFilter* filter() { return filter_.get(); }
+  IPC::Message* reply_msg() { return reply_msg_; }
+
+  void SendReplyAndDeleteThis() {
     filter_->Send(reply_msg_);
     delete this;
   }
 
  private:
-  IPC::Message* reply_msg_;
   scoped_refptr<RenderMessageFilter> filter_;
+  IPC::Message* reply_msg_;
 };
 
-class OpenChannelToPluginCallback : public PluginProcessHost::Client {
+class ClearCacheCompletion : public RenderMessageCompletionCallback,
+                             public net::CompletionCallback {
  public:
-  OpenChannelToPluginCallback(RenderMessageFilter* filter,
-                              IPC::Message* reply_msg)
-      : filter_(filter),
-        reply_msg_(reply_msg) {
+  ClearCacheCompletion(RenderMessageFilter* filter,
+                       IPC::Message* reply_msg)
+      : RenderMessageCompletionCallback(filter, reply_msg) {
+  }
+
+  virtual void RunWithParams(const Tuple1<int>& params) {
+    ViewHostMsg_ClearCache::WriteReplyParams(reply_msg(), params.a);
+    SendReplyAndDeleteThis();
+  }
+};
+
+class OpenChannelToNpapiPluginCallback : public RenderMessageCompletionCallback,
+                                         public PluginProcessHost::Client {
+ public:
+  OpenChannelToNpapiPluginCallback(RenderMessageFilter* filter,
+                                   IPC::Message* reply_msg)
+      : RenderMessageCompletionCallback(filter, reply_msg) {
   }
 
   virtual int ID() {
-    return filter_->render_process_id();
+    return filter()->render_process_id();
   }
 
   virtual bool OffTheRecord() {
-    return filter_->off_the_record();
+    return filter()->off_the_record();
   }
 
   virtual void SetPluginInfo(const webkit::npapi::WebPluginInfo& info) {
@@ -204,25 +230,43 @@ class OpenChannelToPluginCallback : public PluginProcessHost::Client {
   }
 
   virtual void OnChannelOpened(const IPC::ChannelHandle& handle) {
-    WriteReply(handle);
+    WriteReplyAndDeleteThis(handle);
   }
 
   virtual void OnError() {
-    WriteReply(IPC::ChannelHandle());
+    WriteReplyAndDeleteThis(IPC::ChannelHandle());
   }
 
  private:
-  void WriteReply(const IPC::ChannelHandle& handle) {
-    ViewHostMsg_OpenChannelToPlugin::WriteReplyParams(reply_msg_,
-                                                      handle,
-                                                      info_);
-    filter_->Send(reply_msg_);
-    delete this;
+  void WriteReplyAndDeleteThis(const IPC::ChannelHandle& handle) {
+    ViewHostMsg_OpenChannelToPlugin::WriteReplyParams(reply_msg(),
+                                                      handle, info_);
+    SendReplyAndDeleteThis();
   }
 
-  scoped_refptr<RenderMessageFilter> filter_;
-  IPC::Message* reply_msg_;
   webkit::npapi::WebPluginInfo info_;
+};
+
+class OpenChannelToPpapiPluginCallback : public RenderMessageCompletionCallback,
+                                         public PpapiPluginProcessHost::Client {
+ public:
+  OpenChannelToPpapiPluginCallback(RenderMessageFilter* filter,
+                                   IPC::Message* reply_msg)
+      : RenderMessageCompletionCallback(filter, reply_msg) {
+  }
+
+  virtual void GetChannelInfo(base::ProcessHandle* renderer_handle,
+                              int* renderer_id) {
+    *renderer_handle = filter()->peer_handle();
+    *renderer_id = filter()->render_process_id();
+  }
+
+  virtual void OnChannelOpened(base::ProcessHandle plugin_process_handle,
+                               const IPC::ChannelHandle& channel_handle) {
+    ViewHostMsg_OpenChannelToPepperPlugin::WriteReplyParams(
+        reply_msg(), plugin_process_handle, channel_handle);
+    SendReplyAndDeleteThis();
+  }
 };
 
 }  // namespace
@@ -279,6 +323,8 @@ bool RenderMessageFilter::OnMessageReceived(const IPC::Message& message,
     IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_GetRootWindowRect,
                                     OnGetRootWindowRect)
 #endif
+
+    IPC_MESSAGE_HANDLER(ViewHostMsg_GenerateRoutingID, OnGenerateRoutingID)
 
     IPC_MESSAGE_HANDLER(ViewHostMsg_CreateWindow, OnMsgCreateWindow)
     IPC_MESSAGE_HANDLER(ViewHostMsg_CreateWidget, OnMsgCreateWidget)
@@ -388,9 +434,6 @@ bool RenderMessageFilter::OnMessageReceived(const IPC::Message& message,
 #if defined(USE_TCMALLOC)
     IPC_MESSAGE_HANDLER(ViewHostMsg_RendererTcmalloc, OnRendererTcmalloc)
 #endif
-    IPC_MESSAGE_HANDLER(ViewHostMsg_EstablishGpuChannel, OnEstablishGpuChannel)
-    IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_SynchronizeGpu,
-                                    OnSynchronizeGpu)
     IPC_MESSAGE_HANDLER(ViewHostMsg_AsyncOpenFile, OnAsyncOpenFile)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP_EX()
@@ -441,13 +484,22 @@ void RenderMessageFilter::OnReceiveContextMenuMsg(const IPC::Message& msg) {
 void RenderMessageFilter::OnMsgCreateWindow(
     const ViewHostMsg_CreateWindow_Params& params,
     int* route_id, int64* cloned_session_storage_namespace_id) {
+  // If the opener is trying to create a background window but doesn't have
+  // the appropriate permission, fail the attempt.
+  if (params.window_container_type == WINDOW_CONTAINER_TYPE_BACKGROUND) {
+    ChromeURLRequestContext* context =
+        GetRequestContextForURL(params.opener_url);
+    if (!context->extension_info_map()->CheckURLAccessToExtensionPermission(
+            params.opener_url, Extension::kBackgroundPermission)) {
+      *route_id = MSG_ROUTING_NONE;
+      return;
+    }
+  }
+
   *cloned_session_storage_namespace_id =
       webkit_context_->dom_storage_context()->CloneSessionStorage(
           params.session_storage_namespace_id);
-  render_widget_helper_->CreateNewWindow(params.opener_id,
-                                         params.user_gesture,
-                                         params.window_container_type,
-                                         params.frame_name,
+  render_widget_helper_->CreateNewWindow(params,
                                          peer_handle(),
                                          route_id);
 }
@@ -458,10 +510,9 @@ void RenderMessageFilter::OnMsgCreateWidget(int opener_id,
   render_widget_helper_->CreateNewWidget(opener_id, popup_type, route_id);
 }
 
-void RenderMessageFilter::OnMsgCreateFullscreenWidget(
-    int opener_id, WebKit::WebPopupType popup_type, int* route_id) {
-  render_widget_helper_->CreateNewFullscreenWidget(
-      opener_id, popup_type, route_id);
+void RenderMessageFilter::OnMsgCreateFullscreenWidget(int opener_id,
+                                                      int* route_id) {
+  render_widget_helper_->CreateNewFullscreenWidget(opener_id, route_id);
 }
 
 void RenderMessageFilter::OnSetCookie(const IPC::Message& message,
@@ -526,7 +577,7 @@ void RenderMessageFilter::OnGetRawCookies(
   // TODO(ananta) We need to support retreiving raw cookies from external
   // hosts.
   if (!ChildProcessSecurityPolicy::GetInstance()->CanReadRawCookies(
-          render_process_id_) || context->IsExternal()) {
+          render_process_id_)) {
     ViewHostMsg_GetRawCookies::WriteReplyParams(
         reply_msg,
         std::vector<webkit_glue::WebCookie>());
@@ -555,7 +606,7 @@ void RenderMessageFilter::OnGetRawCookies(
 
 void RenderMessageFilter::OnDeleteCookie(const GURL& url,
                                          const std::string& cookie_name) {
-  URLRequestContext* context = GetRequestContextForURL(url);
+  net::URLRequestContext* context = GetRequestContextForURL(url);
   context->cookie_store()->DeleteCookie(url, cookie_name);
 }
 
@@ -563,7 +614,7 @@ void RenderMessageFilter::OnCookiesEnabled(
     const GURL& url,
     const GURL& first_party_for_cookies,
     IPC::Message* reply_msg) {
-  URLRequestContext* context = GetRequestContextForURL(url);
+  net::URLRequestContext* context = GetRequestContextForURL(url);
   CookiesEnabledCompletion* callback =
       new CookiesEnabledCompletion(reply_msg, this);
   int policy = net::OK;
@@ -645,7 +696,8 @@ void RenderMessageFilter::OnGetPluginsOnFileThread(
       NewRunnableMethod(this, &RenderMessageFilter::Send, reply_msg));
 }
 
-void RenderMessageFilter::OnGetPluginInfo(const GURL& url,
+void RenderMessageFilter::OnGetPluginInfo(int routing_id,
+                                          const GURL& url,
                                           const GURL& policy_url,
                                           const std::string& mime_type,
                                           IPC::Message* reply_msg) {
@@ -655,20 +707,20 @@ void RenderMessageFilter::OnGetPluginInfo(const GURL& url,
       BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(
           this, &RenderMessageFilter::OnGetPluginInfoOnFileThread,
-          url, policy_url, mime_type, reply_msg));
+          routing_id, url, policy_url, mime_type, reply_msg));
 }
 
 void RenderMessageFilter::OnGetPluginInfoOnFileThread(
+    int render_view_id,
     const GURL& url,
     const GURL& policy_url,
     const std::string& mime_type,
     IPC::Message* reply_msg) {
   std::string actual_mime_type;
   webkit::npapi::WebPluginInfo info;
-  bool found = plugin_service_->GetFirstAllowedPluginInfo(url,
-                                                          mime_type,
-                                                          &info,
-                                                          &actual_mime_type);
+  bool found = plugin_service_->GetFirstAllowedPluginInfo(
+      render_process_id_, render_view_id, url, mime_type, &info,
+      &actual_mime_type);
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
@@ -685,8 +737,11 @@ void RenderMessageFilter::OnGotPluginInfo(
   ContentSetting setting = CONTENT_SETTING_DEFAULT;
   webkit::npapi::WebPluginInfo info_copy = info;
   if (found) {
-    info_copy.enabled = info_copy.enabled &&
-        plugin_service_->PrivatePluginAllowedForURL(info_copy.path, policy_url);
+    // TODO(mpcomplete): The plugin service should do this check. We should
+    // not be calling the PluginList directly.
+    if (!plugin_service_->PrivatePluginAllowedForURL(
+            info_copy.path, policy_url))
+      info_copy.enabled |= webkit::npapi::WebPluginInfo::POLICY_DISABLED;
     std::string resource =
         webkit::npapi::PluginList::Singleton()->GetPluginGroupIdentifier(
             info_copy);
@@ -701,21 +756,20 @@ void RenderMessageFilter::OnGotPluginInfo(
   Send(reply_msg);
 }
 
-void RenderMessageFilter::OnOpenChannelToPlugin(const GURL& url,
+void RenderMessageFilter::OnOpenChannelToPlugin(int routing_id,
+                                                const GURL& url,
                                                 const std::string& mime_type,
                                                 IPC::Message* reply_msg) {
-  plugin_service_->OpenChannelToPlugin(
-      url,
-      mime_type,
-      new OpenChannelToPluginCallback(this, reply_msg));
+  plugin_service_->OpenChannelToNpapiPlugin(
+      render_process_id_, routing_id, url, mime_type,
+      new OpenChannelToNpapiPluginCallback(this, reply_msg));
 }
 
 void RenderMessageFilter::OnOpenChannelToPepperPlugin(
     const FilePath& path,
     IPC::Message* reply_msg) {
-  PpapiPluginProcessHost* host = new PpapiPluginProcessHost(this);
-  host->Init(path, reply_msg);
-  ppapi_plugin_hosts_.push_back(linked_ptr<PpapiPluginProcessHost>(host));
+  plugin_service_->OpenChannelToPpapiPlugin(
+      path, new OpenChannelToPpapiPluginCallback(this, reply_msg));
 }
 
 void RenderMessageFilter::OnLaunchNaCl(
@@ -724,10 +778,14 @@ void RenderMessageFilter::OnLaunchNaCl(
   host->Launch(this, channel_descriptor, reply_msg);
 }
 
+void RenderMessageFilter::OnGenerateRoutingID(int* route_id) {
+  *route_id = render_widget_helper_->GetNextRoutingID();
+}
+
 void RenderMessageFilter::OnDownloadUrl(const IPC::Message& message,
                                         const GURL& url,
                                         const GURL& referrer) {
-  URLRequestContext* context = request_context_->GetURLRequestContext();
+  net::URLRequestContext* context = request_context_->GetURLRequestContext();
 
   // Don't show "Save As" UI.
   bool prompt_for_save_location = false;
@@ -741,7 +799,7 @@ void RenderMessageFilter::OnDownloadUrl(const IPC::Message& message,
 }
 
 void RenderMessageFilter::OnClipboardWriteObjectsSync(
-    const Clipboard::ObjectMap& objects,
+    const ui::Clipboard::ObjectMap& objects,
     base::SharedMemoryHandle bitmap_handle) {
   DCHECK(base::SharedMemory::IsHandleValid(bitmap_handle))
       << "Bad bitmap handle";
@@ -749,11 +807,12 @@ void RenderMessageFilter::OnClipboardWriteObjectsSync(
   // on the UI thread. We'll copy the relevant data and get a handle to any
   // shared memory so it doesn't go away when we resume the renderer, and post
   // a task to perform the write on the UI thread.
-  Clipboard::ObjectMap* long_living_objects = new Clipboard::ObjectMap(objects);
+  ui::Clipboard::ObjectMap* long_living_objects =
+      new ui::Clipboard::ObjectMap(objects);
 
   // Splice the shared memory handle into the clipboard data.
-  Clipboard::ReplaceSharedMemHandle(long_living_objects, bitmap_handle,
-                                    peer_handle());
+  ui::Clipboard::ReplaceSharedMemHandle(long_living_objects, bitmap_handle,
+                                        peer_handle());
 
   BrowserThread::PostTask(
       BrowserThread::UI,
@@ -762,15 +821,16 @@ void RenderMessageFilter::OnClipboardWriteObjectsSync(
 }
 
 void RenderMessageFilter::OnClipboardWriteObjectsAsync(
-    const Clipboard::ObjectMap& objects) {
+    const ui::Clipboard::ObjectMap& objects) {
   // We cannot write directly from the IO thread, and cannot service the IPC
   // on the UI thread. We'll copy the relevant data and post a task to preform
   // the write on the UI thread.
-  Clipboard::ObjectMap* long_living_objects = new Clipboard::ObjectMap(objects);
+  ui::Clipboard::ObjectMap* long_living_objects =
+      new ui::Clipboard::ObjectMap(objects);
 
   // This async message doesn't support shared-memory based bitmaps; they must
   // be removed otherwise we might dereference a rubbish pointer.
-  long_living_objects->erase(Clipboard::CBF_SMBITMAP);
+  long_living_objects->erase(ui::Clipboard::CBF_SMBITMAP);
 
   BrowserThread::PostTask(
       BrowserThread::UI,
@@ -791,14 +851,14 @@ void RenderMessageFilter::OnClipboardWriteObjectsAsync(
 // functions.
 
 void RenderMessageFilter::OnClipboardIsFormatAvailable(
-    Clipboard::FormatType format, Clipboard::Buffer buffer,
+    ui::Clipboard::FormatType format, ui::Clipboard::Buffer buffer,
     IPC::Message* reply) {
   const bool result = GetClipboard()->IsFormatAvailable(format, buffer);
   ViewHostMsg_ClipboardIsFormatAvailable::WriteReplyParams(reply, result);
   Send(reply);
 }
 
-void RenderMessageFilter::OnClipboardReadText(Clipboard::Buffer buffer,
+void RenderMessageFilter::OnClipboardReadText(ui::Clipboard::Buffer buffer,
                                               IPC::Message* reply) {
   string16 result;
   GetClipboard()->ReadText(buffer, &result);
@@ -806,7 +866,7 @@ void RenderMessageFilter::OnClipboardReadText(Clipboard::Buffer buffer,
   Send(reply);
 }
 
-void RenderMessageFilter::OnClipboardReadAsciiText(Clipboard::Buffer buffer,
+void RenderMessageFilter::OnClipboardReadAsciiText(ui::Clipboard::Buffer buffer,
                                                    IPC::Message* reply) {
   std::string result;
   GetClipboard()->ReadAsciiText(buffer, &result);
@@ -814,7 +874,7 @@ void RenderMessageFilter::OnClipboardReadAsciiText(Clipboard::Buffer buffer,
   Send(reply);
 }
 
-void RenderMessageFilter::OnClipboardReadHTML(Clipboard::Buffer buffer,
+void RenderMessageFilter::OnClipboardReadHTML(ui::Clipboard::Buffer buffer,
                                               IPC::Message* reply) {
   std::string src_url_str;
   string16 markup;
@@ -826,7 +886,7 @@ void RenderMessageFilter::OnClipboardReadHTML(Clipboard::Buffer buffer,
 }
 
 void RenderMessageFilter::OnClipboardReadAvailableTypes(
-    Clipboard::Buffer buffer, IPC::Message* reply) {
+    ui::Clipboard::Buffer buffer, IPC::Message* reply) {
   std::vector<string16> types;
   bool contains_filenames = false;
   bool result = ClipboardDispatcher::ReadAvailableTypes(
@@ -837,7 +897,7 @@ void RenderMessageFilter::OnClipboardReadAvailableTypes(
 }
 
 void RenderMessageFilter::OnClipboardReadData(
-    Clipboard::Buffer buffer, const string16& type, IPC::Message* reply) {
+    ui::Clipboard::Buffer buffer, const string16& type, IPC::Message* reply) {
   string16 data;
   string16 metadata;
   bool result = ClipboardDispatcher::ReadData(buffer, type, &data, &metadata);
@@ -847,7 +907,7 @@ void RenderMessageFilter::OnClipboardReadData(
 }
 
 void RenderMessageFilter::OnClipboardReadFilenames(
-    Clipboard::Buffer buffer, IPC::Message* reply) {
+    ui::Clipboard::Buffer buffer, IPC::Message* reply) {
   std::vector<string16> filenames;
   bool result = ClipboardDispatcher::ReadFilenames(buffer, &filenames);
   ViewHostMsg_ClipboardReadFilenames::WriteReplyParams(
@@ -959,14 +1019,10 @@ void RenderMessageFilter::OnDidZoomURL(const IPC::Message& message,
                                        double zoom_level,
                                        bool remember,
                                        const GURL& url) {
-  Task* task = NewRunnableMethod(this,
-      &RenderMessageFilter::UpdateHostZoomLevelsOnUIThread, zoom_level,
-      remember, url, render_process_id_, message.routing_id());
-#if defined(OS_MACOSX)
-  cocoa_utils::PostTaskInEventTrackingRunLoopMode(FROM_HERE, task);
-#else
-  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE, task);
-#endif
+  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+      NewRunnableMethod(this,
+          &RenderMessageFilter::UpdateHostZoomLevelsOnUIThread,
+          zoom_level, remember, url, render_process_id_, message.routing_id()));
 }
 
 void RenderMessageFilter::UpdateHostZoomLevelsOnUIThread(
@@ -1109,10 +1165,10 @@ void RenderMessageFilter::OnScriptedPrintReply(
 }
 
 // static
-Clipboard* RenderMessageFilter::GetClipboard() {
+ui::Clipboard* RenderMessageFilter::GetClipboard() {
   // We have a static instance of the clipboard service for use by all message
   // filters.  This instance lives for the life of the browser processes.
-  static Clipboard* clipboard = new Clipboard;
+  static ui::Clipboard* clipboard = new ui::Clipboard;
 
   return clipboard;
 }
@@ -1277,7 +1333,7 @@ void RenderMessageFilter::OnClearCache(IPC::Message* reply_msg) {
         http_transaction_factory()->GetCache()->GetCurrentBackend();
     if (backend) {
       ClearCacheCompletion* callback =
-          new ClearCacheCompletion(reply_msg, this);
+          new ClearCacheCompletion(this, reply_msg);
       rv = backend->DoomAllEntries(callback);
       if (rv == net::ERR_IO_PENDING) {
         // The callback will send the reply.
@@ -1375,6 +1431,13 @@ void RenderMessageFilter::OnKeygenOnWorkerThread(
   // Generate a signed public key and challenge, then send it back.
   net::KeygenHandler keygen_handler(key_size_in_bits, challenge_string, url);
 
+#if defined(USE_NSS)
+  // Attach a password delegate so we can authenticate.
+  keygen_handler.set_crypto_module_password_delegate(
+      browser::NewCryptoModuleBlockingDialogDelegate(
+          browser::kCryptoModulePasswordKeygen, url.host()));
+#endif  // defined(USE_NSS)
+
   ViewHostMsg_Keygen::WriteReplyParams(
       reply_msg,
       keygen_handler.GenKeyAndSignChallenge());
@@ -1392,19 +1455,6 @@ void RenderMessageFilter::OnRendererTcmalloc(base::ProcessId pid,
       NewRunnableFunction(AboutTcmallocRendererCallback, pid, output));
 }
 #endif
-
-void RenderMessageFilter::OnEstablishGpuChannel() {
-  GpuProcessHost::Get()->EstablishGpuChannel(render_process_id_, this);
-}
-
-void RenderMessageFilter::OnSynchronizeGpu(IPC::Message* reply) {
-  // We handle this message (and the other GPU process messages) here
-  // rather than handing the message to the GpuProcessHost for
-  // dispatch so that we can use the DELAY_REPLY macro to synthesize
-  // the reply message, and also send down a "this" pointer so that
-  // the GPU process host can send the reply later.
-  GpuProcessHost::Get()->Synchronize(reply, this);
-}
 
 void RenderMessageFilter::OnGetExtensionMessageBundle(
     const std::string& extension_id, IPC::Message* reply_msg) {
@@ -1527,12 +1577,10 @@ void SetCookieCompletion::RunWithParams(const Tuple1<int>& params) {
     context_->cookie_store()->SetCookieWithOptions(url_, cookie_line_,
                                                    options);
   }
-  if (!context_->IsExternal()) {
-    CallRenderViewHostContentSettingsDelegate(
-        render_process_id_, render_view_id_,
-        &RenderViewHostDelegate::ContentSettings::OnCookieChanged,
-        url_, cookie_line_, options, blocked_by_policy);
-  }
+  CallRenderViewHostContentSettingsDelegate(
+      render_process_id_, render_view_id_,
+      &RenderViewHostDelegate::ContentSettings::OnCookieChanged,
+      url_, cookie_line_, options, blocked_by_policy);
   delete this;
 }
 
@@ -1563,17 +1611,15 @@ void GetCookiesCompletion::RunWithParams(const Tuple1<int>& params) {
       cookies = cookie_store()->GetCookies(url_);
     ViewHostMsg_GetCookies::WriteReplyParams(reply_msg_, cookies);
     filter_->Send(reply_msg_);
-    if (!context_->IsExternal()) {
-      net::CookieMonster* cookie_monster =
-          context_->cookie_store()->GetCookieMonster();
-      net::CookieList cookie_list =
-          cookie_monster->GetAllCookiesForURLWithOptions(
-              url_, net::CookieOptions());
-      CallRenderViewHostContentSettingsDelegate(
-          render_process_id_, render_view_id_,
-          &RenderViewHostDelegate::ContentSettings::OnCookiesRead,
-          url_, cookie_list, result != net::OK);
-    }
+    net::CookieMonster* cookie_monster =
+        context_->cookie_store()->GetCookieMonster();
+    net::CookieList cookie_list =
+        cookie_monster->GetAllCookiesForURLWithOptions(
+            url_, net::CookieOptions());
+    CallRenderViewHostContentSettingsDelegate(
+        render_process_id_, render_view_id_,
+        &RenderViewHostDelegate::ContentSettings::OnCookiesRead,
+        url_, cookie_list, result != net::OK);
     delete this;
   } else {
     // Ignore the policy result.  We only waited on the policy result so that

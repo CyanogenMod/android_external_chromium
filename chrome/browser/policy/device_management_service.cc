@@ -1,10 +1,14 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/policy/device_management_service.h"
 
 #include "chrome/browser/browser_thread.h"
+#include "chrome/browser/io_thread.h"
+#include "chrome/browser/net/chrome_net_log.h"
+#include "chrome/browser/policy/device_management_backend_impl.h"
+#include "chrome/common/net/url_request_context_getter.h"
 #include "net/base/cookie_monster.h"
 #include "net/base/host_resolver.h"
 #include "net/base/load_flags.h"
@@ -14,10 +18,6 @@
 #include "net/proxy/proxy_service.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_status.h"
-#include "chrome/browser/io_thread.h"
-#include "chrome/browser/net/chrome_net_log.h"
-#include "chrome/browser/policy/device_management_backend_impl.h"
-#include "chrome/common/net/url_request_context_getter.h"
 #include "webkit/glue/webkit_glue.h"
 
 namespace policy {
@@ -27,18 +27,18 @@ namespace {
 // Custom request context implementation that allows to override the user agent,
 // amongst others. Wraps a baseline request context from which we reuse the
 // networking components.
-class DeviceManagementRequestContext : public URLRequestContext {
+class DeviceManagementRequestContext : public net::URLRequestContext {
  public:
-  explicit DeviceManagementRequestContext(URLRequestContext* base_context);
+  explicit DeviceManagementRequestContext(net::URLRequestContext* base_context);
   virtual ~DeviceManagementRequestContext();
 
  private:
-  // Overriden from URLRequestContext.
+  // Overridden from net::URLRequestContext:
   virtual const std::string& GetUserAgent(const GURL& url) const;
 };
 
 DeviceManagementRequestContext::DeviceManagementRequestContext(
-    URLRequestContext* base_context) {
+    net::URLRequestContext* base_context) {
   // Share resolver, proxy service and ssl bits with the baseline context. This
   // is important so we don't make redundant requests (e.g. when resolving proxy
   // auto configuration).
@@ -48,8 +48,9 @@ DeviceManagementRequestContext::DeviceManagementRequestContext(
   ssl_config_service_ = base_context->ssl_config_service();
 
   // Share the http session.
-  http_transaction_factory_ = net::HttpNetworkLayer::CreateFactory(
-      base_context->http_transaction_factory()->GetSession());
+  http_transaction_factory_ =
+      new net::HttpNetworkLayer(
+          base_context->http_transaction_factory()->GetSession());
 
   // No cookies, please.
   cookie_store_ = new net::CookieMonster(NULL, NULL);
@@ -76,17 +77,17 @@ class DeviceManagementRequestContextGetter : public URLRequestContextGetter {
       URLRequestContextGetter* base_context_getter)
       : base_context_getter_(base_context_getter) {}
 
-  // URLRequestContextGetter overrides.
-  virtual URLRequestContext* GetURLRequestContext();
+  // Overridden from URLRequestContextGetter:
+  virtual net::URLRequestContext* GetURLRequestContext();
   virtual scoped_refptr<base::MessageLoopProxy> GetIOMessageLoopProxy() const;
 
  private:
-  scoped_refptr<URLRequestContext> context_;
+  scoped_refptr<net::URLRequestContext> context_;
   scoped_refptr<URLRequestContextGetter> base_context_getter_;
 };
 
 
-URLRequestContext*
+net::URLRequestContext*
 DeviceManagementRequestContextGetter::GetURLRequestContext() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   if (!context_) {
@@ -133,6 +134,7 @@ void DeviceManagementService::Shutdown() {
     delete job->first;
     queued_jobs_.push_back(job->second);
   }
+  pending_jobs_.clear();
 }
 
 DeviceManagementService::DeviceManagementService(
@@ -154,9 +156,14 @@ void DeviceManagementService::RemoveJob(DeviceManagementJob* job) {
     if (entry->second == job) {
       delete entry->first;
       pending_jobs_.erase(entry);
-      break;
+      return;
     }
   }
+
+  const JobQueue::iterator elem =
+      std::find(queued_jobs_.begin(), queued_jobs_.end(), job);
+  if (elem != queued_jobs_.end())
+    queued_jobs_.erase(elem);
 }
 
 void DeviceManagementService::StartJob(DeviceManagementJob* job) {
@@ -174,7 +181,7 @@ void DeviceManagementService::StartJob(DeviceManagementJob* job) {
 void DeviceManagementService::OnURLFetchComplete(
     const URLFetcher* source,
     const GURL& url,
-    const URLRequestStatus& status,
+    const net::URLRequestStatus& status,
     int response_code,
     const ResponseCookies& cookies,
     const std::string& data) {

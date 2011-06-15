@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,7 +50,7 @@ class ProxyConfigServiceImpl
   // (GetLatestProxyConfig, AddObserver, RemoveObserver).
   //
   // From the UI thread, it is accessed via
-  // DOMUI::GetProfile::GetChromeOSProxyConfigServiceImpl to allow user to read
+  // WebUI::GetProfile::GetChromeOSProxyConfigServiceImpl to allow user to read
   // or modify the proxy configuration via UIGetProxyConfig or
   // UISetProxyConfigTo* respectively.
   // The new modified proxy config is posted to the IO thread through
@@ -115,6 +115,15 @@ class ProxyConfigServiceImpl
 
     // Converts |this| to net::ProxyConfig.
     void ToNetProxyConfig(net::ProxyConfig* net_config);
+
+    // Returns true if proxy config can be written by user.
+    // If mode is MODE_PROXY_PER_SCHEME, |scheme| is one of "http", "https",
+    // "ftp" or "socks"; otherwise, it should be empty or will be ignored.
+    bool CanBeWrittenByUser(bool user_is_owner, const std::string& scheme);
+
+    // Map |scheme| (one of "http", "https", "ftp" or "socks") to the correct
+    // ManualProxy.  Returns NULL if scheme is invalid.
+    ManualProxy* MapSchemeToProxy(const std::string& scheme);
 
     // Serializes config into a DictionaryValue and then into std::string
     // persisted as property on device.
@@ -184,6 +193,7 @@ class ProxyConfigServiceImpl
   bool UISetProxyConfigToAutoDetect();
   bool UISetProxyConfigToPACScript(const GURL& pac_url);
   bool UISetProxyConfigToSingleProxy(const net::ProxyServer& server);
+  // |scheme| is one of "http", "https", "ftp" or "socks".
   bool UISetProxyConfigToProxyPerScheme(const std::string& scheme,
                                         const net::ProxyServer& server);
   // Only valid for MODE_SINGLE_PROXY or MODE_PROXY_PER_SCHEME.

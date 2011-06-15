@@ -7,38 +7,198 @@
 #include <set>
 #include <vector>
 
+#include "base/base64.h"
+#include "base/values.h"
+#include "chrome/browser/sync/protocol/proto_enum_conversions.h"
+
 using std::set;
 using std::vector;
 
 namespace browser_sync {
 namespace sessions {
 
+TypePayloadMap MakeTypePayloadMapFromBitSet(
+    const syncable::ModelTypeBitSet& types,
+    const std::string& payload) {
+  TypePayloadMap types_with_payloads;
+  for (size_t i = syncable::FIRST_REAL_MODEL_TYPE;
+       i < types.size(); ++i) {
+    if (types[i]) {
+      types_with_payloads[syncable::ModelTypeFromInt(i)] = payload;
+    }
+  }
+  return types_with_payloads;
+}
+
+TypePayloadMap MakeTypePayloadMapFromRoutingInfo(
+    const ModelSafeRoutingInfo& routes,
+    const std::string& payload) {
+  TypePayloadMap types_with_payloads;
+  for (ModelSafeRoutingInfo::const_iterator i = routes.begin();
+       i != routes.end(); ++i) {
+    types_with_payloads[i->first] = payload;
+  }
+  return types_with_payloads;
+}
+
+DictionaryValue* TypePayloadMapToValue(const TypePayloadMap& type_payloads) {
+  DictionaryValue* value = new DictionaryValue();
+  for (TypePayloadMap::const_iterator it = type_payloads.begin();
+       it != type_payloads.end(); ++it) {
+    value->SetString(syncable::ModelTypeToString(it->first), it->second);
+  }
+  return value;
+}
+
+void CoalescePayloads(TypePayloadMap* original,
+                      const TypePayloadMap& update) {
+  for (TypePayloadMap::const_iterator i = update.begin();
+       i != update.end(); ++i) {
+    if (original->count(i->first) == 0) {
+      // If this datatype isn't already in our map, add it with whatever payload
+      // it has.
+      (*original)[i->first] = i->second;
+    } else if (i->second.length() > 0) {
+      // If this datatype is already in our map, we only overwrite the payload
+      // if the new one is non-empty.
+      (*original)[i->first] = i->second;
+    }
+  }
+}
+
+SyncSourceInfo::SyncSourceInfo()
+    : updates_source(sync_pb::GetUpdatesCallerInfo::UNKNOWN) {}
+
+SyncSourceInfo::SyncSourceInfo(
+    const sync_pb::GetUpdatesCallerInfo::GetUpdatesSource& u,
+    const TypePayloadMap& t)
+    : updates_source(u), types(t) {}
+
+SyncSourceInfo::~SyncSourceInfo() {}
+
+DictionaryValue* SyncSourceInfo::ToValue() const {
+  DictionaryValue* value = new DictionaryValue();
+  value->SetString("updatesSource",
+                   GetUpdatesSourceString(updates_source));
+  value->Set("types", TypePayloadMapToValue(types));
+  return value;
+}
+
+SyncerStatus::SyncerStatus()
+    : invalid_store(false),
+      syncer_stuck(false),
+      syncing(false),
+      num_successful_commits(0),
+      num_successful_bookmark_commits(0),
+      num_updates_downloaded_total(0),
+      num_tombstone_updates_downloaded_total(0) {
+}
+
+DictionaryValue* SyncerStatus::ToValue() const {
+  DictionaryValue* value = new DictionaryValue();
+  value->SetBoolean("invalidStore", invalid_store);
+  value->SetBoolean("syncerStuck", syncer_stuck);
+  value->SetBoolean("syncing", syncing);
+  value->SetInteger("numSuccessfulCommits", num_successful_commits);
+  value->SetInteger("numSuccessfulBookmarkCommits",
+                num_successful_bookmark_commits);
+  value->SetInteger("numUpdatesDownloadedTotal",
+                num_updates_downloaded_total);
+  value->SetInteger("numTombstoneUpdatesDownloadedTotal",
+                num_tombstone_updates_downloaded_total);
+  return value;
+}
+
+DictionaryValue* DownloadProgressMarkersToValue(
+    const std::string
+        (&download_progress_markers)[syncable::MODEL_TYPE_COUNT]) {
+  DictionaryValue* value = new DictionaryValue();
+  for (int i = syncable::FIRST_REAL_MODEL_TYPE;
+       i < syncable::MODEL_TYPE_COUNT; ++i) {
+    // TODO(akalin): Unpack the value into a protobuf.
+    std::string base64_marker;
+    bool encoded =
+        base::Base64Encode(download_progress_markers[i], &base64_marker);
+    DCHECK(encoded);
+    value->SetString(
+        syncable::ModelTypeToString(syncable::ModelTypeFromInt(i)),
+        base64_marker);
+  }
+  return value;
+}
+
+ErrorCounters::ErrorCounters()
+    : num_conflicting_commits(0),
+      consecutive_transient_error_commits(0),
+      consecutive_errors(0) {
+}
+
+DictionaryValue* ErrorCounters::ToValue() const {
+  DictionaryValue* value = new DictionaryValue();
+  value->SetInteger("numConflictingCommits", num_conflicting_commits);
+  value->SetInteger("consecutiveTransientErrorCommits",
+                consecutive_transient_error_commits);
+  value->SetInteger("consecutiveErrors", consecutive_errors);
+  return value;
+}
+
 SyncSessionSnapshot::SyncSessionSnapshot(
     const SyncerStatus& syncer_status,
     const ErrorCounters& errors,
     int64 num_server_changes_remaining,
-    int64 max_local_timestamp,
     bool is_share_usable,
     const syncable::ModelTypeBitSet& initial_sync_ended,
+    const std::string
+        (&download_progress_markers)[syncable::MODEL_TYPE_COUNT],
     bool more_to_sync,
     bool is_silenced,
     int64 unsynced_count,
     int num_conflicting_updates,
-    bool did_commit_items)
+    bool did_commit_items,
+    const SyncSourceInfo& source)
     : syncer_status(syncer_status),
       errors(errors),
       num_server_changes_remaining(num_server_changes_remaining),
-      max_local_timestamp(max_local_timestamp),
       is_share_usable(is_share_usable),
       initial_sync_ended(initial_sync_ended),
+      download_progress_markers(),
       has_more_to_sync(more_to_sync),
       is_silenced(is_silenced),
       unsynced_count(unsynced_count),
       num_conflicting_updates(num_conflicting_updates),
-      did_commit_items(did_commit_items) {
+      did_commit_items(did_commit_items),
+      source(source) {
+  for (int i = syncable::FIRST_REAL_MODEL_TYPE;
+       i < syncable::MODEL_TYPE_COUNT; ++i) {
+    const_cast<std::string&>(this->download_progress_markers[i]).assign(
+        download_progress_markers[i]);
+  }
 }
 
 SyncSessionSnapshot::~SyncSessionSnapshot() {}
+
+DictionaryValue* SyncSessionSnapshot::ToValue() const {
+  DictionaryValue* value = new DictionaryValue();
+  value->Set("syncerStatus", syncer_status.ToValue());
+  value->Set("errors", errors.ToValue());
+  // We don't care too much if we lose precision here.
+  value->SetInteger("numServerChangesRemaining",
+                    static_cast<int>(num_server_changes_remaining));
+  value->SetBoolean("isShareUsable", is_share_usable);
+  value->Set("initialSyncEnded",
+             syncable::ModelTypeBitSetToValue(initial_sync_ended));
+  value->Set("downloadProgressMarkers",
+             DownloadProgressMarkersToValue(download_progress_markers));
+  value->SetBoolean("hasMoreToSync", has_more_to_sync);
+  value->SetBoolean("isSilenced", is_silenced);
+  // We don't care too much if we lose precision here, also.
+  value->SetInteger("unsyncedCount",
+                    static_cast<int>(unsynced_count));
+  value->SetInteger("numConflictingUpdates", num_conflicting_updates);
+  value->SetBoolean("didCommitItems", did_commit_items);
+  value->Set("source", source.ToValue());
+  return value;
+}
 
 ConflictProgress::ConflictProgress(bool* dirty_flag) : dirty_(dirty_flag) {}
 
@@ -236,13 +396,6 @@ PerModelSafeGroupState::PerModelSafeGroupState(bool* dirty_flag)
 }
 
 PerModelSafeGroupState::~PerModelSafeGroupState() {
-}
-
-PerModelTypeState::PerModelTypeState(bool* dirty_flag)
-    : current_download_timestamp(dirty_flag, 0) {
-}
-
-PerModelTypeState::~PerModelTypeState() {
 }
 
 }  // namespace sessions

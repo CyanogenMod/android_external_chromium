@@ -1,16 +1,15 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/wrench_menu.h"
+#include "chrome/browser/ui/views/wrench_menu.h"
 
 #include <cmath>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
+#include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
@@ -18,13 +17,15 @@
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
-#include "gfx/canvas.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/skia_util.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkPaint.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/skia_util.h"
 #include "views/background.h"
 #include "views/controls/button/image_button.h"
 #include "views/controls/button/menu_button.h"
@@ -36,7 +37,7 @@
 #include "views/controls/menu/submenu_view.h"
 #include "views/window/window.h"
 
-using menus::MenuModel;
+using ui::MenuModel;
 using views::CustomButton;
 using views::ImageButton;
 using views::Label;
@@ -234,23 +235,20 @@ class ScheduleAllView : public views::View {
     if (!IsVisible())
       return;
 
-    if (GetParent()) {
-      GetParent()->SchedulePaint(GetBounds(APPLY_MIRRORING_TRANSFORMATION),
-                                 urgent);
-    }
+    if (parent())
+      parent()->SchedulePaint(GetMirroredBounds(), urgent);
   }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ScheduleAllView);
 };
 
-std::wstring GetAccessibleNameForWrenchMenuItem(
+string16 GetAccessibleNameForWrenchMenuItem(
       MenuModel* model, int item_index, int accessible_string_id) {
-  std::wstring accessible_name =
-      UTF16ToWide(l10n_util::GetStringUTF16(accessible_string_id));
-  std::wstring accelerator_text;
+  string16 accessible_name = l10n_util::GetStringUTF16(accessible_string_id);
+  string16 accelerator_text;
 
-  menus::Accelerator menu_accelerator;
+  ui::Accelerator menu_accelerator;
   if (model->GetAcceleratorAt(item_index, &menu_accelerator)) {
     accelerator_text =
         views::Accelerator(menu_accelerator.GetKeyCode(),
@@ -344,13 +342,13 @@ class WrenchMenu::CutCopyPasteView : public WrenchMenuView {
   gfx::Size GetPreferredSize() {
     // Returned height doesn't matter as MenuItemView forces everything to the
     // height of the menuitemview.
-    return gfx::Size(GetMaxChildViewPreferredWidth() * GetChildViewCount(), 0);
+    return gfx::Size(GetMaxChildViewPreferredWidth() * child_count(), 0);
   }
 
   void Layout() {
     // All buttons are given the same width.
     int width = GetMaxChildViewPreferredWidth();
-    for (int i = 0; i < GetChildViewCount(); ++i)
+    for (int i = 0; i < child_count(); ++i)
       GetChildViewAt(i)->SetBounds(i * width, 0, width, height());
   }
 
@@ -363,7 +361,7 @@ class WrenchMenu::CutCopyPasteView : public WrenchMenuView {
   // Returns the max preferred width of all the children.
   int GetMaxChildViewPreferredWidth() {
     int width = 0;
-    for (int i = 0; i < GetChildViewCount(); ++i)
+    for (int i = 0; i < child_count(); ++i)
       width = std::max(width, GetChildViewAt(i)->GetPreferredSize().width());
     return width;
   }
@@ -458,22 +456,22 @@ class WrenchMenu::ZoomView : public WrenchMenuView,
                                 decrement_button_->GetPreferredSize().width());
     gfx::Rect bounds(0, 0, button_width, height());
 
-    decrement_button_->SetBounds(bounds);
+    decrement_button_->SetBoundsRect(bounds);
 
     x += bounds.width();
     bounds.set_x(x);
     bounds.set_width(zoom_label_width_);
-    zoom_label_->SetBounds(bounds);
+    zoom_label_->SetBoundsRect(bounds);
 
     x += bounds.width();
     bounds.set_x(x);
     bounds.set_width(button_width);
-    increment_button_->SetBounds(bounds);
+    increment_button_->SetBoundsRect(bounds);
 
     x += bounds.width() + kZoomPadding;
     bounds.set_x(x);
     bounds.set_width(fullscreen_button_->GetPreferredSize().width());
-    fullscreen_button_->SetBounds(bounds);
+    fullscreen_button_->SetBoundsRect(bounds);
   }
 
   // ButtonListener:
@@ -569,11 +567,10 @@ WrenchMenu::WrenchMenu(Browser* browser)
       selected_index_(0) {
 }
 
-void WrenchMenu::Init(menus::MenuModel* model) {
+void WrenchMenu::Init(ui::MenuModel* model) {
   DCHECK(!root_.get());
   root_.reset(new MenuItemView(this));
-  root_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_APP)));
+  root_->SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_APP));
   root_->set_has_icons(true);  // We have checks, radios and icons, set this
                                // so we get the taller menu style.
   int next_id = 1;
@@ -589,6 +586,7 @@ void WrenchMenu::RunMenu(views::MenuButton* host) {
   gfx::Point screen_loc;
   views::View::ConvertPointToScreen(host, &screen_loc);
   gfx::Rect bounds(screen_loc, host->size());
+  UserMetrics::RecordAction(UserMetricsAction("ShowAppMenu"));
   root_->RunMenuAt(host->GetWindow()->GetNativeWindow(), host, bounds,
       base::i18n::IsRTL() ? MenuItemView::TOPLEFT : MenuItemView::TOPRIGHT,
       true);
@@ -636,7 +634,7 @@ bool WrenchMenu::GetAccelerator(int id, views::Accelerator* accelerator) {
     return false;
   }
 
-  menus::Accelerator menu_accelerator;
+  ui::Accelerator menu_accelerator;
   if (!entry.first->GetAcceleratorAt(entry.second, &menu_accelerator))
     return false;
 

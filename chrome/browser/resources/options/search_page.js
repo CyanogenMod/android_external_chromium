@@ -1,9 +1,80 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 cr.define('options', function() {
   const OptionsPage = options.OptionsPage;
+
+  /**
+   * Encapsulated handling of a search bubble.
+   * @constructor
+   */
+  function SearchBubble(text) {
+    var el = cr.doc.createElement('div');
+    SearchBubble.decorate(el);
+    el.textContent = text;
+    return el;
+  }
+
+  SearchBubble.decorate = function(el) {
+    el.__proto__ = SearchBubble.prototype;
+    el.decorate();
+  };
+
+  SearchBubble.prototype = {
+    __proto__: HTMLDivElement.prototype,
+
+    decorate: function() {
+      this.className = 'search-bubble';
+
+      // We create a timer to periodically update the position of the bubbles.
+      // While this isn't all that desirable, it's the only sure-fire way of
+      // making sure the bubbles stay in the correct location as sections
+      // may dynamically change size at any time.
+      var self = this;
+      this.intervalId = setInterval(this.updatePosition.bind(this), 250);
+    },
+
+    /**
+     * Clear the interval timer and remove the element from the page.
+     */
+    dispose: function() {
+      clearInterval(this.intervalId);
+
+      var parent = this.parentNode;
+      if (parent)
+        parent.removeChild(this);
+    },
+
+    /**
+     * Update the position of the bubble.  Called at creation time and then
+     * periodically while the bubble remains visible.
+     */
+    updatePosition: function() {
+      // This bubble is 'owned' by the next sibling.
+      var owner = this.nextSibling;
+
+      // If there isn't an offset parent, we have nothing to do.
+      if (!owner.offsetParent)
+        return;
+
+      // Position the bubble below the location of the owner.
+      var left = owner.offsetLeft + owner.offsetWidth / 2 -
+          this.offsetWidth / 2;
+      var top = owner.offsetTop + owner.offsetHeight;
+
+      // Update the position in the CSS.  Cache the last values for
+      // best performance.
+      if (left != this.lastLeft) {
+        this.style.left = left + 'px';
+        this.lastLeft = left;
+      }
+      if (top != this.lastTop) {
+        this.style.top = top + 'px';
+        this.lastTop = top;
+      }
+    }
+  }
 
   /**
    * Encapsulated handling of the search page.
@@ -36,16 +107,52 @@ cr.define('options', function() {
       searchField.setAttribute('autosave', 'org.chromium.options.search');
       searchField.setAttribute('results', '10');
       searchField.setAttribute('incremental', 'true');
+      this.searchField = searchField;
 
       // Replace the contents of the navigation tab with the search field.
       self.tab.textContent = '';
       self.tab.appendChild(searchField);
+      self.tab.onclick = self.tab.onkeypress = undefined;
 
       // Handle search events. (No need to throttle, WebKit's search field
       // will do that automatically.)
       searchField.onsearch = function(e) {
-        self.setSearchText_(this.value);
+        self.setSearchText_(SearchPage.canonicalizeQuery(this.value));
       };
+
+      // We update the history stack every time the search field blurs. This way
+      // we get a history entry for each search, roughly, but not each letter
+      // typed.
+      searchField.onblur = function(e) {
+        var query = SearchPage.canonicalizeQuery(searchField.value);
+        if (!query)
+          return;
+
+        // Don't push the same page onto the history stack more than once (if
+        // the user clicks in the search field and away several times).
+        var currentHash = location.hash;
+        var newHash = '#' + escape(query);
+        if (currentHash == newHash)
+          return;
+
+        // If there is no hash on the current URL, the history entry has no
+        // search query. Replace the history entry with no search with an entry
+        // that does have a search. Otherwise, add it onto the history stack.
+        var historyFunction = currentHash ? window.history.pushState :
+                                            window.history.replaceState;
+        historyFunction.call(
+            window.history,
+            {pageName: self.name},
+            self.title,
+            '/' + self.name + newHash);
+      };
+
+      // Install handler for key presses.
+      document.addEventListener('keydown',
+                                this.keyDownEventHandler_.bind(this));
+
+      // Focus the search field by default.
+      searchField.focus();
     },
 
     /**
@@ -87,15 +194,15 @@ cr.define('options', function() {
       if (!this.searchActive_ && !active)
         return;
 
-      if (this.searchActive_ != active) {
-        this.searchActive_ = active;
-        if (active) {
-          // Reset the search criteria, effectively hiding all the sections.
-          this.setSearchText_('');
-        } else {
+      this.searchActive_ = active;
+
+      if (active) {
+        var hash = location.hash;
+        if (hash)
+          this.searchField.value = unescape(hash.slice(1));
+      } else {
           // Just wipe out any active search text since it's no longer relevant.
-          $('search-field').value = '';
-        }
+        this.searchField.value = '';
       }
 
       var pagesToSearch = this.getSearchablePages_();
@@ -108,17 +215,12 @@ cr.define('options', function() {
         // Update the visible state of all top-level elements that are not
         // sections (ie titles, button strips).  We do this before changing
         // the page visibility to avoid excessive re-draw.
-        var length = page.pageDiv.childNodes.length;
-        var childDiv;
-        for (var i = 0; i < length; i++) {
-          childDiv = page.pageDiv.childNodes[i];
-          if (childDiv.nodeType == document.ELEMENT_NODE) {
-            if (active) {
-              if (childDiv.nodeName.toLowerCase() != 'section')
-                childDiv.classList.add('search-hidden');
-            } else {
-              childDiv.classList.remove('search-hidden');
-            }
+        for (var i = 0, childDiv; childDiv = page.pageDiv.children[i]; i++) {
+          if (active) {
+            if (childDiv.tagName != 'SECTION')
+              childDiv.classList.add('search-hidden');
+          } else {
+            childDiv.classList.remove('search-hidden');
           }
         }
 
@@ -129,9 +231,13 @@ cr.define('options', function() {
         }
       }
 
-      // After hiding all page content, remove any highlighted matches.
-      if (!active)
+      if (active) {
+        this.setSearchText_(this.searchField.value);
+      } else {
+        // After hiding all page content, remove any search results.
         this.unhighlightMatches_();
+        this.removeSearchBubbles_();
+      }
     },
 
     /**
@@ -140,10 +246,22 @@ cr.define('options', function() {
      * @private
      */
     setSearchText_: function(text) {
-      var foundMatches = false;
+      // Toggle the search page if necessary.
+      if (text.length) {
+        if (!this.searchActive_)
+          OptionsPage.navigateToPage(this.name);
+      } else {
+        if (this.searchActive_)
+          OptionsPage.showDefaultPage();
+        return;
+      }
 
-      // Remove any highlighted matches.
+      var foundMatches = false;
+      var bubbleControls = [];
+
+      // Remove any prior search results.
       this.unhighlightMatches_();
+      this.removeSearchBubbles_();
 
       // Generate search text by applying lowercase and escaping any characters
       // that would be problematic for regular expressions.
@@ -152,12 +270,12 @@ cr.define('options', function() {
 
       // Generate a regular expression and replace string for hilighting
       // search terms.
-      var regEx = new RegExp('(\\b' + searchText + ')', 'ig');
+      var regEx = new RegExp('(' + searchText + ')', 'ig');
       var replaceString = '<span class="search-highlighted">$1</span>';
 
       // Initialize all sections.  If the search string matches a title page,
       // show sections for that page.
-      var page, pageMatch, childDiv;
+      var page, pageMatch, childDiv, length;
       var pagesToSearch = this.getSearchablePages_();
       for (var key in pagesToSearch) {
         page = pagesToSearch[key];
@@ -167,10 +285,8 @@ cr.define('options', function() {
         }
         if (pageMatch)
           foundMatches = true;
-        for (var i = 0; i < page.pageDiv.childNodes.length; i++) {
-          childDiv = page.pageDiv.childNodes[i];
-          if (childDiv.nodeType == document.ELEMENT_NODE &&
-              childDiv.nodeName == 'SECTION') {
+        for (var i = 0, childDiv; childDiv = page.pageDiv.children[i]; i++) {
+          if (childDiv.tagName == 'SECTION') {
             if (pageMatch) {
               childDiv.classList.remove('search-hidden');
             } else {
@@ -181,6 +297,18 @@ cr.define('options', function() {
       }
 
       if (searchText.length) {
+        // Search all top-level sections for anchored string matches.
+        for (var key in pagesToSearch) {
+          page = pagesToSearch[key];
+          for (var i = 0, childDiv; childDiv = page.pageDiv.children[i]; i++) {
+            if (childDiv.tagName == 'SECTION' &&
+                this.performReplace_(regEx, replaceString, childDiv)) {
+              childDiv.classList.remove('search-hidden');
+              foundMatches = true;
+            }
+          }
+        }
+
         // Search all sub-pages, generating an array of top-level sections that
         // we need to make visible.
         var subPagesToSearch = this.getSearchableSubPages_();
@@ -188,44 +316,34 @@ cr.define('options', function() {
         for (var key in subPagesToSearch) {
           page = subPagesToSearch[key];
           if (this.performReplace_(regEx, replaceString, page.pageDiv)) {
+            // Reveal the section for this search result.
             section = page.associatedSection;
             if (section)
               section.classList.remove('search-hidden');
-            controls = page.associatedControls;
+
+            // Identify any controls that should have bubbles.
+            var controls = page.associatedControls;
             if (controls) {
-              // TODO(csilv): highlight each control.
+              length = controls.length;
+              for (var i = 0; i < length; i++)
+                bubbleControls.push(controls[i]);
             }
 
             foundMatches = true;
           }
         }
-
-        // Search all top-level sections for anchored string matches.
-        for (var key in pagesToSearch) {
-          page = pagesToSearch[key];
-          for (var i = 0; i < page.pageDiv.childNodes.length; i++) {
-            childDiv = page.pageDiv.childNodes[i];
-            if (childDiv.nodeType == document.ELEMENT_NODE &&
-                childDiv.nodeName == 'SECTION' &&
-                this.performReplace_(regEx, replaceString, childDiv)) {
-              childDiv.classList.remove('search-hidden');
-              foundMatches = true;
-            }
-          }
-        }
       }
 
       // Configure elements on the search results page based on search results.
-      if (searchText.length == 0) {
-        $('searchPageInfo').classList.remove('search-hidden');
+      if (foundMatches)
         $('searchPageNoMatches').classList.add('search-hidden');
-      } else if (foundMatches) {
-        $('searchPageInfo').classList.add('search-hidden');
-        $('searchPageNoMatches').classList.add('search-hidden');
-      } else {
-        $('searchPageInfo').classList.add('search-hidden');
+      else
         $('searchPageNoMatches').classList.remove('search-hidden');
-      }
+
+      // Create search balloons for sub-page results.
+      length = bubbleControls.length;
+      for (var i = 0; i < length; i++)
+        this.createSearchBubble_(bubbleControls[i], text);
     },
 
     /**
@@ -288,9 +406,8 @@ cr.define('options', function() {
       var elements = document.querySelectorAll('.search-highlighted');
 
       // For each element, remove the highlighting.
-      var node, parent, i, length = elements.length;
-      for (i = 0; i < length; i++) {
-        node = elements[i];
+      var parent, i;
+      for (var i = 0, node; node = elements[i]; i++) {
         parent = node.parentNode;
 
         // Replace the highlight element with the first child (the text node).
@@ -299,6 +416,37 @@ cr.define('options', function() {
         // Normalize the parent so that multiple text nodes will be combined.
         parent.normalize();
       }
+    },
+
+    /**
+     * Creates a search result bubble attached to an element.
+     * @param {Element} element An HTML element, usually a button.
+     * @param {string} text A string to show in the bubble.
+     * @private
+     */
+    createSearchBubble_: function(element, text) {
+      // avoid appending multiple ballons to a button.
+      var sibling = element.previousElementSibling;
+      if (sibling && sibling.classList.contains('search-bubble'))
+        return;
+
+      var parent = element.parentElement;
+      if (parent) {
+        var bubble = new SearchBubble(text);
+        parent.insertBefore(bubble, element);
+        bubble.updatePosition();
+      }
+    },
+
+    /**
+     * Removes all search match bubbles.
+     * @private
+     */
+    removeSearchBubbles_: function() {
+      var elements = document.querySelectorAll('.search-bubble');
+      var length = elements.length;
+      for (var i = 0; i < length; i++)
+        elements[i].dispose();
     },
 
     /**
@@ -338,7 +486,32 @@ cr.define('options', function() {
           pages.push(page);
       }
       return pages;
-    }
+    },
+
+    /**
+     * A function to handle key press events.
+     * @return {Event} a keydown event.
+     * @private
+     */
+    keyDownEventHandler_: function(event) {
+      // Focus the search field on an unused forward-slash.
+      if (event.keyCode == 191 &&
+          !/INPUT|SELECT|BUTTON|TEXTAREA/.test(event.target.tagName)) {
+        this.searchField.focus();
+        event.stopPropagation();
+        event.preventDefault();
+      }
+    },
+  };
+
+  /**
+   * Standardizes a user-entered text query by removing extra whitespace.
+   * @param {string} The user-entered text.
+   * @return {string} The trimmed query.
+   */
+  SearchPage.canonicalizeQuery = function(text) {
+    // Trim beginning and ending whitespace.
+    return text.replace(/^\s+|\s+$/g, '');
   };
 
   // Export

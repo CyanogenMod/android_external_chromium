@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,8 @@
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
+#include "chrome/common/notification_service.h"
+#include "chrome/common/render_messages_params.h"
 
 TabContentsView::TabContentsView(TabContents* tab_contents)
     : tab_contents_(tab_contents) {
@@ -30,20 +32,26 @@ void TabContentsView::RenderViewCreated(RenderViewHost* host) {
 
 void TabContentsView::CreateNewWindow(
     int route_id,
-    WindowContainerType window_container_type,
-    const string16& frame_name) {
+    const ViewHostMsg_CreateWindow_Params& params) {
   TabContents* new_contents = delegate_view_helper_.CreateNewWindow(
       route_id,
       tab_contents_->profile(),
       tab_contents_->GetSiteInstance(),
-      DOMUIFactory::GetDOMUIType(tab_contents_->profile(),
+      WebUIFactory::GetWebUIType(tab_contents_->profile(),
           tab_contents_->GetURL()),
       tab_contents_,
-      window_container_type,
-      frame_name);
+      params.window_container_type,
+      params.frame_name);
 
-  if (new_contents && tab_contents_->delegate())
-    tab_contents_->delegate()->TabContentsCreated(new_contents);
+  if (new_contents) {
+    NotificationService::current()->Notify(
+        NotificationType::CREATING_NEW_WINDOW,
+        Source<TabContents>(tab_contents_),
+        Details<const ViewHostMsg_CreateWindow_Params>(&params));
+
+    if (tab_contents_->delegate())
+      tab_contents_->delegate()->TabContentsCreated(new_contents);
+  }
 }
 
 void TabContentsView::CreateNewWidget(int route_id,
@@ -51,9 +59,8 @@ void TabContentsView::CreateNewWidget(int route_id,
   CreateNewWidgetInternal(route_id, popup_type);
 }
 
-void TabContentsView::CreateNewFullscreenWidget(
-    int route_id, WebKit::WebPopupType popup_type) {
-  CreateNewFullscreenWidgetInternal(route_id, popup_type);
+void TabContentsView::CreateNewFullscreenWidget(int route_id) {
+  CreateNewFullscreenWidgetInternal(route_id);
 }
 
 void TabContentsView::ShowCreatedWindow(int route_id,
@@ -137,9 +144,9 @@ RenderWidgetHostView* TabContentsView::CreateNewWidgetInternal(
 }
 
 RenderWidgetHostView* TabContentsView::CreateNewFullscreenWidgetInternal(
-    int route_id, WebKit::WebPopupType popup_type) {
+    int route_id) {
   return delegate_view_helper_.CreateNewFullscreenWidget(
-      route_id, popup_type, tab_contents()->render_view_host()->process());
+      route_id, tab_contents()->render_view_host()->process());
 }
 
 void TabContentsView::ShowCreatedWidgetInternal(
@@ -157,6 +164,6 @@ void TabContentsView::ShowCreatedFullscreenWidgetInternal(
   if (tab_contents_->delegate())
     tab_contents_->delegate()->RenderWidgetShowing();
 
-  widget_host_view->InitAsFullscreen(tab_contents_->GetRenderWidgetHostView());
+  widget_host_view->InitAsFullscreen();
   widget_host_view->GetRenderWidgetHost()->Init();
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -88,8 +88,8 @@ class ChildProcessSecurityPolicy::SecurityState {
     return false;
   }
 
-  bool has_dom_ui_bindings() const {
-    return BindingsPolicy::is_dom_ui_enabled(enabled_bindings_);
+  bool has_web_ui_bindings() const {
+    return BindingsPolicy::is_web_ui_enabled(enabled_bindings_);
   }
 
   bool has_extension_bindings() const {
@@ -151,7 +151,7 @@ ChildProcessSecurityPolicy* ChildProcessSecurityPolicy::GetInstance() {
 }
 
 void ChildProcessSecurityPolicy::Add(int child_id) {
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
   if (security_state_.count(child_id) != 0) {
     NOTREACHED() << "Add child process at most once.";
     return;
@@ -161,7 +161,7 @@ void ChildProcessSecurityPolicy::Add(int child_id) {
 }
 
 void ChildProcessSecurityPolicy::Remove(int child_id) {
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
   if (!security_state_.count(child_id))
     return;  // May be called multiple times.
 
@@ -171,7 +171,7 @@ void ChildProcessSecurityPolicy::Remove(int child_id) {
 
 void ChildProcessSecurityPolicy::RegisterWebSafeScheme(
     const std::string& scheme) {
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
   DCHECK(web_safe_schemes_.count(scheme) == 0) << "Add schemes at most once.";
   DCHECK(pseudo_schemes_.count(scheme) == 0) << "Web-safe implies not psuedo.";
 
@@ -179,14 +179,14 @@ void ChildProcessSecurityPolicy::RegisterWebSafeScheme(
 }
 
 bool ChildProcessSecurityPolicy::IsWebSafeScheme(const std::string& scheme) {
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
 
   return (web_safe_schemes_.find(scheme) != web_safe_schemes_.end());
 }
 
 void ChildProcessSecurityPolicy::RegisterPseudoScheme(
     const std::string& scheme) {
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
   DCHECK(pseudo_schemes_.count(scheme) == 0) << "Add schemes at most once.";
   DCHECK(web_safe_schemes_.count(scheme) == 0) <<
       "Psuedo implies not web-safe.";
@@ -195,7 +195,7 @@ void ChildProcessSecurityPolicy::RegisterPseudoScheme(
 }
 
 bool ChildProcessSecurityPolicy::IsPseudoScheme(const std::string& scheme) {
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
 
   return (pseudo_schemes_.find(scheme) != pseudo_schemes_.end());
 }
@@ -224,7 +224,7 @@ void ChildProcessSecurityPolicy::GrantRequestURL(
   }
 
   {
-    AutoLock lock(lock_);
+    base::AutoLock lock(lock_);
     SecurityStateMap::iterator state = security_state_.find(child_id);
     if (state == security_state_.end())
       return;
@@ -242,7 +242,7 @@ void ChildProcessSecurityPolicy::GrantReadFile(int child_id,
 
 void ChildProcessSecurityPolicy::GrantPermissionsForFile(
     int child_id, const FilePath& file, int permissions) {
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
 
   SecurityStateMap::iterator state = security_state_.find(child_id);
   if (state == security_state_.end())
@@ -253,7 +253,7 @@ void ChildProcessSecurityPolicy::GrantPermissionsForFile(
 
 void ChildProcessSecurityPolicy::RevokeAllPermissionsForFile(
     int child_id, const FilePath& file) {
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
 
   SecurityStateMap::iterator state = security_state_.find(child_id);
   if (state == security_state_.end())
@@ -264,7 +264,7 @@ void ChildProcessSecurityPolicy::RevokeAllPermissionsForFile(
 
 void ChildProcessSecurityPolicy::GrantScheme(int child_id,
                                              const std::string& scheme) {
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
 
   SecurityStateMap::iterator state = security_state_.find(child_id);
   if (state == security_state_.end())
@@ -273,24 +273,24 @@ void ChildProcessSecurityPolicy::GrantScheme(int child_id,
   state->second->GrantScheme(scheme);
 }
 
-void ChildProcessSecurityPolicy::GrantDOMUIBindings(int child_id) {
-  AutoLock lock(lock_);
+void ChildProcessSecurityPolicy::GrantWebUIBindings(int child_id) {
+  base::AutoLock lock(lock_);
 
   SecurityStateMap::iterator state = security_state_.find(child_id);
   if (state == security_state_.end())
     return;
 
-  state->second->GrantBindings(BindingsPolicy::DOM_UI);
+  state->second->GrantBindings(BindingsPolicy::WEB_UI);
 
-  // DOM UI bindings need the ability to request chrome: URLs.
+  // Web UI bindings need the ability to request chrome: URLs.
   state->second->GrantScheme(chrome::kChromeUIScheme);
 
-  // DOM UI pages can contain links to file:// URLs.
+  // Web UI pages can contain links to file:// URLs.
   state->second->GrantScheme(chrome::kFileScheme);
 }
 
 void ChildProcessSecurityPolicy::GrantExtensionBindings(int child_id) {
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
 
   SecurityStateMap::iterator state = security_state_.find(child_id);
   if (state == security_state_.end())
@@ -300,7 +300,7 @@ void ChildProcessSecurityPolicy::GrantExtensionBindings(int child_id) {
 }
 
 void ChildProcessSecurityPolicy::GrantReadRawCookies(int child_id) {
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
 
   SecurityStateMap::iterator state = security_state_.find(child_id);
   if (state == security_state_.end())
@@ -310,7 +310,7 @@ void ChildProcessSecurityPolicy::GrantReadRawCookies(int child_id) {
 }
 
 void ChildProcessSecurityPolicy::RevokeReadRawCookies(int child_id) {
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
 
   SecurityStateMap::iterator state = security_state_.find(child_id);
   if (state == security_state_.end())
@@ -354,7 +354,7 @@ bool ChildProcessSecurityPolicy::CanRequestURL(
     return true;  // This URL request is destined for ShellExecute.
 
   {
-    AutoLock lock(lock_);
+    base::AutoLock lock(lock_);
 
     SecurityStateMap::iterator state = security_state_.find(child_id);
     if (state == security_state_.end())
@@ -373,7 +373,7 @@ bool ChildProcessSecurityPolicy::CanReadFile(int child_id,
 
 bool ChildProcessSecurityPolicy::HasPermissionsForFile(
     int child_id, const FilePath& file, int permissions) {
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
 
   SecurityStateMap::iterator state = security_state_.find(child_id);
   if (state == security_state_.end())
@@ -382,18 +382,18 @@ bool ChildProcessSecurityPolicy::HasPermissionsForFile(
   return state->second->HasPermissionsForFile(file, permissions);
 }
 
-bool ChildProcessSecurityPolicy::HasDOMUIBindings(int child_id) {
-  AutoLock lock(lock_);
+bool ChildProcessSecurityPolicy::HasWebUIBindings(int child_id) {
+  base::AutoLock lock(lock_);
 
   SecurityStateMap::iterator state = security_state_.find(child_id);
   if (state == security_state_.end())
     return false;
 
-  return state->second->has_dom_ui_bindings();
+  return state->second->has_web_ui_bindings();
 }
 
 bool ChildProcessSecurityPolicy::HasExtensionBindings(int child_id) {
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
 
   SecurityStateMap::iterator state = security_state_.find(child_id);
   if (state == security_state_.end())
@@ -403,7 +403,7 @@ bool ChildProcessSecurityPolicy::HasExtensionBindings(int child_id) {
 }
 
 bool ChildProcessSecurityPolicy::CanReadRawCookies(int child_id) {
-  AutoLock lock(lock_);
+  base::AutoLock lock(lock_);
 
   SecurityStateMap::iterator state = security_state_.find(child_id);
   if (state == security_state_.end())

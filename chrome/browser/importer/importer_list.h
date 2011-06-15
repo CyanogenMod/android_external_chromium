@@ -41,6 +41,11 @@ class ImporterList : public base::RefCountedThreadSafe<ImporterList> {
   // non-NULL.
   void DetectSourceProfiles(Observer* observer);
 
+  // Sets the observer of this object. When the current observer is destroyed,
+  // this method should be called with a NULL |observer| so it is not notified
+  // after destruction.
+  void SetObserver(Observer* observer);
+
   // DEPRECATED: This method is synchronous and performs file operations which
   // may end up blocking the current thread, which is usually the UI thread.
   void DetectSourceProfilesHack();
@@ -89,6 +94,12 @@ class ImporterList : public base::RefCountedThreadSafe<ImporterList> {
   // Weak reference. Only valid after DetectSourceProfiles() is called and until
   // SourceProfilesLoaded() has returned.
   Observer* observer_;
+
+  // True if |observer_| is set during the lifetime of source profile detection.
+  // This hack is necessary in order to not use |observer_| != NULL as a method
+  // of determining whether this object is being observed or not.
+  // TODO(jhawkins): Remove once DetectSourceProfilesHack() is removed.
+  bool is_observed_;
 
   // True if source profiles are loaded.
   bool source_profiles_loaded_;

@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_CHROMEOS_LOGIN_WIZARD_SCREEN_H_
 #pragma once
 
-#include "gfx/canvas.h"
+#include "ui/gfx/canvas.h"
 
 class WizardScreen;
 namespace chromeos {
@@ -27,6 +27,9 @@ class WizardScreenDelegate {
 
   // Returns observer screen should notify.
   virtual chromeos::ScreenObserver* GetObserver(WizardScreen* screen) = 0;
+
+  // Forces the current screen to be shown immediately.
+  virtual void ShowCurrentScreen() = 0;
 
  protected:
   virtual ~WizardScreenDelegate() {}

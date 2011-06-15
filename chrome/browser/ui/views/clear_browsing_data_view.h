@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 #define CHROME_BROWSER_UI_VIEWS_CLEAR_BROWSING_DATA_VIEW_H_
 #pragma once
 
-#include "app/combobox_model.h"
 #include "chrome/browser/browsing_data_remover.h"
-#include "chrome/browser/views/clear_data_view.h"
+#include "chrome/browser/ui/views/clear_data_view.h"
+#include "ui/base/models/combobox_model.h"
 #include "views/controls/button/button.h"
 #include "views/controls/combobox/combobox.h"
 #include "views/controls/label.h"
@@ -38,7 +38,7 @@ class MessageLoop;
 ////////////////////////////////////////////////////////////////////////////////
 class ClearBrowsingDataView2 : public views::View,
                                public views::ButtonListener,
-                               public ComboboxModel,
+                               public ui::ComboboxModel,
                                public views::Combobox::Listener,
                                public BrowsingDataRemover::Observer,
                                public views::LinkController {
@@ -50,7 +50,7 @@ class ClearBrowsingDataView2 : public views::View,
   // Initialize the controls on the dialog.
   void Init();
 
-  // Overridden from ComboboxModel:
+  // Overridden from ui::ComboboxModel:
   virtual int GetItemCount();
   virtual string16 GetItemAt(int index);
 

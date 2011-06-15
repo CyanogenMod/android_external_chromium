@@ -11,8 +11,6 @@
 
 #include "unicode/uloc.h"
 
-#include "app/l10n_util.h"
-#include "app/l10n_util_collator.h"
 #include "base/basictypes.h"
 #include "base/hash_tables.h"
 #include "base/scoped_ptr.h"
@@ -24,92 +22,24 @@
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/keyboard_library.h"
 #include "chrome/browser/chromeos/language_preferences.h"
+#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/l10n/l10n_util_collator.h"
 
 namespace {
 
-// Mapping from input method ID to keyboard overlay ID, which specifies the
-// layout and the glyphs of the keyboard overlay.
-// TODO(mazda): Move this list to whitelist.txt (http://crosbug.com/9682)
-const struct InputMethodIdToKeyboardOverlayId {
-  const char* input_method_id;
-  const char* keyboard_overlay_id;
-} kInputMethodIdToKeyboardOverlayId[] = {
-  { "xkb:nl::nld", "nl" },
-  { "xkb:be::nld", "nl" },
-  { "xkb:fr::fra", "fr" },
-  { "xkb:be::fra", "fr" },
-  { "xkb:ca::fra", "fr_CA" },
-  { "xkb:ch:fr:fra", "fr" },
-  { "xkb:de::ger", "de" },
-  { "xkb:be::ger", "de" },
-  { "xkb:ch::ger", "de" },
-  { "mozc", "en_US" },
-  { "mozc-jp", "ja" },
-  { "mozc-dv", "en_US_dvorak" },
-  { "xkb:jp::jpn", "ja" },
-  { "xkb:ru::rus", "ru" },
-  { "xkb:ru:phonetic:rus", "ru" },
-  { "m17n:th:kesmanee", "th" },
-  { "m17n:th:pattachote", "th" },
-  { "m17n:th:tis820", "th" },
-  { "chewing", "zh_TW" },
-  { "m17n:zh:cangjie", "zh_TW" },
-  { "m17n:zh:quick", "zh_TW" },
-  { "m17n:vi:tcvn", "vi" },
-  { "m17n:vi:telex", "vi" },
-  { "m17n:vi:viqr", "vi" },
-  { "m17n:vi:vni", "vi" },
-  { "xkb:us::eng", "en_US" },
-  { "xkb:us:intl:eng", "en_US" },
-  { "xkb:us:altgr-intl:eng", "en_US" },
-  { "xkb:us:dvorak:eng", "en_US_dvorak" },
-  // TODO(mazda): Add keyboard overlay definition for US Colemak.
-  { "xkb:us:colemak:eng", "en_US" },
-  { "hangul", "ko" },
-  { "pinyin", "zh_CN" },
-  { "m17n:ar:kbd", "ar" },
-  { "m17n:hi:itrans", "hi" },
-  { "m17n:fa:isiri", "ar" },
-  { "xkb:br::por", "pt_BR" },
-  { "xkb:bg::bul", "bg" },
-  { "xkb:bg:phonetic:bul", "bg" },
-  { "xkb:ca:eng:eng", "ca" },
-  { "xkb:cz::cze", "cs" },
-  { "xkb:ee::est", "et" },
-  { "xkb:es::spa", "es" },
-  { "xkb:es:cat:cat", "ca" },
-  { "xkb:dk::dan", "da" },
-  { "xkb:gr::gre", "el" },
-  { "xkb:il::heb", "iw" },
-  { "xkb:kr:kr104:kor", "ko" },
-  { "xkb:latam::spa", "es_419" },
-  { "xkb:lt::lit", "lt" },
-  { "xkb:lv:apostrophe:lav", "lv" },
-  { "xkb:hr::scr", "hr" },
-  { "xkb:gb:extd:eng", "en_GB" },
-  { "xkb:fi::fin", "fi" },
-  { "xkb:hu::hun", "hu" },
-  { "xkb:it::ita", "it" },
-  { "xkb:no::nob", "no" },
-  { "xkb:pl::pol", "pl" },
-  { "xkb:pt::por", "pt_PT" },
-  { "xkb:ro::rum", "ro" },
-  { "xkb:se::swe", "sv" },
-  { "xkb:sk::slo", "sk" },
-  { "xkb:si::slv", "sl" },
-  { "xkb:rs::srp", "sr" },
-  { "xkb:tr::tur", "tr" },
-  { "xkb:ua::ukr", "uk" },
-};
-
 // Map from language code to associated input method IDs, etc.
 typedef std::multimap<std::string, std::string> LanguageCodeToIdsMap;
+// Map from input method ID to associated input method descriptor.
+typedef std::map<std::string, chromeos::InputMethodDescriptor>
+    InputMethodIdToDescriptorMap;
+
 struct IdMaps {
   scoped_ptr<LanguageCodeToIdsMap> language_code_to_ids;
   scoped_ptr<std::map<std::string, std::string> > id_to_language_code;
-  scoped_ptr<std::map<std::string, std::string> > id_to_display_name;
-  scoped_ptr<std::map<std::string, std::string> > id_to_keyboard_overlay_id;
+  scoped_ptr<InputMethodIdToDescriptorMap> id_to_descriptor;
 
   // Returns the singleton instance.
   static IdMaps* GetInstance() {
@@ -126,32 +56,23 @@ struct IdMaps {
       // TODO(yusukes): Handle this error in nicer way.
     }
 
+    // Clear the existing maps.
     language_code_to_ids->clear();
     id_to_language_code->clear();
-    id_to_display_name->clear();
-    id_to_keyboard_overlay_id->clear();
-
-    // Build the id to descriptor map for handling kExtraLanguages later.
-    typedef std::map<std::string,
-        const chromeos::InputMethodDescriptor*> DescMap;
-    DescMap id_to_descriptor_map;
+    id_to_descriptor->clear();
 
     for (size_t i = 0; i < supported_input_methods->size(); ++i) {
       const chromeos::InputMethodDescriptor& input_method =
           supported_input_methods->at(i);
       const std::string language_code =
           chromeos::input_method::GetLanguageCodeFromDescriptor(input_method);
-      AddInputMethodToMaps(language_code, input_method);
-      // Remember the pair.
-      id_to_descriptor_map.insert(
-          std::make_pair(input_method.id, &input_method));
-    }
-
-    for (size_t i = 0; i < arraysize(kInputMethodIdToKeyboardOverlayId); ++i) {
-      InputMethodIdToKeyboardOverlayId id_pair =
-          kInputMethodIdToKeyboardOverlayId[i];
-      id_to_keyboard_overlay_id->insert(
-          std::make_pair(id_pair.input_method_id, id_pair.keyboard_overlay_id));
+      language_code_to_ids->insert(
+          std::make_pair(language_code, input_method.id));
+      // Remember the pairs.
+      id_to_language_code->insert(
+          std::make_pair(input_method.id, language_code));
+      id_to_descriptor->insert(
+          std::make_pair(input_method.id, input_method));
     }
 
     // Go through the languages listed in kExtraLanguages.
@@ -159,12 +80,14 @@ struct IdMaps {
     for (size_t i = 0; i < arraysize(kExtraLanguages); ++i) {
       const char* language_code = kExtraLanguages[i].language_code;
       const char* input_method_id = kExtraLanguages[i].input_method_id;
-      DescMap::const_iterator iter = id_to_descriptor_map.find(input_method_id);
+      InputMethodIdToDescriptorMap::const_iterator iter =
+          id_to_descriptor->find(input_method_id);
       // If the associated input method descriptor is found, add the
       // language code and the input method.
-      if (iter != id_to_descriptor_map.end()) {
-        const chromeos::InputMethodDescriptor& input_method = *(iter->second);
-        AddInputMethodToMaps(language_code, input_method);
+      if (iter != id_to_descriptor->end()) {
+        const chromeos::InputMethodDescriptor& input_method = iter->second;
+        language_code_to_ids->insert(
+            std::make_pair(language_code, input_method.id));
       }
     }
   }
@@ -172,21 +95,8 @@ struct IdMaps {
  private:
   IdMaps() : language_code_to_ids(new LanguageCodeToIdsMap),
              id_to_language_code(new std::map<std::string, std::string>),
-             id_to_display_name(new std::map<std::string, std::string>),
-             id_to_keyboard_overlay_id(new std::map<std::string, std::string>) {
+             id_to_descriptor(new InputMethodIdToDescriptorMap) {
     ReloadMaps();
-  }
-
-  void AddInputMethodToMaps(
-      const std::string& language_code,
-      const chromeos::InputMethodDescriptor& input_method) {
-    language_code_to_ids->insert(
-        std::make_pair(language_code, input_method.id));
-    id_to_language_code->insert(
-        std::make_pair(input_method.id, language_code));
-    id_to_display_name->insert(std::make_pair(
-        input_method.id,
-        chromeos::input_method::GetStringUTF8(input_method.display_name)));
   }
 
   friend struct DefaultSingletonTraits<IdMaps>;
@@ -270,6 +180,7 @@ const struct EnglishToResouceId {
   { "Japan", IDS_STATUSBAR_LAYOUT_JAPAN },
   { "Slovenia", IDS_STATUSBAR_LAYOUT_SLOVENIA },
   { "Germany", IDS_STATUSBAR_LAYOUT_GERMANY },
+  { "Germany - Neo 2", IDS_STATUSBAR_LAYOUT_GERMANY_NEO2 },
   { "Italy", IDS_STATUSBAR_LAYOUT_ITALY },
   { "Estonia", IDS_STATUSBAR_LAYOUT_ESTONIA },
   { "Hungary", IDS_STATUSBAR_LAYOUT_HUNGARY },
@@ -552,30 +463,26 @@ std::string GetLanguageCodeFromInputMethodId(
 }
 
 std::string GetKeyboardLayoutName(const std::string& input_method_id) {
-  if (!StartsWithASCII(input_method_id, "xkb:", true)) {
-    return "";
-  }
-
-  std::vector<std::string> splitted_id;
-  base::SplitString(input_method_id, ':', &splitted_id);
-  return (splitted_id.size() > 1) ? splitted_id[1] : "";
-}
-
-std::string GetKeyboardOverlayId(const std::string& input_method_id) {
-  const std::map<std::string, std::string>& id_map =
-      *(IdMaps::GetInstance()->id_to_keyboard_overlay_id);
-  std::map<std::string, std::string>::const_iterator iter =
-      id_map.find(input_method_id);
-  return (iter == id_map.end() ? "" : iter->second);
+  InputMethodIdToDescriptorMap::const_iterator iter
+      = IdMaps::GetInstance()->id_to_descriptor->find(input_method_id);
+  return (iter == IdMaps::GetInstance()->id_to_descriptor->end()) ?
+      "" : iter->second.keyboard_layout;
 }
 
 std::string GetInputMethodDisplayNameFromId(
     const std::string& input_method_id) {
-  static const char kDefaultDisplayName[] = "USA";
-  std::map<std::string, std::string>::const_iterator iter
-      = IdMaps::GetInstance()->id_to_display_name->find(input_method_id);
-  return (iter == IdMaps::GetInstance()->id_to_display_name->end()) ?
-      kDefaultDisplayName : iter->second;
+  InputMethodIdToDescriptorMap::const_iterator iter
+      = IdMaps::GetInstance()->id_to_descriptor->find(input_method_id);
+  return (iter == IdMaps::GetInstance()->id_to_descriptor->end()) ?
+      "" : GetStringUTF8(iter->second.display_name);
+}
+
+const chromeos::InputMethodDescriptor* GetInputMethodDescriptorFromId(
+    const std::string& input_method_id) {
+  InputMethodIdToDescriptorMap::const_iterator iter
+      = IdMaps::GetInstance()->id_to_descriptor->find(input_method_id);
+  return (iter == IdMaps::GetInstance()->id_to_descriptor->end()) ?
+      NULL : &(iter->second);
 }
 
 string16 GetLanguageDisplayNameFromCode(const std::string& language_code) {
@@ -671,8 +578,8 @@ void EnableInputMethods(const std::string& language_code, InputMethodType type,
   std::vector<std::string> input_method_ids;
   GetInputMethodIdsFromLanguageCode(language_code, type, &input_method_ids);
 
-  std::string keyboard = CrosLibrary::Get()->GetKeyboardLibrary()->
-      GetHardwareKeyboardLayoutName();
+  // Add the hardware keyboard.
+  const std::string keyboard = GetHardwareInputMethodId();
   if (std::count(input_method_ids.begin(), input_method_ids.end(),
                  keyboard) == 0) {
     input_method_ids.push_back(keyboard);
@@ -693,8 +600,35 @@ void EnableInputMethods(const std::string& language_code, InputMethodType type,
   }
 }
 
-void OnLocaleChanged() {
+std::string GetHardwareInputMethodId() {
+  if (!(g_browser_process && g_browser_process->local_state())) {
+    // This shouldn't happen but just in case.
+    LOG(ERROR) << "Local state is not yet ready";
+    return GetFallbackInputMethodDescriptor().id;
+  }
+
+  const std::string input_method_id =
+      g_browser_process->local_state()->GetString(
+          prefs::kHardwareKeyboardLayout);
+  if (input_method_id.empty()) {
+    // This is totally fine if it's empty. The hardware keyboard layout is
+    // not stored if startup_manifest.json (OEM customization data) is not
+    // present (ex. Cr48 doen't have that file).
+    return GetFallbackInputMethodDescriptor().id;
+  }
+  return input_method_id;
+}
+
+InputMethodDescriptor GetFallbackInputMethodDescriptor() {
+  return InputMethodDescriptor("xkb:us::eng", "USA", "us", "eng");
+}
+
+void ReloadInternalMaps() {
   IdMaps::GetInstance()->ReloadMaps();
+}
+
+void OnLocaleChanged() {
+  ReloadInternalMaps();
 }
 
 }  // namespace input_method

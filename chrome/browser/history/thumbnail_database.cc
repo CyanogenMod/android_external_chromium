@@ -4,6 +4,9 @@
 
 #include "chrome/browser/history/thumbnail_database.h"
 
+#include <algorithm>
+#include <string>
+
 #include "app/sql/statement.h"
 #include "app/sql/transaction.h"
 #include "base/command_line.h"
@@ -16,10 +19,9 @@
 #include "chrome/browser/history/history_publisher.h"
 #include "chrome/browser/history/top_sites.h"
 #include "chrome/browser/history/url_database.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/thumbnail_score.h"
-#include "gfx/codec/jpeg_codec.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/codec/jpeg_codec.h"
 
 #if defined(OS_MACOSX)
 #include "base/mac/mac_util.h"
@@ -121,18 +123,7 @@ sql::InitStatus ThumbnailDatabase::OpenDatabase(sql::Connection* db,
 
 bool ThumbnailDatabase::InitThumbnailTable() {
   if (!db_.DoesTableExist("thumbnails")) {
-    if (history::TopSites::IsEnabled()) {
-      use_top_sites_ = true;
-      return true;
-    }
-    if (!db_.Execute("CREATE TABLE thumbnails ("
-        "url_id INTEGER PRIMARY KEY,"
-        "boring_score DOUBLE DEFAULT 1.0,"
-        "good_clipping INTEGER DEFAULT 0,"
-        "at_top INTEGER DEFAULT 0,"
-        "last_updated INTEGER DEFAULT 0,"
-        "data BLOB)"))
-      return false;
+    use_top_sites_ = true;
   }
   return true;
 }

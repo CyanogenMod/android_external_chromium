@@ -17,6 +17,7 @@
 #pragma once
 
 #include <map>
+#include <queue>
 #include <string>
 #include <vector>
 
@@ -24,16 +25,19 @@
 #include "base/callback.h"
 #include "base/file_path.h"
 #include "base/gtest_prod_util.h"
+#include "base/linked_ptr.h"
 #include "base/platform_file.h"
 #include "base/ref_counted.h"
 #include "base/scoped_callback_factory.h"
 #include "base/scoped_ptr.h"
 #include "base/task.h"
+#include "base/time.h"
 #include "chrome/browser/safe_browsing/csd.pb.h"
 #include "chrome/common/net/url_fetcher.h"
+#include "chrome/common/notification_observer.h"
+#include "chrome/common/notification_registrar.h"
 #include "googleurl/src/gurl.h"
 
-class SkBitmap;
 class URLRequestContextGetter;
 
 namespace net {
@@ -42,7 +46,8 @@ class URLRequestStatus;
 
 namespace safe_browsing {
 
-class ClientSideDetectionService : public URLFetcher::Delegate {
+class ClientSideDetectionService : public URLFetcher::Delegate,
+                                   public NotificationObserver {
  public:
   typedef Callback1<base::PlatformFile>::Type OpenModelDoneCallback;
 
@@ -66,6 +71,11 @@ class ClientSideDetectionService : public URLFetcher::Delegate {
                                   const ResponseCookies& cookies,
                                   const std::string& data);
 
+  // From the NotificationObserver interface.
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
+
   // Gets the model file descriptor once the model is ready and stored
   // on disk.  If there was an error the callback is called and the
   // platform file is set to kInvalidPlatformFileValue. The
@@ -75,21 +85,21 @@ class ClientSideDetectionService : public URLFetcher::Delegate {
   void GetModelFile(OpenModelDoneCallback* callback);
 
   // Sends a request to the SafeBrowsing servers with the potentially phishing
-  // URL, the client-side phishing score, and a low resolution thumbnail.  The
-  // |phishing_url| scheme should be HTTP.  This method takes ownership of the
-  // |callback| and calls it once the result has come back from the server or
-  // if an error occurs during the fetch.  If an error occurs the phishing
-  // verdict will always be false.  The callback is always called after
-  // SendClientReportPhishingRequest() returns and on the same thread as
-  // SendClientReportPhishingRequest() was called.
+  // URL and the client-side phishing score.  The |phishing_url| scheme should
+  // be HTTP.  This method takes ownership of the |callback| and calls it once
+  // the result has come back from the server or if an error occurs during the
+  // fetch.  If an error occurs the phishing verdict will always be false.  The
+  // callback is always called after SendClientReportPhishingRequest() returns
+  // and on the same thread as SendClientReportPhishingRequest() was called.
   void SendClientReportPhishingRequest(
       const GURL& phishing_url,
       double score,
-      SkBitmap thumbnail,
       ClientReportPhishingRequestCallback* callback);
 
  private:
   friend class ClientSideDetectionServiceTest;
+  friend class ClientSideDetectionServiceHooksTest;
+  class ShouldClassifyUrlRequest;
 
   enum ModelStatus {
     // It's unclear whether or not the model was already fetched.
@@ -100,8 +110,22 @@ class ClientSideDetectionService : public URLFetcher::Delegate {
     ERROR_STATUS,
   };
 
+  // CacheState holds all information necessary to respond to a caller without
+  // actually making a HTTP request.
+  struct CacheState {
+    bool is_phishing;
+    base::Time timestamp;
+
+    CacheState(bool phish, base::Time time);
+  };
+  typedef std::map<GURL, linked_ptr<CacheState> > PhishingCache;
+
   static const char kClientReportPhishingUrl[];
   static const char kClientModelUrl[];
+  static const int kMaxReportsPerInterval;
+  static const base::TimeDelta kReportsInterval;
+  static const base::TimeDelta kNegativeCacheInterval;
+  static const base::TimeDelta kPositiveCacheInterval;
 
   // Use Create() method to create an instance of this object.
   ClientSideDetectionService(const FilePath& model_path,
@@ -142,7 +166,6 @@ class ClientSideDetectionService : public URLFetcher::Delegate {
   void StartClientReportPhishingRequest(
       const GURL& phishing_url,
       double score,
-      SkBitmap thumbnail,
       ClientReportPhishingRequestCallback* callback);
 
   // Starts getting the model file.
@@ -166,10 +189,19 @@ class ClientSideDetectionService : public URLFetcher::Delegate {
                              const ResponseCookies& cookies,
                              const std::string& data);
 
+  // Returns true and sets is_phishing if url is in the cache and valid.
+  bool GetCachedResult(const GURL& url, bool* is_phishing);
+
+  // Invalidate cache results which are no longer useful.
+  void UpdateCache();
+
+  // Get the number of phishing reports that we have sent over kReportsInterval
+  int GetNumReports();
+
   FilePath model_path_;
   ModelStatus model_status_;
   base::PlatformFile model_file_;
-  URLFetcher* model_fetcher_;
+  scoped_ptr<URLFetcher> model_fetcher_;
   scoped_ptr<std::string> tmp_model_string_;
   std::vector<OpenModelDoneCallback*> open_callbacks_;
 
@@ -177,6 +209,19 @@ class ClientSideDetectionService : public URLFetcher::Delegate {
   // has to be invoked when the request is done.
   struct ClientReportInfo;
   std::map<const URLFetcher*, ClientReportInfo*> client_phishing_reports_;
+
+  // Cache of completed requests. Used to satisfy requests for the same urls
+  // as long as the next request falls within our caching window (which is
+  // determined by kNegativeCacheInterval and kPositiveCacheInterval). The
+  // size of this cache is limited by kMaxReportsPerDay *
+  // ceil(InDays(max(kNegativeCacheInterval, kPositiveCacheInterval))).
+  // TODO(gcasto): Serialize this so that it doesn't reset on browser restart.
+  PhishingCache cache_;
+
+  // Timestamp of when we sent a phishing request. Used to limit the number
+  // of phishing requests that we send in a day.
+  // TODO(gcasto): Serialize this so that it doesn't reset on browser restart.
+  std::queue<base::Time> phishing_report_times_;
 
   // Used to asynchronously call the callbacks for GetModelFile and
   // SendClientReportPhishingRequest.
@@ -190,6 +235,9 @@ class ClientSideDetectionService : public URLFetcher::Delegate {
 
   // The context we use to issue network requests.
   scoped_refptr<URLRequestContextGetter> request_context_getter_;
+
+  // Used to register for page load notifications.
+  NotificationRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(ClientSideDetectionService);
 };

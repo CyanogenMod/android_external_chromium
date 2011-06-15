@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,6 @@
 #include <utility>
 #include <vector>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/message_loop.h"
@@ -31,6 +29,8 @@
 #include "chrome/browser/net/passive_log_collector.h"
 #include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/browser/platform_util.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/jstemplate_builder.h"
@@ -39,7 +39,8 @@
 #include "grit/browser_resources.h"
 #include "grit/generated_resources.h"
 #include "net/base/escape.h"
-
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 namespace {
 
@@ -60,17 +61,17 @@ class GpuHTMLSource : public ChromeURLDataManager::DataSource {
 };
 
 // This class receives javascript messages from the renderer.
-// Note that the DOMUI infrastructure runs on the UI thread, therefore all of
+// Note that the WebUI infrastructure runs on the UI thread, therefore all of
 // this class's methods are expected to run on the UI thread.
 class GpuMessageHandler
-    : public DOMMessageHandler,
+    : public WebUIMessageHandler,
       public base::SupportsWeakPtr<GpuMessageHandler> {
  public:
   GpuMessageHandler();
   virtual ~GpuMessageHandler();
 
-  // DOMMessageHandler implementation.
-  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+  // WebUIMessageHandler implementation.
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
   virtual void RegisterMessages();
 
   // Mesages
@@ -79,6 +80,7 @@ class GpuMessageHandler
   // Submessages dispatched from OnCallAsync
   Value* OnRequestGpuInfo(const ListValue* list);
   Value* OnRequestClientInfo(const ListValue* list);
+  Value* OnRequestLogMessages(const ListValue* list);
 
   // Executes the javascript function |function_name| in the renderer, passing
   // it the argument |value|.
@@ -137,9 +139,9 @@ GpuMessageHandler::GpuMessageHandler() {
 
 GpuMessageHandler::~GpuMessageHandler() {}
 
-DOMMessageHandler* GpuMessageHandler::Attach(DOMUI* dom_ui) {
+WebUIMessageHandler* GpuMessageHandler::Attach(WebUI* web_ui) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  DOMMessageHandler* result = DOMMessageHandler::Attach(dom_ui);
+  WebUIMessageHandler* result = WebUIMessageHandler::Attach(web_ui);
   return result;
 }
 
@@ -147,7 +149,7 @@ DOMMessageHandler* GpuMessageHandler::Attach(DOMUI* dom_ui) {
 void GpuMessageHandler::RegisterMessages() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "callAsync",
       NewCallback(this, &GpuMessageHandler::OnCallAsync));
 }
@@ -180,6 +182,8 @@ void GpuMessageHandler::OnCallAsync(const ListValue* args) {
     ret = OnRequestGpuInfo(submessageArgs);
   } else if (submessage == "requestClientInfo") {
     ret = OnRequestClientInfo(submessageArgs);
+  } else if (submessage == "requestLogMessages") {
+    ret = OnRequestLogMessages(submessageArgs);
   } else {  // unrecognized submessage
     NOTREACHED();
     delete submessageArgs;
@@ -189,12 +193,12 @@ void GpuMessageHandler::OnCallAsync(const ListValue* args) {
 
   // call BrowserBridge.onCallAsyncReply with result
   if (ret) {
-    dom_ui_->CallJavascriptFunction(L"browserBridge.onCallAsyncReply",
+    web_ui_->CallJavascriptFunction(L"browserBridge.onCallAsyncReply",
         *requestId,
         *ret);
     delete ret;
   } else {
-    dom_ui_->CallJavascriptFunction(L"browserBridge.onCallAsyncReply",
+    web_ui_->CallJavascriptFunction(L"browserBridge.onCallAsyncReply",
         *requestId);
   }
 }
@@ -280,25 +284,41 @@ DictionaryValue* GpuInfoToDict(const GPUInfo& gpu_info) {
       base::StringPrintf("0x%04x", gpu_info.vendor_id())));
   basic_info->Append(NewDescriptionValuePair("Device Id",
       base::StringPrintf("0x%04x", gpu_info.device_id())));
+  basic_info->Append(NewDescriptionValuePair("Driver vendor",
+      gpu_info.driver_vendor()));
   basic_info->Append(NewDescriptionValuePair("Driver version",
-      WideToASCII(gpu_info.driver_version()).c_str()));
+      gpu_info.driver_version()));
   basic_info->Append(NewDescriptionValuePair("Pixel shader version",
       VersionNumberToString(gpu_info.pixel_shader_version())));
   basic_info->Append(NewDescriptionValuePair("Vertex shader version",
       VersionNumberToString(gpu_info.vertex_shader_version())));
   basic_info->Append(NewDescriptionValuePair("GL version",
       VersionNumberToString(gpu_info.gl_version())));
+  basic_info->Append(NewDescriptionValuePair("GL_VENDOR",
+      gpu_info.gl_vendor()));
+  basic_info->Append(NewDescriptionValuePair("GL_RENDERER",
+      gpu_info.gl_renderer()));
+  basic_info->Append(NewDescriptionValuePair("GL_VERSION",
+      gpu_info.gl_version_string()));
+  basic_info->Append(NewDescriptionValuePair("GL_EXTENSIONS",
+      gpu_info.gl_extensions()));
 
   DictionaryValue* info = new DictionaryValue();
   info->Set("basic_info", basic_info);
 
-  if (gpu_info.progress() == GPUInfo::kPartial) {
-    info->SetString("progress", "partial");
+  if (gpu_info.level() == GPUInfo::kPartial) {
+    info->SetString("level", "partial");
+  } else if (gpu_info.level() == GPUInfo::kCompleting) {
+    info->SetString("level", "completing");
+  } else if (gpu_info.level() == GPUInfo::kComplete) {
+    info->SetString("level", "complete");
   } else {
-    info->SetString("progress", "complete");
+    DCHECK(false) << "Unrecognized GPUInfo::Level value";
+    info->SetString("level", "");
   }
+
 #if defined(OS_WIN)
-  if (gpu_info.progress() == GPUInfo::kComplete) {
+  if (gpu_info.level() == GPUInfo::kComplete) {
     ListValue* dx_info = DxDiagNodeToList(gpu_info.dx_diagnostics());
     info->Set("diagnostics", dx_info);
   }
@@ -314,18 +334,25 @@ Value* GpuMessageHandler::OnRequestGpuInfo(const ListValue* list) {
   GPUInfo gpu_info = GpuProcessHostUIShim::GetInstance()->gpu_info();
 
   std::string html;
-  if (gpu_info.progress() != GPUInfo::kComplete) {
-    GpuProcessHostUIShim::GetInstance()->CollectGraphicsInfoAsynchronously();
+  if (gpu_info.level() != GPUInfo::kComplete) {
+    GpuProcessHostUIShim::GetInstance()->CollectGraphicsInfoAsynchronously(
+        GPUInfo::kComplete);
   }
 
-  if (gpu_info.progress() != GPUInfo::kUninitialized) {
+  if (gpu_info.level() != GPUInfo::kUninitialized) {
     return GpuInfoToDict(gpu_info);
   } else {
     return NULL;
   }
 }
 
+Value* GpuMessageHandler::OnRequestLogMessages(const ListValue*) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  return GpuProcessHostUIShim::GetInstance()->logMessages();
+}
+
 }  // namespace
+
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -334,17 +361,12 @@ Value* GpuMessageHandler::OnRequestGpuInfo(const ListValue* list) {
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-GpuInternalsUI::GpuInternalsUI(TabContents* contents) : DOMUI(contents) {
+GpuInternalsUI::GpuInternalsUI(TabContents* contents) : WebUI(contents) {
   AddMessageHandler((new GpuMessageHandler())->Attach(this));
 
   GpuHTMLSource* html_source = new GpuHTMLSource();
 
   // Set up the chrome://gpu/ source.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(
-          ChromeURLDataManager::GetInstance(),
-          &ChromeURLDataManager::AddDataSource,
-          make_scoped_refptr(html_source)));
+  contents->profile()->GetChromeURLDataManager()->AddDataSource(html_source);
 }
 

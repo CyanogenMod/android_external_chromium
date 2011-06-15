@@ -1,16 +1,16 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+#include <string>
 
 #include "base/message_loop.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/views/bookmark_editor_view.h"
-#include "chrome/common/pref_names.h"
+#include "chrome/browser/ui/views/bookmark_editor_view.h"
 #include "chrome/test/testing_profile.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -86,7 +86,7 @@ class BookmarkEditorViewTest : public testing::Test {
   }
 
   bool URLTFHasParent() {
-    return editor_->url_tf_.GetParent();
+    return editor_->url_tf_.parent();
   }
 
  private:

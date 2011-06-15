@@ -1,9 +1,10 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <Cocoa/Cocoa.h>
 
+#include "base/compiler_specific.h"
 #include "base/scoped_nsobject.h"
 #include "base/utf_string_conversions.h"
 #import "chrome/browser/ui/cocoa/task_manager_mac.h"
@@ -19,13 +20,13 @@ namespace {
 class TestResource : public TaskManager::Resource {
  public:
   TestResource(const string16& title, pid_t pid) : title_(title), pid_(pid) {}
-  virtual std::wstring GetTitle() const { return UTF16ToWide(title_); }
-  virtual SkBitmap GetIcon() const { return SkBitmap(); }
-  virtual base::ProcessHandle GetProcess() const { return pid_; }
-  virtual Type GetType() const { return RENDERER; }
-  virtual bool SupportNetworkUsage() const { return false; }
-  virtual void SetSupportNetworkUsage() { NOTREACHED(); }
-  virtual void Refresh() {}
+  virtual string16 GetTitle() const OVERRIDE { return title_; }
+  virtual SkBitmap GetIcon() const OVERRIDE { return SkBitmap(); }
+  virtual base::ProcessHandle GetProcess() const OVERRIDE { return pid_; }
+  virtual Type GetType() const OVERRIDE { return RENDERER; }
+  virtual bool SupportNetworkUsage() const OVERRIDE { return false; }
+  virtual void SetSupportNetworkUsage() OVERRIDE { NOTREACHED(); }
+  virtual void Refresh() OVERRIDE {}
   string16 title_;
   pid_t pid_;
 };
@@ -38,7 +39,7 @@ class TaskManagerWindowControllerTest : public CocoaTest {
 // Test creation, to ensure nothing leaks or crashes.
 TEST_F(TaskManagerWindowControllerTest, Init) {
   TaskManager task_manager;
-  TaskManagerMac* bridge(new TaskManagerMac(&task_manager));
+  TaskManagerMac* bridge(new TaskManagerMac(&task_manager, false));
   TaskManagerWindowController* controller = bridge->cocoa_controller();
 
   // Releases the controller, which in turn deletes |bridge|.
@@ -56,7 +57,7 @@ TEST_F(TaskManagerWindowControllerTest, Sort) {
   task_manager.AddResource(&resource2);
   task_manager.AddResource(&resource3);  // Will be in the same group as 2.
 
-  TaskManagerMac* bridge(new TaskManagerMac(&task_manager));
+  TaskManagerMac* bridge(new TaskManagerMac(&task_manager, false));
   TaskManagerWindowController* controller = bridge->cocoa_controller();
   NSTableView* table = [controller tableView];
   ASSERT_EQ(3, [controller numberOfRowsInTableView:table]);
@@ -89,7 +90,7 @@ TEST_F(TaskManagerWindowControllerTest, SelectionAdaptsToSorting) {
   task_manager.AddResource(&resource1);
   task_manager.AddResource(&resource2);
 
-  TaskManagerMac* bridge(new TaskManagerMac(&task_manager));
+  TaskManagerMac* bridge(new TaskManagerMac(&task_manager, false));
   TaskManagerWindowController* controller = bridge->cocoa_controller();
   NSTableView* table = [controller tableView];
   ASSERT_EQ(2, [controller numberOfRowsInTableView:table]);

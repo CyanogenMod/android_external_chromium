@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/dom_ui/options/add_startup_page_handler.h"
 
-#include "app/l10n_util.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
@@ -15,6 +14,7 @@
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "net/base/net_util.h"
+#include "ui/base/l10n/l10n_util.h"
 
 AddStartupPageHandler::AddStartupPageHandler() {
 }
@@ -27,8 +27,7 @@ AddStartupPageHandler::~AddStartupPageHandler() {
 void AddStartupPageHandler::GetLocalizedValues(
     DictionaryValue* localized_strings) {
   DCHECK(localized_strings);
-  localized_strings->SetString("addStartupPageTitle",
-      l10n_util::GetStringUTF16(IDS_ASI_ADD_TITLE));
+  RegisterTitle(localized_strings, "addStartupPage", IDS_ASI_ADD_TITLE);
   localized_strings->SetString("addStartupPageURLLabel",
       l10n_util::GetStringUTF16(IDS_ASI_URL));
   localized_strings->SetString("addStartupPageAddButton",
@@ -41,12 +40,12 @@ void AddStartupPageHandler::Initialize() {
   url_table_model_.reset(new PossibleURLModel());
   if (url_table_model_.get()) {
     url_table_model_->SetObserver(this);
-    url_table_model_->Reload(dom_ui_->GetProfile());
+    url_table_model_->Reload(web_ui_->GetProfile());
   }
 }
 
 void AddStartupPageHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback(
+  web_ui_->RegisterMessageCallback(
       "updateAddStartupFieldWithPage",
       NewCallback(this, &AddStartupPageHandler::UpdateFieldWithRecentPage));
 }
@@ -58,7 +57,7 @@ void AddStartupPageHandler::UpdateFieldWithRecentPage(const ListValue* args) {
     return;
   }
   std::string languages =
-      dom_ui_->GetProfile()->GetPrefs()->GetString(prefs::kAcceptLanguages);
+      web_ui_->GetProfile()->GetPrefs()->GetString(prefs::kAcceptLanguages);
   // Because this gets parsed by FixupURL(), it's safe to omit the scheme or
   // trailing slash, and unescape most characters, but we need to not drop any
   // username/password, or unescape anything that changes the meaning.
@@ -67,7 +66,7 @@ void AddStartupPageHandler::UpdateFieldWithRecentPage(const ListValue* args) {
       UnescapeRule::SPACES, NULL, NULL, NULL);
 
   scoped_ptr<Value> url_value(Value::CreateStringValue(url_string));
-  dom_ui_->CallJavascriptFunction(L"AddStartupPageOverlay.setInputFieldValue",
+  web_ui_->CallJavascriptFunction(L"AddStartupPageOverlay.setInputFieldValue",
                                   *url_value.get());
 }
 
@@ -82,7 +81,7 @@ void AddStartupPageHandler::OnModelChanged() {
     pages.Append(dict);
   }
 
-  dom_ui_->CallJavascriptFunction(L"AddStartupPageOverlay.updateRecentPageList",
+  web_ui_->CallJavascriptFunction(L"AddStartupPageOverlay.updateRecentPageList",
                                   pages);
 }
 

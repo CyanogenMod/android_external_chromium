@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,68 +7,13 @@
 #pragma once
 
 #include "base/basictypes.h"
+// configuration_policy_type.h is generated. See policy_template.json for
+// policy definitions.
+#include "policy/configuration_policy_type.h"
 
 class Value;
 
 namespace policy {
-
-enum ConfigurationPolicyType {
-  kPolicyHomePage,
-  kPolicyHomepageIsNewTabPage,
-  kPolicyRestoreOnStartup,
-  kPolicyURLsToRestoreOnStartup,
-  kPolicyDefaultSearchProviderEnabled,
-  kPolicyDefaultSearchProviderName,
-  kPolicyDefaultSearchProviderKeyword,
-  kPolicyDefaultSearchProviderSearchURL,
-  kPolicyDefaultSearchProviderSuggestURL,
-  kPolicyDefaultSearchProviderIconURL,
-  kPolicyDefaultSearchProviderEncodings,
-  kPolicyDisableSpdy,
-  kPolicyProxyMode,
-  kPolicyProxyServer,
-  kPolicyProxyPacUrl,
-  kPolicyProxyBypassList,
-  kPolicyAlternateErrorPagesEnabled,
-  kPolicySearchSuggestEnabled,
-  kPolicyDnsPrefetchingEnabled,
-  kPolicySafeBrowsingEnabled,
-  kPolicyMetricsReportingEnabled,
-  kPolicyPasswordManagerEnabled,
-  kPolicyPasswordManagerAllowShowPasswords,
-  kPolicyAutoFillEnabled,
-  kPolicySyncDisabled,
-  kPolicyApplicationLocale,
-  kPolicyExtensionInstallAllowList,
-  kPolicyExtensionInstallDenyList,
-  kPolicyShowHomeButton,
-  kPolicyDisabledPlugins,
-  kPolicyPrintingEnabled,
-  kPolicyChromeFrameRendererSettings,
-  kPolicyRenderInChromeFrameList,
-  kPolicyRenderInHostList,
-  kPolicyJavascriptEnabled,
-  kPolicySavingBrowserHistoryDisabled,
-  kPolicyDeveloperToolsDisabled,
-  kPolicyBlockThirdPartyCookies,
-  kPolicyDefaultCookiesSetting,
-  kPolicyDefaultImagesSetting,
-  kPolicyDefaultJavaScriptSetting,
-  kPolicyDefaultPluginsSetting,
-  kPolicyDefaultPopupsSetting,
-  kPolicyDefaultNotificationSetting,
-  kPolicyDefaultGeolocationSetting,
-  kPolicyExtensionInstallForceList,
-  kPolicyChromeOsLockOnIdleSuspend,
-  kPolicyAuthSchemes,
-  kPolicyDisableAuthNegotiateCnameLookup,
-  kPolicyEnableAuthNegotiatePort,
-  kPolicyAuthServerWhitelist,
-  kPolicyAuthNegotiateDelegateWhitelist,
-  kPolicyGSSAPILibraryName,
-  kPolicyDisable3DAPIs
-};
-
 
 // Constants for the "Proxy Server Mode" defined in the policies.
 // Note that these diverge from internal presentation defined in
@@ -79,11 +24,11 @@ enum PolicyProxyModeType {
   // Disable Proxy, connect directly.
   kPolicyNoProxyServerMode = 0,
   // Auto detect proxy or use specific PAC script if given.
-  kPolicyAutoDetectProxyMode = 1,
+  kPolicyAutoDetectProxyServerMode = 1,
   // Use manually configured proxy servers (fixed servers).
-  kPolicyManuallyConfiguredProxyMode = 2,
+  kPolicyManuallyConfiguredProxyServerMode = 2,
   // Use system proxy server.
-  kPolicyUseSystemProxyMode = 3,
+  kPolicyUseSystemProxyServerMode = 3,
 
   MODE_COUNT
 };

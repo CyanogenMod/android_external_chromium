@@ -4,7 +4,7 @@
 
 #include "chrome/browser/ui/login/login_prompt.h"
 
-#include "app/l10n_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/password_manager/password_manager.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
@@ -17,6 +17,7 @@
 #include "chrome/browser/ui/views/login_view.h"
 #include "grit/generated_resources.h"
 #include "net/url_request/url_request.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "views/window/dialog_delegate.h"
 
 using webkit_glue::PasswordForm;
@@ -101,14 +102,15 @@ class LoginHandlerWin : public LoginHandler,
   // LoginHandler:
 
   virtual void BuildViewForPasswordManager(PasswordManager* manager,
-                                           std::wstring explanation) {
+                                           const string16& explanation) {
     DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
     TabContents* tab_contents = GetTabContentsForLogin();
     bool should_focus_view = !tab_contents->delegate() ||
         tab_contents->delegate()->ShouldFocusConstrainedWindow();
 
-    LoginView* view = new LoginView(explanation, should_focus_view);
+    LoginView* view = new LoginView(UTF16ToWideHack(explanation),
+                                    should_focus_view);
 
     // Set the model for the login view. The model (password manager) is owned
     // by the view's parent TabContents, so natural destruction order means we

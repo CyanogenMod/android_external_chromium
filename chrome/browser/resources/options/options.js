@@ -1,7 +1,8 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+var AddLanguageOverlay = options.AddLanguageOverlay;
 var AddStartupPageOverlay = options.AddStartupPageOverlay;
 var AdvancedOptions = options.AdvancedOptions;
 var AlertOverlay = options.AlertOverlay;
@@ -14,10 +15,10 @@ var ContentSettings = options.ContentSettings;
 var ContentSettingsExceptionsArea =
     options.contentSettings.ContentSettingsExceptionsArea;
 var CookiesView = options.CookiesView;
-var EditSearchEngineOverlay = options.EditSearchEngineOverlay;
 var FontSettings = options.FontSettings;
 var ImportDataOverlay = options.ImportDataOverlay;
 var InstantConfirmOverlay = options.InstantConfirmOverlay;
+var LanguageOptions = options.LanguageOptions;
 var OptionsPage = options.OptionsPage;
 var PasswordManager = options.PasswordManager;
 var PersonalOptions = options.PersonalOptions;
@@ -25,7 +26,6 @@ var Preferences = options.Preferences;
 var ProxyOptions = options.ProxyOptions;
 var SearchEngineManager = options.SearchEngineManager;
 var SearchPage = options.SearchPage;
-var StartupPageManager = options.StartupPageManager;
 
 /**
  * DOMContentLoaded handler, sets up the page.
@@ -41,8 +41,6 @@ function load() {
   cr.ui.decorate('input[pref][type=url]', options.PrefTextField);
   cr.ui.decorate('#content-settings-page input[type=radio]',
       options.ContentSettingsRadio);
-  cr.ui.decorate('#fontSettingsMinimumSizeSelector',
-      options.MinimumFontSizeSelect);
 
   var menuOffPattern = /(^\?|&)menu=off($|&)/;
   var menuDisabled = menuOffPattern.test(window.location.search);
@@ -56,9 +54,6 @@ function load() {
   OptionsPage.registerSubPage(SearchEngineManager.getInstance(),
                               BrowserOptions.getInstance(),
                               [$('defaultSearchManageEnginesButton')]);
-  OptionsPage.registerSubPage(StartupPageManager.getInstance(),
-                              BrowserOptions.getInstance(),
-                              [$('startupPageManagerButton')]);
   OptionsPage.register(PersonalOptions.getInstance());
   OptionsPage.registerSubPage(AutoFillOptions.getInstance(),
                               PersonalOptions.getInstance(),
@@ -75,24 +70,24 @@ function load() {
                                 [$('language-button')]);
     OptionsPage.registerSubPage(
         new OptionsPage('languageChewing',
-                        localStrings.getString('languageChewingPage'),
+                        templateData.languageChewingPageTabTitle,
                         'languageChewingPage'),
-        SystemOptions.getInstance());
+        LanguageOptions.getInstance());
     OptionsPage.registerSubPage(
         new OptionsPage('languageHangul',
-                        localStrings.getString('languageHangulPage'),
+                        templateData.languageHangulPageTabTitle,
                         'languageHangulPage'),
-        SystemOptions.getInstance());
+        LanguageOptions.getInstance());
     OptionsPage.registerSubPage(
         new OptionsPage('languageMozc',
-                        localStrings.getString('languageMozcPage'),
+                        templateData.languageMozcPageTabTitle,
                         'languageMozcPage'),
-        SystemOptions.getInstance());
+        LanguageOptions.getInstance());
     OptionsPage.registerSubPage(
         new OptionsPage('languagePinyin',
-                        localStrings.getString('languagePinyinPage'),
+                        templateData.languagePinyinPageTabTitle,
                         'languagePinyinPage'),
-        SystemOptions.getInstance());
+        LanguageOptions.getInstance());
     OptionsPage.register(InternetOptions.getInstance());
   }
   OptionsPage.register(AdvancedOptions.getInstance());
@@ -108,24 +103,40 @@ function load() {
   OptionsPage.registerSubPage(FontSettings.getInstance(),
                               AdvancedOptions.getInstance(),
                               [$('fontSettingsCustomizeFontsButton')]);
+  if (!cr.isChromeOS) {
+    OptionsPage.registerSubPage(LanguageOptions.getInstance(),
+                                AdvancedOptions.getInstance(),
+                                [$('language-button')]);
+  }
   if (!cr.isWindows && !cr.isMac) {
     OptionsPage.registerSubPage(CertificateManager.getInstance(),
                                 AdvancedOptions.getInstance(),
                                 [$('show-cookies-button')]);
-    OptionsPage.registerOverlay(CertificateRestoreOverlay.getInstance());
-    OptionsPage.registerOverlay(CertificateBackupOverlay.getInstance());
-    OptionsPage.registerOverlay(CertificateEditCaTrustOverlay.getInstance());
-    OptionsPage.registerOverlay(CertificateImportErrorOverlay.getInstance());
+    OptionsPage.registerOverlay(CertificateRestoreOverlay.getInstance(),
+                                CertificateManager.getInstance());
+    OptionsPage.registerOverlay(CertificateBackupOverlay.getInstance(),
+                                CertificateManager.getInstance());
+    OptionsPage.registerOverlay(CertificateEditCaTrustOverlay.getInstance(),
+                                CertificateManager.getInstance());
+    OptionsPage.registerOverlay(CertificateImportErrorOverlay.getInstance(),
+                                CertificateManager.getInstance());
   }
-  OptionsPage.registerOverlay(AddStartupPageOverlay.getInstance());
+  OptionsPage.registerOverlay(AddLanguageOverlay.getInstance(),
+                              LanguageOptions.getInstance());
+  OptionsPage.registerOverlay(AddStartupPageOverlay.getInstance(),
+                              BrowserOptions.getInstance());
   OptionsPage.registerOverlay(AlertOverlay.getInstance());
-  OptionsPage.registerOverlay(AutoFillEditAddressOverlay.getInstance());
-  OptionsPage.registerOverlay(AutoFillEditCreditCardOverlay.getInstance());
+  OptionsPage.registerOverlay(AutoFillEditAddressOverlay.getInstance(),
+                              AutoFillOptions.getInstance());
+  OptionsPage.registerOverlay(AutoFillEditCreditCardOverlay.getInstance(),
+                              AutoFillOptions.getInstance());
   OptionsPage.registerOverlay(ClearBrowserDataOverlay.getInstance(),
+                              AdvancedOptions.getInstance(),
                               [$('privacyClearDataButton')]);
-  OptionsPage.registerOverlay(EditSearchEngineOverlay.getInstance());
-  OptionsPage.registerOverlay(ImportDataOverlay.getInstance());
-  OptionsPage.registerOverlay(InstantConfirmOverlay.getInstance());
+  OptionsPage.registerOverlay(ImportDataOverlay.getInstance(),
+                              PersonalOptions.getInstance());
+  OptionsPage.registerOverlay(InstantConfirmOverlay.getInstance(),
+                              BrowserOptions.getInstance());
 
   if (cr.isChromeOS) {
     OptionsPage.register(AccountsOptions.getInstance());
@@ -134,13 +145,15 @@ function load() {
                                 [$('proxiesConfigureButton')]);
     OptionsPage.registerOverlay(new OptionsPage('detailsInternetPage',
                                                 'detailsInternetPage',
-                                                'detailsInternetPage'));
+                                                'detailsInternetPage'),
+                                InternetOptions.getInstance());
 
     var languageModifierKeysOverlay = new OptionsPage(
         'languageCustomizeModifierKeysOverlay',
         localStrings.getString('languageCustomizeModifierKeysOverlay'),
         'languageCustomizeModifierKeysOverlay')
     OptionsPage.registerOverlay(languageModifierKeysOverlay,
+                                SystemOptions.getInstance(),
                                 [$('modifier-keys-button')]);
   }
 
@@ -148,16 +161,13 @@ function load() {
   OptionsPage.initialize();
 
   var path = document.location.pathname;
-  var hash = document.location.hash;
 
   if (path.length > 1) {
     var pageName = path.slice(1);
-    OptionsPage.showPageByName(pageName);
-    if (hash.length > 1)
-      OptionsPage.handleHashForPage(pageName, hash.slice(1));
+    // Show page, but don't update history (there's already an entry for it).
+    OptionsPage.showPageByName(pageName, false);
   } else {
-    // TODO(csilv): Save/restore last selected page.
-    OptionsPage.showPageByName(BrowserOptions.getInstance().name);
+    OptionsPage.showDefaultPage();
   }
 
   var subpagesNavTabs = document.querySelectorAll('.subpages-nav-tabs');
@@ -170,10 +180,21 @@ function load() {
   // Allow platform specific CSS rules.
   if (cr.isMac)
     document.documentElement.setAttribute('os', 'mac');
-  if (cr.isLinux)
+  if (cr.isWindows)
+    document.documentElement.setAttribute('os', 'windows');
+  if (cr.isChromeOS)
+    document.documentElement.setAttribute('os', 'chromeos');
+  if (cr.isLinux) {
+    document.documentElement.setAttribute('os', 'linux');
     document.documentElement.setAttribute('toolkit', 'gtk');
+  }
   if (cr.isViews)
     document.documentElement.setAttribute('toolkit', 'views');
+
+  // Clicking on the Settings title brings up the 'Basics' page.
+  $('settings-title').onclick = function() {
+    OptionsPage.navigateToPage(BrowserOptions.getInstance().name);
+  };
 }
 
 document.addEventListener('DOMContentLoaded', load);

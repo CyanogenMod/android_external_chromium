@@ -14,8 +14,6 @@
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/chromeos/login/user_view.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
 #include "testing/gtest/include/gtest/gtest_prod.h"
 #include "views/controls/button/button.h"
 #include "views/controls/textfield/textfield.h"
@@ -33,20 +31,17 @@ class ThrobberManager;
 // the nececessary set of UserControllers.
 class UserController : public views::WidgetDelegate,
                        public NewUserView::Delegate,
-                       public NotificationObserver,
                        public UserView::Delegate {
  public:
   class Delegate {
    public:
+    virtual void CreateAccount() = 0;
     virtual void Login(UserController* source,
                        const string16& password) = 0;
-    virtual void LoginOffTheRecord() = 0;
+    virtual void LoginAsGuest() = 0;
     virtual void ClearErrors() = 0;
     virtual void OnUserSelected(UserController* source) = 0;
-    virtual void ActivateWizard(const std::string& screen_name) = 0;
     virtual void RemoveUser(UserController* source) = 0;
-    virtual void AddStartUrl(const GURL& start_url) = 0;
-    virtual void SetStatusAreaEnabled(bool enable) = 0;
 
     // Selects user entry with specified |index|.
     // Does nothing if current user is already selected.
@@ -68,19 +63,17 @@ class UserController : public views::WidgetDelegate,
   // number of users.
   void Init(int index, int total_user_count, bool need_browse_without_signin);
 
-  // Update border window parameters to notify window manager about new numbers.
-  // |index| of this user and |total_user_count| of users.
-  void UpdateUserCount(int index, int total_user_count);
-
   int user_index() const { return user_index_; }
-  bool is_user_selected() const { return is_user_selected_; }
   bool is_new_user() const { return is_new_user_; }
   bool is_guest() const { return is_guest_; }
+  bool is_owner() const { return is_owner_; }
 
   const UserManager::User& user() const { return user_; }
 
-  // Enables or disables tooltip with user's email.
-  void EnableNameTooltip(bool enable);
+  // Get widget that contains all controls.
+  views::WidgetGtk* controls_window() {
+    return controls_window_;
+  }
 
   // Called when user view is activated (OnUserSelected).
   void ClearAndEnableFields();
@@ -88,46 +81,44 @@ class UserController : public views::WidgetDelegate,
   // Called when user view is activated (OnUserSelected).
   void ClearAndEnablePassword();
 
-  // Get widget that contains all controls.
-  views::WidgetGtk* controls_window() {
-    return controls_window_;
-  }
+  // Enables or disables tooltip with user's email.
+  void EnableNameTooltip(bool enable);
+
+  // Called when user image has been changed.
+  void OnUserImageChanged(UserManager::User* user);
 
   // Returns bounds of the main input field in the screen coordinates (e.g.
   // these bounds could be used to choose positions for the error bubble).
   gfx::Rect GetMainInputScreenBounds() const;
 
+  // Selects user relative to the current user.
+  void SelectUserRelative(int shift);
+
   // Starts/Stops throbber.
   void StartThrobber();
   void StopThrobber();
 
-  // views::WidgetDelegate:
+  // Update border window parameters to notify window manager about new numbers.
+  // |index| of this user and |total_user_count| of users.
+  void UpdateUserCount(int index, int total_user_count);
+
+  // views::WidgetDelegate implementation:
   virtual void IsActiveChanged(bool active);
 
-  // NotificationObserver implementation.
-  virtual void Observe(NotificationType type,
-                       const NotificationSource& source,
-                       const NotificationDetails& details);
-
-  // NewUserView::Delegate
+  // NewUserView::Delegate implementation:
   virtual void OnLogin(const std::string& username,
                        const std::string& password);
+  virtual void OnLoginAsGuest();
   virtual void OnCreateAccount();
-  virtual void OnLoginOffTheRecord();
-  virtual void AddStartUrl(const GURL& start_url) {
-    delegate_->AddStartUrl(start_url);
-  }
   virtual void ClearErrors();
   virtual void NavigateAway();
-  virtual void SetStatusAreaEnabled(bool enable) {
-    delegate_->SetStatusAreaEnabled(enable);
-  }
 
   // UserView::Delegate implementation:
   virtual void OnRemoveUser();
+  virtual bool IsUserSelected() const { return is_user_selected_; }
 
-  // Selects user relative to the current user.
-  void SelectUserRelative(int shift);
+  // UsernameView::Delegate implementation:
+  virtual void OnLocaleChanged();
 
   // Padding between the user windows.
   static const int kPadding;
@@ -153,12 +144,6 @@ class UserController : public views::WidgetDelegate,
   void CreateBorderWindow(int index,
                           int total_user_count,
                           int controls_width, int controls_height);
-
-  // Sets specified image on the image window. If image's size is less than
-  // 75% of window size, image size is preserved to avoid blur. Otherwise,
-  // the image is resized to fit window size precisely. Image view repaints
-  // itself.
-  void SetImage(const SkBitmap& image);
 
   // Returns tooltip text for user name.
   std::wstring GetNameTooltip() const;
@@ -207,9 +192,8 @@ class UserController : public views::WidgetDelegate,
   // Throbber host that can show a throbber.
   ThrobberHostView* throbber_host_;
 
-  NotificationRegistrar registrar_;
-
-  ScopedRunnableMethodFactory<UserController> method_factory_;
+  // Whether name tooltip is enabled.
+  bool name_tooltip_enabled_;
 
   DISALLOW_COPY_AND_ASSIGN(UserController);
 };

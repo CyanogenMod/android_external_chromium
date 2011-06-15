@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,139 +13,58 @@
 #include "base/task.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/net/gaia/token_service.h"
-#include "chrome/browser/sync/engine/syncapi.h"
-#include "chrome/browser/sync/glue/autofill_model_associator.h"
-#include "chrome/browser/sync/glue/autofill_profile_model_associator.h"
-#include "chrome/browser/sync/glue/password_model_associator.h"
-#include "chrome/browser/sync/glue/preference_model_associator.h"
-#include "chrome/browser/sync/glue/session_model_associator.h"
-#include "chrome/browser/sync/glue/typed_url_model_associator.h"
 #include "chrome/browser/sync/profile_sync_factory_mock.h"
-#include "chrome/browser/sync/protocol/sync.pb.h"
-#include "chrome/browser/sync/syncable/directory_manager.h"
 #include "chrome/browser/sync/syncable/model_type.h"
-#include "chrome/browser/sync/syncable/syncable.h"
-#include "chrome/browser/sync/test_profile_sync_service.h"
-#include "chrome/browser/sync/util/cryptographer.h"
-#include "chrome/test/profile_mock.h"
-#include "chrome/test/sync/engine/test_id_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-using browser_sync::TestIdFactory;
-using sync_api::UserShare;
-using syncable::BASE_VERSION;
-using syncable::CREATE;
-using syncable::DirectoryManager;
-using syncable::IS_DEL;
-using syncable::IS_DIR;
-using syncable::IS_UNAPPLIED_UPDATE;
-using syncable::IS_UNSYNCED;
-using syncable::ModelType;
-using syncable::MutableEntry;
-using syncable::SERVER_IS_DIR;
-using syncable::SERVER_VERSION;
-using syncable::SPECIFICS;
-using syncable::ScopedDirLookup;
-using syncable::UNIQUE_SERVER_TAG;
-using syncable::UNITTEST;
-using syncable::WriteTransaction;
+class ProfileSyncService;
+class TestProfileSyncService;
+
+namespace browser_sync {
+class TestIdFactory;
+}  // namespace browser_sync
+
+namespace sync_api {
+struct UserShare;
+}  //  namespace sync_api
 
 class ProfileSyncServiceTestHelper {
  public:
-  static bool CreateRoot(ModelType model_type, ProfileSyncService* service,
-                         TestIdFactory* ids) {
-    UserShare* user_share = service->backend()->GetUserShareHandle();
-    DirectoryManager* dir_manager = user_share->dir_manager.get();
+  static const std::string GetTagForType(syncable::ModelType model_type);
 
-    ScopedDirLookup dir(dir_manager, user_share->name);
-    if (!dir.good())
-      return false;
-
-    std::string tag_name;
-    switch (model_type) {
-      case syncable::AUTOFILL:
-        tag_name = browser_sync::kAutofillTag;
-        break;
-      case syncable::AUTOFILL_PROFILE:
-        tag_name = browser_sync::kAutofillProfileTag;
-        break;
-      case syncable::PREFERENCES:
-        tag_name = browser_sync::kPreferencesTag;
-        break;
-      case syncable::PASSWORDS:
-        tag_name = browser_sync::kPasswordTag;
-        break;
-      case syncable::NIGORI:
-        tag_name = browser_sync::kNigoriTag;
-        break;
-      case syncable::TYPED_URLS:
-        tag_name = browser_sync::kTypedUrlTag;
-        break;
-      case syncable::SESSIONS:
-        tag_name = browser_sync::kSessionsTag;
-        break;
-      default:
-        return false;
-    }
-
-    WriteTransaction wtrans(dir, UNITTEST, __FILE__, __LINE__);
-    MutableEntry node(&wtrans,
-                      CREATE,
-                      wtrans.root_id(),
-                      tag_name);
-    node.Put(UNIQUE_SERVER_TAG, tag_name);
-    node.Put(IS_DIR, true);
-    node.Put(SERVER_IS_DIR, false);
-    node.Put(IS_UNSYNCED, false);
-    node.Put(IS_UNAPPLIED_UPDATE, false);
-    node.Put(SERVER_VERSION, 20);
-    node.Put(BASE_VERSION, 20);
-    node.Put(IS_DEL, false);
-    node.Put(syncable::ID, ids->MakeServer(tag_name));
-    sync_pb::EntitySpecifics specifics;
-    syncable::AddDefaultExtensionValue(model_type, &specifics);
-    node.Put(SPECIFICS, specifics);
-
-    return true;
-  }
+  static bool CreateRoot(syncable::ModelType model_type,
+                         sync_api::UserShare* service,
+                         browser_sync::TestIdFactory* ids);
 };
 
 class AbstractProfileSyncServiceTest : public testing::Test {
  public:
-  AbstractProfileSyncServiceTest()
-      : ui_thread_(BrowserThread::UI, &message_loop_) {}
+  AbstractProfileSyncServiceTest();
+  virtual ~AbstractProfileSyncServiceTest();
 
-  bool CreateRoot(ModelType model_type) {
-    return ProfileSyncServiceTestHelper::CreateRoot(model_type,
-                                                    service_.get(), &ids_);
-  }
+  bool CreateRoot(syncable::ModelType model_type);
 
  protected:
-
   MessageLoopForUI message_loop_;
   BrowserThread ui_thread_;
   ProfileSyncFactoryMock factory_;
   TokenService token_service_;
   scoped_ptr<TestProfileSyncService> service_;
-  TestIdFactory ids_;
 };
 
 class CreateRootTask : public Task {
  public:
-  CreateRootTask(AbstractProfileSyncServiceTest* test, ModelType model_type)
-      : test_(test), model_type_(model_type), success_(false) {
-  }
+  CreateRootTask(AbstractProfileSyncServiceTest* test,
+                 syncable::ModelType model_type);
 
-  virtual ~CreateRootTask() {}
-  virtual void Run() {
-    success_ = test_->CreateRoot(model_type_);
-  }
+  virtual ~CreateRootTask();
+  virtual void Run();
 
-  bool success() { return success_; }
+  bool success();
 
  private:
   AbstractProfileSyncServiceTest* test_;
-  ModelType model_type_;
+  syncable::ModelType model_type_;
   bool success_;
 };
 

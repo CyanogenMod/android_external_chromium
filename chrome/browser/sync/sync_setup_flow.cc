@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/sync/sync_setup_flow.h"
 
-#include "app/gfx/font_util.h"
 #include "base/callback.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
@@ -12,7 +11,7 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/dom_ui/dom_ui_util.h"
+#include "chrome/browser/dom_ui/web_ui_util.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
@@ -20,14 +19,13 @@
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_list.h"
-#if defined(OS_MACOSX)
-#include "chrome/browser/ui/cocoa/html_dialog_window_controller_cppsafe.h"
-#endif
 #include "chrome/common/net/gaia/google_service_auth_error.h"
 #include "chrome/common/pref_names.h"
-#include "gfx/font.h"
 #include "grit/locale_settings.h"
+#include "ui/base/l10n/l10n_font_util.h"
+#include "ui/gfx/font.h"
 
 // XPath expression for finding specific iframes.
 static const wchar_t* kLoginIFrameXPath = L"//iframe[@id='login']";
@@ -37,16 +35,25 @@ static const wchar_t* kPassphraseIFrameXPath =
     L"//iframe[@id='passphrase']";
 static const wchar_t* kDoneIframeXPath = L"//iframe[@id='done']";
 
+SyncConfiguration::SyncConfiguration()
+    : sync_everything(false),
+      use_secondary_passphrase(false) {
+}
+
+SyncConfiguration::~SyncConfiguration() {}
+
 void FlowHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("SubmitAuth",
+  web_ui_->RegisterMessageCallback("SubmitAuth",
       NewCallback(this, &FlowHandler::HandleSubmitAuth));
-  dom_ui_->RegisterMessageCallback("Configure",
+  web_ui_->RegisterMessageCallback("Configure",
       NewCallback(this, &FlowHandler::HandleConfigure));
-  dom_ui_->RegisterMessageCallback("Passphrase",
+  web_ui_->RegisterMessageCallback("Passphrase",
       NewCallback(this, &FlowHandler::HandlePassphraseEntry));
-  dom_ui_->RegisterMessageCallback("FirstPassphrase",
+  web_ui_->RegisterMessageCallback("PassphraseCancel",
+      NewCallback(this, &FlowHandler::HandlePassphraseCancel));
+  web_ui_->RegisterMessageCallback("FirstPassphrase",
       NewCallback(this, &FlowHandler::HandleFirstPassphrase));
-  dom_ui_->RegisterMessageCallback("GoToDashboard",
+  web_ui_->RegisterMessageCallback("GoToDashboard",
       NewCallback(this, &FlowHandler::HandleGoToDashboard));
 }
 
@@ -69,15 +76,13 @@ static bool GetAuthData(const std::string& json,
   return true;
 }
 
-bool GetPassphrase(const std::string& json, std::string* passphrase,
-                   std::string* mode) {
+bool GetPassphrase(const std::string& json, std::string* passphrase) {
   scoped_ptr<Value> parsed_value(base::JSONReader::Read(json, false));
   if (!parsed_value.get() || !parsed_value->IsType(Value::TYPE_DICTIONARY))
     return false;
 
   DictionaryValue* result = static_cast<DictionaryValue*>(parsed_value.get());
-  return result->GetString("passphrase", passphrase) &&
-         result->GetString("mode", mode);
+  return result->GetString("passphrase", passphrase);
 }
 
 bool GetFirstPassphrase(const std::string& json,
@@ -168,8 +173,15 @@ static bool GetConfiguration(const std::string& json,
   return true;
 }
 
+static void DisablePasswordSync(ProfileSyncService* service) {
+  syncable::ModelTypeSet types;
+  service->GetPreferredDataTypes(&types);
+  types.erase(syncable::PASSWORDS);
+  service->OnUserChoseDatatypes(false, types);
+}
+
 void FlowHandler::HandleSubmitAuth(const ListValue* args) {
-  std::string json(dom_ui_util::GetJsonResponseFromFirstArgumentInList(args));
+  std::string json(web_ui_util::GetJsonResponseFromFirstArgumentInList(args));
   std::string username, password, captcha, access_code;
   if (json.empty())
     return;
@@ -186,7 +198,7 @@ void FlowHandler::HandleSubmitAuth(const ListValue* args) {
 }
 
 void FlowHandler::HandleConfigure(const ListValue* args) {
-  std::string json(dom_ui_util::GetJsonResponseFromFirstArgumentInList(args));
+  std::string json(web_ui_util::GetJsonResponseFromFirstArgumentInList(args));
   SyncConfiguration configuration;
 
   if (json.empty())
@@ -206,25 +218,29 @@ void FlowHandler::HandleConfigure(const ListValue* args) {
 }
 
 void FlowHandler::HandlePassphraseEntry(const ListValue* args) {
-  std::string json(dom_ui_util::GetJsonResponseFromFirstArgumentInList(args));
+  std::string json(web_ui_util::GetJsonResponseFromFirstArgumentInList(args));
 
   if (json.empty())
     return;
 
   std::string passphrase;
-  std::string mode;
-  if (!GetPassphrase(json, &passphrase, &mode)) {
+  if (!GetPassphrase(json, &passphrase)) {
     // Couldn't understand what the page sent.  Indicates a programming error.
     NOTREACHED();
     return;
   }
 
   DCHECK(flow_);
-  flow_->OnPassphraseEntry(passphrase, mode);
+  flow_->OnPassphraseEntry(passphrase);
+}
+
+void FlowHandler::HandlePassphraseCancel(const ListValue* args) {
+  DCHECK(flow_);
+  flow_->OnPassphraseCancel();
 }
 
 void FlowHandler::HandleFirstPassphrase(const ListValue* args) {
-  std::string json(dom_ui_util::GetJsonResponseFromFirstArgumentInList(args));
+  std::string json(web_ui_util::GetJsonResponseFromFirstArgumentInList(args));
 
   if (json.empty())
     return;
@@ -254,8 +270,8 @@ void FlowHandler::ShowGaiaLogin(const DictionaryValue& args) {
   // So if you ever made a wizard that involved a gaia login as not the first
   // frame, this call would be necessary to ensure that this method actually
   // shows the gaia login.
-  if (dom_ui_)
-    dom_ui_->CallJavascriptFunction(L"showGaiaLoginIframe");
+  if (web_ui_)
+    web_ui_->CallJavascriptFunction(L"showGaiaLoginIframe");
 
   std::string json;
   base::JSONWriter::Write(&args, false, &json);
@@ -278,8 +294,8 @@ void FlowHandler::ShowConfigure(const DictionaryValue& args) {
   // If you're starting the wizard at the configure screen (i.e. from
   // "Customize Sync"), this will be redundant.  However, if you're coming from
   // another wizard state, this will make sure Choose Data Types is on top.
-  if (dom_ui_)
-    dom_ui_->CallJavascriptFunction(L"showConfigure");
+  if (web_ui_)
+    web_ui_->CallJavascriptFunction(L"showConfigure");
 
   std::string json;
   base::JSONWriter::Write(&args, false, &json);
@@ -289,8 +305,8 @@ void FlowHandler::ShowConfigure(const DictionaryValue& args) {
 }
 
 void FlowHandler::ShowPassphraseEntry(const DictionaryValue& args) {
-  if (dom_ui_)
-    dom_ui_->CallJavascriptFunction(L"showPassphrase");
+  if (web_ui_)
+    web_ui_->CallJavascriptFunction(L"showPassphrase");
 
   std::string json;
   base::JSONWriter::Write(&args, false, &json);
@@ -300,8 +316,8 @@ void FlowHandler::ShowPassphraseEntry(const DictionaryValue& args) {
 }
 
 void FlowHandler::ShowFirstPassphrase(const DictionaryValue& args) {
-  if (dom_ui_)
-    dom_ui_->CallJavascriptFunction(L"showFirstPassphrase");
+  if (web_ui_)
+    web_ui_->CallJavascriptFunction(L"showFirstPassphrase");
 
   std::string json;
   base::JSONWriter::Write(&args, false, &json);
@@ -311,8 +327,8 @@ void FlowHandler::ShowFirstPassphrase(const DictionaryValue& args) {
 }
 
 void FlowHandler::ShowSettingUp() {
-  if (dom_ui_)
-    dom_ui_->CallJavascriptFunction(L"showSettingUp");
+  if (web_ui_)
+    web_ui_->CallJavascriptFunction(L"showSettingUp");
 }
 
 void FlowHandler::ShowSetupDone(const std::wstring& user) {
@@ -324,8 +340,8 @@ void FlowHandler::ShowSetupDone(const std::wstring& user) {
       L"(" + UTF8ToWide(json) + L");";
   ExecuteJavascriptInIFrame(kDoneIframeXPath, javascript);
 
-  if (dom_ui_)
-    dom_ui_->CallJavascriptFunction(L"showSetupDone", synced_to_string);
+  if (web_ui_)
+    web_ui_->CallJavascriptFunction(L"showSetupDone", synced_to_string);
 
   ExecuteJavascriptInIFrame(kDoneIframeXPath,
                             L"onPageShown();");
@@ -339,9 +355,10 @@ void FlowHandler::ShowFirstTimeDone(const std::wstring& user) {
 
 void FlowHandler::ExecuteJavascriptInIFrame(const std::wstring& iframe_xpath,
                                             const std::wstring& js) {
-  if (dom_ui_) {
-    RenderViewHost* rvh = dom_ui_->tab_contents()->render_view_host();
-    rvh->ExecuteJavascriptInWebFrame(iframe_xpath, js);
+  if (web_ui_) {
+    RenderViewHost* rvh = web_ui_->tab_contents()->render_view_host();
+    rvh->ExecuteJavascriptInWebFrame(WideToUTF16Hack(iframe_xpath),
+                                     WideToUTF16Hack(js));
   }
 }
 
@@ -373,10 +390,10 @@ SyncSetupFlow::~SyncSetupFlow() {
 void SyncSetupFlow::GetDialogSize(gfx::Size* size) const {
   PrefService* prefs = service_->profile()->GetPrefs();
   gfx::Font approximate_web_font = gfx::Font(
-      UTF8ToWide(prefs->GetString(prefs::kWebKitSansSerifFontFamily)),
+      UTF8ToUTF16(prefs->GetString(prefs::kWebKitSansSerifFontFamily)),
       prefs->GetInteger(prefs::kWebKitDefaultFontSize));
 
-  *size = gfx::GetLocalizedContentsSizeForFont(
+  *size = ui::GetLocalizedContentsSizeForFont(
       IDS_SYNC_SETUP_WIZARD_WIDTH_CHARS,
       IDS_SYNC_SETUP_WIZARD_HEIGHT_LINES,
       approximate_web_font);
@@ -480,10 +497,10 @@ void SyncSetupFlow::GetArgsForGaiaLogin(const ProfileSyncService* service,
 void SyncSetupFlow::GetArgsForEnterPassphrase(
     const ProfileSyncService* service, DictionaryValue* args) {
   args->SetString("iframeToShow", "passphrase");
-  if (service->IsUsingSecondaryPassphrase())
-    args->SetString("mode", "enter");
-  else
-    args->SetString("mode", "gaia");
+  args->SetBoolean("passphrase_creation_rejected",
+                   service->tried_creating_explicit_passphrase());
+  args->SetBoolean("passphrase_setting_rejected",
+                   service->tried_setting_explicit_passphrase());
 }
 
 // static
@@ -536,8 +553,8 @@ void SyncSetupFlow::GetArgsForConfigure(ProfileSyncService* service,
   args->SetBoolean("usePassphrase", service->IsUsingSecondaryPassphrase());
 }
 
-void SyncSetupFlow::GetDOMMessageHandlers(
-    std::vector<DOMMessageHandler*>* handlers) const {
+void SyncSetupFlow::GetWebUIMessageHandlers(
+    std::vector<WebUIMessageHandler*>* handlers) const {
   handlers->push_back(flow_handler_);
   // We don't own flow_handler_ anymore, but it sticks around until at least
   // right after OnDialogClosed() is called (and this object is destroyed).
@@ -557,6 +574,8 @@ bool SyncSetupFlow::ShouldAdvance(SyncSetupWizard::State state) {
     case SyncSetupWizard::ENTER_PASSPHRASE:
       return current_state_ == SyncSetupWizard::CONFIGURE ||
              current_state_ == SyncSetupWizard::SETTING_UP;
+    case SyncSetupWizard::PASSPHRASE_MIGRATION:
+      return current_state_ == SyncSetupWizard::GAIA_LOGIN;
     case SyncSetupWizard::SETUP_ABORTED_BY_PENDING_CLEAR:
       return current_state_ == SyncSetupWizard::CONFIGURE;
     case SyncSetupWizard::SETTING_UP:
@@ -693,9 +712,8 @@ SyncSetupFlow* SyncSetupFlow::Run(ProfileSyncService* service,
   // function that is not tied to a browser instance.  Note that if we do
   // that, we'll have to fix sync_setup_wizard_unittest.cc as it relies on
   // being able to intercept ShowHtmlDialog() calls.
-  flow->html_dialog_window_ =
-      html_dialog_window_controller::ShowHtmlDialog(
-          flow, service->profile());
+  flow->html_dialog_window_ = browser::ShowHtmlDialog(NULL, service->profile(),
+                                                      flow);
 #else
   Browser* b = BrowserList::GetLastActive();
   if (b) {
@@ -726,31 +744,37 @@ void SyncSetupFlow::OnUserConfigured(const SyncConfiguration& configuration) {
 
   if (configuration.use_secondary_passphrase &&
       !service_->IsUsingSecondaryPassphrase()) {
-    service_->SetPassphrase(configuration.secondary_passphrase, true);
+    service_->SetPassphrase(configuration.secondary_passphrase, true, true);
   }
 
   service_->OnUserChoseDatatypes(configuration.sync_everything,
                                  configuration.data_types);
 }
 
-void SyncSetupFlow::OnPassphraseEntry(const std::string& passphrase,
-                                      const std::string& mode) {
+void SyncSetupFlow::OnPassphraseEntry(const std::string& passphrase) {
   Advance(SyncSetupWizard::SETTING_UP);
-  service_->SetPassphrase(passphrase, true);
+  service_->SetPassphrase(passphrase, true, false);
+}
+
+void SyncSetupFlow::OnPassphraseCancel() {
+  // If the user cancels when being asked for the passphrase,
+  // just disable encrypted sync and continue setting up.
+  if (current_state_ == SyncSetupWizard::ENTER_PASSPHRASE)
+    DisablePasswordSync(service_);
+
+  Advance(SyncSetupWizard::SETTING_UP);
 }
 
 void SyncSetupFlow::OnFirstPassphraseEntry(const std::string& option,
                                            const std::string& passphrase) {
   Advance(SyncSetupWizard::SETTING_UP);
+
   if (option == "explicit") {
-    service_->SetPassphrase(passphrase, true);
+    service_->SetPassphrase(passphrase, true, true);
   } else if (option == "nothanks") {
     // User opted out of encrypted sync, need to turn off encrypted
     // data types.
-    syncable::ModelTypeSet registered_types;
-    service_->GetRegisteredDataTypes(&registered_types);
-    registered_types.erase(syncable::PASSWORDS);
-    service_->OnUserChoseDatatypes(false, registered_types);
+    DisablePasswordSync(service_);
   } else if (option == "google") {
     // Implicit passphrase already set up.
     Advance(SyncSetupWizard::DONE);

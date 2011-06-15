@@ -46,7 +46,7 @@
 #include "base/hash_tables.h"
 #include "base/ref_counted.h"
 #include "base/timer.h"
-#include "gfx/native_widget_types.h"
+#include "ui/gfx/native_widget_types.h"
 
 struct DownloadBuffer;
 struct DownloadCreateInfo;
@@ -115,7 +115,8 @@ class DownloadFileManager
   // Creates DownloadFile on FILE thread and continues starting the download
   // process.
   void CreateDownloadFile(DownloadCreateInfo* info,
-                          DownloadManager* download_manager);
+                          DownloadManager* download_manager,
+                          bool hash_needed);
 
   // Tells the ResourceDispatcherHost to resume a download request
   // that was paused to wait for the on-disk file to be created.

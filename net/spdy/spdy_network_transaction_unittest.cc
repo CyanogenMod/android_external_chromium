@@ -1,6 +1,8 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+#include "net/http/http_network_transaction.h"
 
 #include <string>
 #include <vector>
@@ -10,10 +12,11 @@
 #include "net/http/http_network_session_peer.h"
 #include "net/http/http_transaction_unittest.h"
 #include "net/spdy/spdy_http_stream.h"
+#include "net/spdy/spdy_http_utils.h"
 #include "net/spdy/spdy_session.h"
 #include "net/spdy/spdy_session_pool.h"
 #include "net/spdy/spdy_test_util.h"
-#include "net/url_request/url_request_unittest.h"
+#include "net/url_request/url_request_test_util.h"
 #include "testing/platform_test.h"
 
 //-----------------------------------------------------------------------------
@@ -2252,7 +2255,7 @@ TEST_P(SpdyNetworkTransactionTest, RedirectGetRequest) {
     MessageLoop::current()->Run();
     EXPECT_EQ(1, d.response_started_count());
     EXPECT_FALSE(d.received_data_before_response());
-    EXPECT_EQ(URLRequestStatus::SUCCESS, r.status().status());
+    EXPECT_EQ(net::URLRequestStatus::SUCCESS, r.status().status());
     std::string contents("hello!");
     EXPECT_EQ(contents, d.data_received());
   }
@@ -2390,7 +2393,7 @@ TEST_P(SpdyNetworkTransactionTest, RedirectServerPush) {
     MessageLoop::current()->Run();
     EXPECT_EQ(1, d2.response_started_count());
     EXPECT_FALSE(d2.received_data_before_response());
-    EXPECT_EQ(URLRequestStatus::SUCCESS, r2.status().status());
+    EXPECT_EQ(net::URLRequestStatus::SUCCESS, r2.status().status());
     std::string contents2("hello!");
     EXPECT_EQ(contents2, d2.data_received());
   }
@@ -3262,17 +3265,16 @@ TEST_P(SpdyNetworkTransactionTest, InvalidSynReply) {
 }
 
 // Verify that we don't crash on some corrupt frames.
-// TODO(eroman): Renable this test, see http://crbug.com/48588
-TEST_P(SpdyNetworkTransactionTest, DISABLED_CorruptFrameSessionError) {
-  // This is the length field with a big number
-  scoped_ptr<spdy::SpdyFrame> syn_reply_massive_length(
+TEST_P(SpdyNetworkTransactionTest, CorruptFrameSessionError) {
+  // This is the length field that's too short.
+  scoped_ptr<spdy::SpdyFrame> syn_reply_wrong_length(
       ConstructSpdyGetSynReply(NULL, 0, 1));
-  syn_reply_massive_length->set_length(0x111126);
+  syn_reply_wrong_length->set_length(syn_reply_wrong_length->length() - 4);
 
   struct SynReplyTests {
     const spdy::SpdyFrame* syn_reply;
   } test_cases[] = {
-    { syn_reply_massive_length.get(), },
+    { syn_reply_wrong_length.get(), },
   };
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(test_cases); ++i) {

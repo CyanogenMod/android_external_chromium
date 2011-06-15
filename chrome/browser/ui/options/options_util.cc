@@ -27,7 +27,6 @@ void OptionsUtil::ResetToDefaults(Profile* profile) {
   const char* kUserPrefs[] = {
     prefs::kAcceptLanguages,
     prefs::kAlternateErrorPagesEnabled,
-    prefs::kClearPluginLSODataOnExit,
     prefs::kClearSiteDataOnExit,
     prefs::kCookieBehavior,
     prefs::kDefaultCharset,
@@ -37,7 +36,6 @@ void OptionsUtil::ResetToDefaults(Profile* profile) {
     prefs::kDeleteCookies,
     prefs::kDeleteDownloadHistory,
     prefs::kDeleteFormData,
-    prefs::kDeleteLSOData,
     prefs::kDeletePasswords,
     prefs::kDnsPrefetchingEnabled,
 #if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_OPENBSD)

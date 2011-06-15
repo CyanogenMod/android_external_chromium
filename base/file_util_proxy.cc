@@ -525,12 +525,11 @@ class RelayRead : public MessageLoopRelay {
  public:
   RelayRead(base::PlatformFile file,
             int64 offset,
-            char* buffer,
             int bytes_to_read,
-            base::FileUtilProxy::ReadWriteCallback* callback)
+            base::FileUtilProxy::ReadCallback* callback)
       : file_(file),
         offset_(offset),
-        buffer_(buffer),
+        buffer_(new char[bytes_to_read]),
         bytes_to_read_(bytes_to_read),
         callback_(callback),
         bytes_read_(0) {
@@ -538,7 +537,7 @@ class RelayRead : public MessageLoopRelay {
 
  protected:
   virtual void RunWork() {
-    bytes_read_ = base::ReadPlatformFile(file_, offset_, buffer_,
+    bytes_read_ = base::ReadPlatformFile(file_, offset_, buffer_.get(),
                                          bytes_to_read_);
     if (bytes_read_ < 0)
       set_error_code(base::PLATFORM_FILE_ERROR_FAILED);
@@ -546,7 +545,7 @@ class RelayRead : public MessageLoopRelay {
 
   virtual void RunCallback() {
     if (callback_) {
-      callback_->Run(error_code(), bytes_read_);
+      callback_->Run(error_code(), buffer_.get(), bytes_read_);
       delete callback_;
     }
   }
@@ -554,9 +553,9 @@ class RelayRead : public MessageLoopRelay {
  private:
   base::PlatformFile file_;
   int64 offset_;
-  char* buffer_;
+  scoped_array<char> buffer_;
   int bytes_to_read_;
-  base::FileUtilProxy::ReadWriteCallback* callback_;
+  base::FileUtilProxy::ReadCallback* callback_;
   int bytes_read_;
 };
 
@@ -566,17 +565,18 @@ class RelayWrite : public MessageLoopRelay {
              int64 offset,
              const char* buffer,
              int bytes_to_write,
-             base::FileUtilProxy::ReadWriteCallback* callback)
+             base::FileUtilProxy::WriteCallback* callback)
       : file_(file),
         offset_(offset),
-        buffer_(buffer),
+        buffer_(new char[bytes_to_write]),
         bytes_to_write_(bytes_to_write),
         callback_(callback) {
+    memcpy(buffer_.get(), buffer, bytes_to_write);
   }
 
  protected:
   virtual void RunWork() {
-    bytes_written_ = base::WritePlatformFile(file_, offset_, buffer_,
+    bytes_written_ = base::WritePlatformFile(file_, offset_, buffer_.get(),
                                              bytes_to_write_);
     if (bytes_written_ < 0)
       set_error_code(base::PLATFORM_FILE_ERROR_FAILED);
@@ -592,9 +592,9 @@ class RelayWrite : public MessageLoopRelay {
  private:
   base::PlatformFile file_;
   int64 offset_;
-  const char* buffer_;
+  scoped_array<char> buffer_;
   int bytes_to_write_;
-  base::FileUtilProxy::ReadWriteCallback* callback_;
+  base::FileUtilProxy::WriteCallback* callback_;
   int bytes_written_;
 };
 
@@ -747,17 +747,6 @@ bool FileUtilProxy::CreateTemporary(
 }
 
 // static
-bool FileUtilProxy::CreateDirectory(
-    scoped_refptr<MessageLoopProxy> message_loop_proxy,
-    const FilePath& file_path,
-    bool exclusive,
-    bool recursive,
-    StatusCallback* callback) {
-  return Start(FROM_HERE, message_loop_proxy, new RelayCreateDirectory(
-      file_path, exclusive, recursive, callback));
-}
-
-// static
 bool FileUtilProxy::Close(scoped_refptr<MessageLoopProxy> message_loop_proxy,
                           base::PlatformFile file_handle,
                           StatusCallback* callback) {
@@ -774,13 +763,43 @@ bool FileUtilProxy::EnsureFileExists(
       message_loop_proxy, file_path, callback));
 }
 
+// Retrieves the information about a file. It is invalid to pass NULL for the
+// callback.
+bool FileUtilProxy::GetFileInfo(
+    scoped_refptr<MessageLoopProxy> message_loop_proxy,
+    const FilePath& file_path,
+    GetFileInfoCallback* callback) {
+  return Start(FROM_HERE, message_loop_proxy, new RelayGetFileInfo(
+               file_path, callback));
+}
+
 // static
-bool FileUtilProxy::Delete(scoped_refptr<MessageLoopProxy> message_loop_proxy,
-                           const FilePath& file_path,
-                           bool recursive,
-                           StatusCallback* callback) {
+bool FileUtilProxy::GetFileInfoFromPlatformFile(
+    scoped_refptr<MessageLoopProxy> message_loop_proxy,
+    PlatformFile file,
+    GetFileInfoCallback* callback) {
   return Start(FROM_HERE, message_loop_proxy,
-               new RelayDelete(file_path, recursive, callback));
+               new RelayGetFileInfoFromPlatformFile(file, callback));
+}
+
+// static
+bool FileUtilProxy::ReadDirectory(
+    scoped_refptr<MessageLoopProxy> message_loop_proxy,
+    const FilePath& file_path,
+    ReadDirectoryCallback* callback) {
+  return Start(FROM_HERE, message_loop_proxy, new RelayReadDirectory(
+               file_path, callback));
+}
+
+// static
+bool FileUtilProxy::CreateDirectory(
+    scoped_refptr<MessageLoopProxy> message_loop_proxy,
+    const FilePath& file_path,
+    bool exclusive,
+    bool recursive,
+    StatusCallback* callback) {
+  return Start(FROM_HERE, message_loop_proxy, new RelayCreateDirectory(
+      file_path, exclusive, recursive, callback));
 }
 
 // static
@@ -802,22 +821,12 @@ bool FileUtilProxy::Move(scoped_refptr<MessageLoopProxy> message_loop_proxy,
 }
 
 // static
-bool FileUtilProxy::ReadDirectory(
-    scoped_refptr<MessageLoopProxy> message_loop_proxy,
-    const FilePath& file_path,
-    ReadDirectoryCallback* callback) {
-  return Start(FROM_HERE, message_loop_proxy, new RelayReadDirectory(
-               file_path, callback));
-}
-
-// Retrieves the information about a file. It is invalid to pass NULL for the
-// callback.
-bool FileUtilProxy::GetFileInfo(
-    scoped_refptr<MessageLoopProxy> message_loop_proxy,
-    const FilePath& file_path,
-    GetFileInfoCallback* callback) {
-  return Start(FROM_HERE, message_loop_proxy, new RelayGetFileInfo(
-               file_path, callback));
+bool FileUtilProxy::Delete(scoped_refptr<MessageLoopProxy> message_loop_proxy,
+                           const FilePath& file_path,
+                           bool recursive,
+                           StatusCallback* callback) {
+  return Start(FROM_HERE, message_loop_proxy,
+               new RelayDelete(file_path, recursive, callback));
 }
 
 // static
@@ -830,24 +839,14 @@ bool FileUtilProxy::RecursiveDelete(
 }
 
 // static
-bool FileUtilProxy::GetFileInfoFromPlatformFile(
-    scoped_refptr<MessageLoopProxy> message_loop_proxy,
-    PlatformFile file,
-    GetFileInfoCallback* callback) {
-  return Start(FROM_HERE, message_loop_proxy,
-               new RelayGetFileInfoFromPlatformFile(file, callback));
-}
-
-// static
 bool FileUtilProxy::Read(
     scoped_refptr<MessageLoopProxy> message_loop_proxy,
     PlatformFile file,
     int64 offset,
-    char* buffer,
     int bytes_to_read,
-    ReadWriteCallback* callback) {
+    ReadCallback* callback) {
   return Start(FROM_HERE, message_loop_proxy,
-               new RelayRead(file, offset, buffer, bytes_to_read, callback));
+               new RelayRead(file, offset, bytes_to_read, callback));
 }
 
 // static
@@ -857,7 +856,7 @@ bool FileUtilProxy::Write(
     int64 offset,
     const char* buffer,
     int bytes_to_write,
-    ReadWriteCallback* callback) {
+    WriteCallback* callback) {
   return Start(FROM_HERE, message_loop_proxy,
                new RelayWrite(file, offset, buffer, bytes_to_write, callback));
 }

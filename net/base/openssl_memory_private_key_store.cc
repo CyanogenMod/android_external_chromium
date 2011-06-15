@@ -11,6 +11,7 @@
 #include "base/logging.h"
 #include "base/openssl_util.h"
 #include "base/singleton.h"
+#include "base/synchronization/lock.h"
 #include "net/base/x509_certificate.h"
 
 namespace net {
@@ -26,7 +27,7 @@ class OpenSSLMemoryKeyStore : public OpenSSLPrivateKeyStore {
   }
 
   virtual ~OpenSSLMemoryKeyStore() {
-    AutoLock lock(lock_);
+    base::AutoLock lock(lock_);
     for (std::vector<EVP_PKEY*>::iterator it = keys_.begin();
          it != keys_.end(); ++it) {
       EVP_PKEY_free(*it);
@@ -35,13 +36,13 @@ class OpenSSLMemoryKeyStore : public OpenSSLPrivateKeyStore {
 
   virtual bool StorePrivateKey(const GURL& url, EVP_PKEY* pkey) {
     CRYPTO_add(&pkey->references, 1, CRYPTO_LOCK_EVP_PKEY);
-    AutoLock lock(lock_);
+    base::AutoLock lock(lock_);
     keys_.push_back(pkey);
     return true;
   }
 
   virtual EVP_PKEY* FetchPrivateKey(EVP_PKEY* pkey) {
-    AutoLock lock(lock_);
+    base::AutoLock lock(lock_);
     for (std::vector<EVP_PKEY*>::iterator it = keys_.begin();
          it != keys_.end(); ++it) {
       if (EVP_PKEY_cmp(*it, pkey) == 1)
@@ -52,7 +53,7 @@ class OpenSSLMemoryKeyStore : public OpenSSLPrivateKeyStore {
 
  private:
   std::vector<EVP_PKEY*> keys_;
-  Lock lock_;
+  base::Lock lock_;
 
   DISALLOW_COPY_AND_ASSIGN(OpenSSLMemoryKeyStore);
 };

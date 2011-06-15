@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,8 +20,8 @@
 #include "chrome/common/window_container_type.h"
 #include "ipc/ipc_channel.h"
 #include "net/base/load_states.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebDragOperation.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebPopupType.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebDragOperation.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebPopupType.h"
 #include "webkit/glue/window_open_disposition.h"
 
 
@@ -35,7 +35,6 @@ class GURL;
 class ListValue;
 struct NativeWebKeyboardEvent;
 class NavigationEntry;
-class OSExchangeData;
 class Profile;
 struct RendererPreferences;
 class RenderProcessHost;
@@ -47,11 +46,10 @@ class SSLClientAuthHandler;
 class SSLAddCertHandler;
 class TabContents;
 struct ThumbnailScore;
-struct ViewHostMsg_DidPrintPage_Params;
+struct ViewHostMsg_CreateWindow_Params;
 struct ViewHostMsg_DomMessage_Params;
 struct ViewHostMsg_FrameNavigate_Params;
 struct ViewHostMsg_PageHasOSDD_Type;
-struct ViewHostMsg_RunFileChooser_Params;
 struct WebApplicationInfo;
 struct WebDropData;
 struct WebMenuItem;
@@ -102,15 +100,15 @@ class RenderViewHostDelegate : public IPC::Channel::Listener {
 
   class View {
    public:
-    // The page is trying to open a new page (e.g. a popup window). The
-    // window should be created associated with the given route, but it should
-    // not be shown yet. That should happen in response to ShowCreatedWindow.
-    // |window_container_type| describes the type of RenderViewHost container
-    // that is requested -- in particular, the window.open call may have
-    // specified 'background' and 'persistent' in the feature string.
+    // The page is trying to open a new page (e.g. a popup window). The window
+    // should be created associated with the given route, but it should not be
+    // shown yet. That should happen in response to ShowCreatedWindow.
+    // |params.window_container_type| describes the type of RenderViewHost
+    // container that is requested -- in particular, the window.open call may
+    // have specified 'background' and 'persistent' in the feature string.
     //
-    // The passed |frame_name| parameter is the name parameter that was passed
-    // to window.open(), and will be empty if none was passed.
+    // The passed |params.frame_name| parameter is the name parameter that was
+    // passed to window.open(), and will be empty if none was passed.
     //
     // Note: this is not called "CreateWindow" because that will clash with
     // the Windows function which is actually a #define.
@@ -118,8 +116,7 @@ class RenderViewHostDelegate : public IPC::Channel::Listener {
     // NOTE: this takes ownership of @modal_dialog_event
     virtual void CreateNewWindow(
         int route_id,
-        WindowContainerType window_container_type,
-        const string16& frame_name) = 0;
+        const ViewHostMsg_CreateWindow_Params& params) = 0;
 
     // The page is trying to open a new widget (e.g. a select popup). The
     // widget should be created associated with the given route, but it should
@@ -130,8 +127,7 @@ class RenderViewHostDelegate : public IPC::Channel::Listener {
                                  WebKit::WebPopupType popup_type) = 0;
 
     // Creates a full screen RenderWidget. Similar to above.
-    virtual void CreateNewFullscreenWidget(
-        int route_id, WebKit::WebPopupType popup_type) = 0;
+    virtual void CreateNewFullscreenWidget(int route_id) = 0;
 
     // Show a previously created page with the specified disposition and bounds.
     // The window is identified by the route_id passed to CreateNewWindow.
@@ -249,80 +245,6 @@ class RenderViewHostDelegate : public IPC::Channel::Listener {
     virtual ~RendererManagement() {}
   };
 
-  // BrowserIntegration --------------------------------------------------------
-  // Functions that integrate with other browser services.
-
-  class BrowserIntegration {
-   public:
-    // Notification the user has made a gesture while focus was on the
-    // page. This is used to avoid uninitiated user downloads (aka carpet
-    // bombing), see DownloadRequestLimiter for details.
-    virtual void OnUserGesture() = 0;
-
-    // A find operation in the current page completed.
-    virtual void OnFindReply(int request_id,
-                             int number_of_matches,
-                             const gfx::Rect& selection_rect,
-                             int active_match_ordinal,
-                             bool final_update) = 0;
-
-    // Navigate to the history entry for the given offset from the current
-    // position within the NavigationController.  Makes no change if offset is
-    // not valid.
-    virtual void GoToEntryAtOffset(int offset) = 0;
-
-    // Notification when default plugin updates status of the missing plugin.
-    virtual void OnMissingPluginStatus(int status) = 0;
-
-    // Notification from the renderer that a plugin instance has crashed.
-    //
-    // BrowserIntegration isn't necessarily the best place for this, if you
-    // need to implement this function somewhere that doesn't need any other
-    // BrowserIntegration callbacks, feel free to move it elsewhere.
-    virtual void OnCrashedPlugin(const FilePath& plugin_path) = 0;
-
-    // Notification that a worker process has crashed.
-    virtual void OnCrashedWorker() = 0;
-
-    virtual void OnBlockedOutdatedPlugin(const string16& name,
-                                         const GURL& update_url) = 0;
-
-    // Notification that a user's request to install an application has
-    // completed.
-    virtual void OnDidGetApplicationInfo(
-        int32 page_id,
-        const WebApplicationInfo& app_info) = 0;
-
-    // Notification when an application programmatically requests installation.
-    virtual void OnInstallApplication(
-        const WebApplicationInfo& app_info) = 0;
-
-    // Notification that the contents of the page has been loaded.
-    virtual void OnPageContents(const GURL& url,
-                                int renderer_process_id,
-                                int32 page_id,
-                                const string16& contents,
-                                const std::string& language,
-                                bool page_translatable) = 0;
-
-    // Notification that the page has been translated.
-    virtual void OnPageTranslated(int32 page_id,
-                                  const std::string& original_lang,
-                                  const std::string& translated_lang,
-                                  TranslateErrors::Type error_type) = 0;
-
-    // Notification that the page has a suggest result.
-    virtual void OnSetSuggestions(
-        int32 page_id,
-        const std::vector<std::string>& result) = 0;
-
-    // Notification of whether the page supports instant-style interaction.
-    virtual void OnInstantSupportDetermined(int32 page_id, bool result) = 0;
-
-   protected:
-    virtual ~BrowserIntegration() {}
-  };
-
   // ContentSettings------------------------------------------------------------
   // Interface for content settings related events.
 
@@ -393,145 +315,6 @@ class RenderViewHostDelegate : public IPC::Channel::Listener {
     virtual ~ContentSettings() {}
   };
 
-  // Save ----------------------------------------------------------------------
-  // Interface for saving web pages.
-
-  class Save {
-   public:
-    // Notification that we get when we receive all savable links of
-    // sub-resources for the current page, their referrers and list of frames
-    // (include main frame and sub frames).
-    virtual void OnReceivedSavableResourceLinksForCurrentPage(
-        const std::vector<GURL>& resources_list,
-        const std::vector<GURL>& referrers_list,
-        const std::vector<GURL>& frames_list) = 0;
-
-    // Notification that we get when we receive serialized html content data of
-    // a specified web page from render process. The parameter frame_url
-    // specifies what frame the data belongs. The parameter data contains the
-    // available data for sending. The parameter status indicates the
-    // serialization status, See
-    // webkit_glue::DomSerializerDelegate::PageSavingSerializationStatus for
-    // the detail meaning of status.
-    virtual void OnReceivedSerializedHtmlData(const GURL& frame_url,
-                                              const std::string& data,
-                                              int32 status) = 0;
-
-   protected:
-    virtual ~Save() {}
-  };
-
-  // Printing ------------------------------------------------------------------
-
-  class Printing {
-   public:
-    // Notification that the render view has calculated the number of printed
-    // pages.
-    virtual void DidGetPrintedPagesCount(int cookie, int number_pages) = 0;
-
-    // Notification that the render view is done rendering one printed page.
-    // This call is synchronous, the renderer is waiting on us because of the
-    // EMF memory mapped data.
-    virtual void DidPrintPage(
-        const ViewHostMsg_DidPrintPage_Params& params) = 0;
-
-   protected:
-    virtual ~Printing() {}
-  };
-
-  // FavIcon -------------------------------------------------------------------
-  // Interface for the renderer to supply favicon information.
-
-  class FavIcon {
-   public:
-    // An image that was requested to be downloaded by DownloadImage has
-    // completed.
-    //
-    // TODO(brettw) this should be renamed DidDownloadFavIcon, and the RVH
-    // function, IPC message, and the RenderView function DownloadImage should
-    // all be named DownloadFavIcon.
-    virtual void DidDownloadFavIcon(RenderViewHost* render_view_host,
-                                    int id,
-                                    const GURL& image_url,
-                                    bool errored,
-                                    const SkBitmap& image) = 0;
-
-    // The URL for the FavIcon of a page has changed.
-    virtual void UpdateFavIconURL(RenderViewHost* render_view_host,
-                                  int32 page_id,
-                                  const GURL& icon_url) = 0;
-
-   protected:
-    virtual ~FavIcon() {}
-  };
-
-  // Autocomplete --------------------------------------------------------------
-  // Interface for Autocomplete-related functions.
-
-  class Autocomplete {
-   public:
-    // Forms fillable by Autocomplete have been detected in the page.
-    virtual void FormSubmitted(const webkit_glue::FormData& form) = 0;
-
-    // Called to retrieve a list of suggestions from the web database given
-    // the name of the field |field_name| and what the user has already typed
-    // in the field |user_text|.  Appeals to the database thread to perform the
-    // query. When the database thread is finished, the AutocompleteHistory
-    // manager retrieves the calling RenderViewHost and then passes the vector
-    // of suggestions to RenderViewHost::AutocompleteSuggestionsReturned.
-    virtual void GetAutocompleteSuggestions(const string16& field_name,
-                                            const string16& user_text) = 0;
-
-    // Called when the user has indicated that she wants to remove the specified
-    // Autocomplete suggestion from the database.
-    virtual void RemoveAutocompleteEntry(const string16& field_name,
-                                         const string16& value) = 0;
-
-   protected:
-    virtual ~Autocomplete() {}
-  };
-
-  // AutoFill ------------------------------------------------------------------
-  // Interface for AutoFill-related functions.
-
-  class AutoFill {
-   public:
-    // Called when the user submits a form.
-    virtual void FormSubmitted(const webkit_glue::FormData& form) = 0;
-
-    // Called when the frame has finished loading and there are forms in the
-    // frame.
-    virtual void FormsSeen(const std::vector<webkit_glue::FormData>& forms) = 0;
-
-    // Called to retrieve a list of AutoFill suggestions for the portion of the
-    // |form| containing |field|, given the current state of the |form|.
-    // Returns true to indicate that RenderViewHost::AutoFillSuggestionsReturned
-    // has been called.
-    virtual bool GetAutoFillSuggestions(
-        const webkit_glue::FormData& form,
-        const webkit_glue::FormField& field) = 0;
-
-    // Called to fill the |form| with AutoFill profile information that matches
-    // the |unique_id| key. If the portion of the form containing |field| has
-    // been autofilled already, only fills |field|.
-    // Returns true to indicate that RenderViewHost::AutoFillFormDataFilled
-    // has been called.
-    virtual bool FillAutoFillFormData(int query_id,
-                                      const webkit_glue::FormData& form,
-                                      const webkit_glue::FormField& field,
-                                      int unique_id) = 0;
-
-    // Called when the user selects the 'AutoFill Options...' suggestions in the
-    // AutoFill popup.
-    virtual void ShowAutoFillDialog() = 0;
-
-    // Reset cache in AutoFillManager.
-    virtual void Reset() = 0;
-
-   protected:
-    virtual ~AutoFill() {}
-  };
-
   // BookmarkDrag --------------------------------------------------------------
   // Interface for forwarding bookmark drag and drop to extenstions.
 
@@ -587,36 +370,16 @@ class RenderViewHostDelegate : public IPC::Channel::Listener {
     virtual ~SSL() {}
   };
 
-  // FileSelect ----------------------------------------------------------------
-  // Interface for handling file selection.
-
-  class FileSelect {
-   public:
-    // A file chooser should be shown.
-    virtual void RunFileChooser(
-        RenderViewHost* render_view_host,
-        const ViewHostMsg_RunFileChooser_Params& params) = 0;
-
-   protected:
-    virtual ~FileSelect() {}
-  };
-
   // ---------------------------------------------------------------------------
 
   // Returns the current delegate associated with a feature. May return NULL if
   // there is no corresponding delegate.
   virtual View* GetViewDelegate();
   virtual RendererManagement* GetRendererManagementDelegate();
-  virtual BrowserIntegration* GetBrowserIntegrationDelegate();
   virtual ContentSettings* GetContentSettingsDelegate();
-  virtual Save* GetSaveDelegate();
-  virtual Printing* GetPrintingDelegate();
-  virtual FavIcon* GetFavIconDelegate();
-  virtual Autocomplete* GetAutocompleteDelegate();
-  virtual AutoFill* GetAutoFillDelegate();
+
   virtual BookmarkDrag* GetBookmarkDragDelegate();
   virtual SSL* GetSSLDelegate();
-  virtual FileSelect* GetFileSelectDelegate();
 
   // Return the delegate for registering RenderViewHosts for automation resource
   // routing.
@@ -631,7 +394,8 @@ class RenderViewHostDelegate : public IPC::Channel::Listener {
   virtual const GURL& GetURL() const;
 
   // Return this object cast to a TabContents, if it is one. If the object is
-  // not a TabContents, returns NULL.
+  // not a TabContents, returns NULL. DEPRECATED: Be sure to include brettw and
+  // jam as reviewers before you use this method.
   virtual TabContents* GetAsTabContents();
 
   // Return this object cast to a BackgroundContents, if it is one. If the
@@ -734,7 +498,7 @@ class RenderViewHostDelegate : public IPC::Channel::Listener {
 
   // A message was sent from HTML-based UI.
   // By default we ignore such messages.
-  virtual void ProcessDOMUIMessage(
+  virtual void ProcessWebUIMessage(
       const ViewHostMsg_DomMessage_Params& params) {}
 
   // A message for external host. By default we ignore such messages.
@@ -759,14 +523,6 @@ class RenderViewHostDelegate : public IPC::Channel::Listener {
                                    const std::string& json_arguments,
                                    IPC::Message* reply_msg) {}
 
-  // Password forms have been detected in the page.
-  virtual void PasswordFormsFound(
-      const std::vector<webkit_glue::PasswordForm>& forms) {}
-
-  // On initial layout, password forms are known to be visible on the page.
-  virtual void PasswordFormsVisible(
-      const std::vector<webkit_glue::PasswordForm>& visible_forms) {}
-
   // Notification that the page has an OpenSearch description document.
   virtual void PageHasOSDD(RenderViewHost* render_view_host,
                            int32 page_id, const GURL& doc_url,
@@ -784,6 +540,11 @@ class RenderViewHostDelegate : public IPC::Channel::Listener {
   // Returns a WebPreferences object that will be used by the renderer
   // associated with the owning render view host.
   virtual WebPreferences GetWebkitPrefs();
+
+  // Notification the user has made a gesture while focus was on the
+  // page. This is used to avoid uninitiated user downloads (aka carpet
+  // bombing), see DownloadRequestLimiter for details.
+  virtual void OnUserGesture() {}
 
   // Notification from the renderer host that blocked UI event occurred.
   // This happens when there are tab-modal dialogs. In this case, the
@@ -822,8 +583,8 @@ class RenderViewHostDelegate : public IPC::Channel::Listener {
                                 int maximum_percent,
                                 bool remember) {}
 
-  // Update the content restrictions, i.e. disable print/copy.
-  virtual void UpdateContentRestrictions(int restrictions) {}
+  // Notification that a worker process has crashed.
+  void WorkerCrashed() {}
 
  protected:
   virtual ~RenderViewHostDelegate() {}

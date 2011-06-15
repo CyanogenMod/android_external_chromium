@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <algorithm>
+
 #include "base/file_path.h"
 
 #if defined(OS_WIN)
@@ -511,10 +513,14 @@ bool FilePath::ReferencesParent() const {
 }
 
 #if defined(OS_POSIX)
-
 // See file_path.h for a discussion of the encoding of paths on POSIX
-// platforms.  These *Hack() functions are not quite correct, but they're
-// only temporary while we fix the remainder of the code.
+// platforms.  These encoding conversion functions are not quite correct.
+
+string16 FilePath::LossyDisplayName() const {
+  return WideToUTF16(base::SysNativeMBToWide(path_));
+}
+
+// The *Hack functions are temporary while we fix the remainder of the code.
 // Remember to remove the #includes at the top when you remove these.
 
 // static
@@ -525,6 +531,10 @@ std::wstring FilePath::ToWStringHack() const {
   return base::SysNativeMBToWide(path_);
 }
 #elif defined(OS_WIN)
+string16 FilePath::LossyDisplayName() const {
+  return path_;
+}
+
 // static
 FilePath FilePath::FromWStringHack(const std::wstring& wstring) {
   return FilePath(wstring);

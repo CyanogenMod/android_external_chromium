@@ -3,13 +3,15 @@
 # found in the LICENSE file.
 
 # This file is only included in full-chromium builds, and overrides the
-# feature_defines variable in third_party/WebKit/WebKit/chromium/features.gypi.
+# feature_defines variable in
+# third_party/WebKit/Source/WebKit/chromium/features.gypi.
 {
   'variables': {
     # WARNING: This list of strings completely replaces the list in
     # features.gypi. Therefore, if an enable is listed in features.gypi
     # but not listed below, it will revert to its hardcoded webkit value.
     'feature_defines': [
+      # TODO(kbr): remove ENABLE_3D_CANVAS after renaming to ENABLE_WEBGL lands.
       'ENABLE_3D_CANVAS=1',
       'ENABLE_3D_PLUGIN=1',
       'ENABLE_BLOB=1',
@@ -23,6 +25,7 @@
       'ENABLE_DIRECTORY_UPLOAD=1',
       'ENABLE_DOM_STORAGE=1',
       'ENABLE_EVENTSOURCE=1',
+      'ENABLE_JAVASCRIPT_I18N_API=1',
       'ENABLE_FILE_SYSTEM=1',
       'ENABLE_FILTERS=1',
       'ENABLE_GEOLOCATION=1',
@@ -38,9 +41,11 @@
       'ENABLE_OPENTYPE_SANITIZER=1',
       'ENABLE_ORIENTATION_EVENTS=0',
       'ENABLE_PROGRESS_TAG=1',
+      'ENABLE_REQUEST_ANIMATION_FRAME=1',
       'ENABLE_RUBY=1',
       'ENABLE_SANDBOX=1',
       'ENABLE_SHARED_WORKERS=1',
+      'ENABLE_SKIA_GPU=<(use_skia_gpu)',
       'ENABLE_SVG=<(enable_svg)',
       'ENABLE_SVG_ANIMATION=<(enable_svg)',
       'ENABLE_SVG_AS_IMAGE=<(enable_svg)',
@@ -52,6 +57,7 @@
       'ENABLE_VIDEO=1',
       'ENABLE_WEB_SOCKETS=1',
       'ENABLE_WEB_TIMING=1',
+      'ENABLE_WEBGL=1',
       'ENABLE_WORKERS=1',
       'ENABLE_XHR_RESPONSE_BLOB=1',
       'ENABLE_XPATH=1',
@@ -65,6 +71,7 @@
       'use_accelerated_compositing%': 1,
       'enable_svg%': 1,
       'enable_touch_events%': 1,
+      'use_skia_gpu%': 0,
     },
     'use_accelerated_compositing%': '<(use_accelerated_compositing)',
     'enable_svg%': '<(enable_svg)',
@@ -77,6 +84,11 @@
           'ENABLE_ACCELERATED_2D_CANVAS=1',
         ],
         'use_accelerated_compositing': 1,
+      }],
+      ['OS=="mac"', {
+        'feature_defines': [
+          'ENABLE_WEB_AUDIO=1',
+        ],
       }],
     ],
     # TODO: If the need arises, create a mechanism that will intelligently

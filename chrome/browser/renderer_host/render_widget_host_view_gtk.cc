@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 // If this gets included after the gtk headers, then a bunch of compiler
 // errors happen because of a "#define Status int" in Xlib.h, which interacts
-// badly with URLRequestStatus::Status.
+// badly with net::URLRequestStatus::Status.
 #include "chrome/common/render_messages.h"
 
 #include <cairo/cairo.h>
@@ -18,8 +18,6 @@
 #include <algorithm>
 #include <string>
 
-#include "app/l10n_util.h"
-#include "app/x11_util.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
@@ -27,17 +25,19 @@
 #include "base/string_number_conversions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/renderer_host/backing_store_x.h"
 #include "chrome/browser/renderer_host/gtk_im_context_wrapper.h"
 #include "chrome/browser/renderer_host/gtk_key_bindings_handler.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/renderer_host/render_widget_host.h"
+#include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/native_web_keyboard_event.h"
-#include "gfx/gtk_preserve_window.h"
-#include "third_party/WebKit/WebKit/chromium/public/gtk/WebInputEventFactory.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/gtk/WebInputEventFactory.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/x/x11_util.h"
+#include "ui/gfx/gtk_preserve_window.h"
 #include "webkit/glue/webaccessibility.h"
 #include "webkit/glue/webcursor_gtk_data.h"
 #include "webkit/plugins/npapi/webplugin.h"
@@ -489,11 +489,11 @@ RenderWidgetHostViewGtk::RenderWidgetHostViewGtk(RenderWidgetHost* widget_host)
       is_showing_context_menu_(false),
       overlay_color_(0),
       overlay_animation_(this),
-      parent_host_view_(NULL),
       parent_(NULL),
       is_popup_first_mouse_release_(true),
       was_focused_before_grab_(false),
       do_x_grab_(false),
+      is_fullscreen_(false),
       dragged_at_horizontal_edge_(0),
       dragged_at_vertical_edge_(0) {
   host_->set_view(this);
@@ -504,31 +504,71 @@ RenderWidgetHostViewGtk::~RenderWidgetHostViewGtk() {
 }
 
 void RenderWidgetHostViewGtk::InitAsChild() {
-  view_.Own(RenderWidgetHostViewGtkWidget::CreateNewWidget(this));
-  // |im_context_| must be created after creating |view_| widget.
-  im_context_.reset(new GtkIMContextWrapper(this));
-  // |key_bindings_handler_| must be created after creating |view_| widget.
-  key_bindings_handler_.reset(new GtkKeyBindingsHandler(view_.get()));
-  plugin_container_manager_.set_host_widget(view_.get());
-
-#if defined(OS_CHROMEOS)
-  tooltip_window_.reset(new views::TooltipWindowGtk(view_.get()));
-#endif  // defined(OS_CHROMEOS)
-
+  DoSharedInit();
   overlay_animation_.SetDuration(kFadeEffectDuration);
   overlay_animation_.SetSlideDuration(kFadeEffectDuration);
-
   gtk_widget_show(view_.get());
 }
 
 void RenderWidgetHostViewGtk::InitAsPopup(
     RenderWidgetHostView* parent_host_view, const gfx::Rect& pos) {
-  DoInitAsPopup(parent_host_view, GTK_WINDOW_POPUP, pos, false);
+  // If we aren't a popup, then |window| will be leaked.
+  DCHECK(IsPopup());
+
+  DoSharedInit();
+  parent_ = parent_host_view->GetNativeView();
+  GtkWindow* window = GTK_WINDOW(gtk_window_new(GTK_WINDOW_POPUP));
+  gtk_container_add(GTK_CONTAINER(window), view_.get());
+  DoPopupOrFullscreenInit(window, pos);
+
+  // The underlying X window needs to be created and mapped by the above code
+  // before we can grab the input devices.
+  if (NeedsInputGrab()) {
+    // Grab all input for the app. If a click lands outside the bounds of the
+    // popup, WebKit will notice and destroy us. Before doing this we need
+    // to ensure that the the popup is added to the browser's window group,
+    // to allow for the grabs to work correctly.
+    gtk_window_group_add_window(gtk_window_get_group(
+        GTK_WINDOW(gtk_widget_get_toplevel(parent_))), window);
+    gtk_grab_add(view_.get());
+
+    // We need for the application to do an X grab as well. However if the app
+    // already has an X grab (as in the case of extension popup), an app grab
+    // will suffice.
+    do_x_grab_ = !gdk_pointer_is_grabbed();
+
+    // Now grab all of X's input.
+    if (do_x_grab_) {
+      gdk_pointer_grab(
+          parent_->window,
+          TRUE,  // Only events outside of the window are reported with respect
+                 // to |parent_->window|.
+          static_cast<GdkEventMask>(GDK_BUTTON_PRESS_MASK |
+              GDK_BUTTON_RELEASE_MASK | GDK_POINTER_MOTION_MASK),
+          NULL,
+          NULL,
+          GDK_CURRENT_TIME);
+      // We grab keyboard events too so things like alt+tab are eaten.
+      gdk_keyboard_grab(parent_->window, TRUE, GDK_CURRENT_TIME);
+    }
+  }
 }
 
-void RenderWidgetHostViewGtk::InitAsFullscreen(
-    RenderWidgetHostView* parent_host_view) {
-  DoInitAsPopup(parent_host_view, GTK_WINDOW_TOPLEVEL, gfx::Rect(), true);
+void RenderWidgetHostViewGtk::InitAsFullscreen() {
+  DoSharedInit();
+
+  is_fullscreen_ = true;
+  GtkWindow* window = GTK_WINDOW(gtk_window_new(GTK_WINDOW_TOPLEVEL));
+  gtk_window_set_decorated(window, FALSE);
+  gtk_window_fullscreen(window);
+  gtk_container_add(GTK_CONTAINER(window), view_.get());
+
+  // Try to move and resize the window to cover the screen in case the window
+  // manager doesn't support _NET_WM_STATE_FULLSCREEN.
+  GdkScreen* screen = gtk_window_get_screen(window);
+  gfx::Rect bounds(
+      0, 0, gdk_screen_get_width(screen), gdk_screen_get_height(screen));
+  DoPopupOrFullscreenInit(window, bounds);
 }
 
 RenderWidgetHost* RenderWidgetHostViewGtk::GetRenderWidgetHost() const {
@@ -692,15 +732,17 @@ void RenderWidgetHostViewGtk::RenderViewGone(base::TerminationStatus status,
 }
 
 void RenderWidgetHostViewGtk::Destroy() {
-  if (IsPopup()) {
-    if (do_x_grab_) {
-      // Undo the X grab.
-      GdkDisplay* display = gtk_widget_get_display(parent_);
-      gdk_display_pointer_ungrab(display, GDK_CURRENT_TIME);
-      gdk_display_keyboard_ungrab(display, GDK_CURRENT_TIME);
-    }
-    gtk_widget_destroy(gtk_widget_get_parent(view_.get()));
+  if (do_x_grab_) {
+    // Undo the X grab.
+    GdkDisplay* display = gtk_widget_get_display(parent_);
+    gdk_display_pointer_ungrab(display, GDK_CURRENT_TIME);
+    gdk_display_keyboard_ungrab(display, GDK_CURRENT_TIME);
   }
+
+  // If this is a popup or fullscreen widget, then we need to destroy the window
+  // that we created to hold it.
+  if (IsPopup() || is_fullscreen_)
+    gtk_widget_destroy(gtk_widget_get_parent(view_.get()));
 
   // Remove |view_| from all containers now, so nothing else can hold a
   // reference to |view_|'s widget except possibly a gtk signal handler if
@@ -759,14 +801,43 @@ bool RenderWidgetHostViewGtk::NeedsInputGrab() {
   return popup_type_ == WebKit::WebPopupTypeSelect;
 }
 
-bool RenderWidgetHostViewGtk::IsPopup() {
+bool RenderWidgetHostViewGtk::IsPopup() const {
   return popup_type_ != WebKit::WebPopupTypeNone;
+}
+
+void RenderWidgetHostViewGtk::DoSharedInit() {
+  view_.Own(RenderWidgetHostViewGtkWidget::CreateNewWidget(this));
+  im_context_.reset(new GtkIMContextWrapper(this));
+  key_bindings_handler_.reset(new GtkKeyBindingsHandler(view_.get()));
+  plugin_container_manager_.set_host_widget(view_.get());
+#if defined(OS_CHROMEOS)
+  tooltip_window_.reset(new views::TooltipWindowGtk(view_.get()));
+#endif
+}
+
+void RenderWidgetHostViewGtk::DoPopupOrFullscreenInit(GtkWindow* window,
+                                                      const gfx::Rect& bounds) {
+  requested_size_ = bounds.size();
+  host_->WasResized();
+
+  gtk_widget_set_size_request(
+      view_.get(),
+      std::min(requested_size_.width(), kMaxWindowWidth),
+      std::min(requested_size_.height(), kMaxWindowHeight));
+
+  // Don't allow the window to be resized. This also forces the window to
+  // shrink down to the size of its child contents.
+  gtk_window_set_resizable(window, FALSE);
+  gtk_window_set_default_size(window, -1, -1);
+  gtk_window_move(window, bounds.x(), bounds.y());
+
+  gtk_widget_show_all(GTK_WIDGET(window));
 }
 
 BackingStore* RenderWidgetHostViewGtk::AllocBackingStore(
     const gfx::Size& size) {
   return new BackingStoreX(host_, size,
-                           x11_util::GetVisualFromGtkWidget(view_.get()),
+                           ui::GetVisualFromGtkWidget(view_.get()),
                            gtk_widget_get_visual(view_.get())->depth);
 }
 
@@ -858,7 +929,7 @@ void RenderWidgetHostViewGtk::Paint(const gfx::Rect& damage_rect) {
         // In the common case, use XCopyArea. We don't draw more than once, so
         // we don't need to double buffer.
         backing_store->XShowRect(gfx::Point(0, 0),
-            paint_rect, x11_util::GetX11WindowFromGtkWidget(view_.get()));
+            paint_rect, ui::GetX11WindowFromGtkWidget(view_.get()));
       } else {
         // If the grey blend is showing, we make two drawing calls. Use double
         // buffering to prevent flicker. Use CairoShowRect because XShowRect
@@ -955,94 +1026,6 @@ void RenderWidgetHostViewGtk::ShowCurrentCursor() {
   // The window now owns the cursor.
   if (should_unref && gdk_cursor)
     gdk_cursor_unref(gdk_cursor);
-}
-
-void RenderWidgetHostViewGtk::DoInitAsPopup(
-    RenderWidgetHostView* parent_host_view,
-    GtkWindowType window_type,
-    const gfx::Rect& pos,
-    bool is_fullscreen) {
-  // If we are not a popup, then popup will be leaked.
-  DCHECK(IsPopup());
-
-  parent_host_view_ = parent_host_view;
-  parent_ = parent_host_view->GetNativeView();
-  GtkWidget* popup = gtk_window_new(window_type);
-  gtk_window_set_decorated(GTK_WINDOW(popup), FALSE);
-  view_.Own(RenderWidgetHostViewGtkWidget::CreateNewWidget(this));
-  // |im_context_| must be created after creating |view_| widget.
-  im_context_.reset(new GtkIMContextWrapper(this));
-  // |key_bindings_handler_| must be created after creating |view_| widget.
-  key_bindings_handler_.reset(new GtkKeyBindingsHandler(view_.get()));
-  plugin_container_manager_.set_host_widget(view_.get());
-
-#if defined(OS_CHROMEOS)
-  tooltip_window_.reset(new views::TooltipWindowGtk(view_.get()));
-#endif  // defined(OS_CHROMEOS)
-
-  gtk_container_add(GTK_CONTAINER(popup), view_.get());
-
-  if (is_fullscreen) {
-    // Set the request size to the size of the screen.
-    // TODO(boliu): Make sure this works for multi-monitor set ups and move this
-    // to some utility function.
-    GdkScreen* screen = gtk_window_get_screen(GTK_WINDOW(popup));
-    requested_size_ = gfx::Size(
-        std::min(gdk_screen_get_width(screen), kMaxWindowWidth),
-        std::min(gdk_screen_get_height(screen), kMaxWindowHeight));
-  } else {
-    requested_size_ = gfx::Size(std::min(pos.width(), kMaxWindowWidth),
-                                std::min(pos.height(), kMaxWindowHeight));
-  }
-  host_->WasResized();
-
-  gtk_widget_set_size_request(view_.get(), requested_size_.width(),
-                              requested_size_.height());
-  // Don't allow the window to be resized. This also forces the window to
-  // shrink down to the size of its child contents.
-  gtk_window_set_resizable(GTK_WINDOW(popup), FALSE);
-  gtk_window_set_default_size(GTK_WINDOW(popup), -1, -1);
-  gtk_window_move(GTK_WINDOW(popup), pos.x(), pos.y());
-  if (is_fullscreen) {
-    gtk_window_fullscreen(GTK_WINDOW(popup));
-  }
-
-  gtk_widget_show_all(popup);
-
-  // If we are not activatable, we don't want to grab keyboard input,
-  // and webkit will manage our destruction.
-  // For unknown reason, calling gtk_grab_add() before realizing the widget may
-  // cause an assertion failure. See http://crbug.com/51834. So we do it after
-  // showing the popup.
-  if (NeedsInputGrab()) {
-    // Grab all input for the app. If a click lands outside the bounds of the
-    // popup, WebKit will notice and destroy us. Before doing this we need
-    // to ensure that the the popup is added to the browser's window group,
-    // to allow for the grabs to work correctly.
-    gtk_window_group_add_window(gtk_window_get_group(
-        GTK_WINDOW(gtk_widget_get_toplevel(parent_))), GTK_WINDOW(popup));
-    gtk_grab_add(view_.get());
-
-    // We need for the application to do an X grab as well. However if the app
-    // already has an X grab (as in the case of extension popup), an app grab
-    // will suffice.
-    do_x_grab_ = !gdk_pointer_is_grabbed();
-
-    // Now grab all of X's input.
-    if (do_x_grab_) {
-      gdk_pointer_grab(
-          parent_->window,
-          TRUE,  // Only events outside of the window are reported with respect
-                 // to |parent_->window|.
-          static_cast<GdkEventMask>(GDK_BUTTON_PRESS_MASK |
-              GDK_BUTTON_RELEASE_MASK | GDK_POINTER_MOTION_MASK),
-          NULL,
-          NULL,
-          GDK_CURRENT_TIME);
-      // We grab keyboard events too so things like alt+tab are eaten.
-      gdk_keyboard_grab(parent_->window, TRUE, GDK_CURRENT_TIME);
-    }
-  }
 }
 
 void RenderWidgetHostViewGtk::CreatePluginContainer(

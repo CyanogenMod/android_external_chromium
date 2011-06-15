@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,18 +12,18 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
-#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #import "chrome/browser/ui/cocoa/fast_resize_view.h"
-#import "chrome/browser/ui/cocoa/find_bar_cocoa_controller.h"
+#import "chrome/browser/ui/cocoa/find_bar/find_bar_cocoa_controller.h"
 #import "chrome/browser/ui/cocoa/floating_bar_backing_view.h"
 #import "chrome/browser/ui/cocoa/framed_browser_window.h"
 #import "chrome/browser/ui/cocoa/fullscreen_controller.h"
-#import "chrome/browser/ui/cocoa/previewable_contents_controller.h"
-#import "chrome/browser/ui/cocoa/side_tab_strip_controller.h"
-#import "chrome/browser/ui/cocoa/tab_strip_controller.h"
-#import "chrome/browser/ui/cocoa/tab_strip_view.h"
-#import "chrome/browser/ui/cocoa/toolbar_controller.h"
+#import "chrome/browser/ui/cocoa/infobars/infobar_container_controller.h"
+#import "chrome/browser/ui/cocoa/tab_contents/previewable_contents_controller.h"
+#import "chrome/browser/ui/cocoa/tabs/side_tab_strip_controller.h"
+#import "chrome/browser/ui/cocoa/tabs/tab_strip_controller.h"
+#import "chrome/browser/ui/cocoa/tabs/tab_strip_view.h"
+#import "chrome/browser/ui/cocoa/toolbar/toolbar_controller.h"
 #include "chrome/common/pref_names.h"
 
 namespace {
@@ -63,11 +63,12 @@ const CGFloat kLocBarBottomInset = 1;
   if (browser_ != BrowserList::GetLastActive())
     return;
 
-  if (!g_browser_process || !g_browser_process->local_state() ||
-      !browser_->ShouldSaveWindowPlacement())
+  if (!browser_->profile()->GetPrefs() ||
+      !browser_->ShouldSaveWindowPlacement()) {
     return;
+  }
 
-  [self saveWindowPositionToPrefs:g_browser_process->local_state()];
+  [self saveWindowPositionToPrefs:browser_->profile()->GetPrefs()];
 }
 
 - (void)saveWindowPositionToPrefs:(PrefService*)prefs {
@@ -395,13 +396,14 @@ willPositionSheet:(NSWindow*)sheet
 - (CGFloat)layoutInfoBarAtMinX:(CGFloat)minX
                           maxY:(CGFloat)maxY
                          width:(CGFloat)width {
-  NSView* infoBarView = [infoBarContainerController_ view];
-  NSRect infoBarFrame = [infoBarView frame];
-  infoBarFrame.origin.x = minX;
-  infoBarFrame.origin.y = maxY - NSHeight(infoBarFrame);
-  infoBarFrame.size.width = width;
-  [infoBarView setFrame:infoBarFrame];
-  maxY -= NSHeight(infoBarFrame);
+  NSView* containerView = [infoBarContainerController_ view];
+  NSRect containerFrame = [containerView frame];
+  maxY -= NSHeight(containerFrame);
+  maxY += [infoBarContainerController_ antiSpoofHeight];
+  containerFrame.origin.x = minX;
+  containerFrame.origin.y = maxY;
+  containerFrame.size.width = width;
+  [containerView setFrame:containerFrame];
   return maxY;
 }
 

@@ -1,11 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/toolbar_view.h"
+#include "chrome/browser/ui/views/toolbar_view.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/i18n/number_formatting.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -25,12 +23,14 @@
 #include "chrome/browser/upgrade_detector.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
-#include "gfx/canvas.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/skbitmap_operations.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/skbitmap_operations.h"
 #include "views/controls/button/button_dropdown.h"
 #include "views/focus/view_storage.h"
 #include "views/widget/tooltip_manager.h"
@@ -43,7 +43,7 @@
 #include "chrome/browser/chromeos/dom_ui/wrench_menu_ui.h"
 #include "views/controls/menu/menu_2.h"
 #endif
-#include "chrome/browser/views/wrench_menu.h"
+#include "chrome/browser/ui/views/wrench_menu.h"
 
 #if defined(OS_WIN)
 #include "chrome/browser/enumerate_modules_model_win.h"
@@ -146,25 +146,23 @@ void ToolbarView::Init(Profile* profile) {
   }
 #endif
   back_ = new views::ButtonDropDown(this, back_menu_model_.get());
-  back_->set_triggerable_event_flags(views::Event::EF_LEFT_BUTTON_DOWN |
-                                     views::Event::EF_MIDDLE_BUTTON_DOWN);
+  back_->set_triggerable_event_flags(ui::EF_LEFT_BUTTON_DOWN |
+                                     ui::EF_MIDDLE_BUTTON_DOWN);
   back_->set_tag(IDC_BACK);
   back_->SetImageAlignment(views::ImageButton::ALIGN_RIGHT,
                            views::ImageButton::ALIGN_TOP);
   back_->SetTooltipText(
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_TOOLTIP_BACK)));
-  back_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_BACK)));
+  back_->SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_BACK));
   back_->SetID(VIEW_ID_BACK_BUTTON);
 
   forward_ = new views::ButtonDropDown(this, forward_menu_model_.get());
-  forward_->set_triggerable_event_flags(views::Event::EF_LEFT_BUTTON_DOWN |
-                                        views::Event::EF_MIDDLE_BUTTON_DOWN);
+  forward_->set_triggerable_event_flags(ui::EF_LEFT_BUTTON_DOWN |
+                                        ui::EF_MIDDLE_BUTTON_DOWN);
   forward_->set_tag(IDC_FORWARD);
   forward_->SetTooltipText(
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_TOOLTIP_FORWARD)));
-  forward_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_FORWARD)));
+  forward_->SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_FORWARD));
   forward_->SetID(VIEW_ID_FORWARD_BUTTON);
 
   // Have to create this before |reload_| as |reload_|'s constructor needs it.
@@ -173,20 +171,19 @@ void ToolbarView::Init(Profile* profile) {
           LocationBarView::POPUP : LocationBarView::NORMAL);
 
   reload_ = new ReloadButton(location_bar_, browser_);
-  reload_->set_triggerable_event_flags(views::Event::EF_LEFT_BUTTON_DOWN |
-                                       views::Event::EF_MIDDLE_BUTTON_DOWN);
+  reload_->set_triggerable_event_flags(ui::EF_LEFT_BUTTON_DOWN |
+                                       ui::EF_MIDDLE_BUTTON_DOWN);
   reload_->set_tag(IDC_RELOAD);
   reload_->SetTooltipText(
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_TOOLTIP_RELOAD)));
-  reload_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_RELOAD)));
+  reload_->SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_RELOAD));
   reload_->SetID(VIEW_ID_RELOAD_BUTTON);
 
 #if defined(OS_CHROMEOS)
   feedback_ = new views::ImageButton(this);
   feedback_->set_tag(IDC_FEEDBACK);
-  feedback_->set_triggerable_event_flags(views::Event::EF_LEFT_BUTTON_DOWN |
-                                         views::Event::EF_MIDDLE_BUTTON_DOWN);
+  feedback_->set_triggerable_event_flags(ui::EF_LEFT_BUTTON_DOWN |
+                                         ui::EF_MIDDLE_BUTTON_DOWN);
   feedback_->set_tag(IDC_FEEDBACK);
   feedback_->SetTooltipText(
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_TOOLTIP_FEEDBACK)));
@@ -194,13 +191,12 @@ void ToolbarView::Init(Profile* profile) {
 #endif
 
   home_ = new views::ImageButton(this);
-  home_->set_triggerable_event_flags(views::Event::EF_LEFT_BUTTON_DOWN |
-                                     views::Event::EF_MIDDLE_BUTTON_DOWN);
+  home_->set_triggerable_event_flags(ui::EF_LEFT_BUTTON_DOWN |
+                                     ui::EF_MIDDLE_BUTTON_DOWN);
   home_->set_tag(IDC_HOME);
   home_->SetTooltipText(
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_TOOLTIP_HOME)));
-  home_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_HOME)));
+  home_->SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_HOME));
   home_->SetID(VIEW_ID_HOME_BUTTON);
 
   browser_actions_ = new BrowserActionsContainer(browser_, this);
@@ -208,8 +204,7 @@ void ToolbarView::Init(Profile* profile) {
   app_menu_ = new views::MenuButton(NULL, std::wstring(), this, false);
   app_menu_->set_border(NULL);
   app_menu_->EnableCanvasFlippingForRTLUI(true);
-  app_menu_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_APP)));
+  app_menu_->SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_APP));
   app_menu_->SetTooltipText(UTF16ToWide(l10n_util::GetStringFUTF16(
       IDS_APPMENU_TOOLTIP,
       l10n_util::GetStringUTF16(IDS_PRODUCT_NAME))));
@@ -323,7 +318,7 @@ AccessibilityTypes::Role ToolbarView::GetAccessibleRole() {
 ////////////////////////////////////////////////////////////////////////////////
 // ToolbarView, Menu::BaseControllerDelegate overrides:
 
-bool ToolbarView::GetAcceleratorInfo(int id, menus::Accelerator* accel) {
+bool ToolbarView::GetAcceleratorInfo(int id, ui::Accelerator* accel) {
   return GetWidget()->GetAccelerator(id, accel);
 }
 
@@ -345,7 +340,7 @@ void ToolbarView::RunMenu(views::View* source, const gfx::Point& /* pt */) {
     wrench_menu_2_->RunMenuAt(gfx::Point(bounds.right(), bounds.bottom()),
                               views::Menu2::ALIGN_TOPRIGHT);
     // TODO(oshima): nuke this once we made decision about go or no go
-    // for domui menu.
+    // for WebUI menu.
     goto cleanup;
   }
 #endif
@@ -358,7 +353,7 @@ void ToolbarView::RunMenu(views::View* source, const gfx::Point& /* pt */) {
   wrench_menu_->RunMenu(app_menu_);
 
 #if defined(OS_CHROMEOS)
-cleanup:
+ cleanup:
 #endif
   if (destroyed_flag)
     return;
@@ -451,22 +446,22 @@ void ToolbarView::Observe(NotificationType type,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// ToolbarView, menus::AcceleratorProvider implementation:
+// ToolbarView, ui::AcceleratorProvider implementation:
 
 bool ToolbarView::GetAcceleratorForCommandId(int command_id,
-    menus::Accelerator* accelerator) {
+    ui::Accelerator* accelerator) {
   // The standard Ctrl-X, Ctrl-V and Ctrl-C are not defined as accelerators
   // anywhere so we need to check for them explicitly here.
   // TODO(cpu) Bug 1109102. Query WebKit land for the actual bindings.
   switch (command_id) {
     case IDC_CUT:
-      *accelerator = views::Accelerator(app::VKEY_X, false, true, false);
+      *accelerator = views::Accelerator(ui::VKEY_X, false, true, false);
       return true;
     case IDC_COPY:
-      *accelerator = views::Accelerator(app::VKEY_C, false, true, false);
+      *accelerator = views::Accelerator(ui::VKEY_C, false, true, false);
       return true;
     case IDC_PASTE:
-      *accelerator = views::Accelerator(app::VKEY_V, false, true, false);
+      *accelerator = views::Accelerator(ui::VKEY_V, false, true, false);
       return true;
   }
   // Else, we retrieve the accelerator information from the frame.
@@ -511,8 +506,9 @@ void ToolbarView::Layout() {
   if (back_ == NULL)
     return;
 
+  bool maximized = browser_->window() && browser_->window()->IsMaximized();
   if (!IsDisplayModeNormal()) {
-    int edge_width = (browser_->window() && browser_->window()->IsMaximized()) ?
+    int edge_width = maximized ?
         0 : kPopupBackgroundEdge->width();  // See Paint().
     location_bar_->SetBounds(edge_width, PopupTopSpacing(),
         width() - (edge_width * 2), location_bar_->GetPreferredSize().height());
@@ -532,7 +528,7 @@ void ToolbarView::Layout() {
   //                Layout() in this case.
   //                http://crbug.com/5540
   int back_width = back_->GetPreferredSize().width();
-  if (browser_->window() && browser_->window()->IsMaximized())
+  if (maximized)
     back_->SetBounds(0, child_y, back_width + kEdgeSpacing, child_height);
   else
     back_->SetBounds(kEdgeSpacing, child_y, back_width, child_height);
@@ -579,6 +575,10 @@ void ToolbarView::Layout() {
   //                required.
   browser_actions_->Layout();
 
+  // Extend the app menu to the screen's right edge in maximized mode just like
+  // we extend the back button to the left edge.
+  if (maximized)
+    app_menu_width += kEdgeSpacing;
 #if defined(OS_CHROMEOS)
   feedback_->SetBounds(browser_actions_->x() + browser_actions_width, child_y,
                        feedback_->GetPreferredSize().width(), child_height);
@@ -662,7 +662,7 @@ int ToolbarView::PopupTopSpacing() const {
 }
 
 void ToolbarView::LoadImages() {
-  ThemeProvider* tp = GetThemeProvider();
+  ui::ThemeProvider* tp = GetThemeProvider();
 
   back_->SetImage(views::CustomButton::BS_NORMAL, tp->GetBitmapNamed(IDR_BACK));
   back_->SetImage(views::CustomButton::BS_HOT, tp->GetBitmapNamed(IDR_BACK_H));
@@ -722,7 +722,7 @@ void ToolbarView::UpdateAppMenuBadge() {
 }
 
 SkBitmap ToolbarView::GetAppMenuIcon(views::CustomButton::ButtonState state) {
-  ThemeProvider* tp = GetThemeProvider();
+  ui::ThemeProvider* tp = GetThemeProvider();
 
   int id = 0;
   switch (state) {

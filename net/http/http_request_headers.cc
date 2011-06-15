@@ -30,6 +30,7 @@ const char HttpRequestHeaders::kProxyConnection[] = "Proxy-Connection";
 const char HttpRequestHeaders::kRange[] = "Range";
 const char HttpRequestHeaders::kReferer[] = "Referer";
 const char HttpRequestHeaders::kUserAgent[] = "User-Agent";
+const char HttpRequestHeaders::kTransferEncoding[] = "Transfer-Encoding";
 
 HttpRequestHeaders::HeaderKeyValuePair::HeaderKeyValuePair() {
 }
@@ -82,6 +83,13 @@ void HttpRequestHeaders::SetHeader(const base::StringPiece& key,
   if (it != headers_.end())
     it->value = value.as_string();
   else
+    headers_.push_back(HeaderKeyValuePair(key.as_string(), value.as_string()));
+}
+
+void HttpRequestHeaders::SetHeaderIfMissing(const base::StringPiece& key,
+                                            const base::StringPiece& value) {
+  HeaderVector::iterator it = FindHeader(key);
+  if (it == headers_.end())
     headers_.push_back(HeaderKeyValuePair(key.as_string(), value.as_string()));
 }
 

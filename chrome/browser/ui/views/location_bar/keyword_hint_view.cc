@@ -1,21 +1,21 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/location_bar/keyword_hint_view.h"
+#include "chrome/browser/ui/views/location_bar/keyword_hint_view.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/logging.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_model.h"
-#include "gfx/canvas.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
-#include "views/controls/label.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
+#include "views/controls/label.h"
 
 // Amount of space to offset the tab image from the top of the view by.
 static const int kTabImageYOffset = 4;
@@ -48,7 +48,7 @@ void KeywordHintView::SetColor(const SkColor& color) {
   trailing_label_->SetColor(color);
 }
 
-void KeywordHintView::SetKeyword(const std::wstring& keyword) {
+void KeywordHintView::SetKeyword(const string16& keyword) {
   keyword_ = keyword;
   if (keyword_.empty())
     return;
@@ -58,7 +58,7 @@ void KeywordHintView::SetKeyword(const std::wstring& keyword) {
 
   std::vector<size_t> content_param_offsets;
   bool is_extension_keyword;
-  std::wstring short_name = profile_->GetTemplateURLModel()->
+  string16 short_name = profile_->GetTemplateURLModel()->
       GetKeywordShortName(keyword, &is_extension_keyword);
   int message_id = is_extension_keyword ?
       IDS_OMNIBOX_EXTENSION_KEYWORD_HINT : IDS_OMNIBOX_KEYWORD_HINT;
@@ -66,7 +66,7 @@ void KeywordHintView::SetKeyword(const std::wstring& keyword) {
       UTF16ToWide(l10n_util::GetStringFUTF16(
           message_id,
           string16(),
-          WideToUTF16(short_name),
+          short_name,
           &content_param_offsets));
   if (content_param_offsets.size() == 2) {
     leading_label_->SetText(
@@ -89,7 +89,7 @@ void KeywordHintView::Paint(gfx::Canvas* canvas) {
                               kTabImageYOffset,
                               kTabButtonBitmap->width(),
                               kTabButtonBitmap->height());
-  tab_button_bounds.set_x(MirroredLeftPointForRect(tab_button_bounds));
+  tab_button_bounds.set_x(GetMirroredXForRect(tab_button_bounds));
   canvas->DrawBitmapInt(*kTabButtonBitmap,
                         tab_button_bounds.x(),
                         tab_button_bounds.y());

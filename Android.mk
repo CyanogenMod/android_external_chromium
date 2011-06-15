@@ -33,11 +33,11 @@ LOCAL_SRC_FILES := \
     googleurl/src/url_util.cc \
     \
     android/execinfo.cc \
-    android/app/l10n_util.cc \
     android/jni/mime_utils.cc \
     android/jni/jni_utils.cc \
     android/jni/platform_file_jni.cc \
     android/net/android_network_library_impl.cc \
+    android/ui/base/l10n/l10n_util.cc \
     \
     app/sql/connection.cc \
     app/sql/meta_table.cc \
@@ -352,7 +352,6 @@ LOCAL_SRC_FILES += \
     chrome/browser/autofill/contact_info.cc \
     chrome/browser/autofill/credit_card.cc \
     chrome/browser/autofill/credit_card_field.cc \
-    chrome/browser/autofill/fax_field.cc \
     chrome/browser/autofill/fax_number.cc \
     chrome/browser/autofill/form_field.cc \
     chrome/browser/autofill/form_group.cc \
@@ -365,6 +364,8 @@ LOCAL_SRC_FILES += \
     chrome/browser/autofill/phone_number.cc \
     chrome/browser/autofill/select_control_handler.cc \
     \
+    chrome/browser/prefs/default_pref_store.cc \
+    chrome/browser/prefs/overlay_persistent_pref_store.cc \
     chrome/browser/prefs/pref_service.cc \
     chrome/browser/prefs/pref_value_map.cc \
     chrome/browser/prefs/pref_value_store.cc \
@@ -436,19 +437,19 @@ $(GEN):
 	perl $(SCRIPT) $@ "include/core/SkBitmap.h"
 LOCAL_GENERATED_SOURCES += $(GEN)
 
-GEN := $(THIRD_PARTY)/WebKit/WebKit/chromium/public/WebFormControlElement.h
+GEN := $(THIRD_PARTY)/WebKit/Source/WebKit/chromium/public/WebFormControlElement.h
 $(GEN): $(SCRIPT)
 $(GEN):
 	perl $(SCRIPT) $@ "public/WebFormControlElement.h"
 LOCAL_GENERATED_SOURCES += $(GEN)
 
-GEN := $(THIRD_PARTY)/WebKit/WebKit/chromium/public/WebRegularExpression.h
+GEN := $(THIRD_PARTY)/WebKit/Source/WebKit/chromium/public/WebRegularExpression.h
 $(GEN): $(SCRIPT)
 $(GEN):
 	perl $(SCRIPT) $@ "public/WebRegularExpression.h"
 LOCAL_GENERATED_SOURCES += $(GEN)
 
-GEN := $(THIRD_PARTY)/WebKit/WebKit/chromium/public/WebString.h
+GEN := $(THIRD_PARTY)/WebKit/Source/WebKit/chromium/public/WebString.h
 $(GEN): $(SCRIPT)
 $(GEN):
 	perl $(SCRIPT) $@ "public/WebString.h"

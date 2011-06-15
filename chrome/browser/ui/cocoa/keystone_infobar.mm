@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,10 @@
 
 #include <string>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/command_line.h"
 #include "base/message_loop.h"
 #include "base/task.h"
+#import "chrome/browser/cocoa/keystone_glue.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
@@ -21,85 +20,40 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
-#import "chrome/browser/ui/cocoa/keystone_glue.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 class SkBitmap;
 
 namespace {
 
+// KeystonePromotionInfoBarDelegate -------------------------------------------
+
 class KeystonePromotionInfoBarDelegate : public ConfirmInfoBarDelegate {
  public:
-  KeystonePromotionInfoBarDelegate(TabContents* tab_contents)
-      : ConfirmInfoBarDelegate(tab_contents),
-        profile_(tab_contents->profile()),
-        can_expire_(false),
-        ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
-    const int kCanExpireOnNavigationAfterMilliseconds = 8 * 1000;
-    MessageLoop::current()->PostDelayedTask(
-        FROM_HERE,
-        method_factory_.NewRunnableMethod(
-            &KeystonePromotionInfoBarDelegate::SetCanExpire),
-        kCanExpireOnNavigationAfterMilliseconds);
-  }
-
-  virtual ~KeystonePromotionInfoBarDelegate() {}
-
-  // Inherited from InfoBarDelegate and overridden.
-
-  virtual bool ShouldExpire(
-    const NavigationController::LoadCommittedDetails& details) {
-    return can_expire_;
-  }
-
-  virtual void InfoBarClosed() {
-    delete this;
-  }
-
-  // Inherited from AlertInfoBarDelegate and overridden.
-
-  virtual string16 GetMessageText() const {
-    return l10n_util::GetStringFUTF16(IDS_PROMOTE_INFOBAR_TEXT,
-        l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
-  }
-
-  virtual SkBitmap* GetIcon() const {
-    return ResourceBundle::GetSharedInstance().GetBitmapNamed(
-        IDR_PRODUCT_ICON_32);
-  }
-
-  // Inherited from ConfirmInfoBarDelegate and overridden.
-
-  virtual int GetButtons() const {
-    return BUTTON_OK | BUTTON_CANCEL | BUTTON_OK_DEFAULT;
-  }
-
-  virtual string16 GetButtonLabel(InfoBarButton button) const {
-    return button == BUTTON_OK ?
-        l10n_util::GetStringUTF16(IDS_PROMOTE_INFOBAR_PROMOTE_BUTTON) :
-        l10n_util::GetStringUTF16(IDS_PROMOTE_INFOBAR_DONT_ASK_BUTTON);
-  }
-
-  virtual bool Accept() {
-    [[KeystoneGlue defaultKeystoneGlue] promoteTicket];
-    return true;
-  }
-
-  virtual bool Cancel() {
-    profile_->GetPrefs()->SetBoolean(prefs::kShowUpdatePromotionInfoBar, false);
-    return true;
-  }
+  explicit KeystonePromotionInfoBarDelegate(TabContents* tab_contents);
 
  private:
+  virtual ~KeystonePromotionInfoBarDelegate();
+
   // Sets this info bar to be able to expire.  Called a predetermined amount
   // of time after this object is created.
-  void SetCanExpire() {
-    can_expire_ = true;
-  }
+  void SetCanExpire() { can_expire_ = true; }
+
+  // ConfirmInfoBarDelegate
+  virtual bool ShouldExpire(
+      const NavigationController::LoadCommittedDetails& details) const;
+  virtual void InfoBarClosed();
+  virtual SkBitmap* GetIcon() const;
+  virtual string16 GetMessageText() const;
+  virtual string16 GetButtonLabel(InfoBarButton button) const;
+  virtual bool Accept();
+  virtual bool Cancel();
 
   // The TabContents' profile.
   Profile* profile_;  // weak
@@ -113,7 +67,61 @@ class KeystonePromotionInfoBarDelegate : public ConfirmInfoBarDelegate {
   DISALLOW_COPY_AND_ASSIGN(KeystonePromotionInfoBarDelegate);
 };
 
+KeystonePromotionInfoBarDelegate::KeystonePromotionInfoBarDelegate(
+    TabContents* tab_contents)
+    : ConfirmInfoBarDelegate(tab_contents),
+      profile_(tab_contents->profile()),
+      can_expire_(false),
+      ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
+  const int kCanExpireOnNavigationAfterMilliseconds = 8 * 1000;
+  MessageLoop::current()->PostDelayedTask(FROM_HERE,
+      method_factory_.NewRunnableMethod(
+          &KeystonePromotionInfoBarDelegate::SetCanExpire),
+      kCanExpireOnNavigationAfterMilliseconds);
+}
+
+KeystonePromotionInfoBarDelegate::~KeystonePromotionInfoBarDelegate() {
+}
+
+bool KeystonePromotionInfoBarDelegate::ShouldExpire(
+    const NavigationController::LoadCommittedDetails& details) const {
+  return can_expire_;
+}
+
+void KeystonePromotionInfoBarDelegate::InfoBarClosed() {
+  delete this;
+}
+
+SkBitmap* KeystonePromotionInfoBarDelegate::GetIcon() const {
+  return ResourceBundle::GetSharedInstance().GetBitmapNamed(
+      IDR_PRODUCT_ICON_32);
+}
+
+string16 KeystonePromotionInfoBarDelegate::GetMessageText() const {
+  return l10n_util::GetStringFUTF16(IDS_PROMOTE_INFOBAR_TEXT,
+      l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
+}
+
+string16 KeystonePromotionInfoBarDelegate::GetButtonLabel(
+    InfoBarButton button) const {
+  return l10n_util::GetStringUTF16((button == BUTTON_OK) ?
+      IDS_PROMOTE_INFOBAR_PROMOTE_BUTTON : IDS_PROMOTE_INFOBAR_DONT_ASK_BUTTON);
+}
+
+bool KeystonePromotionInfoBarDelegate::Accept() {
+  [[KeystoneGlue defaultKeystoneGlue] promoteTicket];
+  return true;
+}
+
+bool KeystonePromotionInfoBarDelegate::Cancel() {
+  profile_->GetPrefs()->SetBoolean(prefs::kShowUpdatePromotionInfoBar, false);
+  return true;
+}
+
 }  // namespace
+
+
+// KeystonePromotionInfoBar ---------------------------------------------------
 
 @interface KeystonePromotionInfoBar : NSObject
 - (void)checkAndShowInfoBarForProfile:(Profile*)profile;
@@ -187,7 +195,7 @@ class KeystonePromotionInfoBarDelegate : public ConfirmInfoBarDelegate {
 
       // Only show if no other info bars are showing, because that's how the
       // default browser info bar works.
-      if (tabContents && tabContents->infobar_delegate_count() == 0) {
+      if (tabContents && tabContents->infobar_count() == 0) {
         tabContents->AddInfoBar(
             new KeystonePromotionInfoBarDelegate(tabContents));
       }

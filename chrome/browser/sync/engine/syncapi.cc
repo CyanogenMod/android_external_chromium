@@ -11,14 +11,17 @@
 #include <vector>
 
 #include "base/base64.h"
-#include "base/lock.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
+#include "base/observer_list.h"
 #include "base/scoped_ptr.h"
 #include "base/sha1.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/synchronization/lock.h"
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
+#include "base/values.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/sync/sync_constants.h"
 #include "chrome/browser/sync/engine/all_status.h"
@@ -28,6 +31,9 @@
 #include "chrome/browser/sync/engine/net/syncapi_server_connection_manager.h"
 #include "chrome/browser/sync/engine/syncer.h"
 #include "chrome/browser/sync/engine/syncer_thread.h"
+#include "chrome/browser/sync/js_arg_list.h"
+#include "chrome/browser/sync/js_backend.h"
+#include "chrome/browser/sync/js_event_router.h"
 #include "chrome/browser/sync/notifier/server_notifier_thread.h"
 #include "chrome/browser/sync/notifier/state_writer.h"
 #include "chrome/browser/sync/protocol/app_specifics.pb.h"
@@ -36,17 +42,18 @@
 #include "chrome/browser/sync/protocol/extension_specifics.pb.h"
 #include "chrome/browser/sync/protocol/nigori_specifics.pb.h"
 #include "chrome/browser/sync/protocol/preference_specifics.pb.h"
-#include "chrome/browser/sync/protocol/session_specifics.pb.h"
+#include "chrome/browser/sync/protocol/proto_value_conversions.h"
 #include "chrome/browser/sync/protocol/service_constants.h"
+#include "chrome/browser/sync/protocol/session_specifics.pb.h"
 #include "chrome/browser/sync/protocol/sync.pb.h"
 #include "chrome/browser/sync/protocol/theme_specifics.pb.h"
 #include "chrome/browser/sync/protocol/typed_url_specifics.pb.h"
+#include "chrome/browser/sync/sessions/sync_session.h"
 #include "chrome/browser/sync/sessions/sync_session_context.h"
 #include "chrome/browser/sync/syncable/autofill_migration.h"
 #include "chrome/browser/sync/syncable/directory_manager.h"
 #include "chrome/browser/sync/syncable/syncable.h"
 #include "chrome/browser/sync/util/crypto_helpers.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/deprecated/event_sys.h"
 #include "chrome/common/net/gaia/gaia_authenticator.h"
 #include "jingle/notifier/listener/mediator_thread_impl.h"
@@ -84,6 +91,7 @@ typedef GoogleServiceAuthError AuthError;
 
 static const int kThreadExitTimeoutMsec = 60000;
 static const int kSSLPort = 443;
+static const int kSyncerThreadDelayMsec = 250;
 
 #if defined(OS_CHROMEOS)
 static const int kChromeOSNetworkChangeReactionDelayHackMsec = 5000;
@@ -256,6 +264,42 @@ int64 BaseNode::GetFirstChildId() const {
   if (id_string.IsRoot())
     return kInvalidId;
   return IdToMetahandle(GetTransaction()->GetWrappedTrans(), id_string);
+}
+
+DictionaryValue* BaseNode::ToValue() const {
+  DictionaryValue* node_info = new DictionaryValue();
+  node_info->SetString("id", base::Int64ToString(GetId()));
+  // TODO(akalin): Return time in a better format.
+  node_info->SetString("modificationTime",
+                       base::Int64ToString(GetModificationTime()));
+  node_info->SetString("parentId", base::Int64ToString(GetParentId()));
+  node_info->SetBoolean("isFolder", GetIsFolder());
+  // TODO(akalin): Add a std::string accessor for the title.
+  node_info->SetString("title", WideToUTF8(GetTitle()));
+  {
+    syncable::ModelType model_type = GetModelType();
+    if (model_type >= syncable::FIRST_REAL_MODEL_TYPE) {
+      node_info->SetString("type", ModelTypeToString(model_type));
+    } else if (model_type == syncable::TOP_LEVEL_FOLDER) {
+      node_info->SetString("type", "Top-level folder");
+    } else if (model_type == syncable::UNSPECIFIED) {
+      node_info->SetString("type", "Unspecified");
+    } else {
+      node_info->SetString("type", base::IntToString(model_type));
+    }
+  }
+  node_info->Set(
+      "specifics",
+      browser_sync::EntitySpecificsToValue(GetEntry()->Get(SPECIFICS)));
+  node_info->SetString("externalId",
+                       base::Int64ToString(GetExternalId()));
+  node_info->SetString("predecessorId",
+                       base::Int64ToString(GetPredecessorId()));
+  node_info->SetString("successorId",
+                       base::Int64ToString(GetSuccessorId()));
+  node_info->SetString("firstChildId",
+                       base::Int64ToString(GetFirstChildId()));
+  return node_info;
 }
 
 void BaseNode::GetFaviconBytes(std::vector<unsigned char>* output) const {
@@ -890,64 +934,71 @@ syncable::BaseTransaction* WriteTransaction::GetWrappedTrans() const {
   return transaction_;
 }
 
-// A GaiaAuthenticator that uses HttpPostProviders instead of CURL.
-class BridgedGaiaAuthenticator : public gaia::GaiaAuthenticator {
- public:
-  BridgedGaiaAuthenticator(const string& user_agent, const string& service_id,
-                           const string& gaia_url,
-                           HttpPostProviderFactory* factory)
-      : GaiaAuthenticator(user_agent, service_id, gaia_url),
-        gaia_source_(user_agent), post_factory_(factory) {
-  }
-
-  virtual ~BridgedGaiaAuthenticator() {
-  }
-
-  virtual bool Post(const GURL& url, const string& post_body,
-                    unsigned long* response_code, string* response_body) {
-    string connection_url = "https://";
-    connection_url += url.host();
-    connection_url += url.path();
-    HttpPostProviderInterface* http = post_factory_->Create();
-    http->SetUserAgent(gaia_source_.c_str());
-    // SSL is on 443 for Gaia Posts always.
-    http->SetURL(connection_url.c_str(), kSSLPort);
-    http->SetPostPayload("application/x-www-form-urlencoded",
-                         post_body.length(), post_body.c_str());
-
-    int os_error_code = 0;
-    int int_response_code = 0;
-    if (!http->MakeSynchronousPost(&os_error_code, &int_response_code)) {
-      VLOG(1) << "Http POST failed, error returns: " << os_error_code;
-      return false;
-    }
-    *response_code = static_cast<int>(int_response_code);
-    response_body->assign(http->GetResponseContent(),
-                          http->GetResponseContentLength());
-    post_factory_->Destroy(http);
-    return true;
-  }
-
-  virtual int GetBackoffDelaySeconds(int current_backoff_delay) {
-    return SyncerThread::GetRecommendedDelaySeconds(current_backoff_delay);
-  }
- private:
-  const std::string gaia_source_;
-  scoped_ptr<HttpPostProviderFactory> post_factory_;
-  DISALLOW_COPY_AND_ASSIGN(BridgedGaiaAuthenticator);
-};
+SyncManager::ExtraChangeRecordData::~ExtraChangeRecordData() {}
 
 SyncManager::ChangeRecord::ChangeRecord()
     : id(kInvalidId), action(ACTION_ADD) {}
 
 SyncManager::ChangeRecord::~ChangeRecord() {}
 
-SyncManager::ExtraPasswordChangeRecordData::ExtraPasswordChangeRecordData(
-    const sync_pb::PasswordSpecificsData& data)
-    : unencrypted_(data) {
+DictionaryValue* SyncManager::ChangeRecord::ToValue(
+    const BaseTransaction* trans) const {
+  DictionaryValue* value = new DictionaryValue();
+  std::string action_str;
+  switch (action) {
+    case ACTION_ADD:
+      action_str = "Add";
+      break;
+    case ACTION_DELETE:
+      action_str = "Delete";
+      break;
+    case ACTION_UPDATE:
+      action_str = "Update";
+      break;
+    default:
+      NOTREACHED();
+      action_str = "Unknown";
+      break;
+  }
+  value->SetString("action", action_str);
+  Value* node_value = NULL;
+  if (action == ACTION_DELETE) {
+    DictionaryValue* node_dict = new DictionaryValue();
+    node_dict->SetString("id", base::Int64ToString(id));
+    node_dict->Set("specifics",
+                    browser_sync::EntitySpecificsToValue(specifics));
+    if (extra.get()) {
+      node_dict->Set("extra", extra->ToValue());
+    }
+    node_value = node_dict;
+  } else {
+    ReadNode node(trans);
+    if (node.InitByIdLookup(id)) {
+      node_value = node.ToValue();
+    }
+  }
+  if (!node_value) {
+    NOTREACHED();
+    node_value = Value::CreateNullValue();
+  }
+  value->Set("node", node_value);
+  return value;
 }
 
+SyncManager::ExtraPasswordChangeRecordData::ExtraPasswordChangeRecordData(
+    const sync_pb::PasswordSpecificsData& data)
+    : unencrypted_(data) {}
+
 SyncManager::ExtraPasswordChangeRecordData::~ExtraPasswordChangeRecordData() {}
+
+DictionaryValue* SyncManager::ExtraPasswordChangeRecordData::ToValue() const {
+  return browser_sync::PasswordSpecificsDataToValue(unencrypted_);
+}
+
+const sync_pb::PasswordSpecificsData&
+    SyncManager::ExtraPasswordChangeRecordData::unencrypted() const {
+  return unencrypted_;
+}
 
 //////////////////////////////////////////////////////////////////////////
 // SyncManager's implementation: SyncManager::SyncInternal
@@ -956,13 +1007,14 @@ class SyncManager::SyncInternal
       public TalkMediator::Delegate,
       public sync_notifier::StateWriter,
       public browser_sync::ChannelEventHandler<syncable::DirectoryChangeEvent>,
+      public browser_sync::JsBackend,
       public SyncEngineEventListener {
   static const int kDefaultNudgeDelayMilliseconds;
   static const int kPreferencesNudgeDelayMilliseconds;
  public:
   explicit SyncInternal(SyncManager* sync_manager)
       : core_message_loop_(NULL),
-        observer_(NULL),
+        parent_router_(NULL),
         sync_manager_(sync_manager),
         registrar_(NULL),
         notification_pending_(false),
@@ -1047,6 +1099,10 @@ class SyncManager::SyncInternal
   // sync_notifier::StateWriter implementation.
   virtual void WriteState(const std::string& state);
 
+  void AddObserver(SyncManager::Observer* observer);
+
+  void RemoveObserver(SyncManager::Observer* observer);
+
   // Accessors for the private members.
   DirectoryManager* dir_manager() { return share_.dir_manager.get(); }
   SyncAPIServerConnectionManager* connection_manager() {
@@ -1054,7 +1110,6 @@ class SyncManager::SyncInternal
   }
   SyncerThread* syncer_thread() { return syncer_thread_.get(); }
   TalkMediator* talk_mediator() { return talk_mediator_.get(); }
-  void set_observer(SyncManager::Observer* observer) { observer_ = observer; }
   UserShare* GetUserShare() { return &share_; }
 
   // Return the currently active (validated) username for use with syncable
@@ -1063,16 +1118,7 @@ class SyncManager::SyncInternal
     return share_.name;
   }
 
-  // Note about SyncManager::Status implementation: Status is a trimmed
-  // down AllStatus::Status, augmented with authentication failure information
-  // gathered from the internal AuthWatcher. The sync UI itself hooks up to
-  // various sources like the AuthWatcher individually, but with syncapi we try
-  // to keep everything status-related in one place. This means we have to
-  // privately manage state about authentication failures, and whenever the
-  // status or status summary is requested we aggregate this state with
-  // AllStatus::Status information.
-  Status ComputeAggregatedStatus();
-  Status::Summary ComputeAggregatedStatusSummary();
+  Status GetStatus();
 
   // See SyncManager::Shutdown for information.
   void Shutdown();
@@ -1080,7 +1126,7 @@ class SyncManager::SyncInternal
   // Whether we're initialized to the point of being able to accept changes
   // (and hence allow transaction creation). See initialized_ for details.
   bool initialized() const {
-    AutoLock lock(initialized_mutex_);
+    base::AutoLock lock(initialized_mutex_);
     return initialized_;
   }
 
@@ -1158,6 +1204,15 @@ class SyncManager::SyncInternal
 
   // SyncEngineEventListener implementation.
   virtual void OnSyncEngineEvent(const SyncEngineEvent& event);
+
+  // browser_sync::JsBackend implementation.
+  virtual void SetParentJsEventRouter(browser_sync::JsEventRouter* router);
+  virtual void RemoveParentJsEventRouter();
+  virtual const browser_sync::JsEventRouter* GetParentJsEventRouter() const;
+  virtual void ProcessMessage(const std::string& name,
+                              const browser_sync::JsArgList& args,
+                              const browser_sync::JsEventHandler* sender);
+
  private:
   // Helper to handle the details of initializing the TalkMediator.
   // Must be called only after OpenDirectory() is called.
@@ -1256,6 +1311,10 @@ class SyncManager::SyncInternal
   // Checks for server reachabilty and requests a nudge.
   void OnIPAddressChangedImpl();
 
+  // Functions called by ProcessMessage().
+  browser_sync::JsArgList ProcessGetNodeByIdMessage(
+      const browser_sync::JsArgList& args);
+
   // We couple the DirectoryManager and username together in a UserShare member
   // so we can return a handle to share_ to clients of the API for use when
   // constructing any transaction type.
@@ -1263,9 +1322,9 @@ class SyncManager::SyncInternal
 
   MessageLoop* core_message_loop_;
 
-  // Observer registered via SetObserver/RemoveObserver.
-  // WARNING: This can be NULL!
-  SyncManager::Observer* observer_;
+  ObserverList<SyncManager::Observer> observers_;
+
+  browser_sync::JsEventRouter* parent_router_;
 
   // The ServerConnectionManager used to abstract communication between the
   // client (the Syncer) and the sync server.
@@ -1320,7 +1379,7 @@ class SyncManager::SyncInternal
   // meaning we are ready to accept changes.  Protected by initialized_mutex_
   // as it can get read/set by both the SyncerThread and the AuthWatcherThread.
   bool initialized_;
-  mutable Lock initialized_mutex_;
+  mutable base::Lock initialized_mutex_;
 
   notifier::NotifierOptions notifier_options_;
 
@@ -1332,6 +1391,8 @@ class SyncManager::SyncInternal
 };
 const int SyncManager::SyncInternal::kDefaultNudgeDelayMilliseconds = 200;
 const int SyncManager::SyncInternal::kPreferencesNudgeDelayMilliseconds = 2000;
+
+SyncManager::Observer::~Observer() {}
 
 SyncManager::SyncManager() {
   data_ = new SyncInternal(this);
@@ -1471,7 +1532,7 @@ bool SyncManager::SyncInternal::Init(
       method_factory_.NewRunnableMethod(&SyncInternal::CheckServerReachable));
 
   // Test mode does not use a syncer context or syncer thread.
-  if (!setup_for_test_mode) {
+  if (!setup_for_test_mode_) {
     // Build a SyncSessionContext and store the worker in it.
     VLOG(1) << "Sync is bringing up SyncSessionContext.";
     std::vector<SyncEngineEventListener*> listeners;
@@ -1521,7 +1582,8 @@ void SyncManager::SyncInternal::BootstrapEncryption(
       cryptographer->SetKeys(nigori.encrypted());
     } else {
       cryptographer->SetPendingKeys(nigori.encrypted());
-      observer_->OnPassphraseRequired(true);
+      FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
+                        OnPassphraseRequired(true));
     }
   }
 }
@@ -1541,15 +1603,15 @@ void SyncManager::SyncInternal::MarkAndNotifyInitializationComplete() {
   // between their respective threads to call MarkAndNotify.  We need to make
   // sure the observer is notified once and only once.
   {
-    AutoLock lock(initialized_mutex_);
+    base::AutoLock lock(initialized_mutex_);
     if (initialized_)
       return;
     initialized_ = true;
   }
 
   // Notify that initialization is complete.
-  if (observer_)
-    observer_->OnInitializationComplete();
+  FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
+                    OnInitializationComplete());
 }
 
 void SyncManager::SyncInternal::SendPendingXMPPNotification(
@@ -1592,8 +1654,8 @@ bool SyncManager::SyncInternal::OpenDirectory() {
   bool share_opened = dir_manager()->Open(username_for_share());
   DCHECK(share_opened);
   if (!share_opened) {
-    if (observer_)
-      observer_->OnStopSyncingPermanently();
+    FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
+                      OnStopSyncingPermanently());
 
     LOG(ERROR) << "Could not open share for:" << username_for_share();
     return false;
@@ -1625,7 +1687,9 @@ bool SyncManager::SyncInternal::SignIn(const SyncCredentials& credentials) {
   if (!OpenDirectory())
     return false;
 
-  UpdateCredentials(credentials);
+  if (!setup_for_test_mode_) {
+    UpdateCredentials(credentials);
+  }
   return true;
 }
 
@@ -1673,9 +1737,9 @@ void SyncManager::SyncInternal::InitializeTalkMediator() {
 }
 
 void SyncManager::SyncInternal::RaiseAuthNeededEvent() {
-  if (observer_) {
-    observer_->OnAuthError(AuthError(AuthError::INVALID_GAIA_CREDENTIALS));
-  }
+  FOR_EACH_OBSERVER(
+      SyncManager::Observer, observers_,
+      OnAuthError(AuthError(AuthError::INVALID_GAIA_CREDENTIALS)));
 }
 
 void SyncManager::SyncInternal::SetUsingExplicitPassphrasePrefForMigration() {
@@ -1697,7 +1761,8 @@ void SyncManager::SyncInternal::SetPassphrase(
   KeyParams params = {"localhost", "dummy", passphrase};
   if (cryptographer->has_pending_keys()) {
     if (!cryptographer->DecryptPendingKeys(params)) {
-      observer_->OnPassphraseRequired(true);
+      FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
+                        OnPassphraseRequired(true));
       return;
     }
 
@@ -1739,7 +1804,8 @@ void SyncManager::SyncInternal::SetPassphrase(
 
   std::string bootstrap_token;
   cryptographer->GetBootstrapToken(&bootstrap_token);
-  observer_->OnPassphraseAccepted(bootstrap_token);
+  FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
+                    OnPassphraseAccepted(bootstrap_token));
 }
 
 bool SyncManager::SyncInternal::IsUsingExplicitPassphrase() {
@@ -1782,12 +1848,16 @@ SyncManager::~SyncManager() {
   delete data_;
 }
 
-void SyncManager::SetObserver(Observer* observer) {
-  data_->set_observer(observer);
+void SyncManager::AddObserver(Observer* observer) {
+  data_->AddObserver(observer);
 }
 
-void SyncManager::RemoveObserver() {
-  data_->set_observer(NULL);
+void SyncManager::RemoveObserver(Observer* observer) {
+  data_->RemoveObserver(observer);
+}
+
+browser_sync::JsBackend* SyncManager::GetJsBackend() {
+  return data_;
 }
 
 void SyncManager::Shutdown() {
@@ -1901,13 +1971,14 @@ void SyncManager::SyncInternal::HandleTransactionCompleteChangeEvent(
   // This allows work to be performed without holding the WriteTransaction lock
   // but before the transaction is finished.
   DCHECK_EQ(event.todo, syncable::DirectoryChangeEvent::TRANSACTION_COMPLETE);
-  if (!observer_)
+  if (observers_.size() <= 0)
     return;
 
   // Call commit
   for (int i = 0; i < syncable::MODEL_TYPE_COUNT; ++i) {
     if (model_has_change_.test(i)) {
-      observer_->OnChangesComplete(syncable::ModelTypeFromInt(i));
+      FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
+                        OnChangesComplete(syncable::ModelTypeFromInt(i)));
       model_has_change_.reset(i);
     }
   }
@@ -1919,15 +1990,14 @@ void SyncManager::SyncInternal::HandleServerConnectionEvent(
   if (event.what_happened == ServerConnectionEvent::STATUS_CHANGED) {
     if (event.connection_code ==
         browser_sync::HttpResponse::SERVER_CONNECTION_OK) {
-      if (observer_) {
-        observer_->OnAuthError(AuthError::None());
-      }
+      FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
+                        OnAuthError(AuthError::None()));
     }
 
     if (event.connection_code == browser_sync::HttpResponse::SYNC_AUTH_ERROR) {
-      if (observer_) {
-        observer_->OnAuthError(AuthError(AuthError::INVALID_GAIA_CREDENTIALS));
-      }
+      FOR_EACH_OBSERVER(
+          SyncManager::Observer, observers_,
+          OnAuthError(AuthError(AuthError::INVALID_GAIA_CREDENTIALS)));
     }
   }
 }
@@ -1938,7 +2008,7 @@ void SyncManager::SyncInternal::HandleTransactionEndingChangeEvent(
   // falls out of scope. It happens while the channel mutex is still held,
   // and while the transaction mutex is held, so it cannot be re-entrant.
   DCHECK_EQ(event.todo, syncable::DirectoryChangeEvent::TRANSACTION_ENDING);
-  if (!observer_ || ChangeBuffersAreEmpty())
+  if (observers_.size() <= 0 || ChangeBuffersAreEmpty())
     return;
 
   // This will continue the WriteTransaction using a read only wrapper.
@@ -1954,8 +2024,10 @@ void SyncManager::SyncInternal::HandleTransactionEndingChangeEvent(
     vector<ChangeRecord> ordered_changes;
     change_buffers_[i].GetAllChangesInTreeOrder(&trans, &ordered_changes);
     if (!ordered_changes.empty()) {
-      observer_->OnChangesApplied(syncable::ModelTypeFromInt(i), &trans,
-                                  &ordered_changes[0], ordered_changes.size());
+      FOR_EACH_OBSERVER(
+          SyncManager::Observer, observers_,
+          OnChangesApplied(syncable::ModelTypeFromInt(i), &trans,
+                           &ordered_changes[0], ordered_changes.size()));
       model_has_change_.set(i, true);
     }
     change_buffers_[i].Clear();
@@ -2064,52 +2136,13 @@ void SyncManager::SyncInternal::HandleCalculateChangesChangeEventFromSyncer(
   }
 }
 
-SyncManager::Status::Summary
-SyncManager::SyncInternal::ComputeAggregatedStatusSummary() {
-  switch (allstatus_.status().icon) {
-    case AllStatus::OFFLINE:
-      return Status::OFFLINE;
-    case AllStatus::OFFLINE_UNSYNCED:
-      return Status::OFFLINE_UNSYNCED;
-    case AllStatus::SYNCING:
-      return Status::SYNCING;
-    case AllStatus::READY:
-      return Status::READY;
-    case AllStatus::CONFLICT:
-      return Status::CONFLICT;
-    case AllStatus::OFFLINE_UNUSABLE:
-      return Status::OFFLINE_UNUSABLE;
-    default:
-      return Status::INVALID;
-  }
-}
-
-SyncManager::Status SyncManager::SyncInternal::ComputeAggregatedStatus() {
-  Status return_status =
-      { ComputeAggregatedStatusSummary(),
-        allstatus_.status().authenticated,
-        allstatus_.status().server_up,
-        allstatus_.status().server_reachable,
-        allstatus_.status().server_broken,
-        allstatus_.status().notifications_enabled,
-        allstatus_.status().notifications_received,
-        allstatus_.status().notifications_sent,
-        allstatus_.status().unsynced_count,
-        allstatus_.status().conflicting_count,
-        allstatus_.status().syncing,
-        allstatus_.status().initial_sync_ended,
-        allstatus_.status().syncer_stuck,
-        allstatus_.status().updates_available,
-        allstatus_.status().updates_received,
-        allstatus_.status().disk_full,
-        false,   // TODO(ncarter): invalid store?
-        allstatus_.status().max_consecutive_errors};
-  return return_status;
+SyncManager::Status SyncManager::SyncInternal::GetStatus() {
+  return allstatus_.status();
 }
 
 void SyncManager::SyncInternal::OnSyncEngineEvent(
     const SyncEngineEvent& event) {
-  if (!observer_)
+  if (observers_.size() <= 0)
     return;
 
   // Only send an event if this is due to a cycle ending and this cycle
@@ -2142,9 +2175,11 @@ void SyncManager::SyncInternal::OnSyncEngineEvent(
       // If we've completed a sync cycle and the cryptographer isn't ready yet,
       // prompt the user for a passphrase.
       if (cryptographer->has_pending_keys()) {
-        observer_->OnPassphraseRequired(true);
+        FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
+                          OnPassphraseRequired(true));
       } else if (!cryptographer->is_ready()) {
-        observer_->OnPassphraseRequired(false);
+        FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
+                          OnPassphraseRequired(false));
       }
     }
 
@@ -2152,7 +2187,8 @@ void SyncManager::SyncInternal::OnSyncEngineEvent(
       return;
 
     if (!event.snapshot->has_more_to_sync) {
-      observer_->OnSyncCycleCompleted(event.snapshot);
+      FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
+                        OnSyncCycleCompleted(event.snapshot));
     }
 
     if (notifier_options_.notification_method !=
@@ -2171,34 +2207,132 @@ void SyncManager::SyncInternal::OnSyncEngineEvent(
   }
 
   if (event.what_happened == SyncEngineEvent::SYNCER_THREAD_PAUSED) {
-    observer_->OnPaused();
+    FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
+                      OnPaused());
     return;
   }
 
   if (event.what_happened == SyncEngineEvent::SYNCER_THREAD_RESUMED) {
-    observer_->OnResumed();
+    FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
+                      OnResumed());
     return;
   }
 
   if (event.what_happened == SyncEngineEvent::STOP_SYNCING_PERMANENTLY) {
-    observer_->OnStopSyncingPermanently();
+    FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
+                      OnStopSyncingPermanently());
     return;
   }
 
   if (event.what_happened == SyncEngineEvent::CLEAR_SERVER_DATA_SUCCEEDED) {
-    observer_->OnClearServerDataSucceeded();
+    FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
+                      OnClearServerDataSucceeded());
     return;
   }
 
   if (event.what_happened == SyncEngineEvent::CLEAR_SERVER_DATA_FAILED) {
-    observer_->OnClearServerDataFailed();
+    FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
+                      OnClearServerDataFailed());
     return;
   }
 
   if (event.what_happened == SyncEngineEvent::UPDATED_TOKEN) {
-    observer_->OnUpdatedToken(event.updated_token);
+    FOR_EACH_OBSERVER(SyncManager::Observer, observers_,
+                      OnUpdatedToken(event.updated_token));
     return;
   }
+}
+
+void SyncManager::SyncInternal::SetParentJsEventRouter(
+    browser_sync::JsEventRouter* router) {
+  DCHECK(router);
+  parent_router_ = router;
+}
+
+void SyncManager::SyncInternal::RemoveParentJsEventRouter() {
+  parent_router_ = NULL;
+}
+
+const browser_sync::JsEventRouter*
+    SyncManager::SyncInternal::GetParentJsEventRouter() const {
+  return parent_router_;
+}
+
+namespace {
+
+void LogNoRouter(const std::string& name,
+                 const browser_sync::JsArgList& args) {
+  VLOG(1) << "No parent router; not replying to message " << name
+          << " with args " << args.ToString();
+}
+
+}  // namespace
+
+void SyncManager::SyncInternal::ProcessMessage(
+    const std::string& name, const browser_sync::JsArgList& args,
+    const browser_sync::JsEventHandler* sender) {
+  DCHECK(initialized_);
+  if (name == "getNotificationState") {
+    if (!parent_router_) {
+      LogNoRouter(name, args);
+      return;
+    }
+    bool notifications_enabled = allstatus_.status().notifications_enabled;
+    ListValue return_args;
+    return_args.Append(Value::CreateBooleanValue(notifications_enabled));
+    parent_router_->RouteJsEvent(
+        "onGetNotificationStateFinished",
+        browser_sync::JsArgList(return_args), sender);
+  } else if (name == "getRootNode") {
+    if (!parent_router_) {
+      LogNoRouter(name, args);
+      return;
+    }
+    ReadTransaction trans(GetUserShare());
+    ReadNode root(&trans);
+    root.InitByRootLookup();
+    ListValue return_args;
+    return_args.Append(root.ToValue());
+    parent_router_->RouteJsEvent(
+        "onGetRootNodeFinished",
+        browser_sync::JsArgList(return_args), sender);
+  } else if (name == "getNodeById") {
+    if (!parent_router_) {
+      LogNoRouter(name, args);
+      return;
+    }
+    parent_router_->RouteJsEvent(
+        "onGetNodeByIdFinished", ProcessGetNodeByIdMessage(args), sender);
+  } else {
+    VLOG(1) << "Dropping unknown message " << name
+              << " with args " << args.ToString();
+  }
+}
+
+browser_sync::JsArgList SyncManager::SyncInternal::ProcessGetNodeByIdMessage(
+    const browser_sync::JsArgList& args) {
+  ListValue null_return_args_list;
+  null_return_args_list.Append(Value::CreateNullValue());
+  browser_sync::JsArgList null_return_args(null_return_args_list);
+  std::string id_str;
+  if (!args.Get().GetString(0, &id_str)) {
+    return null_return_args;
+  }
+  int64 id;
+  if (!base::StringToInt64(id_str, &id)) {
+    return null_return_args;
+  }
+  if (id == kInvalidId) {
+    return null_return_args;
+  }
+  ReadTransaction trans(GetUserShare());
+  ReadNode node(&trans);
+  if (!node.InitByIdLookup(id)) {
+    return null_return_args;
+  }
+  ListValue return_args;
+  return_args.Append(node.ToValue());
+  return browser_sync::JsArgList(return_args);
 }
 
 void SyncManager::SyncInternal::OnNotificationStateChange(
@@ -2208,6 +2342,13 @@ void SyncManager::SyncInternal::OnNotificationStateChange(
   allstatus_.SetNotificationsEnabled(notifications_enabled);
   if (syncer_thread()) {
     syncer_thread()->SetNotificationsEnabled(notifications_enabled);
+  }
+  if (parent_router_) {
+    ListValue args;
+    args.Append(Value::CreateBooleanValue(notifications_enabled));
+    // TODO(akalin): Tidy up grammar in event names.
+    parent_router_->RouteJsEvent("onSyncNotificationStateChange",
+                                 browser_sync::JsArgList(args), NULL);
   }
   if ((notifier_options_.notification_method !=
        notifier::NOTIFICATION_SERVER) && notifications_enabled) {
@@ -2242,22 +2383,29 @@ void SyncManager::SyncInternal::TalkMediatorLogin(
 
 void SyncManager::SyncInternal::OnIncomingNotification(
     const IncomingNotificationData& notification_data) {
-  syncable::ModelTypeBitSet model_types;
+  browser_sync::sessions::TypePayloadMap model_types_with_payloads;
 
   // Check if the service url is a sync URL.  An empty service URL is
   // treated as a legacy sync notification.  If we're listening to
   // server-issued notifications, no need to check the service_url.
   if (notifier_options_.notification_method ==
       notifier::NOTIFICATION_SERVER) {
-    VLOG(1) << "Sync received server notification: " <<
+    VLOG(1) << "Sync received server notification from " <<
+        notification_data.service_url << ": " <<
+        notification_data.service_specific_data;
+    syncable::ModelTypeBitSet model_types;
+    const std::string& model_type_list = notification_data.service_url;
+    const std::string& notification_payload =
         notification_data.service_specific_data;
 
-    if (!syncable::ModelTypeBitSetFromString(
-            notification_data.service_specific_data,
-            &model_types)) {
+    if (!syncable::ModelTypeBitSetFromString(model_type_list, &model_types)) {
       LOG(DFATAL) << "Could not extract model types from server data.";
       model_types.set();
     }
+
+    model_types_with_payloads =
+        browser_sync::sessions::MakeTypePayloadMapFromBitSet(model_types,
+            notification_payload);
   } else if (notification_data.service_url.empty() ||
              (notification_data.service_url ==
               browser_sync::kSyncLegacyServiceUrl) ||
@@ -2265,24 +2413,43 @@ void SyncManager::SyncInternal::OnIncomingNotification(
               browser_sync::kSyncServiceUrl)) {
     VLOG(1) << "Sync received P2P notification.";
 
-    // Catch for sync integration tests (uses p2p). Just set all datatypes.
-    model_types.set();
+    // Catch for sync integration tests (uses p2p). Just set all enabled
+    // datatypes.
+    ModelSafeRoutingInfo routes;
+    registrar_->GetModelSafeRoutingInfo(&routes);
+    model_types_with_payloads =
+        browser_sync::sessions::MakeTypePayloadMapFromRoutingInfo(routes,
+            std::string());
   } else {
     LOG(WARNING) << "Notification fron unexpected source: "
                  << notification_data.service_url;
   }
 
-  if (model_types.any()) {
+  if (!model_types_with_payloads.empty()) {
     if (syncer_thread()) {
-     // Introduce a delay to help coalesce initial notifications.
-     syncer_thread()->NudgeSyncerWithDataTypes(
-         250,
-         SyncerThread::kNotification,
-         model_types);
+      syncer_thread()->NudgeSyncerWithPayloads(
+          kSyncerThreadDelayMsec,
+          SyncerThread::kNotification,
+          model_types_with_payloads);
     }
     allstatus_.IncrementNotificationsReceived();
   } else {
     LOG(WARNING) << "Sync received notification without any type information.";
+  }
+
+  if (parent_router_) {
+    ListValue args;
+    ListValue* changed_types = new ListValue();
+    args.Append(changed_types);
+    for (browser_sync::sessions::TypePayloadMap::const_iterator
+             it = model_types_with_payloads.begin();
+         it != model_types_with_payloads.end(); ++it) {
+      const std::string& model_type_str =
+          syncable::ModelTypeToString(it->first);
+      changed_types->Append(Value::CreateStringValue(model_type_str));
+    }
+    parent_router_->RouteJsEvent("onSyncIncomingNotification",
+                                 browser_sync::JsArgList(args), NULL);
   }
 }
 
@@ -2309,12 +2476,22 @@ void SyncManager::SyncInternal::WriteState(const std::string& state) {
   lookup->SaveChanges();
 }
 
+void SyncManager::SyncInternal::AddObserver(
+    SyncManager::Observer* observer) {
+  observers_.AddObserver(observer);
+}
+
+void SyncManager::SyncInternal::RemoveObserver(
+    SyncManager::Observer* observer) {
+  observers_.RemoveObserver(observer);
+}
+
 SyncManager::Status::Summary SyncManager::GetStatusSummary() const {
-  return data_->ComputeAggregatedStatusSummary();
+  return data_->GetStatus().summary;
 }
 
 SyncManager::Status SyncManager::GetDetailedStatus() const {
-  return data_->ComputeAggregatedStatus();
+  return data_->GetStatus();
 }
 
 SyncManager::SyncInternal* SyncManager::GetImpl() const { return data_; }
@@ -2355,6 +2532,19 @@ UserShare* SyncManager::GetUserShare() const {
 bool SyncManager::HasUnsyncedItems() const {
   sync_api::ReadTransaction trans(GetUserShare());
   return (trans.GetWrappedTrans()->directory()->unsynced_entity_count() != 0);
+}
+
+void SyncManager::TriggerOnNotificationStateChangeForTest(
+    bool notifications_enabled) {
+  data_->OnNotificationStateChange(notifications_enabled);
+}
+
+void SyncManager::TriggerOnIncomingNotificationForTest(
+    const syncable::ModelTypeBitSet& model_types) {
+  IncomingNotificationData notification_data;
+  notification_data.service_url = model_types.to_string();
+  // Here we rely on the default notification method being SERVER.
+  data_->OnIncomingNotification(notification_data);
 }
 
 }  // namespace sync_api

@@ -1,15 +1,16 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <algorithm>
 
 #include "base/test/test_timeouts.h"
+#include "media/base/mock_callback.h"
 #include "media/base/mock_filter_host.h"
 #include "media/base/mock_filters.h"
 #include "net/base/net_errors.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLError.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLResponse.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLError.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLResponse.h"
 #include "webkit/glue/media/buffered_data_source.h"
 #include "webkit/mocks/mock_webframe.h"
 
@@ -104,7 +105,6 @@ class BufferedDataSourceTest : public testing::Test {
   }
 
   virtual ~BufferedDataSourceTest() {
-    ignore_result(frame_.release());
   }
 
   void ExpectCreateAndStartResourceLoader(int start_error) {
@@ -167,7 +167,6 @@ class BufferedDataSourceTest : public testing::Test {
     ON_CALL(*loader_, Read(_, _, _ , _))
         .WillByDefault(DeleteArg<3>());
 
-    StrictMock<media::MockFilterCallback> callback;
     ON_CALL(*loader_, instance_size())
         .WillByDefault(Return(instance_size));
     ON_CALL(*loader_, partial_response())
@@ -188,18 +187,13 @@ class BufferedDataSourceTest : public testing::Test {
       } else {
         EXPECT_CALL(host_, SetStreaming(true));
       }
-
-      EXPECT_CALL(callback, OnFilterCallback());
-      EXPECT_CALL(callback, OnCallbackDestroyed());
     } else {
       EXPECT_CALL(host_, SetError(media::PIPELINE_ERROR_NETWORK));
       EXPECT_CALL(*loader_, Stop());
-      EXPECT_CALL(callback, OnFilterCallback());
-      EXPECT_CALL(callback, OnCallbackDestroyed());
     }
 
     // Actual initialization of the data source.
-    data_source_->Initialize(url, callback.NewCallback());
+    data_source_->Initialize(url, media::NewExpectedCallback());
     message_loop_->RunAllPending();
 
     if (initialized_ok) {
@@ -220,10 +214,7 @@ class BufferedDataSourceTest : public testing::Test {
       EXPECT_CALL(*loader_, Stop());
     }
 
-    StrictMock<media::MockFilterCallback> callback;
-    EXPECT_CALL(callback, OnFilterCallback());
-    EXPECT_CALL(callback, OnCallbackDestroyed());
-    data_source_->Stop(callback.NewCallback());
+    data_source_->Stop(media::NewExpectedCallback());
     message_loop_->RunAllPending();
   }
 
@@ -499,6 +490,72 @@ TEST_F(BufferedDataSourceTest, FileHasLoadedState) {
   InitializeDataSource(kFileUrl, net::OK, true, 1024, LOADED);
   ReadDataSourceTimesOut(20, 10);
   StopDataSource();
+}
+
+// This test makes sure that Stop() does not require a task to run on
+// |message_loop_| before it calls its callback. This prevents accidental
+// introduction of a pipeline teardown deadlock. The pipeline owner blocks
+// the render message loop while waiting for Stop() to complete. Since this
+// object runs on the render message loop, Stop() will not complete if it
+// requires a task to run on the the message loop that is being blocked.
+TEST_F(BufferedDataSourceTest, StopDoesNotUseMessageLoopForCallback) {
+  InitializeDataSource(kFileUrl, net::OK, true, 1024, LOADED);
+
+  // Create a callback that lets us verify that it was called before
+  // Stop() returns. This is to make sure that the callback does not
+  // require |message_loop_| to execute tasks before being called.
+  media::MockCallback* stop_callback = media::NewExpectedCallback();
+  bool stop_done_called = false;
+  ON_CALL(*stop_callback, RunWithParams(_))
+      .WillByDefault(Assign(&stop_done_called, true));
+
+  // Stop() the data source like normal.
+  data_source_->Stop(stop_callback);
+
+  // Verify that the callback was called inside the Stop() call.
+  EXPECT_TRUE(stop_done_called);
+
+  message_loop_->RunAllPending();
+}
+
+TEST_F(BufferedDataSourceTest, AbortDuringPendingRead) {
+  InitializeDataSource(kFileUrl, net::OK, true, 1024, LOADED);
+
+  // Setup a way to verify that Read() is not called on the loader.
+  // We are doing this to make sure that the ReadTask() is still on
+  // the message loop queue when Abort() is called.
+  bool read_called = false;
+  ON_CALL(*loader_, Read(_, _, _ , _))
+      .WillByDefault(DoAll(Assign(&read_called, true),
+                           DeleteArg<3>()));
+
+  // Initiate a Read() on the data source, but don't allow the
+  // message loop to run.
+  data_source_->Read(
+      0, 10, buffer_,
+      NewCallback(static_cast<BufferedDataSourceTest*>(this),
+                  &BufferedDataSourceTest::ReadCallback));
+
+  // Call Abort() with the read pending.
+  EXPECT_CALL(*this, ReadCallback(-1));
+  EXPECT_CALL(*loader_, Stop());
+  data_source_->Abort();
+
+  // Verify that Read()'s after the Abort() issue callback with an error.
+  EXPECT_CALL(*this, ReadCallback(-1));
+  data_source_->Read(
+      0, 10, buffer_,
+      NewCallback(static_cast<BufferedDataSourceTest*>(this),
+                  &BufferedDataSourceTest::ReadCallback));
+
+  // Stop() the data source like normal.
+  data_source_->Stop(media::NewExpectedCallback());
+
+  // Allow cleanup task to run.
+  message_loop_->RunAllPending();
+
+  // Verify that Read() was not called on the loader.
+  EXPECT_FALSE(read_called);
 }
 
 }  // namespace webkit_glue

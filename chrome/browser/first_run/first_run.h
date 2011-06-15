@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,8 @@
 #include "chrome/browser/browser_process_impl.h"
 #include "chrome/browser/importer/importer.h"
 #include "chrome/common/result_codes.h"
-#include "gfx/native_widget_types.h"
 #include "googleurl/src/gurl.h"
+#include "ui/gfx/native_widget_types.h"
 
 class CommandLine;
 class FilePath;
@@ -122,6 +122,7 @@ class FirstRun {
   // success.
   static bool ImportSettings(Profile* profile,
                              scoped_refptr<ImporterHost> importer_host,
+                             scoped_refptr<ImporterList> importer_list,
                              int items_to_import);
 
   // Sets the kShouldShowFirstRunBubble local state pref so that the browser

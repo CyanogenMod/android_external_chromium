@@ -40,6 +40,7 @@
 #include "base/path_service.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/common/chrome_paths.h"
@@ -57,6 +58,9 @@ static bool dialogs_are_suppressed_ = false;
 // This should be true for exactly the period between the end of
 // InitChromeLogging() and the beginning of CleanupChromeLogging().
 static bool chrome_logging_initialized_ = false;
+
+// Set if we caled InitChromeLogging() but failed to initialize.
+static bool chrome_logging_failed_ = false;
 
 // This should be true for exactly the period between the end of
 // InitChromeLogging() and the beginning of CleanupChromeLogging().
@@ -213,15 +217,24 @@ void RedirectChromeLogging(const CommandLine& command_line) {
   // defaults to the profile dir.
   FilePath log_path = GetSessionLogFile(command_line);
 
+  // Creating symlink causes us to do blocking IO on UI thread.
+  // Temporarily allow it until we fix http://crbug.com/61143
+  base::ThreadRestrictions::ScopedAllowIO allow_io;
   // Always force a new symlink when redirecting.
   FilePath target_path = SetUpSymlinkIfNeeded(log_path, true);
+
+  logging::DcheckState dcheck_state =
+      command_line.HasSwitch(switches::kEnableDCHECK) ?
+      logging::ENABLE_DCHECK_FOR_NON_OFFICIAL_RELEASE_BUILDS :
+      logging::DISABLE_DCHECK_FOR_NON_OFFICIAL_RELEASE_BUILDS;
 
   // ChromeOS always logs through the symlink, so it shouldn't be
   // deleted if it already exists.
   if (!InitLogging(log_path.value().c_str(),
                    DetermineLogMode(command_line),
                    logging::LOCK_LOG_FILE,
-                   logging::APPEND_TO_OLD_LOG_FILE)) {
+                   logging::APPEND_TO_OLD_LOG_FILE,
+                   dcheck_state)) {
     LOG(ERROR) << "Unable to initialize logging to " << log_path.value();
     RemoveSymlinkAndLog(log_path, target_path);
   } else {
@@ -262,21 +275,29 @@ void InitChromeLogging(const CommandLine& command_line,
   delete_old_log_file = logging::APPEND_TO_OLD_LOG_FILE;
 #endif
 
+  logging::DcheckState dcheck_state =
+      command_line.HasSwitch(switches::kEnableDCHECK) ?
+      logging::ENABLE_DCHECK_FOR_NON_OFFICIAL_RELEASE_BUILDS :
+      logging::DISABLE_DCHECK_FOR_NON_OFFICIAL_RELEASE_BUILDS;
+
   bool success = InitLogging(log_path.value().c_str(),
                              DetermineLogMode(command_line),
                              logging::LOCK_LOG_FILE,
-                             delete_old_log_file);
+                             delete_old_log_file,
+                             dcheck_state);
 
 #if defined(OS_CHROMEOS)
   if (!success) {
     PLOG(ERROR) << "Unable to initialize logging to " << log_path.value()
                 << " (which should be a link to " << target_path.value() << ")";
     RemoveSymlinkAndLog(log_path, target_path);
+    chrome_logging_failed_ = true;
     return;
   }
 #else
   if (!success) {
     PLOG(ERROR) << "Unable to initialize logging to " << log_path.value();
+    chrome_logging_failed_ = true;
     return;
   }
 #endif
@@ -326,6 +347,9 @@ void InitChromeLogging(const CommandLine& command_line,
 // This is a no-op, but we'll keep it around in case
 // we need to do more cleanup in the future.
 void CleanupChromeLogging() {
+  if (chrome_logging_failed_)
+    return;  // We failed to initiailize logging, no cleanup.
+
   DCHECK(chrome_logging_initialized_) <<
     "Attempted to clean up logging when it wasn't initialized.";
 

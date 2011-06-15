@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,10 @@
 #include <map>
 
 #include "base/basictypes.h"
-#include "chrome/browser/dom_ui/dom_ui_factory.h"
+#include "chrome/browser/dom_ui/web_ui_factory.h"
 #include "chrome/common/window_container_type.h"
-#include "gfx/rect.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebPopupType.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebPopupType.h"
+#include "ui/gfx/rect.h"
 #include "webkit/glue/webpreferences.h"
 #include "webkit/glue/window_open_disposition.h"
 
@@ -41,7 +41,7 @@ class RenderViewHostDelegateViewHelper {
       int route_id,
       Profile* profile,
       SiteInstance* site,
-      DOMUITypeID domui_type,
+      WebUITypeID webui_type,
       RenderViewHostDelegate* opener,
       WindowContainerType window_container_type,
       const string16& frame_name);
@@ -53,9 +53,7 @@ class RenderViewHostDelegateViewHelper {
                                                 RenderProcessHost* process);
 
   virtual RenderWidgetHostView* CreateNewFullscreenWidget(
-      int route_id,
-      WebKit::WebPopupType popup_type,
-      RenderProcessHost* process);
+      int route_id, RenderProcessHost* process);
 
   // Finds the new RenderWidgetHost and returns it. Note that this can only be
   // called once as this call also removes it from the internal map.

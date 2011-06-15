@@ -57,15 +57,8 @@ SSLHostInfo::~SSLHostInfo() {
 }
 
 void SSLHostInfo::StartDnsLookup(DnsRRResolver* dnsrr_resolver) {
-#if defined(OS_LINUX)
   dnsrr_resolver_ = dnsrr_resolver;
-  dns_callback_ = NewCallback(this, &SSLHostInfo::DnsComplete);
-  dns_lookup_start_time_ = base::TimeTicks::Now();
-
-  dns_handle_ = dnsrr_resolver->Resolve(
-      hostname_, kDNS_CAA, DnsRRResolver::FLAG_WANT_DNSSEC, dns_callback_,
-      &dns_response_, 0, BoundNetLog());
-#endif
+  // Note: currently disabled.
 }
 
 const SSLHostInfo::State& SSLHostInfo::state() const {
@@ -216,16 +209,6 @@ void SSLHostInfo::VerifyCallback(int rv) {
     cert_verification_callback_ = NULL;
     callback->Run(rv);
   }
-}
-
-void SSLHostInfo::DnsComplete(int rv) {
-  dns_handle_ = DnsRRResolver::kInvalidHandle;
-  delete dns_callback_;
-  dns_callback_ = NULL;
-
-  const base::TimeTicks now = base::TimeTicks::Now();
-  const base::TimeDelta elapsed = now - dns_lookup_start_time_;
-  UMA_HISTOGRAM_TIMES("Net.SSLHostInfoDNSLookup", elapsed);
 }
 
 SSLHostInfoFactory::~SSLHostInfoFactory() {}

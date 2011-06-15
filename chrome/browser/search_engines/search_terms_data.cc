@@ -1,11 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/search_engines/search_terms_data.h"
 
 #include "base/logging.h"
-#include "base/threading/thread_restrictions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/google/google_url_tracker.h"
@@ -73,18 +72,20 @@ std::string UIThreadSearchTermsData::GetApplicationLocale() const {
 }
 
 #if defined(OS_WIN) && defined(GOOGLE_CHROME_BUILD)
-std::wstring UIThreadSearchTermsData::GetRlzParameterValue() const {
+string16 UIThreadSearchTermsData::GetRlzParameterValue() const {
   DCHECK(!BrowserThread::IsWellKnownThread(BrowserThread::UI) ||
          BrowserThread::CurrentlyOn(BrowserThread::UI));
-  std::wstring rlz_string;
+  string16 rlz_string;
   // For organic brandcodes do not use rlz at all. Empty brandcode usually
   // means a chromium install. This is ok.
-  std::wstring brand;
-  // See http://crbug.com/62337.
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  string16 brand;
   if (GoogleUpdateSettings::GetBrand(&brand) && !brand.empty() &&
-      !GoogleUpdateSettings::IsOrganic(brand))
+      !GoogleUpdateSettings::IsOrganic(brand)) {
+    // This call will return false the first time(s) it is called until the
+    // value has been cached. This normally would mean that at most one omnibox
+    // search might not send the RLZ data but this is not really a problem.
     RLZTracker::GetAccessPointRlz(rlz_lib::CHROME_OMNIBOX, &rlz_string);
+  }
   return rlz_string;
 }
 #endif

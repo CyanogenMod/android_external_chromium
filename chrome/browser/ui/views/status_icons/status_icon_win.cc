@@ -1,13 +1,13 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/status_icons/status_icon_win.h"
+#include "chrome/browser/ui/views/status_icons/status_icon_win.h"
 
 #include "base/sys_string_conversions.h"
-#include "gfx/icon_util.h"
-#include "gfx/point.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/icon_util.h"
+#include "ui/gfx/point.h"
 #include "views/controls/menu/menu_2.h"
 
 StatusIconWin::StatusIconWin(UINT id, HWND window, UINT message)
@@ -19,7 +19,10 @@ StatusIconWin::StatusIconWin(UINT id, HWND window, UINT message)
   icon_data.uFlags = NIF_MESSAGE;
   icon_data.uCallbackMessage = message_id_;
   BOOL result = Shell_NotifyIcon(NIM_ADD, &icon_data);
-  DCHECK(result);
+  // This can happen if the explorer process isn't running when we try to
+  // create the icon for some reason (for example, at startup).
+  if (!result)
+    LOG(WARNING) << "Unable to create status tray icon.";
 }
 
 StatusIconWin::~StatusIconWin() {
@@ -37,7 +40,27 @@ void StatusIconWin::SetImage(const SkBitmap& image) {
   icon_.Set(IconUtil::CreateHICONFromSkBitmap(image));
   icon_data.hIcon = icon_.Get();
   BOOL result = Shell_NotifyIcon(NIM_MODIFY, &icon_data);
-  DCHECK(result);
+  if (!result)
+    LOG(WARNING) << "Error setting status tray icon image";
+}
+
+void StatusIconWin::ResetIcon() {
+  NOTIFYICONDATA icon_data;
+  InitIconData(&icon_data);
+  // Delete any previously existing icon.
+  Shell_NotifyIcon(NIM_DELETE, &icon_data);
+  InitIconData(&icon_data);
+  icon_data.uFlags = NIF_MESSAGE;
+  icon_data.uCallbackMessage = message_id_;
+  icon_data.hIcon = icon_.Get();
+  // If we have an image, then set the NIF_ICON flag, which tells
+  // Shell_NotifyIcon() to set the image for the status icon it creates.
+  if (icon_data.hIcon)
+    icon_data.uFlags |= NIF_ICON;
+  // Re-add our icon.
+  BOOL result = Shell_NotifyIcon(NIM_ADD, &icon_data);
+  if (!result)
+    LOG(WARNING) << "Unable to re-create status tray icon.";
 }
 
 void StatusIconWin::SetPressedImage(const SkBitmap& image) {
@@ -52,7 +75,8 @@ void StatusIconWin::SetToolTip(const string16& tool_tip) {
   icon_data.uFlags = NIF_TIP;
   wcscpy_s(icon_data.szTip, tool_tip.c_str());
   BOOL result = Shell_NotifyIcon(NIM_MODIFY, &icon_data);
-  DCHECK(result);
+  if (!result)
+    LOG(WARNING) << "Unable to set tooltip for status tray icon";
 }
 
 void StatusIconWin::InitIconData(NOTIFYICONDATA* icon_data) {
@@ -61,7 +85,7 @@ void StatusIconWin::InitIconData(NOTIFYICONDATA* icon_data) {
   icon_data->uID = icon_id_;
 }
 
-void StatusIconWin::UpdatePlatformContextMenu(menus::MenuModel* menu) {
+void StatusIconWin::UpdatePlatformContextMenu(ui::MenuModel* menu) {
   // If no items are passed, blow away our context menu.
   if (!menu) {
     context_menu_.reset();

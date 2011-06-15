@@ -14,13 +14,13 @@
 #include "chrome/browser/chromeos/login/user_input.h"
 #include "views/accelerator.h"
 #include "views/controls/button/button.h"
-#include "views/controls/button/menu_button.h"
 #include "views/controls/link.h"
 #include "views/controls/textfield/textfield.h"
 #include "views/view.h"
 
 namespace views {
 class Label;
+class MenuButton;
 class NativeButton;
 }  // namespace views
 
@@ -44,22 +44,16 @@ class NewUserView : public ThrobberHostView,
                          const std::string& password) = 0;
 
     // Initiates off the record (incognito) login.
-    virtual void OnLoginOffTheRecord() = 0;
+    virtual void OnLoginAsGuest() = 0;
 
     // User initiated new account creation.
     virtual void OnCreateAccount() = 0;
-
-    // Adds start URL that will be opened after login.
-    virtual void AddStartUrl(const GURL& start_url) = 0;
 
     // User started typing so clear all error messages.
     virtual void ClearErrors() = 0;
 
     // User tries to navigate away from NewUserView pod.
     virtual void NavigateAway() = 0;
-
-    // Enables/disables raw of controls at status area.
-    virtual void SetStatusAreaEnabled(bool enable) = 0;
   };
 
   // If |need_border| is true, RoundedRect border and background are required.
@@ -125,15 +119,10 @@ class NewUserView : public ThrobberHostView,
   virtual void ViewHierarchyChanged(bool is_add,
                                     views::View *parent,
                                     views::View *child);
-  virtual void NativeViewHierarchyChanged(bool attached,
-                                          gfx::NativeView native_view,
-                                          views::RootView* root_view);
   virtual void OnLocaleChanged();
   void AddChildView(View* view);
 
  private:
-  void FocusFirstField();
-
   // Creates Link control and adds it as a child.
   void InitLink(views::Link** link);
 
@@ -178,10 +167,6 @@ class NewUserView : public ThrobberHostView,
 
   LanguageSwitchMenu language_switch_menu_;
 
-  // Indicates that this view was created when focus manager was unavailable
-  // (on the hidden tab, for example).
-  bool focus_delayed_;
-
   // True when login is in process.
   bool login_in_process_;
 
@@ -198,9 +183,6 @@ class NewUserView : public ThrobberHostView,
   // Ordinal position of controls inside view layout.
   int languages_menubutton_order_;
   int sign_in_button_order_;
-
-  FRIEND_TEST_ALL_PREFIXES(LoginScreenTest, IncognitoLogin);
-  friend class LoginScreenTest;
 
   DISALLOW_COPY_AND_ASSIGN(NewUserView);
 };

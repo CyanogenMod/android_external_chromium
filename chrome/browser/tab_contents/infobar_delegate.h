@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,20 +11,20 @@
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "webkit/glue/window_open_disposition.h"
 
-class AlertInfoBarDelegate;
 class ConfirmInfoBarDelegate;
 class CrashedExtensionInfoBarDelegate;
 class ExtensionInfoBarDelegate;
-class TranslateInfoBarDelegate;
 class InfoBar;
 class LinkInfoBarDelegate;
+class PluginInstallerInfoBarDelegate;
 class SkBitmap;
 class ThemeInstalledInfoBarDelegate;
+class TranslateInfoBarDelegate;
 
 // An interface implemented by objects wishing to control an InfoBar.
 // Implementing this interface is not sufficient to use an InfoBar, since it
 // does not map to a specific InfoBar type. Instead, you must implement either
-// AlertInfoBarDelegate or ConfirmInfoBarDelegate, or override with your own
+// LinkInfoBarDelegate or ConfirmInfoBarDelegate, or override with your own
 // delegate for your own InfoBar variety.
 //
 // --- WARNING ---
@@ -52,6 +52,12 @@ class InfoBarDelegate {
     PAGE_ACTION_TYPE,
   };
 
+  virtual ~InfoBarDelegate();
+
+  // Called to create the InfoBar. Implementation of this method is
+  // platform-specific.
+  virtual InfoBar* CreateInfoBar() = 0;
+
   // Returns true if the supplied |delegate| is equal to this one. Equality is
   // left to the implementation to define. This function is called by the
   // TabContents when determining whether or not a delegate should be added
@@ -67,48 +73,28 @@ class InfoBarDelegate {
       const NavigationController::LoadCommittedDetails& details) const;
 
   // Called when the user clicks on the close button to dismiss the infobar.
-  virtual void InfoBarDismissed() {}
+  virtual void InfoBarDismissed();
 
   // Called after the InfoBar is closed. The delegate is free to delete itself
   // at this point.
-  virtual void InfoBarClosed() {}
-
-  // Called to create the InfoBar. Implementation of this method is
-  // platform-specific.
-  virtual InfoBar* CreateInfoBar() = 0;
+  virtual void InfoBarClosed();
 
   // Return the icon to be shown for this InfoBar. If the returned bitmap is
   // NULL, no icon is shown.
   virtual SkBitmap* GetIcon() const;
 
-  // Returns a pointer to the AlertInfoBarDelegate interface, if implemented.
-  virtual AlertInfoBarDelegate* AsAlertInfoBarDelegate();
-
-  // Returns a pointer to the LinkInfoBarDelegate interface, if implemented.
-  virtual LinkInfoBarDelegate* AsLinkInfoBarDelegate();
-
-  // Returns a pointer to the ConfirmInfoBarDelegate interface, if implemented.
-  virtual ConfirmInfoBarDelegate* AsConfirmInfoBarDelegate();
-
-  // Returns a pointer to the ThemeInstalledInfoBarDelegate interface, if
-  // implemented.
-  virtual ThemeInstalledInfoBarDelegate* AsThemePreviewInfobarDelegate();
-
-  // Returns a pointer to the TranslateInfoBarDelegate interface, if
-  // implemented.
-  virtual TranslateInfoBarDelegate* AsTranslateInfoBarDelegate();
-
-  // Returns a pointer to the ExtensionInfoBarDelegate interface, if
-  // implemented.
-  virtual ExtensionInfoBarDelegate* AsExtensionInfoBarDelegate();
-
-  // Returns a pointer to the CrashedExtensionInfoBarDelegate interface, if
-  // implemented.
-  virtual CrashedExtensionInfoBarDelegate* AsCrashedExtensionInfoBarDelegate();
-
   // Returns the type of the infobar.  The type determines the appearance (such
   // as background color) of the infobar.
-  virtual Type GetInfoBarType();
+  virtual Type GetInfoBarType() const;
+
+  // Type-checking downcast routines:
+  virtual ConfirmInfoBarDelegate* AsConfirmInfoBarDelegate();
+  virtual CrashedExtensionInfoBarDelegate* AsCrashedExtensionInfoBarDelegate();
+  virtual ExtensionInfoBarDelegate* AsExtensionInfoBarDelegate();
+  virtual LinkInfoBarDelegate* AsLinkInfoBarDelegate();
+  virtual PluginInstallerInfoBarDelegate* AsPluginInstallerInfoBarDelegate();
+  virtual ThemeInstalledInfoBarDelegate* AsThemePreviewInfobarDelegate();
+  virtual TranslateInfoBarDelegate* AsTranslateInfoBarDelegate();
 
  protected:
   // Provided to subclasses as a convenience to initialize the state of this
@@ -116,40 +102,17 @@ class InfoBarDelegate {
   // stored using StoreActiveEntryUniqueID automatically.
   explicit InfoBarDelegate(TabContents* contents);
 
-  virtual ~InfoBarDelegate() { }
-
   // Store the unique id for the active entry in the specified TabContents, to
   // be used later upon navigation to determine if this InfoBarDelegate should
   // be expired from |contents_|.
   void StoreActiveEntryUniqueID(TabContents* contents);
 
  private:
-  // The unique id of the active NavigationEntry of the TabContents taht we were
+  // The unique id of the active NavigationEntry of the TabContents that we were
   // opened for. Used to help expire on navigations.
   int contents_unique_id_;
 
   DISALLOW_COPY_AND_ASSIGN(InfoBarDelegate);
-};
-
-// An interface derived from InfoBarDelegate implemented by objects wishing to
-// control an AlertInfoBar.
-class AlertInfoBarDelegate : public InfoBarDelegate {
- public:
-  // Returns the message string to be displayed for the InfoBar.
-  virtual string16 GetMessageText() const = 0;
-
-  // Overridden from InfoBarDelegate.
-  virtual SkBitmap* GetIcon() const;
-
-  // Overridden from InfoBarDelegate:
-  virtual bool EqualsDelegate(InfoBarDelegate* delegate) const;
-  virtual InfoBar* CreateInfoBar();
-  virtual AlertInfoBarDelegate* AsAlertInfoBarDelegate();
-
- protected:
-  explicit AlertInfoBarDelegate(TabContents* contents);
-
-  DISALLOW_COPY_AND_ASSIGN(AlertInfoBarDelegate);
 };
 
 // An interface derived from InfoBarDelegate implemented by objects wishing to
@@ -165,9 +128,6 @@ class LinkInfoBarDelegate : public InfoBarDelegate {
   // Returns the text of the link to be displayed.
   virtual string16 GetLinkText() const = 0;
 
-  // Overridden from InfoBarDelegate.
-  virtual SkBitmap* GetIcon() const;
-
   // Called when the Link is clicked. The |disposition| specifies how the
   // resulting document should be loaded (based on the event flags present when
   // the link was clicked). This function returns true if the InfoBar should be
@@ -175,27 +135,30 @@ class LinkInfoBarDelegate : public InfoBarDelegate {
   // it.
   virtual bool LinkClicked(WindowOpenDisposition disposition);
 
-  // Overridden from InfoBarDelegate:
-  virtual InfoBar* CreateInfoBar();
-  virtual LinkInfoBarDelegate* AsLinkInfoBarDelegate();
-
  protected:
   explicit LinkInfoBarDelegate(TabContents* contents);
+  virtual ~LinkInfoBarDelegate();
+
+ private:
+  // InfoBarDelegate:
+  virtual InfoBar* CreateInfoBar();
+  virtual LinkInfoBarDelegate* AsLinkInfoBarDelegate();
 
   DISALLOW_COPY_AND_ASSIGN(LinkInfoBarDelegate);
 };
 
 // An interface derived from InfoBarDelegate implemented by objects wishing to
 // control a ConfirmInfoBar.
-class ConfirmInfoBarDelegate : public AlertInfoBarDelegate {
+class ConfirmInfoBarDelegate : public InfoBarDelegate {
  public:
   enum InfoBarButton {
-    BUTTON_NONE = 0,
-    BUTTON_OK = 1,
-    BUTTON_CANCEL = 2,
-    // Specifies that the OK button should be rendered like a default button.
-    BUTTON_OK_DEFAULT = 4
+    BUTTON_NONE   = 0,
+    BUTTON_OK     = 1 << 0,
+    BUTTON_CANCEL = 1 << 1,
   };
+
+  // Returns the message string to be displayed for the InfoBar.
+  virtual string16 GetMessageText() const = 0;
 
   // Return the buttons to be shown for this InfoBar.
   virtual int GetButtons() const;
@@ -227,36 +190,41 @@ class ConfirmInfoBarDelegate : public AlertInfoBarDelegate {
   // Will only be called if GetLinkText() returns non-empty string.
   virtual bool LinkClicked(WindowOpenDisposition disposition);
 
-  // Overridden from InfoBarDelegate:
-  virtual InfoBar* CreateInfoBar();
-  virtual ConfirmInfoBarDelegate* AsConfirmInfoBarDelegate();
-
  protected:
   explicit ConfirmInfoBarDelegate(TabContents* contents);
+  virtual ~ConfirmInfoBarDelegate();
+
+ private:
+  // InfoBarDelegate:
+  virtual InfoBar* CreateInfoBar();
+  virtual bool EqualsDelegate(InfoBarDelegate* delegate) const;
+  virtual ConfirmInfoBarDelegate* AsConfirmInfoBarDelegate();
 
   DISALLOW_COPY_AND_ASSIGN(ConfirmInfoBarDelegate);
 };
 
 // Simple implementations for common use cases ---------------------------------
 
-class SimpleAlertInfoBarDelegate : public AlertInfoBarDelegate {
+class SimpleAlertInfoBarDelegate : public ConfirmInfoBarDelegate {
  public:
-  // |icon| may be |NULL|.
   SimpleAlertInfoBarDelegate(TabContents* contents,
+                             SkBitmap* icon,  // May be NULL.
                              const string16& message,
-                             SkBitmap* icon,
                              bool auto_expire);
 
-  // Overridden from AlertInfoBarDelegate:
+ private:
+  virtual ~SimpleAlertInfoBarDelegate();
+
+  // ConfirmInfoBarDelegate:
   virtual bool ShouldExpire(
       const NavigationController::LoadCommittedDetails& details) const;
-  virtual string16 GetMessageText() const;
-  virtual SkBitmap* GetIcon() const;
   virtual void InfoBarClosed();
+  virtual SkBitmap* GetIcon() const;
+  virtual string16 GetMessageText() const;
+  virtual int GetButtons() const;
 
- private:
-  string16 message_;
   SkBitmap* icon_;
+  string16 message_;
   bool auto_expire_;  // Should it expire automatically on navigation?
 
   DISALLOW_COPY_AND_ASSIGN(SimpleAlertInfoBarDelegate);

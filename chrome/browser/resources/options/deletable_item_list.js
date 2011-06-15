@@ -59,7 +59,8 @@ cr.define('options', function() {
       this.appendChild(this.contentElement_);
 
       this.closeButtonElement_ = this.ownerDocument.createElement('button');
-      this.closeButtonElement_.className = 'close-button';
+      this.closeButtonElement_.classList.add('raw-button');
+      this.closeButtonElement_.classList.add('close-button');
       this.closeButtonElement_.addEventListener('mousedown',
                                                 this.handleMouseDownUpOnClose_);
       this.closeButtonElement_.addEventListener('mouseup',
@@ -107,6 +108,7 @@ cr.define('options', function() {
     decorate: function() {
       List.prototype.decorate.call(this);
       this.addEventListener('click', this.handleClick_);
+      this.addEventListener('keydown', this.handleKeyDown_);
     },
 
     /**
@@ -119,7 +121,7 @@ cr.define('options', function() {
         return;
 
       var target = e.target;
-      if (target.className == 'close-button') {
+      if (target.classList.contains('close-button')) {
         var listItem = this.getListItemAncestor(target);
         var selected = this.selectionModel.selectedIndexes;
 
@@ -130,11 +132,39 @@ cr.define('options', function() {
         if (selected.indexOf(idx) == -1) {
           this.deleteItemAtIndex(idx);
         } else {
-          // Reverse through the list of selected indexes to maintain the
-          // correct index values after deletion.
-          for (var j = selected.length - 1; j >= 0; j--)
-            this.deleteItemAtIndex(selected[j]);
+          this.deleteSelectedItems_();
         }
+      }
+    },
+
+    /**
+     * Callback for keydown events.
+     * @param {Event} e The keydown event object.
+     * @private
+     */
+    handleKeyDown_: function(e) {
+      // Map delete (and backspace on Mac) to item deletion (unless focus is
+      // in an input field, where it's intended for text editing).
+      if ((e.keyCode == 46 || (e.keyCode == 8 && cr.isMac)) &&
+          e.target.tagName != 'INPUT') {
+        this.deleteSelectedItems_();
+        // Prevent the browser from going back.
+        e.preventDefault();
+      }
+    },
+
+    /**
+     * Deletes all the currently selected items that are deletable.
+     * @private
+     */
+    deleteSelectedItems_: function() {
+      var selected = this.selectionModel.selectedIndexes;
+      // Reverse through the list of selected indexes to maintain the
+      // correct index values after deletion.
+      for (var j = selected.length - 1; j >= 0; j--) {
+        var index = selected[j];
+        if (this.getListItemByIndex(index).deletable)
+          this.deleteItemAtIndex(index);
       }
     },
 

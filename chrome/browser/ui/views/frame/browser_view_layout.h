@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,9 @@
 #define CHROME_BROWSER_UI_VIEWS_FRAME_BROWSER_VIEW_LAYOUT_H_
 #pragma once
 
-#include "views/layout_manager.h"
+#include "base/basictypes.h"
+#include "ui/gfx/rect.h"
+#include "views/layout/layout_manager.h"
 
 class BaseTabStrip;
 class BookmarkBarView;
@@ -14,13 +16,23 @@ class Browser;
 class BrowserView;
 class ContentsContainer;
 class DownloadShelfView;
+class TabContentsContainer;
 class ToolbarView;
+
+namespace gfx {
+class Point;
+class Size;
+}
+
+namespace views {
+class SingleSplitView;
+}
 
 // The layout manager used in chrome browser.
 class BrowserViewLayout : public views::LayoutManager {
  public:
   BrowserViewLayout();
-  virtual ~BrowserViewLayout() {}
+  virtual ~BrowserViewLayout();
 
   // Returns the minimum size of the browser view.
   virtual gfx::Size GetMinimumSize();
@@ -61,6 +73,15 @@ class BrowserViewLayout : public views::LayoutManager {
   int LayoutBookmarkBar(int top);
   int LayoutInfoBar(int top);
 
+  // Updates |source|'s reserved contents rect by mapping BrowserView's
+  // |browser_reserved_rect| into |future_source_bounds| taking into
+  // account |source|'s |future_parent_offset| (offset is relative to
+  // browser_view_).
+  void UpdateReservedContentsRect(const gfx::Rect& browser_reserved_rect,
+                                  TabContentsContainer* source,
+                                  const gfx::Rect& future_source_bounds,
+                                  const gfx::Point& future_parent_offset);
+
   // Layout the TabContents container, between the coordinates |top| and
   // |bottom|.
   void LayoutTabContents(int top, int bottom);
@@ -88,7 +109,7 @@ class BrowserViewLayout : public views::LayoutManager {
   // Child views that the layout manager manages.
   BaseTabStrip* tabstrip_;
   ToolbarView* toolbar_;
-  views::View* contents_split_;
+  views::SingleSplitView* contents_split_;
   ContentsContainer* contents_container_;
   views::View* infobar_container_;
   DownloadShelfView* download_shelf_;
@@ -109,4 +130,3 @@ class BrowserViewLayout : public views::LayoutManager {
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_FRAME_BROWSER_VIEW_LAYOUT_H_
-

@@ -13,11 +13,13 @@
 #include "base/string_util.h"
 #include "base/string16.h"
 #include "base/utf_string_conversions.h"
+#include "base/values.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/net/gaia/token_service.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/sync/abstract_profile_sync_service_test.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/glue/change_processor.h"
 #include "chrome/browser/sync/glue/bookmark_change_processor.h"
@@ -27,11 +29,12 @@
 #include "chrome/browser/sync/glue/model_associator.h"
 #include "chrome/browser/sync/glue/sync_backend_host.h"
 #include "chrome/browser/sync/glue/sync_backend_host_mock.h"
+#include "chrome/browser/sync/js_arg_list.h"
+#include "chrome/browser/sync/js_test_util.h"
 #include "chrome/browser/sync/profile_sync_factory.h"
 #include "chrome/browser/sync/profile_sync_factory_mock.h"
 #include "chrome/browser/sync/test_profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_test_util.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/net/gaia/gaia_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/testing_profile.h"
@@ -44,27 +47,99 @@ using browser_sync::BookmarkChangeProcessor;
 using browser_sync::BookmarkModelAssociator;
 using browser_sync::ChangeProcessor;
 using browser_sync::DataTypeController;
+using browser_sync::HasArgs;
+using browser_sync::JsArgList;
+using browser_sync::MockJsEventHandler;
 using browser_sync::ModelAssociator;
 using browser_sync::SyncBackendHost;
 using browser_sync::SyncBackendHostMock;
 using browser_sync::UnrecoverableErrorHandler;
 using testing::_;
+using testing::AtMost;
 using testing::Return;
+using testing::StrictMock;
 using testing::WithArg;
 using testing::Invoke;
 
+// TODO(akalin): Bookmark-specific tests should be moved into their
+// own file.
 class TestBookmarkModelAssociator : public BookmarkModelAssociator {
  public:
-  TestBookmarkModelAssociator(ProfileSyncService* service,
+  TestBookmarkModelAssociator(
+      TestProfileSyncService* service,
       UnrecoverableErrorHandler* persist_ids_error_handler)
       : BookmarkModelAssociator(service, persist_ids_error_handler),
-        helper_(new TestModelAssociatorHelper()) {
-  }
+        id_factory_(service->id_factory()) {}
+
+  // TODO(akalin): This logic lazily creates any tagged node that is
+  // requested.  A better way would be to have utility functions to
+  // create sync nodes from some bookmark structure and to use that.
   virtual bool GetSyncIdForTaggedNode(const std::string& tag, int64* sync_id) {
-    return helper_->GetSyncIdForTaggedNode(this, tag, sync_id);
+    std::wstring tag_wide;
+    if (!UTF8ToWide(tag.c_str(), tag.length(), &tag_wide)) {
+      NOTREACHED() << "Unable to convert UTF8 to wide for string: " << tag;
+      return false;
+    }
+
+    bool root_exists = false;
+    syncable::ModelType type = model_type();
+    {
+      sync_api::WriteTransaction trans(sync_service()->GetUserShare());
+      sync_api::ReadNode uber_root(&trans);
+      uber_root.InitByRootLookup();
+
+      sync_api::ReadNode root(&trans);
+      root_exists = root.InitByTagLookup(
+          ProfileSyncServiceTestHelper::GetTagForType(type));
+    }
+
+    if (!root_exists) {
+      bool created = ProfileSyncServiceTestHelper::CreateRoot(
+          type,
+          sync_service()->GetUserShare(),
+          id_factory_);
+      if (!created)
+        return false;
+    }
+
+    sync_api::WriteTransaction trans(sync_service()->GetUserShare());
+    sync_api::ReadNode root(&trans);
+    EXPECT_TRUE(root.InitByTagLookup(
+        ProfileSyncServiceTestHelper::GetTagForType(type)));
+
+    // First, try to find a node with the title among the root's children.
+    // This will be the case if we are testing model persistence, and
+    // are reloading a sync repository created earlier in the test.
+    int64 last_child_id = sync_api::kInvalidId;
+    for (int64 id = root.GetFirstChildId(); id != sync_api::kInvalidId; /***/) {
+      sync_api::ReadNode child(&trans);
+      child.InitByIdLookup(id);
+      last_child_id = id;
+      if (tag_wide == child.GetTitle()) {
+        *sync_id = id;
+        return true;
+      }
+      id = child.GetSuccessorId();
+    }
+
+    sync_api::ReadNode predecessor_node(&trans);
+    sync_api::ReadNode* predecessor = NULL;
+    if (last_child_id != sync_api::kInvalidId) {
+      predecessor_node.InitByIdLookup(last_child_id);
+      predecessor = &predecessor_node;
+    }
+    sync_api::WriteNode node(&trans);
+    // Create new fake tagged nodes at the end of the ordering.
+    node.InitByCreation(type, root, predecessor);
+    node.SetIsFolder(true);
+    node.SetTitle(tag_wide);
+    node.SetExternalId(0);
+    *sync_id = node.GetId();
+    return true;
   }
+
  private:
-  scoped_ptr<TestModelAssociatorHelper> helper_;
+  browser_sync::TestIdFactory* id_factory_;
 };
 
 // FakeServerChange constructs a list of sync_api::ChangeRecords while modifying
@@ -244,14 +319,16 @@ class ProfileSyncServiceTest : public testing::Test {
   }
 
   void StartSyncService() {
-    StartSyncServiceAndSetInitialSyncEnded(true);
+    StartSyncServiceAndSetInitialSyncEnded(true, true);
   }
-  void StartSyncServiceAndSetInitialSyncEnded(bool set_initial_sync_ended) {
+  void StartSyncServiceAndSetInitialSyncEnded(
+      bool set_initial_sync_ended,
+      bool issue_auth_token) {
     if (!service_.get()) {
       // Set bootstrap to true and it will provide a logged in user for test
       service_.reset(new TestProfileSyncService(&factory_,
                                                 profile_.get(),
-                                                "test", false, NULL));
+                                                "test", true, NULL));
       if (!set_initial_sync_ended)
         service_->dont_set_initial_sync_ended_on_init();
 
@@ -271,10 +348,11 @@ class ProfileSyncServiceTest : public testing::Test {
                                                        profile_.get(),
                                                        service_.get()));
 
-      profile_->GetTokenService()->IssueAuthTokenForTest(
-          GaiaConstants::kSyncService, "token");
+      if (issue_auth_token) {
+        profile_->GetTokenService()->IssueAuthTokenForTest(
+            GaiaConstants::kSyncService, "token");
+      }
       service_->Initialize();
-      MessageLoop::current()->Run();
     }
   }
 
@@ -343,7 +421,7 @@ class ProfileSyncServiceTest : public testing::Test {
   }
 
   void ExpectSyncerNodeMatching(const BookmarkNode* bnode) {
-    sync_api::ReadTransaction trans(service_->backend_->GetUserShareHandle());
+    sync_api::ReadTransaction trans(service_->GetUserShare());
     ExpectSyncerNodeMatching(&trans, bnode);
   }
 
@@ -421,7 +499,7 @@ class ProfileSyncServiceTest : public testing::Test {
   }
 
   void ExpectModelMatch() {
-    sync_api::ReadTransaction trans(service_->backend_->GetUserShareHandle());
+    sync_api::ReadTransaction trans(service_->GetUserShare());
     ExpectModelMatch(&trans);
   }
 
@@ -433,8 +511,6 @@ class ProfileSyncServiceTest : public testing::Test {
     return associator()->GetSyncIdFromChromeId(
         model_->GetBookmarkBarNode()->id());
   }
-
-  SyncBackendHost* backend() { return service_->backend_.get(); }
 
   // This serves as the "UI loop" on which the ProfileSyncService lives and
   // operates. It is needed because the SyncBackend can post tasks back to
@@ -549,7 +625,7 @@ TEST_F(ProfileSyncServiceTest, ServerChangeProcessing) {
   LoadBookmarkModel(DELETE_EXISTING_STORAGE, DONT_SAVE_TO_STORAGE);
   StartSyncService();
 
-  sync_api::WriteTransaction trans(backend()->GetUserShareHandle());
+  sync_api::WriteTransaction trans(service_->GetUserShare());
 
   FakeServerChange adds(&trans);
   int64 f1 = adds.AddFolder(L"Server Folder B", bookmark_bar_id(), 0);
@@ -638,7 +714,7 @@ TEST_F(ProfileSyncServiceTest, ServerChangeRequiringFosterParent) {
   LoadBookmarkModel(DELETE_EXISTING_STORAGE, DONT_SAVE_TO_STORAGE);
   StartSyncService();
 
-  sync_api::WriteTransaction trans(backend()->GetUserShareHandle());
+  sync_api::WriteTransaction trans(service_->GetUserShare());
 
   // Stress the immediate children of other_node because that's where
   // ApplyModelChanges puts a temporary foster parent node.
@@ -647,11 +723,11 @@ TEST_F(ProfileSyncServiceTest, ServerChangeRequiringFosterParent) {
   int64 f0 = other_bookmarks_id();                 // + other_node
   int64 f1 = adds.AddFolder(L"f1",      f0, 0);    //   + f1
   int64 f2 = adds.AddFolder(L"f2",      f1, 0);    //     + f2
-  int64 u3 = adds.AddURL(   L"u3", url, f2, 0);    //       + u3
-  int64 u4 = adds.AddURL(   L"u4", url, f2, u3);   //       + u4
-  int64 u5 = adds.AddURL(   L"u5", url, f1, f2);   //     + u5
+  int64 u3 = adds.AddURL(   L"u3", url, f2, 0);    //       + u3    NOLINT
+  int64 u4 = adds.AddURL(   L"u4", url, f2, u3);   //       + u4    NOLINT
+  int64 u5 = adds.AddURL(   L"u5", url, f1, f2);   //     + u5      NOLINT
   int64 f6 = adds.AddFolder(L"f6",      f1, u5);   //     + f6
-  int64 u7 = adds.AddURL(   L"u7", url, f0, f1);   //   + u7
+  int64 u7 = adds.AddURL(   L"u7", url, f0, f1);   //   + u7        NOLINT
 
   vector<sync_api::SyncManager::ChangeRecord>::const_iterator it;
   // The bookmark model shouldn't yet have seen any of the nodes of |adds|.
@@ -687,7 +763,7 @@ TEST_F(ProfileSyncServiceTest, ServerChangeWithNonCanonicalURL) {
   StartSyncService();
 
   {
-    sync_api::WriteTransaction trans(backend()->GetUserShareHandle());
+    sync_api::WriteTransaction trans(service_->GetUserShare());
 
     FakeServerChange adds(&trans);
     std::string url("http://dev.chromium.org");
@@ -718,7 +794,7 @@ TEST_F(ProfileSyncServiceTest, DISABLED_ServerChangeWithInvalidURL) {
 
   int child_count = 0;
   {
-    sync_api::WriteTransaction trans(backend()->GetUserShareHandle());
+    sync_api::WriteTransaction trans(service_->GetUserShare());
 
     FakeServerChange adds(&trans);
     std::string url("x");
@@ -835,7 +911,7 @@ TEST_F(ProfileSyncServiceTest, UnrecoverableErrorSuspendsService) {
   // updating the ProfileSyncService state.  This should introduce
   // inconsistency between the two models.
   {
-    sync_api::WriteTransaction trans(service_->backend_->GetUserShareHandle());
+    sync_api::WriteTransaction trans(service_->GetUserShare());
     sync_api::WriteNode sync_node(&trans);
     EXPECT_TRUE(associator()->InitSyncNodeFromChromeId(node->id(),
                                                        &sync_node));
@@ -881,6 +957,180 @@ TEST_F(ProfileSyncServiceTest, MergeDuplicates) {
 
   EXPECT_EQ(2, model_->other_node()->GetChildCount());
   ExpectModelMatch();
+}
+
+TEST_F(ProfileSyncServiceTest, JsFrontendHandlersBasic) {
+  LoadBookmarkModel(DELETE_EXISTING_STORAGE, DONT_SAVE_TO_STORAGE);
+  StartSyncService();
+
+  StrictMock<MockJsEventHandler> event_handler;
+
+  browser_sync::SyncBackendHostForProfileSyncTest* test_backend =
+      service_->GetBackendForTest();
+
+  EXPECT_TRUE(service_->sync_initialized());
+  ASSERT_TRUE(test_backend != NULL);
+  ASSERT_TRUE(test_backend->GetJsBackend() != NULL);
+  EXPECT_EQ(NULL, test_backend->GetJsBackend()->GetParentJsEventRouter());
+
+  browser_sync::JsFrontend* js_backend = service_->GetJsFrontend();
+  js_backend->AddHandler(&event_handler);
+  ASSERT_TRUE(test_backend->GetJsBackend() != NULL);
+  EXPECT_TRUE(test_backend->GetJsBackend()->GetParentJsEventRouter() != NULL);
+
+  js_backend->RemoveHandler(&event_handler);
+  EXPECT_EQ(NULL, test_backend->GetJsBackend()->GetParentJsEventRouter());
+}
+
+TEST_F(ProfileSyncServiceTest,
+       JsFrontendHandlersDelayedBackendInitialization) {
+  LoadBookmarkModel(DELETE_EXISTING_STORAGE, DONT_SAVE_TO_STORAGE);
+  StartSyncServiceAndSetInitialSyncEnded(true, false);
+
+  StrictMock<MockJsEventHandler> event_handler;
+  EXPECT_CALL(event_handler,
+              HandleJsEvent("onSyncServiceStateChanged",
+                            HasArgs(JsArgList()))).Times(3);
+  // For some reason, these two events don't fire on Linux.
+  EXPECT_CALL(event_handler, HandleJsEvent("onChangesApplied", _))
+      .Times(AtMost(1));
+  EXPECT_CALL(event_handler, HandleJsEvent("onChangesComplete", _))
+      .Times(AtMost(1));
+
+  EXPECT_EQ(NULL, service_->GetBackendForTest());
+  EXPECT_FALSE(service_->sync_initialized());
+
+  browser_sync::JsFrontend* js_backend = service_->GetJsFrontend();
+  js_backend->AddHandler(&event_handler);
+  // Since we're doing synchronous initialization, backend should be
+  // initialized by this call.
+  profile_->GetTokenService()->IssueAuthTokenForTest(
+      GaiaConstants::kSyncService, "token");
+
+  browser_sync::SyncBackendHostForProfileSyncTest* test_backend =
+      service_->GetBackendForTest();
+
+  EXPECT_TRUE(service_->sync_initialized());
+  ASSERT_TRUE(test_backend != NULL);
+  ASSERT_TRUE(test_backend->GetJsBackend() != NULL);
+  EXPECT_TRUE(test_backend->GetJsBackend()->GetParentJsEventRouter() != NULL);
+
+  js_backend->RemoveHandler(&event_handler);
+  EXPECT_EQ(NULL, test_backend->GetJsBackend()->GetParentJsEventRouter());
+}
+
+TEST_F(ProfileSyncServiceTest, JsFrontendProcessMessageBasic) {
+  LoadBookmarkModel(DELETE_EXISTING_STORAGE, DONT_SAVE_TO_STORAGE);
+  StartSyncService();
+
+  StrictMock<MockJsEventHandler> event_handler;
+
+  ListValue arg_list1;
+  arg_list1.Append(Value::CreateBooleanValue(true));
+  arg_list1.Append(Value::CreateIntegerValue(5));
+  JsArgList args1(arg_list1);
+  EXPECT_CALL(event_handler, HandleJsEvent("testMessage1", HasArgs(args1)));
+
+  ListValue arg_list2;
+  arg_list2.Append(Value::CreateStringValue("test"));
+  arg_list2.Append(arg_list1.DeepCopy());
+  JsArgList args2(arg_list2);
+  EXPECT_CALL(event_handler,
+              HandleJsEvent("delayTestMessage2", HasArgs(args2)));
+
+  ListValue arg_list3;
+  arg_list3.Append(arg_list1.DeepCopy());
+  arg_list3.Append(arg_list2.DeepCopy());
+  JsArgList args3(arg_list3);
+
+  browser_sync::JsFrontend* js_backend = service_->GetJsFrontend();
+
+  // Never replied to.
+  js_backend->ProcessMessage("notRepliedTo", args3, &event_handler);
+
+  // Replied to later.
+  js_backend->ProcessMessage("delayTestMessage2", args2, &event_handler);
+
+  js_backend->AddHandler(&event_handler);
+
+  // Replied to immediately.
+  js_backend->ProcessMessage("testMessage1", args1, &event_handler);
+
+  // Fires off reply for delayTestMessage2.
+  message_loop_.RunAllPending();
+
+  // Never replied to.
+  js_backend->ProcessMessage("delayNotRepliedTo", args3, &event_handler);
+
+  js_backend->RemoveHandler(&event_handler);
+
+  message_loop_.RunAllPending();
+
+  // Never replied to.
+  js_backend->ProcessMessage("notRepliedTo", args3, &event_handler);
+}
+
+TEST_F(ProfileSyncServiceTest,
+       JsFrontendProcessMessageBasicDelayedBackendInitialization) {
+  LoadBookmarkModel(DELETE_EXISTING_STORAGE, DONT_SAVE_TO_STORAGE);
+  StartSyncServiceAndSetInitialSyncEnded(true, false);
+
+  StrictMock<MockJsEventHandler> event_handler;
+  // For some reason, these two events don't fire on Linux.
+  EXPECT_CALL(event_handler, HandleJsEvent("onChangesApplied", _))
+      .Times(AtMost(1));
+  EXPECT_CALL(event_handler, HandleJsEvent("onChangesComplete", _))
+      .Times(AtMost(1));
+
+  ListValue arg_list1;
+  arg_list1.Append(Value::CreateBooleanValue(true));
+  arg_list1.Append(Value::CreateIntegerValue(5));
+  JsArgList args1(arg_list1);
+  EXPECT_CALL(event_handler, HandleJsEvent("testMessage1", HasArgs(args1)));
+
+  ListValue arg_list2;
+  arg_list2.Append(Value::CreateStringValue("test"));
+  arg_list2.Append(arg_list1.DeepCopy());
+  JsArgList args2(arg_list2);
+  EXPECT_CALL(event_handler, HandleJsEvent("testMessage2", HasArgs(args2)));
+
+  ListValue arg_list3;
+  arg_list3.Append(arg_list1.DeepCopy());
+  arg_list3.Append(arg_list2.DeepCopy());
+  JsArgList args3(arg_list3);
+  EXPECT_CALL(event_handler,
+              HandleJsEvent("delayTestMessage3", HasArgs(args3)));
+
+  const JsArgList kNoArgs;
+
+  EXPECT_CALL(event_handler, HandleJsEvent("onSyncServiceStateChanged",
+                                           HasArgs(kNoArgs))).Times(3);
+
+  browser_sync::JsFrontend* js_backend = service_->GetJsFrontend();
+
+  // We expect a reply for this message, even though its sent before
+  // |event_handler| is added as a handler.
+  js_backend->ProcessMessage("testMessage1", args1, &event_handler);
+
+  js_backend->AddHandler(&event_handler);
+
+  js_backend->ProcessMessage("testMessage2", args2, &event_handler);
+  js_backend->ProcessMessage("delayTestMessage3", args3, &event_handler);
+
+  // Fires testMessage1 and testMessage2.
+  profile_->GetTokenService()->IssueAuthTokenForTest(
+      GaiaConstants::kSyncService, "token");
+
+  // Fires delayTestMessage3.
+  message_loop_.RunAllPending();
+
+  js_backend->ProcessMessage("delayNotRepliedTo", kNoArgs, &event_handler);
+
+  js_backend->RemoveHandler(&event_handler);
+
+  message_loop_.RunAllPending();
+
+  js_backend->ProcessMessage("notRepliedTo", kNoArgs, &event_handler);
 }
 
 struct TestData {
@@ -1324,7 +1574,8 @@ TEST_F(ProfileSyncServiceTestWithData, RecoverAfterDeletingSyncDataDirectory) {
   WriteTestDataToBookmarkModel();
 
   // While the service is running.
-  FilePath sync_data_directory = backend()->sync_data_folder_path();
+  FilePath sync_data_directory =
+      service_->GetBackendForTest()->sync_data_folder_path();
 
   // Simulate a normal shutdown for the sync service (don't disable it for
   // the user, which would reset the preferences and delete the sync data
@@ -1336,7 +1587,7 @@ TEST_F(ProfileSyncServiceTestWithData, RecoverAfterDeletingSyncDataDirectory) {
 
   // Restart the sync service.  Don't fake out setting initial sync ended; lets
   // make sure the system does in fact nudge and wait for this to happen.
-  StartSyncServiceAndSetInitialSyncEnded(false);
+  StartSyncServiceAndSetInitialSyncEnded(false, true);
 
   // Make sure we're back in sync.  In real life, the user would need
   // to reauthenticate before this happens, but in the test, authentication
@@ -1385,11 +1636,10 @@ TEST_F(ProfileSyncServiceTestWithData, TestStartupWithOldSyncData) {
                                                      profile_.get(),
                                                      service_.get()));
 
-    service_->Initialize(); // will call disableForUser because sync setup
-                            // hasn't been completed.
+    service_->Initialize();  // will call disableForUser because sync setup
+                             // hasn't been completed.
   }
 
-  ASSERT_FALSE(service_->backend());
   ASSERT_FALSE(service_->HasSyncSetupCompleted());
 
   // Create some tokens in the token service; the service will startup when

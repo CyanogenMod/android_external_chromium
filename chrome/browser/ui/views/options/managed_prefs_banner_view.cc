@@ -1,17 +1,17 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/options/managed_prefs_banner_view.h"
+#include "chrome/browser/ui/views/options/managed_prefs_banner_view.h"
 
-#include "app/resource_bundle.h"
-#include "gfx/color_utils.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
-#include "views/box_layout.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/color_utils.h"
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
-#include "views/standard_layout.h"
+#include "views/layout/box_layout.h"
+#include "views/layout/layout_constants.h"
 
 // Spacing between the banner frame and its contents.
 static const int kPrefsBannerPadding = 3;
@@ -39,7 +39,7 @@ void ManagedPrefsBannerView::Init() {
       new views::BoxLayout(views::BoxLayout::kHorizontal,
                            kPrefsBannerPadding,
                            kPrefsBannerPadding,
-                           kRelatedControlSmallHorizontalSpacing));
+                           views::kRelatedControlSmallHorizontalSpacing));
   content_->AddChildView(warning_image_);
   content_->AddChildView(label_);
   OnUpdateVisibility();
@@ -51,12 +51,13 @@ gfx::Size ManagedPrefsBannerView::GetPreferredSize() {
 
   // Add space below the banner.
   gfx::Size size(content_->GetPreferredSize());
-  size.Enlarge(0, kRelatedControlVerticalSpacing);
+  size.Enlarge(0, views::kRelatedControlVerticalSpacing);
   return size;
 }
 
 void ManagedPrefsBannerView::Layout() {
-  content_->SetBounds(0, 0, width(), height() - kRelatedControlVerticalSpacing);
+  content_->SetBounds(
+      0, 0, width(), height() - views::kRelatedControlVerticalSpacing);
 }
 
 void ManagedPrefsBannerView::ViewHierarchyChanged(bool is_add,

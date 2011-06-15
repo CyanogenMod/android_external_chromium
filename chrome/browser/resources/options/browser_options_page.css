@@ -1,7 +1,19 @@
-
 #startupPageManagement.settings-list > :last-child {
   border-top: 1px solid #d9d9d9;
   padding: 5px 10px;
+}
+
+#startupPagesList {
+  min-height: 64px;
+}
+
+#startupPagesList .title {
+  width: 40%;
+}
+
+#startupPagesList .url {
+  -webkit-box-flex: 1;
+  color: #666;
 }
 
 #customHomePageGroup {
@@ -33,7 +45,7 @@
 #defaultSearchEngine {
   display: block;
   -webkit-box-flex: 1;
-  max-width: 300px;
+  max-width: 200px;
 }
 
 #defaultSearchManageEnginesButton {

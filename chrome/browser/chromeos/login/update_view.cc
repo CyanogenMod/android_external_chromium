@@ -6,8 +6,6 @@
 
 #include <string>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/rounded_rect_painter.h"
@@ -15,6 +13,8 @@
 #include "chrome/browser/chromeos/login/wizard_accessibility_helper.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "views/border.h"
 #include "views/controls/label.h"
 #include "views/controls/progress_bar.h"
@@ -194,11 +194,6 @@ void UpdateView::Layout() {
   escape_to_skip_label_->SetY(kEscapeToSkipLabelY);
 #endif
   SchedulePaint();
-}
-
-void UpdateView::ViewHierarchyChanged(bool is_add, View* parent, View* child) {
-  if (is_add && this == child)
-    WizardAccessibilityHelper::GetInstance()->MaybeEnableAccessibility(this);
 }
 
 void UpdateView::InitLabel(views::Label** label) {

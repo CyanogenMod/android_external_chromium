@@ -33,6 +33,7 @@
 #include "net/http/http_basic_stream.h"
 #include "net/http/http_chunked_decoder.h"
 #include "net/http/http_net_log_params.h"
+#include "net/http/http_network_delegate.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_proxy_client_socket.h"
 #include "net/http/http_proxy_client_socket_pool.h"
@@ -74,6 +75,19 @@ void ProcessAlternateProtocol(HttpStreamFactory* factory,
   factory->ProcessAlternateProtocol(alternate_protocols,
                                     alternate_protocol_str,
                                     http_host_port_pair);
+}
+
+// Returns true if |error| is a client certificate authentication error.
+bool IsClientCertificateError(int error) {
+  switch (error) {
+    case ERR_BAD_SSL_CLIENT_AUTH_CERT:
+    case ERR_SSL_CLIENT_AUTH_PRIVATE_KEY_ACCESS_DENIED:
+    case ERR_SSL_CLIENT_AUTH_CERT_NO_PRIVATE_KEY:
+    case ERR_SSL_CLIENT_AUTH_SIGNATURE_FAILED:
+      return true;
+    default:
+      return false;
+  }
 }
 
 }  // namespace
@@ -486,7 +500,8 @@ int HttpNetworkTransaction::DoLoop(int result) {
         break;
       case STATE_SEND_REQUEST_COMPLETE:
         rv = DoSendRequestComplete(rv);
-        net_log_.EndEvent(NetLog::TYPE_HTTP_TRANSACTION_SEND_REQUEST, NULL);
+        net_log_.EndEventWithNetErrorCode(
+            NetLog::TYPE_HTTP_TRANSACTION_SEND_REQUEST, rv);
         break;
       case STATE_READ_HEADERS:
         DCHECK_EQ(OK, rv);
@@ -495,7 +510,8 @@ int HttpNetworkTransaction::DoLoop(int result) {
         break;
       case STATE_READ_HEADERS_COMPLETE:
         rv = DoReadHeadersComplete(rv);
-        net_log_.EndEvent(NetLog::TYPE_HTTP_TRANSACTION_READ_HEADERS, NULL);
+        net_log_.EndEventWithNetErrorCode(
+            NetLog::TYPE_HTTP_TRANSACTION_READ_HEADERS, rv);
         break;
       case STATE_READ_BODY:
         DCHECK_EQ(OK, rv);
@@ -504,7 +520,8 @@ int HttpNetworkTransaction::DoLoop(int result) {
         break;
       case STATE_READ_BODY_COMPLETE:
         rv = DoReadBodyComplete(rv);
-        net_log_.EndEvent(NetLog::TYPE_HTTP_TRANSACTION_READ_BODY, NULL);
+        net_log_.EndEventWithNetErrorCode(
+            NetLog::TYPE_HTTP_TRANSACTION_READ_BODY, rv);
         break;
       case STATE_DRAIN_BODY_FOR_AUTH_RESTART:
         DCHECK_EQ(OK, rv);
@@ -514,8 +531,8 @@ int HttpNetworkTransaction::DoLoop(int result) {
         break;
       case STATE_DRAIN_BODY_FOR_AUTH_RESTART_COMPLETE:
         rv = DoDrainBodyForAuthRestartComplete(rv);
-        net_log_.EndEvent(
-            NetLog::TYPE_HTTP_TRANSACTION_DRAIN_BODY_FOR_AUTH_RESTART, NULL);
+        net_log_.EndEventWithNetErrorCode(
+            NetLog::TYPE_HTTP_TRANSACTION_DRAIN_BODY_FOR_AUTH_RESTART, rv);
         break;
       default:
         NOTREACHED() << "bad state";
@@ -553,6 +570,10 @@ int HttpNetworkTransaction::DoCreateStreamComplete(int result) {
     next_state_ = STATE_NONE;
     return OK;
   }
+
+  // Handle possible handshake errors that may have occurred if the stream
+  // used SSL for one or more of the layers.
+  result = HandleSSLHandshakeError(result);
 
   // At this point we are done with the stream_request_.
   stream_request_.reset();
@@ -696,23 +717,6 @@ int HttpNetworkTransaction::DoReadHeadersComplete(int result) {
     result = HandleCertificateRequest(result);
     if (result == OK)
       return result;
-  } else if ((result == ERR_SSL_DECOMPRESSION_FAILURE_ALERT ||
-              result == ERR_SSL_BAD_RECORD_MAC_ALERT) &&
-             ssl_config_.tls1_enabled &&
-             !SSLConfigService::IsKnownStrictTLSServer(request_->url.host())) {
-    // Some buggy servers select DEFLATE compression when offered and then
-    // fail to ever decompress anything. They will send a fatal alert telling
-    // us this. Normally we would pick this up during the handshake because
-    // our Finished message is compressed and we'll never get the server's
-    // Finished if it fails to process ours.
-    //
-    // However, with False Start, we'll believe that the handshake is
-    // complete as soon as we've /sent/ our Finished message. In this case,
-    // we only find out that the server is buggy here, when we try to read
-    // the initial reply.
-    session_->http_stream_factory()->AddTLSIntolerantServer(request_->url);
-    ResetConnectionAndRequestForResend();
-    return OK;
   }
 
   if (result < 0 && result != ERR_CONNECTION_CLOSED)
@@ -1024,20 +1028,29 @@ int HttpNetworkTransaction::HandleCertificateRequest(int error) {
   return OK;
 }
 
-// This method determines whether it is safe to resend the request after an
-// IO error.  It can only be called in response to request header or body
-// write errors or response header read errors.  It should not be used in
-// other cases, such as a Connect error.
-int HttpNetworkTransaction::HandleIOError(int error) {
+// TODO(rch): This does not correctly handle errors when an SSL proxy is
+// being used, as all of the errors are handled as if they were generated
+// by the endpoint host, request_->url, rather than considering if they were
+// generated by the SSL proxy. http://crbug.com/69329
+int HttpNetworkTransaction::HandleSSLHandshakeError(int error) {
+  DCHECK(request_);
+  if (ssl_config_.send_client_cert &&
+      (error == ERR_SSL_PROTOCOL_ERROR || IsClientCertificateError(error))) {
+    session_->ssl_client_auth_cache()->Remove(
+        GetHostAndPort(request_->url));
+  }
+
   switch (error) {
-    // If we try to reuse a connection that the server is in the process of
-    // closing, we may end up successfully writing out our request (or a
-    // portion of our request) only to find a connection error when we try to
-    // read from (or finish writing to) the socket.
-    case ERR_CONNECTION_RESET:
-    case ERR_CONNECTION_CLOSED:
-    case ERR_CONNECTION_ABORTED:
-      if (ShouldResendRequest(error)) {
+    case ERR_SSL_PROTOCOL_ERROR:
+    case ERR_SSL_VERSION_OR_CIPHER_MISMATCH:
+    case ERR_SSL_DECOMPRESSION_FAILURE_ALERT:
+    case ERR_SSL_BAD_RECORD_MAC_ALERT:
+      if (ssl_config_.tls1_enabled &&
+          !SSLConfigService::IsKnownStrictTLSServer(request_->url.host())) {
+        // This could be a TLS-intolerant server, an SSL 3.0 server that
+        // chose a TLS-only cipher suite or a server with buggy DEFLATE
+        // support. Turn off TLS 1.0, DEFLATE support and retry.
+        session_->http_stream_factory()->AddTLSIntolerantServer(request_->url);
         ResetConnectionAndRequestForResend();
         error = OK;
       }
@@ -1051,6 +1064,37 @@ int HttpNetworkTransaction::HandleIOError(int error) {
       // abort and start again.
       ResetConnectionAndRequestForResend();
       error = OK;
+      break;
+  }
+  return error;
+}
+
+// This method determines whether it is safe to resend the request after an
+// IO error.  It can only be called in response to request header or body
+// write errors or response header read errors.  It should not be used in
+// other cases, such as a Connect error.
+int HttpNetworkTransaction::HandleIOError(int error) {
+  // SSL errors may happen at any time during the stream and indicate issues
+  // with the underlying connection. Because the peer may request
+  // renegotiation at any time, check and handle any possible SSL handshake
+  // related errors. In addition to renegotiation, TLS False/Snap Start may
+  // cause SSL handshake errors to be delayed until the first or second Write
+  // (Snap Start) or the first Read (False & Snap Start) on the underlying
+  // connection.
+  error = HandleSSLHandshakeError(error);
+
+  switch (error) {
+    // If we try to reuse a connection that the server is in the process of
+    // closing, we may end up successfully writing out our request (or a
+    // portion of our request) only to find a connection error when we try to
+    // read from (or finish writing to) the socket.
+    case ERR_CONNECTION_RESET:
+    case ERR_CONNECTION_CLOSED:
+    case ERR_CONNECTION_ABORTED:
+      if (ShouldResendRequest(error)) {
+        ResetConnectionAndRequestForResend();
+        error = OK;
+      }
       break;
   }
   return error;
@@ -1190,22 +1234,6 @@ std::string HttpNetworkTransaction::DescribeState(State state) {
   }
   return description;
 }
-
-// TODO(gavinp): re-adjust this once SPDY v3 has three priority bits,
-// eliminating the need for this folding.
-int ConvertRequestPriorityToSpdyPriority(const RequestPriority priority) {
-  DCHECK(HIGHEST <= priority && priority < NUM_PRIORITIES);
-  switch (priority) {
-    case LOWEST:
-      return SPDY_PRIORITY_LOWEST-1;
-    case IDLE:
-      return SPDY_PRIORITY_LOWEST;
-    default:
-      return priority;
-  }
-}
-
-
 
 #undef STATE_CASE
 

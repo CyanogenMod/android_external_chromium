@@ -30,7 +30,6 @@
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_service.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/test/browser_with_test_window_test.h"
 #include "chrome/test/file_test_utils.h"
 #include "chrome/test/profile_mock.h"
@@ -60,7 +59,7 @@ class ProfileSyncServiceSessionTest
 
   ProfileSyncService* sync_service() { return sync_service_.get(); }
 
-  TestIdFactory* ids() { return &ids_; }
+  TestIdFactory* ids() { return sync_service_->id_factory(); }
 
  protected:
   SessionService* service() { return helper_.service(); }
@@ -124,8 +123,6 @@ class ProfileSyncServiceSessionTest
     return true;
   }
 
-  SyncBackendHost* backend() { return sync_service_->backend(); }
-
   // Path used in testing.
   ScopedTempDir temp_dir_;
   SessionServiceTestHelper helper_;
@@ -134,7 +131,6 @@ class ProfileSyncServiceSessionTest
   SessionID window_id_;
   ProfileSyncFactoryMock factory_;
   scoped_ptr<TestProfileSyncService> sync_service_;
-  TestIdFactory ids_;
   const gfx::Rect window_bounds_;
   bool notified_of_update_;
   NotificationRegistrar registrar_;
@@ -148,8 +144,10 @@ class CreateRootTask : public Task {
 
   virtual ~CreateRootTask() {}
   virtual void Run() {
-    success_ = ProfileSyncServiceTestHelper::CreateRoot(syncable::SESSIONS,
-        test_->sync_service(), test_->ids());
+    success_ = ProfileSyncServiceTestHelper::CreateRoot(
+        syncable::SESSIONS,
+        test_->sync_service()->GetUserShare(),
+        test_->ids());
   }
 
   bool success() { return success_; }
@@ -175,8 +173,7 @@ TEST_F(ProfileSyncServiceSessionTest, WriteSessionToNode) {
   ASSERT_NE(sync_api::kInvalidId, sync_id);
 
   // Check that we can get the correct session specifics back from the node.
-  sync_api::ReadTransaction trans(sync_service_->
-      backend()->GetUserShareHandle());
+  sync_api::ReadTransaction trans(sync_service_->GetUserShare());
   sync_api::ReadNode node(&trans);
   ASSERT_TRUE(node.InitByClientTagLookup(syncable::SESSIONS,
       machine_tag));
@@ -322,7 +319,7 @@ TEST_F(ProfileSyncServiceSessionTest, UpdatedSyncNodeActionUpdate) {
   record->id = node_id;
   ASSERT_FALSE(notified_of_update_);
   {
-    sync_api::WriteTransaction trans(backend()->GetUserShareHandle());
+    sync_api::WriteTransaction trans(sync_service_->GetUserShare());
     change_processor_->ApplyChangesFromSyncModel(&trans, record.get(), 1);
   }
   ASSERT_TRUE(notified_of_update_);
@@ -341,7 +338,7 @@ TEST_F(ProfileSyncServiceSessionTest, UpdatedSyncNodeActionAdd) {
   record->id = node_id;
   ASSERT_FALSE(notified_of_update_);
   {
-    sync_api::WriteTransaction trans(backend()->GetUserShareHandle());
+    sync_api::WriteTransaction trans(sync_service_->GetUserShare());
     change_processor_->ApplyChangesFromSyncModel(&trans, record.get(), 1);
   }
   ASSERT_TRUE(notified_of_update_);
@@ -360,7 +357,7 @@ TEST_F(ProfileSyncServiceSessionTest, UpdatedSyncNodeActionDelete) {
   record->id = node_id;
   ASSERT_FALSE(notified_of_update_);
   {
-    sync_api::WriteTransaction trans(backend()->GetUserShareHandle());
+    sync_api::WriteTransaction trans(sync_service_->GetUserShare());
     change_processor_->ApplyChangesFromSyncModel(&trans, record.get(), 1);
   }
   ASSERT_TRUE(notified_of_update_);
@@ -425,4 +422,3 @@ TEST_F(ProfileSyncServiceSessionTest, TabNodePoolNonEmpty) {
 }
 
 }  // namespace browser_sync
-

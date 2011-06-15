@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,13 @@
 #define CHROME_BROWSER_DOM_UI_DEVTOOLS_UI_H_
 #pragma once
 
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 
-class DevToolsUI : public DOMUI {
+class DevToolsUI : public WebUI {
  public:
   explicit DevToolsUI(TabContents* contents);
 
-  // DOMUI overrides.
+  // WebUI
   virtual void RenderViewCreated(RenderViewHost* render_view_host);
 
  private:

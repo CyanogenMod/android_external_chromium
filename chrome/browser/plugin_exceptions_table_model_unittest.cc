@@ -2,17 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "app/table_model_observer.h"
 #include "base/auto_reset.h"
 #include "base/command_line.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/mock_plugin_exceptions_table_model.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/test/testing_pref_service.h"
 #include "chrome/test/testing_profile.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/models/table_model_observer.h"
 #include "webkit/plugins/npapi/plugin_group.h"
 #include "webkit/plugins/npapi/webplugininfo.h"
 
@@ -23,9 +22,9 @@ namespace plugin_test_internal {
 using ::testing::_;
 using ::testing::Invoke;
 
-class MockTableModelObserver : public TableModelObserver {
+class MockTableModelObserver : public ui::TableModelObserver {
  public:
-  explicit MockTableModelObserver(TableModel* model)
+   explicit MockTableModelObserver(ui::TableModel* model)
       : model_(model) {
     ON_CALL(*this, OnItemsRemoved(_, _))
         .WillByDefault(
@@ -46,7 +45,7 @@ class MockTableModelObserver : public TableModelObserver {
     EXPECT_LT(start, model_->RowCount() + 1);
   }
 
-  TableModel* model_;
+  ui::TableModel* model_;
 };
 
 }  // namespace plugin_test_internal
@@ -89,7 +88,8 @@ class PluginExceptionsTableModelTest : public testing::Test {
     webkit::npapi::WebPluginInfo foo_plugin;
     foo_plugin.path = FilePath(FILE_PATH_LITERAL("a-foo"));
     foo_plugin.name = ASCIIToUTF16("FooPlugin");
-    foo_plugin.enabled = true;
+    foo_plugin.enabled =
+        webkit::npapi::WebPluginInfo::USER_ENABLED_POLICY_UNMANAGED;
     scoped_ptr<webkit::npapi::PluginGroup> foo_group(
         webkit::npapi::PluginGroup::FromWebPluginInfo(foo_plugin));
     plugins.push_back(*foo_group);
@@ -97,7 +97,8 @@ class PluginExceptionsTableModelTest : public testing::Test {
     webkit::npapi::WebPluginInfo bar_plugin;
     bar_plugin.path = FilePath(FILE_PATH_LITERAL("b-bar"));
     bar_plugin.name = ASCIIToUTF16("BarPlugin");
-    bar_plugin.enabled = true;
+    bar_plugin.enabled =
+        webkit::npapi::WebPluginInfo::USER_ENABLED_POLICY_UNMANAGED;
     scoped_ptr<webkit::npapi::PluginGroup> bar_group(
         webkit::npapi::PluginGroup::FromWebPluginInfo(bar_plugin));
     plugins.push_back(*bar_group);
@@ -112,7 +113,7 @@ class PluginExceptionsTableModelTest : public testing::Test {
     Entries& settings = table_model_->settings_;
     std::deque<int>& row_counts = table_model_->row_counts_;
     std::deque<std::string>& resources = table_model_->resources_;
-    TableModel::Groups& groups = table_model_->groups_;
+    ui::TableModel::Groups& groups = table_model_->groups_;
 
     EXPECT_EQ(groups.size(), row_counts.size());
     EXPECT_EQ(groups.size(), resources.size());

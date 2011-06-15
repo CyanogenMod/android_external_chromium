@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 
 #include "chrome/browser/dom_ui/html_dialog_ui.h"
 #include "chrome/browser/dom_ui/html_dialog_tab_contents_delegate.h"
-#include "chrome/browser/views/dom_view.h"
-#include "gfx/size.h"
+#include "chrome/browser/ui/views/dom_view.h"
+#include "ui/gfx/size.h"
 #include "views/window/window_delegate.h"
 
 class Browser;
@@ -61,8 +61,8 @@ class HtmlDialogView
   virtual bool IsDialogModal() const;
   virtual std::wstring GetDialogTitle() const;
   virtual GURL GetDialogContentURL() const;
-  virtual void GetDOMMessageHandlers(
-      std::vector<DOMMessageHandler*>* handlers) const;
+  virtual void GetWebUIMessageHandlers(
+      std::vector<WebUIMessageHandler*>* handlers) const;
   virtual void GetDialogSize(gfx::Size* size) const;
   virtual std::string GetDialogArgs() const;
   virtual void OnDialogClosed(const std::string& json_retval);

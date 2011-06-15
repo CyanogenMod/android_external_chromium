@@ -9,7 +9,6 @@
 #include <map>
 #include <set>
 
-#include "app/l10n_util.h"
 #include "base/command_line.h"
 #include "base/singleton.h"
 #include "base/string_number_conversions.h"
@@ -19,14 +18,17 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace about_flags {
 
 // Macros to simplify specifying the type.
-#define SINGLE_VALUE_TYPE(command_line) Experiment::SINGLE_VALUE, \
-    command_line, NULL, 0
-#define MULTI_VALUE_TYPE(choices) Experiment::MULTI_VALUE, "", choices, \
-    arraysize(choices)
+#define SINGLE_VALUE_TYPE_AND_VALUE(command_line_switch, switch_value) \
+    Experiment::SINGLE_VALUE, command_line_switch, switch_value, NULL, 0
+#define SINGLE_VALUE_TYPE(command_line_switch) \
+    SINGLE_VALUE_TYPE_AND_VALUE(command_line_switch, "")
+#define MULTI_VALUE_TYPE(choices) \
+    Experiment::MULTI_VALUE, "", "", choices, arraysize(choices)
 
 namespace {
 
@@ -38,13 +40,12 @@ const char kMediaPlayerExperimentName[] = "media-player";
 const char kAdvancedFileSystemExperimentName[] = "advanced-file-system";
 const char kVerticalTabsExperimentName[] = "vertical-tabs";
 
-// If adding a new choice, add it to the end of the list.
-const Experiment::Choice kInstantChoices[] = {
-  { IDS_FLAGS_INSTANT_TYPE_VERBATIM, switches::kEnableVerbatimInstant },
-  { IDS_FLAGS_INSTANT_TYPE_PREDICTIVE, switches::kEnablePredictiveInstant },
-  { IDS_FLAGS_INSTANT_TYPE_PREDICTIVE_NO_AUTO_COMPLETE,
-    switches::kEnablePredictiveNoAutoCompleteInstant
-  },
+const Experiment::Choice kPagePrerenderChoices[] = {
+  { IDS_FLAGS_PAGE_PRERENDER_AUTOMATIC, "", "" },
+  { IDS_FLAGS_PAGE_PRERENDER_ENABLED,
+    switches::kPrerender, switches::kPrerenderSwitchValueEnabled },
+  { IDS_FLAGS_PAGE_PRERENDER_DISABLED,
+    switches::kPrerender, switches::kPrerenderSwitchValueDisabled },
 };
 
 // RECORDING USER METRICS FOR FLAGS:
@@ -71,25 +72,14 @@ const Experiment::Choice kInstantChoices[] = {
 // distinct types of experiments:
 // . SINGLE_VALUE: experiment is either on or off. Use the SINGLE_VALUE_TYPE
 //   macro for this type supplying the command line to the macro.
-// . MULTI_VALUE: if enabled the command line of the selected choice is enabled.
-//   To specify this type of experiment use the macro MULTI_VALUE_TYPE supplying
-//   it the array of choices.
+// . MULTI_VALUE: a list of choices, the first of which should correspond to a
+//   deactivated state for this lab (i.e. no command line option).  To specify
+//   this type of experiment use the macro MULTI_VALUE_TYPE supplying it the
+//   array of choices.
 // See the documentation of Experiment for details on the fields.
 //
 // When adding a new choice, add it to the end of the list.
 const Experiment kExperiments[] = {
-  {
-    "expose-for-tabs",  // FLAGS:RECORD_UMA
-    IDS_FLAGS_TABPOSE_NAME,
-    IDS_FLAGS_TABPOSE_DESCRIPTION,
-    kOsMac,
-#if defined(OS_MACOSX)
-    // The switch exists only on OS X.
-    SINGLE_VALUE_TYPE(switches::kEnableExposeForTabs)
-#else
-    SINGLE_VALUE_TYPE("")
-#endif
-  },
   {
     kMediaPlayerExperimentName,
     IDS_FLAGS_MEDIA_PLAYER_NAME,
@@ -124,25 +114,9 @@ const Experiment kExperiments[] = {
   {
     "remoting",  // FLAGS:RECORD_UMA
     IDS_FLAGS_REMOTING_NAME,
-#if defined(OS_WIN)
-    // Windows only supports host functionality at the moment.
-    IDS_FLAGS_REMOTING_HOST_DESCRIPTION,
-#elif defined(OS_LINUX)  // Also true for CrOS.
-    // Linux only supports client functionality at the moment.
-    IDS_FLAGS_REMOTING_CLIENT_DESCRIPTION,
-#else
-    // On other platforms, this lab isn't available at all.
-    0,
-#endif
-    kOsWin | kOsLinux | kOsCrOS,
-    SINGLE_VALUE_TYPE(switches::kEnableRemoting)
-  },
-  {
-    "xss-auditor",  // FLAGS:RECORD_UMA
-    IDS_FLAGS_XSS_AUDITOR_NAME,
-    IDS_FLAGS_XSS_AUDITOR_DESCRIPTION,
+    IDS_FLAGS_REMOTING_DESCRIPTION,
     kOsAll,
-    SINGLE_VALUE_TYPE(switches::kEnableXSSAuditor)
+    SINGLE_VALUE_TYPE(switches::kEnableRemoting)
   },
   {
     "conflicting-modules-check",  // FLAGS:RECORD_UMA
@@ -175,10 +149,17 @@ const Experiment kExperiments[] = {
   },
   {
     "gpu-compositing",
-     IDS_FLAGS_ACCELERATED_COMPOSITING_NAME,
-     IDS_FLAGS_ACCELERATED_COMPOSITING_DESCRIPTION,
-     kOsAll,
-     SINGLE_VALUE_TYPE(switches::kEnableAcceleratedLayers)
+    IDS_FLAGS_ACCELERATED_COMPOSITING_NAME,
+    IDS_FLAGS_ACCELERATED_COMPOSITING_DESCRIPTION,
+    kOsAll,
+    SINGLE_VALUE_TYPE(switches::kEnableAcceleratedLayers)
+  },
+  {
+    "composited-layer-borders",
+    IDS_FLAGS_COMPOSITED_LAYER_BORDERS,
+    IDS_FLAGS_COMPOSITED_LAYER_BORDERS_DESCRIPTION,
+    kOsAll,
+    SINGLE_VALUE_TYPE(switches::kShowCompositedLayerBorders)
   },
   {
     "gpu-canvas-2d",  // FLAGS:RECORD_UMA
@@ -222,7 +203,7 @@ const Experiment kExperiments[] = {
     IDS_FLAGS_PAGE_PRERENDER_NAME,
     IDS_FLAGS_PAGE_PRERENDER_DESCRIPTION,
     kOsAll,
-    SINGLE_VALUE_TYPE(switches::kEnablePagePrerender)
+    MULTI_VALUE_TYPE(kPagePrerenderChoices)
   },
   {
     "confirm-to-quit",  // FLAGS:RECORD_UMA
@@ -260,11 +241,25 @@ const Experiment kExperiments[] = {
     SINGLE_VALUE_TYPE(switches::kExperimentalLocationFeatures)
   },
   {
-    "instant-type",  // FLAGS:RECORD_UMA
-    IDS_FLAGS_INSTANT_TYPE_NAME,
-    IDS_FLAGS_INSTANT_TYPE_DESCRIPTION,
-    kOsWin,
-    MULTI_VALUE_TYPE(kInstantChoices)
+    "block-reading-third-party-cookies",
+    IDS_FLAGS_BLOCK_ALL_THIRD_PARTY_COOKIES_NAME,
+    IDS_FLAGS_BLOCK_ALL_THIRD_PARTY_COOKIES_DESCRIPTION,
+    kOsAll,
+    SINGLE_VALUE_TYPE(switches::kBlockReadingThirdPartyCookies)
+  },
+  {
+    "disable-interactive-form-validation",
+    IDS_FLAGS_DISABLE_INTERACTIVE_FORM_VALIDATION_NAME,
+    IDS_FLAGS_DISABLE_INTERACTIVE_FORM_VALIDATION_DESCRIPTION,
+    kOsAll,
+    SINGLE_VALUE_TYPE(switches::kDisableInteractiveFormValidation)
+  },
+  {
+    "webaudio",
+    IDS_FLAGS_WEBAUDIO_NAME,
+    IDS_FLAGS_WEBAUDIO_DESCRIPTION,
+    kOsMac,  // TODO(crogers): add windows and linux when FFT is ready.
+    SINGLE_VALUE_TYPE(switches::kEnableWebAudio)
   },
 };
 
@@ -290,29 +285,10 @@ class FlagsState {
 
  private:
   bool needs_restart_;
-  std::set<std::string> flags_switches_;
+  std::map<std::string, std::string> flags_switches_;
 
   DISALLOW_COPY_AND_ASSIGN(FlagsState);
 };
-
-#if defined(OS_CHROMEOS)
-// Migrates Chrome OS Labs settings to experiments adding flags to enabled
-// experiment list if the corresponding pref is on.
-void MigrateChromeOSLabsPrefs(PrefService* prefs,
-                              std::set<std::string>* result) {
-  DCHECK(prefs);
-  DCHECK(result);
-  if (prefs->GetBoolean(prefs::kLabsMediaplayerEnabled))
-    result->insert(kMediaPlayerExperimentName);
-  if (prefs->GetBoolean(prefs::kLabsAdvancedFilesystemEnabled))
-    result->insert(kAdvancedFileSystemExperimentName);
-  if (prefs->GetBoolean(prefs::kUseVerticalTabs))
-    result->insert(kVerticalTabsExperimentName);
-  prefs->SetBoolean(prefs::kLabsMediaplayerEnabled, false);
-  prefs->SetBoolean(prefs::kLabsAdvancedFilesystemEnabled, false);
-  prefs->SetBoolean(prefs::kUseVerticalTabs, false);
-}
-#endif
 
 // Extracts the list of enabled lab experiments from preferences and stores them
 // in a set.
@@ -369,13 +345,35 @@ void AddInternalName(const Experiment& e, std::set<std::string>* names) {
   }
 }
 
+// Confirms that an experiment is valid, used in a DCHECK in
+// SanitizeList below.
+bool ValidateExperiment(const Experiment& e) {
+  switch (e.type) {
+    case Experiment::SINGLE_VALUE:
+      DCHECK_EQ(0, e.num_choices);
+      DCHECK(!e.choices);
+      break;
+    case Experiment::MULTI_VALUE:
+      DCHECK_GT(e.num_choices, 0);
+      DCHECK(e.choices);
+      DCHECK(e.choices[0].command_line_switch);
+      DCHECK_EQ('\0', e.choices[0].command_line_switch[0]);
+      break;
+    default:
+      NOTREACHED();
+  }
+  return true;
+}
+
 // Removes all experiments from prefs::kEnabledLabsExperiments that are
 // unknown, to prevent this list to become very long as experiments are added
 // and removed.
 void SanitizeList(PrefService* prefs) {
   std::set<std::string> known_experiments;
-  for (size_t i = 0; i < num_experiments; ++i)
+  for (size_t i = 0; i < num_experiments; ++i) {
+    DCHECK(ValidateExperiment(experiments[i]));
     AddInternalName(experiments[i], &known_experiments);
+  }
 
   std::set<std::string> enabled_experiments;
   GetEnabledFlags(prefs, &enabled_experiments);
@@ -421,10 +419,8 @@ void GetSanitizedEnabledFlagsForCurrentPlatform(
 }
 
 // Returns the Value representing the choice data in the specified experiment.
-// If one of the choices is enabled |is_one_selected| is set to true.
 Value* CreateChoiceData(const Experiment& experiment,
-                        const std::set<std::string>& enabled_experiments,
-                        bool* is_one_selected) {
+                        const std::set<std::string>& enabled_experiments) {
   DCHECK(experiment.type == Experiment::MULTI_VALUE);
   ListValue* result = new ListValue;
   for (int i = 0; i < experiment.num_choices; ++i) {
@@ -434,10 +430,7 @@ Value* CreateChoiceData(const Experiment& experiment,
     value->SetString("description",
                      l10n_util::GetStringUTF16(choice.description_id));
     value->SetString("internal_name", name);
-    bool is_selected = enabled_experiments.count(name) > 0;
-    if (is_selected)
-      *is_one_selected = true;
-    value->SetBoolean("selected", is_selected);
+    value->SetBoolean("selected", enabled_experiments.count(name) > 0);
     result->Append(value);
   }
   return result;
@@ -469,14 +462,19 @@ ListValue* GetFlagsExperimentsData(PrefService* prefs) {
                     l10n_util::GetStringUTF16(
                         experiment.visible_description_id));
 
-    bool enabled = enabled_experiments.count(experiment.internal_name) > 0;
-
-    if (experiment.type == Experiment::MULTI_VALUE) {
-      data->Set("choices", CreateChoiceData(experiment, enabled_experiments,
-                                            &enabled));
+    switch (experiment.type) {
+      case Experiment::SINGLE_VALUE:
+        data->SetBoolean(
+            "enabled",
+            enabled_experiments.count(experiment.internal_name) > 0);
+        break;
+      case Experiment::MULTI_VALUE:
+        data->Set("choices", CreateChoiceData(experiment, enabled_experiments));
+        break;
+      default:
+        NOTREACHED();
     }
 
-    data->SetBoolean("enabled", enabled);
     experiments_data->Append(data);
   }
   return experiments_data;
@@ -523,6 +521,7 @@ void RecordUMAStatistics(const PrefService* prefs) {
   // stats can be made meaningful.
   if (flags.size())
     UserMetrics::RecordAction(UserMetricsAction("AboutFlags_StartupTick"));
+  UserMetrics::RecordAction(UserMetricsAction("StartupTick"));
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -537,44 +536,52 @@ void FlagsState::ConvertFlagsToSwitches(
 
   std::set<std::string> enabled_experiments;
 
-#if defined(OS_CHROMEOS)
-  // Some experiments were implemented via prefs on Chrome OS and we want to
-  // seamlessly migrate these prefs to about:flags for updated users.
-  MigrateChromeOSLabsPrefs(prefs, &enabled_experiments);
-#endif
-
   GetSanitizedEnabledFlagsForCurrentPlatform(prefs, &enabled_experiments);
 
-  typedef std::map<std::string, std::string> NameToSwitchMap;
-  NameToSwitchMap name_to_switch_map;
+  typedef std::map<std::string, std::pair<std::string, std::string> >
+      NameToSwitchAndValueMap;
+  NameToSwitchAndValueMap name_to_switch_map;
   for (size_t i = 0; i < num_experiments; ++i) {
     const Experiment& e = experiments[i];
     if (e.type == Experiment::SINGLE_VALUE) {
-      name_to_switch_map[e.internal_name] = e.command_line;
+      name_to_switch_map[e.internal_name] =
+          std::pair<std::string, std::string>(e.command_line_switch,
+                                              e.command_line_value);
     } else {
       for (int j = 0; j < e.num_choices; ++j)
-        name_to_switch_map[NameForChoice(e, j)] = e.choices[j].command_line;
+        name_to_switch_map[NameForChoice(e, j)] =
+            std::pair<std::string, std::string>(
+                e.choices[j].command_line_switch,
+                e.choices[j].command_line_value);
     }
   }
 
   command_line->AppendSwitch(switches::kFlagSwitchesBegin);
-  flags_switches_.insert(switches::kFlagSwitchesBegin);
+  flags_switches_.insert(
+      std::pair<std::string, std::string>(switches::kFlagSwitchesBegin,
+                                          std::string()));
   for (std::set<std::string>::iterator it = enabled_experiments.begin();
        it != enabled_experiments.end();
        ++it) {
     const std::string& experiment_name = *it;
-    NameToSwitchMap::const_iterator name_to_switch_it =
+    NameToSwitchAndValueMap::const_iterator name_to_switch_it =
         name_to_switch_map.find(experiment_name);
     if (name_to_switch_it == name_to_switch_map.end()) {
       NOTREACHED();
       continue;
     }
 
-    command_line->AppendSwitch(name_to_switch_it->second);
-    flags_switches_.insert(name_to_switch_it->second);
+    const std::pair<std::string, std::string>&
+        switch_and_value_pair = name_to_switch_it->second;
+
+    command_line->AppendSwitchASCII(switch_and_value_pair.first,
+                                    switch_and_value_pair.second);
+    flags_switches_[switch_and_value_pair.first] = switch_and_value_pair.second;
   }
   command_line->AppendSwitch(switches::kFlagSwitchesEnd);
-  flags_switches_.insert(switches::kFlagSwitchesEnd);
+  flags_switches_.insert(
+      std::pair<std::string, std::string>(switches::kFlagSwitchesEnd,
+                                          std::string()));
 }
 
 bool FlagsState::IsRestartNeededToCommitChanges() {
@@ -591,13 +598,16 @@ void FlagsState::SetExperimentEnabled(
     // We're being asked to enable a multi-choice experiment. Disable the
     // currently selected choice.
     DCHECK_NE(at_index, 0u);
-    SetExperimentEnabled(prefs, internal_name.substr(0, at_index), false);
+    const std::string experiment_name = internal_name.substr(0, at_index);
+    SetExperimentEnabled(prefs, experiment_name, false);
 
-    // And enable the new choice.
-    std::set<std::string> enabled_experiments;
-    GetSanitizedEnabledFlags(prefs, &enabled_experiments);
-    enabled_experiments.insert(internal_name);
-    SetEnabledFlags(prefs, enabled_experiments);
+    // And enable the new choice, if it is not the default first choice.
+    if (internal_name != experiment_name + "@0") {
+      std::set<std::string> enabled_experiments;
+      GetSanitizedEnabledFlags(prefs, &enabled_experiments);
+      enabled_experiments.insert(internal_name);
+      SetEnabledFlags(prefs, enabled_experiments);
+    }
     return;
   }
 
@@ -641,10 +651,9 @@ void FlagsState::SetExperimentEnabled(
 
 void FlagsState::RemoveFlagsSwitches(
     std::map<std::string, CommandLine::StringType>* switch_list) {
-  for (std::set<std::string>::const_iterator it = flags_switches_.begin();
-       it != flags_switches_.end();
-       ++it) {
-    switch_list->erase(*it);
+  for (std::map<std::string, std::string>::const_iterator
+           it = flags_switches_.begin(); it != flags_switches_.end(); ++it) {
+    switch_list->erase(it->first);
   }
 }
 

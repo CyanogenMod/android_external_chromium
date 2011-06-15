@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,16 +11,16 @@
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_job.h"
 #include "net/url_request/url_request_test_job.h"
-#include "net/url_request/url_request_unittest.h"
+#include "net/url_request/url_request_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webkit/glue/plugins/plugin_list.h"
 
 namespace chromeos {
 
-class GViewURLRequestTestJob : public URLRequestTestJob {
+class GViewURLRequestTestJob : public net::URLRequestTestJob {
  public:
   explicit GViewURLRequestTestJob(net::URLRequest* request)
-      : URLRequestTestJob(request, true) {
+      : net::URLRequestTestJob(request, true) {
   }
 
   virtual bool GetMimeType(std::string* mime_type) const {
@@ -66,9 +66,9 @@ class GViewRequestInterceptorTest : public testing::Test {
   }
 
   void RegisterPDFPlugin() {
-    webkit::npapi::PluginVersionInfo info;
+    webkit::npapi::WebPluginInfo info;
     info.path = pdf_path_;
-    memset(&info.entry_points, 0, sizeof(info.entry_points));
+    info.enabled = webkit::npapi::WebPluginInfo::USER_ENABLED_POLICY_UNMANAGED;
     webkit::npapi::PluginList::Singleton()->RegisterInternalPlugin(info);
     webkit::npapi::PluginList::Singleton()->RefreshPlugins();
   }
@@ -96,7 +96,7 @@ class GViewRequestInterceptorTest : public testing::Test {
           pdf_path_, &info);
     }
     EXPECT_EQ(want_loaded, is_loaded);
-    *out_is_enabled = info.enabled;
+    *out_is_enabled = webkit::npapi::IsPluginEnabled(info);
   }
 
  protected:

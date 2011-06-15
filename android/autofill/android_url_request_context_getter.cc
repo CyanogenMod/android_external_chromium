@@ -26,7 +26,7 @@
 
 #include "android_url_request_context_getter.h"
 
-URLRequestContext* AndroidURLRequestContextGetter::GetURLRequestContext()
+net::URLRequestContext* AndroidURLRequestContextGetter::GetURLRequestContext()
 {
   return context_.get();
 }

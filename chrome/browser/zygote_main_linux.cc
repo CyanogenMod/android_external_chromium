@@ -232,10 +232,10 @@ class Zygote {
     Pickle write_pickle;
     write_pickle.WriteInt(static_cast<int>(status));
     write_pickle.WriteInt(exit_code);
-    if (HANDLE_EINTR(write(fd, write_pickle.data(), write_pickle.size())) !=
-        write_pickle.size()) {
+    ssize_t written =
+        HANDLE_EINTR(write(fd, write_pickle.data(), write_pickle.size()));
+    if (written != static_cast<ssize_t>(write_pickle.size()))
       PLOG(ERROR) << "write";
-    }
   }
 
   // This is equivalent to fork(), except that, when using the SUID
@@ -322,8 +322,10 @@ class Zygote {
     }
 
    error:
-    if (pid > 0)
-      waitpid(pid, NULL, WNOHANG);
+    if (pid > 0) {
+      if (waitpid(pid, NULL, WNOHANG) == -1)
+        LOG(ERROR) << "Failed to wait for process";
+    }
     if (dummy_fd >= 0)
       close(dummy_fd);
     if (pipe_fds[0] >= 0)
@@ -586,14 +588,6 @@ static void PreSandboxInit() {
   base::RandUint64();
 
   base::SysInfo::MaxSharedMemorySize();
-
-  // To make wcstombs/mbstowcs work in a renderer, setlocale() has to be
-  // called before the sandbox is triggered. It's possible to avoid calling
-  // setlocale() by pulling out the conversion between FilePath and
-  // WebCore String out of the renderer and using string16 in place of
-  // FilePath for IPC.
-  const char* locale = setlocale(LC_ALL, "");
-  LOG_IF(WARNING, locale == NULL) << "setlocale failed.";
 
   // ICU DateFormat class (used in base/time_format.cc) needs to get the
   // Olson timezone ID by accessing the zoneinfo files on disk. After

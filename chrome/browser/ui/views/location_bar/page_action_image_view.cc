@@ -2,15 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/location_bar/page_action_image_view.h"
+#include "chrome/browser/ui/views/location_bar/page_action_image_view.h"
 
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/extensions/extension_browser_event_router.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/views/frame/browser_view.h"
-#include "chrome/browser/views/location_bar/location_bar_view.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/common/extensions/extension_action.h"
 #include "chrome/common/extensions/extension_resource.h"
@@ -89,16 +89,13 @@ void PageActionImageView::ExecuteAction(int button,
     popup_ = ExtensionPopup::Show(
         page_action_->GetPopupUrl(current_tab_id_),
         browser,
-        browser->profile(),
-        browser->window()->GetNativeHandle(),
         screen_bounds,
         arrow_location,
-        true,  // Activate the popup window.
         inspect_with_devtools,
-        ExtensionPopup::BUBBLE_CHROME,
         this);  // ExtensionPopup::Observer
   } else {
-    ExtensionBrowserEventRouter::GetInstance()->PageActionExecuted(
+    ExtensionService* service = profile_->GetExtensionService();
+    service->browser_event_router()->PageActionExecuted(
         profile_, page_action_->extension_id(), page_action_->id(),
         current_tab_id_, current_url_.spec(), button);
   }
@@ -139,8 +136,7 @@ void PageActionImageView::OnMouseReleased(const views::MouseEvent& event,
 }
 
 bool PageActionImageView::OnKeyPressed(const views::KeyEvent& e) {
-  if (e.GetKeyCode() == app::VKEY_SPACE ||
-      e.GetKeyCode() == app::VKEY_RETURN) {
+  if (e.key_code() == ui::VKEY_SPACE || e.key_code() == ui::VKEY_RETURN) {
     ExecuteAction(1, false);
     return true;
   }
@@ -151,6 +147,9 @@ void PageActionImageView::ShowContextMenu(const gfx::Point& p,
                                           bool is_mouse_gesture) {
   const Extension* extension = profile_->GetExtensionService()->
       GetExtensionById(page_action()->extension_id(), false);
+  if (!extension->ShowConfigureContextMenus())
+    return;
+
   Browser* browser = BrowserView::GetBrowserViewForNativeWindow(
       platform_util::GetTopLevel(GetWidget()->GetNativeView()))->browser();
   context_menu_contents_ =
@@ -180,7 +179,7 @@ void PageActionImageView::OnImageLoaded(
   // During object construction (before the parent has been set) we are already
   // in a UpdatePageActions call, so we don't need to start another one (and
   // doing so causes crash described in http://crbug.com/57333).
-  if (GetParent())
+  if (parent())
     owner_->UpdatePageActions();
 }
 

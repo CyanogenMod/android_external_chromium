@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,24 +6,24 @@
 
 #include <algorithm>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/callback.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/rounded_rect_painter.h"
 #include "chrome/browser/chromeos/login/wizard_accessibility_helper.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "gfx/canvas.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "skia/ext/image_operations.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
 #include "views/controls/button/image_button.h"
 #include "views/controls/button/native_button.h"
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
 #include "views/controls/throbber.h"
-#include "views/grid_layout.h"
+#include "views/layout/grid_layout.h"
 
 namespace {
 
@@ -188,6 +188,8 @@ void UserImageView::Init() {
   snapshot_button_->SetImage(views::CustomButton::BS_DISABLED,
                              ResourceBundle::GetSharedInstance().GetBitmapNamed(
                                  IDR_USER_IMAGE_CAPTURE_DISABLED));
+  snapshot_button_->SetAccessibleName(l10n_util::GetStringUTF16(
+      IDS_CHROMEOS_ACC_ACCOUNT_PICTURE));
 
   ok_button_ = new login::WideButton(
       this, UTF16ToWide(l10n_util::GetStringUTF16(IDS_OK)));
@@ -288,13 +290,6 @@ void UserImageView::ShowCameraError() {
   user_image_->SetErrorState();
 }
 
-void UserImageView::ViewHierarchyChanged(bool is_add,
-                                         views::View* parent,
-                                         views::View* child) {
-  if (is_add && this == child)
-    WizardAccessibilityHelper::GetInstance()->MaybeEnableAccessibility(this);
-}
-
 gfx::Size UserImageView::GetPreferredSize() {
   return gfx::Size(width(), height());
 }
@@ -329,4 +324,3 @@ void UserImageView::ButtonPressed(
 }
 
 }  // namespace chromeos
-

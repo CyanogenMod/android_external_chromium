@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -336,7 +336,7 @@ class ExtensionUpdaterFileHandler
     }
     if (file_util::WriteFile(path, data.c_str(), data.length()) !=
         static_cast<int>(data.length())) {
-      // TODO(asargent) - It would be nice to back off updating alltogether if
+      // TODO(asargent) - It would be nice to back off updating altogether if
       // the disk is full. (http://crbug.com/12763).
       LOG(ERROR) << "Failed to write temporary file";
       file_util::Delete(path, false);
@@ -356,6 +356,20 @@ class ExtensionUpdaterFileHandler
 
   ~ExtensionUpdaterFileHandler() {}
 };
+
+ExtensionUpdater::ExtensionFetch::ExtensionFetch()
+    : id(""),
+      url(),
+      package_hash(""),
+      version("") {}
+
+ExtensionUpdater::ExtensionFetch::ExtensionFetch(const std::string& i,
+                                                 const GURL& u,
+                                                 const std::string& h,
+                                                 const std::string& v)
+    : id(i), url(u), package_hash(h), version(v) {}
+
+ExtensionUpdater::ExtensionFetch::~ExtensionFetch() {}
 
 ExtensionUpdater::ExtensionUpdater(ExtensionUpdateService* service,
                                    PrefService* prefs,
@@ -463,8 +477,11 @@ void ExtensionUpdater::Stop() {
 }
 
 void ExtensionUpdater::OnURLFetchComplete(
-    const URLFetcher* source, const GURL& url, const URLRequestStatus& status,
-    int response_code, const ResponseCookies& cookies,
+    const URLFetcher* source,
+    const GURL& url,
+    const net::URLRequestStatus& status,
+    int response_code,
+    const ResponseCookies& cookies,
     const std::string& data) {
   // Stop() destroys all our URLFetchers, which means we shouldn't be
   // called after Stop() is called.
@@ -553,13 +570,15 @@ class SafeManifestParser : public UtilityProcessHost::Client {
 };
 
 
-void ExtensionUpdater::OnManifestFetchComplete(const GURL& url,
-                                               const URLRequestStatus& status,
-                                               int response_code,
-                                               const std::string& data) {
+void ExtensionUpdater::OnManifestFetchComplete(
+    const GURL& url,
+    const net::URLRequestStatus& status,
+    int response_code,
+    const std::string& data) {
   // We want to try parsing the manifest, and if it indicates updates are
   // available, we want to fire off requests to fetch those updates.
-  if (status.status() == URLRequestStatus::SUCCESS && response_code == 200) {
+  if (status.status() == net::URLRequestStatus::SUCCESS &&
+      (response_code == 200 || (url.SchemeIsFile() && data.length() > 0))) {
     scoped_refptr<SafeManifestParser> safe_parser(
         new SafeManifestParser(data, current_manifest_fetch_.release(), this));
     safe_parser->Start();
@@ -643,11 +662,11 @@ void ExtensionUpdater::ProcessBlacklist(const std::string& data) {
 }
 
 void ExtensionUpdater::OnCRXFetchComplete(const GURL& url,
-                                          const URLRequestStatus& status,
+                                          const net::URLRequestStatus& status,
                                           int response_code,
                                           const std::string& data) {
-  if (status.status() == URLRequestStatus::SUCCESS &&
-      response_code == 200) {
+  if (status.status() == net::URLRequestStatus::SUCCESS &&
+      (response_code == 200 || (url.SchemeIsFile() && data.length() > 0))) {
     if (current_extension_fetch_.id == kBlacklistAppID) {
       ProcessBlacklist(data);
     } else {
@@ -761,7 +780,7 @@ void ExtensionUpdater::CheckNow() {
 
   // Start a fetch of the blacklist if needed.
   if (blacklist_checks_enabled_ && service_->HasInstalledExtensions()) {
-    // Note: it is very important that we use the https version of the update
+    // Note: it is very important that we use  the https version of the update
     // url here to avoid DNS hijacking of the blacklist, which is not validated
     // by a public key signature like .crx files are.
     ManifestFetchData* blacklist_fetch =
@@ -891,7 +910,8 @@ void ExtensionUpdater::StartUpdateCheck(ManifestFetchData* fetch_data) {
     manifest_fetcher_.reset(
         URLFetcher::Create(kManifestFetcherId, fetch_data->full_url(),
                            URLFetcher::GET, this));
-    manifest_fetcher_->set_request_context(Profile::GetDefaultRequestContext());
+    manifest_fetcher_->set_request_context(
+        service_->profile()->GetRequestContext());
     manifest_fetcher_->set_load_flags(net::LOAD_DO_NOT_SEND_COOKIES |
                                       net::LOAD_DO_NOT_SAVE_COOKIES |
                                       net::LOAD_DISABLE_CACHE);
@@ -919,7 +939,7 @@ void ExtensionUpdater::FetchUpdatedExtension(const std::string& id,
     extension_fetcher_.reset(
         URLFetcher::Create(kExtensionFetcherId, url, URLFetcher::GET, this));
     extension_fetcher_->set_request_context(
-        Profile::GetDefaultRequestContext());
+        service_->profile()->GetRequestContext());
     extension_fetcher_->set_load_flags(net::LOAD_DO_NOT_SEND_COOKIES |
                                        net::LOAD_DO_NOT_SAVE_COOKIES |
                                        net::LOAD_DISABLE_CACHE);

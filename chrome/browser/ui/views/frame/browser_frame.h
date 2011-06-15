@@ -9,15 +9,17 @@
 #include "build/build_config.h"
 #include "views/window/non_client_view.h"
 
-class BaseTabStrip;
 class BrowserView;
 class Profile;
-class ThemeProvider;
 
 namespace gfx {
 class Font;
 class Rect;
 }  // namespace gfx
+
+namespace ui {
+class ThemeProvider;
+}
 
 namespace views {
 class Window;
@@ -47,8 +49,8 @@ class BrowserFrame {
   virtual int GetMinimizeButtonOffset() const = 0;
 
   // Retrieves the bounds, in non-client view coordinates for the specified
-  // TabStrip.
-  virtual gfx::Rect GetBoundsForTabStrip(BaseTabStrip* tabstrip) const = 0;
+  // TabStrip view.
+  virtual gfx::Rect GetBoundsForTabStrip(views::View* tabstrip) const = 0;
 
   // Returns the y coordinate within the window at which the horizontal TabStrip
   // begins (or would begin).  If |restored| is true, this is calculated as if
@@ -59,7 +61,7 @@ class BrowserFrame {
   virtual void UpdateThrobber(bool running) = 0;
 
   // Returns the theme provider for this frame.
-  virtual ThemeProvider* GetThemeProviderForFrame() const = 0;
+  virtual ui::ThemeProvider* GetThemeProviderForFrame() const = 0;
 
   // Returns true if the window should use the native frame view. This is true
   // if there are no themes applied on Vista, or if there are themes applied and

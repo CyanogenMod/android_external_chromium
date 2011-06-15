@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,7 +24,8 @@ class SpeechRecognizerTest : public SpeechRecognizerDelegate,
       : io_thread_(BrowserThread::IO, &message_loop_),
         ALLOW_THIS_IN_INITIALIZER_LIST(
             recognizer_(new SpeechRecognizer(this, 1, std::string(),
-                                             std::string(), std::string()))),
+                                             std::string(), std::string(),
+                                             std::string()))),
         recording_complete_(false),
         recognition_complete_(false),
         result_received_(false),
@@ -36,10 +37,6 @@ class SpeechRecognizerTest : public SpeechRecognizerDelegate,
          SpeechRecognizer::kNumAudioChannels *
          SpeechRecognizer::kNumBitsPerAudioSample) / (8 * 1000);
     audio_packet_.resize(audio_packet_length_bytes);
-  }
-
-  void StartTest() {
-    EXPECT_TRUE(recognizer_->StartRecording());
   }
 
   // SpeechRecognizer::Delegate methods.
@@ -142,8 +139,8 @@ TEST_F(SpeechRecognizerTest, StopWithData) {
   // Issue the network callback to complete the process.
   TestURLFetcher* fetcher = url_fetcher_factory_.GetFetcherByID(0);
   ASSERT_TRUE(fetcher);
-  URLRequestStatus status;
-  status.set_status(URLRequestStatus::SUCCESS);
+  net::URLRequestStatus status;
+  status.set_status(net::URLRequestStatus::SUCCESS);
   fetcher->delegate()->OnURLFetchComplete(
       fetcher, fetcher->original_url(), status, 200, ResponseCookies(),
       "{\"hypotheses\":[{\"utterance\":\"123\"}]}");

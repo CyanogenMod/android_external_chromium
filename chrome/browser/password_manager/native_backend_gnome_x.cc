@@ -169,7 +169,6 @@ PasswordForm* FormFromAttributes(GnomeKeyringAttributeList* attrs) {
   bool date_ok = base::StringToInt64(string_attr_map["date_created"],
                                      &date_created);
   DCHECK(date_ok);
-  DCHECK_NE(date_created, 0);
   form->date_created = base::Time::FromTimeT(date_created);
   form->blacklisted_by_user = uint_attr_map["blacklisted_by_user"];
   form->scheme = static_cast<PasswordForm::Scheme>(uint_attr_map["scheme"]);
@@ -189,7 +188,11 @@ void ConvertFormList(GList* found,
 
     PasswordForm* form = FormFromAttributes(attrs);
     if (form) {
-      form->password_value = UTF8ToUTF16(data->secret);
+      if (data->secret) {
+        form->password_value = UTF8ToUTF16(data->secret);
+      } else {
+        LOG(WARNING) << "Unable to access password from list element!";
+      }
       forms->push_back(form);
     } else {
       LOG(WARNING) << "Could not initialize PasswordForm from attributes!";
@@ -305,6 +308,11 @@ class GKRMethod {
 
 void GKRMethod::AddLogin(const PasswordForm& form) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  time_t date_created = form.date_created.ToTimeT();
+  // If we are asked to save a password with 0 date, use the current time.
+  // We don't want to actually save passwords as though on January 1, 1970.
+  if (!date_created)
+    date_created = time(NULL);
   gnome_keyring_store_password(
       &kGnomeSchema,
       NULL,  // Default keyring.
@@ -322,7 +330,7 @@ void GKRMethod::AddLogin(const PasswordForm& form) {
       "signon_realm", form.signon_realm.c_str(),
       "ssl_valid", form.ssl_valid,
       "preferred", form.preferred,
-      "date_created", base::Int64ToString(form.date_created.ToTimeT()).c_str(),
+      "date_created", base::Int64ToString(date_created).c_str(),
       "blacklisted_by_user", form.blacklisted_by_user,
       "scheme", form.scheme,
       "application", GNOME_KEYRING_APPLICATION_CHROME,
@@ -521,10 +529,14 @@ void GKRMethod::OnOperationGetInfo(GnomeKeyringResult result,
   // |info| will be freed after this callback returns, so use it now.
   if (result == GNOME_KEYRING_RESULT_OK) {
     char* secret = gnome_keyring_item_info_get_secret(info);
-    method->password_ = UTF8ToUTF16(secret);
-    // gnome_keyring_item_info_get_secret() allocates and returns a new copy
-    // of the secret, so we have to free it afterward.
-    free(secret);
+    if (secret) {
+      method->password_ = UTF8ToUTF16(secret);
+      // gnome_keyring_item_info_get_secret() allocates and returns a new copy
+      // of the secret, so we have to free it afterward.
+      free(secret);
+    } else {
+      LOG(WARNING) << "Unable to access password from item info!";
+    }
   }
   method->event_.Signal();
 }
@@ -775,7 +787,7 @@ bool NativeBackendGnome::GetAllLogins(PasswordFormList* forms) {
   for (size_t i = 0; i < item_ids.size(); ++i) {
     result = methods[i].WaitResult(&all_forms[i]);
     if (result != GNOME_KEYRING_RESULT_OK) {
-      LOG(ERROR) << "Keyring get item attributes failed:"
+      LOG(ERROR) << "Keyring get item attributes failed: "
                  << gnome_keyring_result_to_message(result);
       // We explicitly do not break out here. We must wait on all the other
       // methods first, and we may have already posted new methods. So, we just
@@ -796,7 +808,7 @@ bool NativeBackendGnome::GetAllLogins(PasswordFormList* forms) {
       continue;
     result = methods[i].WaitResult(&all_forms[i]->password_value);
     if (result != GNOME_KEYRING_RESULT_OK) {
-      LOG(ERROR) << "Keyring get item info failed:"
+      LOG(ERROR) << "Keyring get item info failed: "
                  << gnome_keyring_result_to_message(result);
       delete all_forms[i];
       all_forms[i] = NULL;

@@ -13,7 +13,7 @@
 #include "chrome/common/render_messages.h"
 #include "chrome/common/render_messages_params.h"
 #include "chrome/test/testing_profile.h"
-#include "gfx/rect.h"
+#include "ui/gfx/rect.h"
 #include "webkit/glue/webpreferences.h"
 #include "webkit/glue/password_form.h"
 
@@ -111,6 +111,35 @@ TestRenderWidgetHostView::TestRenderWidgetHostView(RenderWidgetHost* rwh)
 TestRenderWidgetHostView::~TestRenderWidgetHostView() {
 }
 
+RenderWidgetHost* TestRenderWidgetHostView::GetRenderWidgetHost() const {
+  return NULL;
+}
+
+gfx::NativeView TestRenderWidgetHostView::GetNativeView() {
+  return NULL;
+}
+
+bool TestRenderWidgetHostView::HasFocus() {
+  return true;
+}
+
+void TestRenderWidgetHostView::Show() {
+  is_showing_ = true;
+}
+
+void TestRenderWidgetHostView::Hide() {
+  is_showing_ = false;
+}
+
+bool TestRenderWidgetHostView::IsShowing() {
+  return is_showing_;
+}
+
+void TestRenderWidgetHostView::RenderViewGone(base::TerminationStatus status,
+                                              int error_code) {
+  delete this;
+}
+
 gfx::Rect TestRenderWidgetHostView::GetViewBounds() const {
   return gfx::Rect();
 }
@@ -131,7 +160,7 @@ void TestRenderWidgetHostView::ShowPopupWithItems(
     bool right_aligned) {
 }
 
-gfx::Rect TestRenderWidgetHostView::GetWindowRect() {
+gfx::Rect TestRenderWidgetHostView::GetViewCocoaBounds() const {
   return gfx::Rect();
 }
 
@@ -143,8 +172,11 @@ void TestRenderWidgetHostView::SetActive(bool active) {
   // <viettrungluu@gmail.com>: Do I need to do anything here?
 }
 
-void TestRenderWidgetHostView::SetPluginImeEnabled(bool enabled,
-                                                   int plugin_id) {
+void TestRenderWidgetHostView::PluginFocusChanged(bool focused,
+                                                  int plugin_id) {
+}
+
+void TestRenderWidgetHostView::StartPluginIme() {
 }
 
 bool TestRenderWidgetHostView::PostProcessEventForPluginIme(
@@ -198,6 +230,11 @@ void TestRenderWidgetHostView::WillWmDestroy() {
 void TestRenderWidgetHostView::ShowCompositorHostWindow(bool show) {
 }
 #endif
+
+bool TestRenderWidgetHostView::ContainsNativeView(
+    gfx::NativeView native_view) const {
+  return false;
+}
 
 TestRenderViewHostFactory::TestRenderViewHostFactory(
     RenderProcessHostFactory* rph_factory)

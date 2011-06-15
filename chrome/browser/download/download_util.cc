@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -11,8 +11,6 @@
 #endif
 #include <string>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/file_util.h"
 #include "base/i18n/rtl.h"
 #include "base/i18n/time_formatting.h"
@@ -38,14 +36,11 @@
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
-#include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/time_format.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/rect.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
@@ -54,28 +49,31 @@
 #include "skia/ext/image_operations.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "third_party/skia/include/core/SkShader.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/rect.h"
 
 #if defined(TOOLKIT_VIEWS)
-#include "app/os_exchange_data.h"
+#include "ui/base/dragdrop/os_exchange_data.h"
 #include "views/drag_utils.h"
 #endif
 
 #if defined(TOOLKIT_USES_GTK)
 #if defined(TOOLKIT_VIEWS)
-#include "app/drag_drop_types.h"
+#include "ui/base/dragdrop/drag_drop_types.h"
 #include "views/widget/widget_gtk.h"
 #elif defined(TOOLKIT_GTK)
-#include "chrome/browser/gtk/custom_drag.h"
+#include "chrome/browser/ui/gtk/custom_drag.h"
 #endif  // defined(TOOLKIT_GTK)
 #endif  // defined(TOOLKIT_USES_GTK)
 
 #if defined(OS_WIN)
-#include "app/os_exchange_data_provider_win.h"
-#include "app/win/drag_source.h"
-#include "app/win/win_util.h"
 #include "base/win/scoped_comptr.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
+#include "ui/base/dragdrop/drag_source.h"
+#include "ui/base/dragdrop/os_exchange_data_provider_win.h"
 #endif
 
 namespace download_util {
@@ -117,6 +115,44 @@ bool IsShellIntegratedExtension(const string16& extension) {
   if (extension_lower.size() > 0 && extension_lower.at(0) == L'{' &&
       extension_lower.at(extension_lower.length() - 1) == L'}')
     return true;
+
+  return false;
+}
+
+// Returns whether the specified file name is a reserved name on windows.
+// This includes names like "com2.zip" (which correspond to devices) and
+// desktop.ini and thumbs.db which have special meaning to the windows shell.
+bool IsReservedName(const string16& filename) {
+  // This list is taken from the MSDN article "Naming a file"
+  // http://msdn2.microsoft.com/en-us/library/aa365247(VS.85).aspx
+  // I also added clock$ because GetSaveFileName seems to consider it as a
+  // reserved name too.
+  static const wchar_t* const known_devices[] = {
+    L"con", L"prn", L"aux", L"nul", L"com1", L"com2", L"com3", L"com4", L"com5",
+    L"com6", L"com7", L"com8", L"com9", L"lpt1", L"lpt2", L"lpt3", L"lpt4",
+    L"lpt5", L"lpt6", L"lpt7", L"lpt8", L"lpt9", L"clock$"
+  };
+  string16 filename_lower = StringToLowerASCII(filename);
+
+  for (int i = 0; i < arraysize(known_devices); ++i) {
+    // Exact match.
+    if (filename_lower == known_devices[i])
+      return true;
+    // Starts with "DEVICE.".
+    if (filename_lower.find(string16(known_devices[i]) + L".") == 0)
+      return true;
+  }
+
+  static const wchar_t* const magic_names[] = {
+    // These file names are used by the "Customize folder" feature of the shell.
+    L"desktop.ini",
+    L"thumbs.db",
+  };
+
+  for (int i = 0; i < arraysize(magic_names); ++i) {
+    if (filename_lower == magic_names[i])
+      return true;
+  }
 
   return false;
 }
@@ -218,20 +254,24 @@ void GenerateFileName(const GURL& url,
                       const std::string& referrer_charset,
                       const std::string& mime_type,
                       FilePath* generated_name) {
-#if defined(OS_WIN)
-  FilePath default_file_path(
+  string16 default_file_name(
       l10n_util::GetStringUTF16(IDS_DEFAULT_DOWNLOAD_FILENAME));
-#elif defined(OS_POSIX)
-  std::string default_file =
-      l10n_util::GetStringUTF8(IDS_DEFAULT_DOWNLOAD_FILENAME);
-  FilePath default_file_path(
-      base::SysWideToNativeMB(base::SysUTF8ToWide(default_file)));
-#endif
 
-  *generated_name = net::GetSuggestedFilename(GURL(url),
-                                              content_disposition,
-                                              referrer_charset,
-                                              default_file_path);
+  string16 new_name = net::GetSuggestedFilename(GURL(url),
+                                                content_disposition,
+                                                referrer_charset,
+                                                default_file_name);
+
+  // TODO(evan): this code is totally wrong -- we should just generate
+  // Unicode filenames and do all this encoding switching at the end.
+  // However, I'm just shuffling wrong code around, at least not adding
+  // to it.
+#if defined(OS_WIN)
+  *generated_name = FilePath(new_name);
+#else
+  *generated_name = FilePath(
+      base::SysWideToNativeMB(UTF16ToWide(new_name)));
+#endif
 
   DCHECK(!generated_name->empty());
 
@@ -248,7 +288,7 @@ void GenerateSafeFileName(const std::string& mime_type, FilePath* file_name) {
   // Prepend "_" to the file name if it's a reserved name
   FilePath::StringType leaf_name = file_name->BaseName().value();
   DCHECK(!leaf_name.empty());
-  if (app::win::IsReservedName(leaf_name)) {
+  if (IsReservedName(leaf_name)) {
     leaf_name = FilePath::StringType(FILE_PATH_LITERAL("_")) + leaf_name;
     *file_name = file_name->DirName();
     if (file_name->value() == FilePath::kCurrentDirectory) {
@@ -337,9 +377,9 @@ void PaintDownloadProgress(gfx::Canvas* canvas,
 
 #if defined(TOOLKIT_VIEWS)
   // Mirror the positions if necessary.
-  int mirrored_x = containing_view->MirroredLeftPointForRect(background_bounds);
+  int mirrored_x = containing_view->GetMirroredXForRect(background_bounds);
   background_bounds.set_x(mirrored_x);
-  mirrored_x = containing_view->MirroredLeftPointForRect(foreground_bounds);
+  mirrored_x = containing_view->GetMirroredXForRect(foreground_bounds);
   foreground_bounds.set_x(mirrored_x);
 #endif
 
@@ -424,8 +464,7 @@ void PaintDownloadComplete(gfx::Canvas* canvas,
                             complete->width(), complete->height());
 #if defined(TOOLKIT_VIEWS)
   // Mirror the positions if necessary.
-  complete_bounds.set_x(
-      containing_view->MirroredLeftPointForRect(complete_bounds));
+  complete_bounds.set_x(containing_view->GetMirroredXForRect(complete_bounds));
 #endif
 
   // Start at full opacity, then loop back and forth five times before ending
@@ -469,7 +508,7 @@ void DragDownload(const DownloadItem* download,
   DCHECK(download);
 
   // Set up our OLE machinery
-  OSExchangeData data;
+  ui::OSExchangeData data;
 
   if (icon) {
     drag_utils::CreateDragImageForFile(
@@ -477,7 +516,7 @@ void DragDownload(const DownloadItem* download,
   }
 
   const FilePath full_path = download->full_path();
-  data.SetFilename(full_path.ToWStringHack());
+  data.SetFilename(full_path);
 
   std::string mime_type = download->mime_type();
   if (mime_type.empty())
@@ -490,12 +529,12 @@ void DragDownload(const DownloadItem* download,
   }
 
 #if defined(OS_WIN)
-  scoped_refptr<app::win::DragSource> drag_source(new app::win::DragSource);
+  scoped_refptr<ui::DragSource> drag_source(new ui::DragSource);
 
   // Run the drag and drop loop
   DWORD effects;
-  DoDragDrop(OSExchangeDataProviderWin::GetIDataObject(data), drag_source.get(),
-             DROPEFFECT_COPY | DROPEFFECT_LINK, &effects);
+  DoDragDrop(ui::OSExchangeDataProviderWin::GetIDataObject(data),
+             drag_source.get(), DROPEFFECT_COPY | DROPEFFECT_LINK, &effects);
 #elif defined(TOOLKIT_USES_GTK)
   GtkWidget* root = gtk_widget_get_toplevel(view);
   if (!root)
@@ -504,7 +543,8 @@ void DragDownload(const DownloadItem* download,
   if (!widget)
     return;
 
-  widget->DoDrag(data, DragDropTypes::DRAG_COPY | DragDropTypes::DRAG_LINK);
+  widget->DoDrag(data,
+                 ui::DragDropTypes::DRAG_COPY | ui::DragDropTypes::DRAG_LINK);
 #endif  // OS_WIN
 }
 #elif defined(USE_X11)
@@ -637,7 +677,11 @@ void UpdateAppIconDownloadProgress(int download_count,
   // Iterate through all the browser windows, and draw the progress bar.
   for (BrowserList::const_iterator browser_iterator = BrowserList::begin();
       browser_iterator != BrowserList::end(); browser_iterator++) {
-    HWND frame = (*browser_iterator)->window()->GetNativeHandle();
+    Browser* browser = *browser_iterator;
+    BrowserWindow* window = browser->window();
+    if (!window)
+      continue;
+    HWND frame = window->GetNativeHandle();
     if (download_count == 0 || progress == 1.0f)
       taskbar->SetProgressState(frame, TBPF_NOPROGRESS);
     else if (!progress_known)
@@ -685,7 +729,8 @@ void DownloadUrl(
     URLRequestContextGetter* request_context_getter) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
-  URLRequestContext* context = request_context_getter->GetURLRequestContext();
+  net::URLRequestContext* context =
+      request_context_getter->GetURLRequestContext();
   context->set_referrer_charset(referrer_charset);
 
   rdh->BeginDownload(url,
@@ -753,24 +798,25 @@ FilePath GetCrDownloadPath(const FilePath& suggested_path) {
 }
 
 // TODO(erikkay,phajdan.jr): This is apparently not being exercised in tests.
-bool IsDangerous(DownloadCreateInfo* info, Profile* profile) {
+bool IsDangerous(DownloadCreateInfo* info, Profile* profile, bool auto_open) {
   DownloadDangerLevel danger_level = GetFileDangerLevel(
       info->suggested_path.BaseName());
 
+  bool ret = false;
   if (danger_level == Dangerous) {
-    return true;
+    ret = !(auto_open && info->has_user_gesture);
   } else if (danger_level == AllowOnUserGesture && !info->has_user_gesture) {
-    return true;
+    ret = true;
   } else if (info->is_extension_install) {
     ExtensionService* service = profile->GetExtensionService();
     if (!service ||
         !service->IsDownloadFromGallery(info->url, info->referrer_url)) {
       // Extensions that are not from the gallery are considered dangerous.
-      return true;
+      ret = true;
     }
   }
 
-  return false;
+  return ret;
 }
 
 }  // namespace download_util

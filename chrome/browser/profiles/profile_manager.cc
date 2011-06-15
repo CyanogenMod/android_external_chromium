@@ -12,8 +12,6 @@
 #include "base/string_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/chrome_constants.h"
@@ -23,7 +21,6 @@
 #include "chrome/common/net/url_request_context_getter.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
-#include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
 #include "net/http/http_transaction_factory.h"
 #include "net/url_request/url_request_context.h"
@@ -38,7 +35,7 @@
 // static
 void ProfileManager::ShutdownSessionServices() {
   ProfileManager* pm = g_browser_process->profile_manager();
-  if (!pm) // Is NULL when running unit tests.
+  if (!pm)  // Is NULL when running unit tests.
     return;
   for (ProfileManager::const_iterator i = pm->begin(); i != pm->end(); ++i)
     (*i)->ShutdownSessionService();
@@ -53,7 +50,7 @@ Profile* ProfileManager::GetDefaultProfile() {
 }
 
 ProfileManager::ProfileManager() : logged_in_(false) {
-  SystemMonitor::Get()->AddObserver(this);
+  ui::SystemMonitor::Get()->AddObserver(this);
 #if defined(OS_CHROMEOS)
   registrar_.Add(
       this,
@@ -63,7 +60,7 @@ ProfileManager::ProfileManager() : logged_in_(false) {
 }
 
 ProfileManager::~ProfileManager() {
-  SystemMonitor* system_monitor = SystemMonitor::Get();
+  ui::SystemMonitor* system_monitor = ui::SystemMonitor::Get();
   if (system_monitor)
     system_monitor->RemoveObserver(this);
 

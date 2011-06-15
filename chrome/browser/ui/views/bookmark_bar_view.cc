@@ -1,18 +1,14 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/bookmark_bar_view.h"
+#include "chrome/browser/ui/views/bookmark_bar_view.h"
 
 #include <algorithm>
 #include <limits>
 #include <set>
 #include <vector>
 
-#include "app/l10n_util.h"
-#include "app/os_exchange_data.h"
-#include "app/resource_bundle.h"
-#include "app/text_elider.h"
 #include "base/i18n/rtl.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -38,11 +34,15 @@
 #include "chrome/common/notification_service.h"
 #include "chrome/common/page_transition_types.h"
 #include "chrome/common/pref_names.h"
-#include "gfx/canvas_skia.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "ui/base/animation/slide_animation.h"
+#include "ui/base/dragdrop/os_exchange_data.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/text/text_elider.h"
+#include "ui/gfx/canvas_skia.h"
 #include "views/controls/button/menu_button.h"
 #include "views/controls/label.h"
 #include "views/controls/menu/menu_item_view.h"
@@ -53,7 +53,7 @@
 #include "views/window/window.h"
 
 #if defined(OS_WIN)
-#include "chrome/browser/views/importer_view.h"
+#include "chrome/browser/ui/views/importer_view.h"
 #endif
 
 using views::CustomButton;
@@ -126,46 +126,6 @@ static const int kSyncErrorButtonTag = 2;
 
 namespace {
 
-// Returns the tooltip text for the specified url and title. The returned
-// text is clipped to fit within the bounds of the monitor.
-//
-// Note that we adjust the direction of both the URL and the title based on the
-// locale so that pure LTR strings are displayed properly in RTL locales.
-static std::wstring CreateToolTipForURLAndTitle(const gfx::Point& screen_loc,
-                                                const GURL& url,
-                                                const std::wstring& title,
-                                                const std::wstring& languages) {
-  int max_width = views::TooltipManager::GetMaxWidth(screen_loc.x(),
-                                                     screen_loc.y());
-  gfx::Font tt_font = views::TooltipManager::GetDefaultFont();
-  std::wstring result;
-
-  // First the title.
-  if (!title.empty()) {
-    std::wstring localized_title = title;
-    base::i18n::AdjustStringForLocaleDirection(&localized_title);
-    result.append(UTF16ToWideHack(gfx::ElideText(WideToUTF16Hack(
-        localized_title), tt_font, max_width, false)));
-  }
-
-  // Only show the URL if the url and title differ.
-  if (title != UTF8ToWide(url.spec())) {
-    if (!result.empty())
-      result.append(views::TooltipManager::GetLineSeparator());
-
-    // We need to explicitly specify the directionality of the URL's text to
-    // make sure it is treated as an LTR string when the context is RTL. For
-    // example, the URL "http://www.yahoo.com/" appears as
-    // "/http://www.yahoo.com" when rendered, as is, in an RTL context since
-    // the Unicode BiDi algorithm puts certain characters on the left by
-    // default.
-    string16 elided_url(gfx::ElideUrl(url, tt_font, max_width, languages));
-    elided_url = base::i18n::GetDisplayStringInLTRDirectionality(elided_url);
-    result.append(UTF16ToWideHack(elided_url));
-  }
-  return result;
-}
-
 // BookmarkButton -------------------------------------------------------------
 
 // Buttons used for the bookmarks on the bookmark bar.
@@ -192,8 +152,8 @@ class BookmarkButton : public views::TextButton {
   bool GetTooltipText(const gfx::Point& p, std::wstring* tooltip) {
     gfx::Point location(p);
     ConvertPointToScreen(this, &location);
-    *tooltip = CreateToolTipForURLAndTitle(location, url_, text(),
-        UTF8ToWide(profile_->GetPrefs()->GetString(prefs::kAcceptLanguages)));
+    *tooltip = BookmarkBarView::CreateToolTipForURLAndTitle(location, url_,
+        text(), profile_);
     return !tooltip->empty();
   }
 
@@ -233,12 +193,12 @@ class BookmarkFolderButton : public views::MenuButton {
   virtual bool IsTriggerableEvent(const views::MouseEvent& e) {
     // Left clicks should show the menu contents and right clicks should show
     // the context menu. They should not trigger the opening of underlying urls.
-    if (e.GetFlags() == views::MouseEvent::EF_LEFT_BUTTON_DOWN ||
-        e.GetFlags() == views::MouseEvent::EF_RIGHT_BUTTON_DOWN)
+    if (e.flags() == ui::EF_LEFT_BUTTON_DOWN ||
+        e.flags() == ui::EF_RIGHT_BUTTON_DOWN)
       return false;
 
     WindowOpenDisposition disposition(
-        event_utils::DispositionFromEventFlags(e.GetFlags()));
+        event_utils::DispositionFromEventFlags(e.flags()));
     return disposition != CURRENT_TAB;
   }
 
@@ -497,11 +457,6 @@ void BookmarkBarView::Layout() {
   LayoutItems(false);
 }
 
-void BookmarkBarView::DidChangeBounds(const gfx::Rect& previous,
-                                      const gfx::Rect& current) {
-  Layout();
-}
-
 void BookmarkBarView::ViewHierarchyChanged(bool is_add,
                                            View* parent,
                                            View* child) {
@@ -513,8 +468,8 @@ void BookmarkBarView::ViewHierarchyChanged(bool is_add,
 
     if (height() > 0) {
       // We only layout while parented. When we become parented, if our bounds
-      // haven't changed, DidChangeBounds won't get invoked and we won't layout.
-      // Therefore we always force a layout when added.
+      // haven't changed, OnBoundsChanged() won't get invoked and we won't
+      // layout. Therefore we always force a layout when added.
       Layout();
     }
   }
@@ -552,7 +507,7 @@ void BookmarkBarView::PaintChildren(gfx::Canvas* canvas) {
                                y,
                                kDropIndicatorWidth,
                                h);
-    indicator_bounds.set_x(MirroredLeftPointForRect(indicator_bounds));
+    indicator_bounds.set_x(GetMirroredXForRect(indicator_bounds));
 
     // TODO(sky/glen): make me pretty!
     canvas->FillRectInt(kDropIndicatorColor, indicator_bounds.x(),
@@ -563,10 +518,10 @@ void BookmarkBarView::PaintChildren(gfx::Canvas* canvas) {
 
 bool BookmarkBarView::GetDropFormats(
       int* formats,
-      std::set<OSExchangeData::CustomFormat>* custom_formats) {
+      std::set<ui::OSExchangeData::CustomFormat>* custom_formats) {
   if (!model_ || !model_->IsLoaded())
     return false;
-  *formats = OSExchangeData::URL;
+  *formats = ui::OSExchangeData::URL;
   custom_formats->insert(BookmarkNodeData::GetBookmarkCustomFormat());
   return true;
 }
@@ -575,7 +530,7 @@ bool BookmarkBarView::AreDropTypesRequired() {
   return true;
 }
 
-bool BookmarkBarView::CanDrop(const OSExchangeData& data) {
+bool BookmarkBarView::CanDrop(const ui::OSExchangeData& data) {
   if (!model_ || !model_->IsLoaded())
     return false;
 
@@ -674,7 +629,7 @@ int BookmarkBarView::OnPerformDrop(const DropTargetEvent& event) {
     bookmark_drop_menu_->Cancel();
 
   if (!drop_info_.get() || !drop_info_->drag_operation)
-    return DragDropTypes::DRAG_NONE;
+    return ui::DragDropTypes::DRAG_NONE;
 
   const BookmarkNode* root =
       drop_info_->is_over_other ? model_->other_node() :
@@ -822,7 +777,7 @@ const BookmarkNode* BookmarkBarView::GetNodeForButtonAt(const gfx::Point& loc,
   if (loc.x() < 0 || loc.x() >= width() || loc.y() < 0 || loc.y() >= height())
     return NULL;
 
-  gfx::Point adjusted_loc(MirroredXCoordinateInsideView(loc.x()), loc.y());
+  gfx::Point adjusted_loc(GetMirroredXInView(loc.x()), loc.y());
 
   // Check the buttons first.
   for (int i = 0; i < GetBookmarkButtonCount(); ++i) {
@@ -915,7 +870,7 @@ void BookmarkBarView::Init() {
 
   bookmarks_separator_view_ = new ButtonSeparatorView();
   bookmarks_separator_view_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_SEPARATOR)));
+      l10n_util::GetStringUTF16(IDS_ACCNAME_SEPARATOR));
   AddChildView(bookmarks_separator_view_);
 
   instructions_ = new BookmarkBarInstructionsView(this);
@@ -937,7 +892,7 @@ MenuButton* BookmarkBarView::CreateOtherBookmarkedButton() {
   button->SetContextMenuController(this);
   button->set_tag(kOtherFolderButtonTag);
   button->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_OTHER_BOOKMARKED)));
+      l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_OTHER_BOOKMARKED));
   return button;
 }
 
@@ -959,7 +914,7 @@ MenuButton* BookmarkBarView::CreateOverflowButton() {
   button->SetVisible(false);
   // Set accessibility name.
   button->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_BOOKMARKS_CHEVRON)));
+      l10n_util::GetStringUTF16(IDS_ACCNAME_BOOKMARKS_CHEVRON));
   return button;
 }
 
@@ -972,8 +927,9 @@ void BookmarkBarView::Loaded(BookmarkModel* model) {
   DCHECK(node && model_->other_node());
   // Create a button for each of the children on the bookmark bar.
   for (int i = 0, child_count = node->GetChildCount(); i < child_count; ++i)
-    AddChildView(i, CreateBookmarkButton(node->GetChild(i)));
+    AddChildViewAt(CreateBookmarkButton(node->GetChild(i)), i);
   UpdateColors();
+  UpdateOtherBookmarksVisibility();
   other_bookmarked_button_->SetEnabled(true);
 
   Layout();
@@ -1011,6 +967,7 @@ void BookmarkBarView::BookmarkNodeAdded(BookmarkModel* model,
 void BookmarkBarView::BookmarkNodeAddedImpl(BookmarkModel* model,
                                             const BookmarkNode* parent,
                                             int index) {
+  UpdateOtherBookmarksVisibility();
   NotifyModelChanged();
   if (parent != model_->GetBookmarkBarNode()) {
     // We only care about nodes on the bookmark bar.
@@ -1021,7 +978,7 @@ void BookmarkBarView::BookmarkNodeAddedImpl(BookmarkModel* model,
   if (!throbbing_view_ && sync_service_ && sync_service_->SetupInProgress()) {
     StartThrobbing(node, true);
   }
-  AddChildView(index, CreateBookmarkButton(node));
+  AddChildViewAt(CreateBookmarkButton(node), index);
   UpdateColors();
   Layout();
   SchedulePaint();
@@ -1037,6 +994,8 @@ void BookmarkBarView::BookmarkNodeRemoved(BookmarkModel* model,
 void BookmarkBarView::BookmarkNodeRemovedImpl(BookmarkModel* model,
                                               const BookmarkNode* parent,
                                               int index) {
+  UpdateOtherBookmarksVisibility();
+
   StopThrobbing(true);
   // No need to start throbbing again as the bookmark bubble can't be up at
   // the same time as the user reorders.
@@ -1095,7 +1054,7 @@ void BookmarkBarView::BookmarkNodeChildrenReordered(BookmarkModel* model,
 
   // Create the new buttons.
   for (int i = 0, child_count = node->GetChildCount(); i < child_count; ++i)
-    AddChildView(i, CreateBookmarkButton(node->GetChild(i)));
+    AddChildViewAt(CreateBookmarkButton(node->GetChild(i)), i);
   UpdateColors();
 
   Layout();
@@ -1109,7 +1068,7 @@ void BookmarkBarView::BookmarkNodeFavIconLoaded(BookmarkModel* model,
 
 void BookmarkBarView::WriteDragData(View* sender,
                                     const gfx::Point& press_pt,
-                                    OSExchangeData* data) {
+                                    ui::OSExchangeData* data) {
   UserMetrics::RecordAction(UserMetricsAction("BookmarkBar_DragButton"),
                             profile_);
 
@@ -1118,8 +1077,8 @@ void BookmarkBarView::WriteDragData(View* sender,
       views::TextButton* button = GetBookmarkButton(i);
       gfx::CanvasSkia canvas(button->width(), button->height(), false);
       button->Paint(&canvas, true);
-      drag_utils::SetDragImageOnDataObject(canvas, button->size(),
-                                           press_pt, data);
+      drag_utils::SetDragImageOnDataObject(canvas, button->size(), press_pt,
+                                           data);
       WriteDragData(model_->GetBookmarkBarNode()->GetChild(i), data);
       return;
     }
@@ -1134,7 +1093,7 @@ int BookmarkBarView::GetDragOperations(View* sender, const gfx::Point& p) {
     // the new tab page, on the new tab page size_animation_ is always 0). This
     // typically is only hit if the user does something to inadvertanty trigger
     // dnd, such as pressing the mouse and hitting control-b.
-    return DragDropTypes::DRAG_NONE;
+    return ui::DragDropTypes::DRAG_NONE;
   }
 
   for (int i = 0; i < GetBookmarkButtonCount(); ++i) {
@@ -1144,7 +1103,7 @@ int BookmarkBarView::GetDragOperations(View* sender, const gfx::Point& p) {
     }
   }
   NOTREACHED();
-  return DragDropTypes::DRAG_NONE;
+  return ui::DragDropTypes::DRAG_NONE;
 }
 
 bool BookmarkBarView::CanStartDrag(views::View* sender,
@@ -1172,7 +1131,7 @@ bool BookmarkBarView::CanStartDrag(views::View* sender,
 }
 
 void BookmarkBarView::WriteDragData(const BookmarkNode* node,
-                                    OSExchangeData* data) {
+                                    ui::OSExchangeData* data) {
   DCHECK(node && data);
   BookmarkNodeData drag_data(node);
   drag_data.Write(profile_, data);
@@ -1188,7 +1147,7 @@ void BookmarkBarView::RunMenu(views::View* view, const gfx::Point& pt) {
     node = model_->GetBookmarkBarNode();
     start_index = GetFirstHiddenNodeIndex();
   } else {
-    int button_index = GetChildIndex(view);
+    int button_index = GetIndexOf(view);
     DCHECK_NE(-1, button_index);
     node = model_->GetBookmarkBarNode()->GetChild(button_index);
   }
@@ -1205,7 +1164,7 @@ void BookmarkBarView::ButtonPressed(views::Button* sender,
   if (sender->tag() == kSyncErrorButtonTag) {
     DCHECK(sender == sync_error_button_);
     DCHECK(sync_service_ && !sync_service_->IsManaged());
-    sync_service_->ShowLoginDialog(GetWindow()->GetNativeWindow());
+    sync_service_->ShowErrorUI(GetWindow()->GetNativeWindow());
     return;
   }
 
@@ -1213,7 +1172,7 @@ void BookmarkBarView::ButtonPressed(views::Button* sender,
   if (sender->tag() == kOtherFolderButtonTag) {
     node = model_->other_node();
   } else {
-    int index = GetChildIndex(sender);
+    int index = GetIndexOf(sender);
     DCHECK_NE(-1, index);
     node = model_->GetBookmarkBarNode()->GetChild(index);
   }
@@ -1251,7 +1210,7 @@ void BookmarkBarView::ShowContextMenu(View* source,
   } else if (source != this) {
     // User clicked on one of the bookmark buttons, find which one they
     // clicked on.
-    int bookmark_button_index = GetChildIndex(source);
+    int bookmark_button_index = GetIndexOf(source);
     DCHECK(bookmark_button_index != -1 &&
            bookmark_button_index < GetBookmarkButtonCount());
     const BookmarkNode* node =
@@ -1288,7 +1247,7 @@ views::View* BookmarkBarView::CreateBookmarkButton(const BookmarkNode* node) {
 void BookmarkBarView::ConfigureButton(const BookmarkNode* node,
                                       views::TextButton* button) {
   button->SetText(UTF16ToWide(node->GetTitle()));
-  button->SetAccessibleName(UTF16ToWide(node->GetTitle()));
+  button->SetAccessibleName(node->GetTitle());
   button->SetID(VIEW_ID_BOOKMARK_BAR_ELEMENT);
   // We don't always have a theme provider (ui tests, for example).
   if (GetThemeProvider()) {
@@ -1416,7 +1375,7 @@ int BookmarkBarView::CalculateDropOperation(const DropTargetEvent& event,
   // right-to-left on RTL locales). Thus, in order to make sure the drop
   // coordinates calculation works, we mirror the event's X coordinate if the
   // locale is RTL.
-  int mirrored_x = MirroredXCoordinateInsideView(event.x());
+  int mirrored_x = GetMirroredXInView(event.x());
 
   *index = -1;
   *drop_on = false;
@@ -1426,7 +1385,7 @@ int BookmarkBarView::CalculateDropOperation(const DropTargetEvent& event,
       event.y() >= other_bookmarked_button_->y() +
                       other_bookmarked_button_->height()) {
     // Mouse isn't over a button.
-    return DragDropTypes::DRAG_NONE;
+    return ui::DragDropTypes::DRAG_NONE;
   }
 
   bool found = false;
@@ -1441,11 +1400,10 @@ int BookmarkBarView::CalculateDropOperation(const DropTargetEvent& event,
     // No bookmarks, accept the drop.
     *index = 0;
     int ops = data.GetFirstNode(profile_)
-        ? DragDropTypes::DRAG_MOVE
-        : DragDropTypes::DRAG_COPY | DragDropTypes::DRAG_LINK;
-    return
-        bookmark_utils::PreferredDropOperation(event.GetSourceOperations(),
-                                               ops);
+        ? ui::DragDropTypes::DRAG_MOVE
+        : ui::DragDropTypes::DRAG_COPY | ui::DragDropTypes::DRAG_LINK;
+    return bookmark_utils::PreferredDropOperation(event.source_operations(),
+                                                  ops);
   }
 
   for (int i = 0; i < GetBookmarkButtonCount() &&
@@ -1488,14 +1446,14 @@ int BookmarkBarView::CalculateDropOperation(const DropTargetEvent& event,
         // use the last visible index.
         *index = GetFirstHiddenNodeIndex();
       } else {
-        return DragDropTypes::DRAG_NONE;
+        return ui::DragDropTypes::DRAG_NONE;
       }
     } else if (mirrored_x < other_bookmarked_button_->x()) {
       // Mouse is after the last visible button but before more recently
       // bookmarked; use the last visible index.
       *index = GetFirstHiddenNodeIndex();
     } else {
-      return DragDropTypes::DRAG_NONE;
+      return ui::DragDropTypes::DRAG_NONE;
     }
   }
 
@@ -1560,10 +1518,10 @@ void BookmarkBarView::StartThrobbing(const BookmarkNode* node,
 }
 
 int BookmarkBarView::GetBookmarkButtonCount() {
-  // We contain at least four non-bookmark button views: other bookmarks,
-  // bookmarks separator, chevrons (for overflow), the instruction label and
-  // the sync error button.
-  return GetChildViewCount() - 5;
+  // We contain five non-bookmark button views: other bookmarks, bookmarks
+  // separator, chevrons (for overflow), the instruction label and the sync
+  // error button.
+  return child_count() - 5;
 }
 
 void BookmarkBarView::StopThrobbing(bool immediate) {
@@ -1575,9 +1533,48 @@ void BookmarkBarView::StopThrobbing(bool immediate) {
   throbbing_view_ = NULL;
 }
 
+// static
+std::wstring BookmarkBarView::CreateToolTipForURLAndTitle(
+    const gfx::Point& screen_loc,
+    const GURL& url,
+    const std::wstring& title,
+    Profile* profile) {
+  int max_width = views::TooltipManager::GetMaxWidth(screen_loc.x(),
+                                                     screen_loc.y());
+  gfx::Font tt_font = views::TooltipManager::GetDefaultFont();
+  std::wstring result;
+
+  // First the title.
+  if (!title.empty()) {
+    std::wstring localized_title = title;
+    base::i18n::AdjustStringForLocaleDirection(&localized_title);
+    result.append(UTF16ToWideHack(ui::ElideText(WideToUTF16Hack(
+        localized_title), tt_font, max_width, false)));
+  }
+
+  // Only show the URL if the url and title differ.
+  if (title != UTF8ToWide(url.spec())) {
+    if (!result.empty())
+      result.append(views::TooltipManager::GetLineSeparator());
+
+    // We need to explicitly specify the directionality of the URL's text to
+    // make sure it is treated as an LTR string when the context is RTL. For
+    // example, the URL "http://www.yahoo.com/" appears as
+    // "/http://www.yahoo.com" when rendered, as is, in an RTL context since
+    // the Unicode BiDi algorithm puts certain characters on the left by
+    // default.
+    std::wstring languages =
+        UTF8ToWide(profile->GetPrefs()->GetString(prefs::kAcceptLanguages));
+    string16 elided_url(ui::ElideUrl(url, tt_font, max_width, languages));
+    elided_url = base::i18n::GetDisplayStringInLTRDirectionality(elided_url);
+    result.append(UTF16ToWideHack(elided_url));
+  }
+  return result;
+}
+
 void BookmarkBarView::UpdateColors() {
   // We don't always have a theme provider (ui tests, for example).
-  const ThemeProvider* theme_provider = GetThemeProvider();
+  const ui::ThemeProvider* theme_provider = GetThemeProvider();
   if (!theme_provider)
     return;
   SkColor text_color =
@@ -1587,9 +1584,15 @@ void BookmarkBarView::UpdateColors() {
   other_bookmarked_button()->SetEnabledColor(text_color);
 }
 
+void BookmarkBarView::UpdateOtherBookmarksVisibility() {
+  bool has_other_children = model_->other_node()->GetChildCount() > 0;
+  other_bookmarked_button_->SetVisible(has_other_children);
+  bookmarks_separator_view_->SetVisible(has_other_children);
+}
+
 gfx::Size BookmarkBarView::LayoutItems(bool compute_bounds_only) {
   gfx::Size prefsize;
-  if (!GetParent() && !compute_bounds_only)
+  if (!parent() && !compute_bounds_only)
     return prefsize;
 
   int x = kLeftMargin;
@@ -1614,7 +1617,8 @@ gfx::Size BookmarkBarView::LayoutItems(bool compute_bounds_only) {
   }
 
   gfx::Size other_bookmarked_pref =
-      other_bookmarked_button_->GetPreferredSize();
+      other_bookmarked_button_->IsVisible() ?
+      other_bookmarked_button_->GetPreferredSize() : gfx::Size();
   gfx::Size overflow_pref = overflow_button_->GetPreferredSize();
   gfx::Size bookmarks_separator_pref =
       bookmarks_separator_view_->GetPreferredSize();
@@ -1624,9 +1628,10 @@ gfx::Size BookmarkBarView::LayoutItems(bool compute_bounds_only) {
   if (sync_ui_util::ShouldShowSyncErrorButton(sync_service_)) {
     sync_error_total_width += kButtonPadding + sync_error_button_pref.width();
   }
-  const int max_x = width - other_bookmarked_pref.width() - kButtonPadding -
-      overflow_pref.width() - kButtonPadding -
+  int max_x = width - overflow_pref.width() - kButtonPadding -
       bookmarks_separator_pref.width() - sync_error_total_width;
+  if (other_bookmarked_button_->IsVisible())
+    max_x -= other_bookmarked_pref.width() + kButtonPadding;
 
   // Next, layout out the buttons. Any buttons that are placed beyond the
   // visible region and made invisible.
@@ -1675,22 +1680,26 @@ gfx::Size BookmarkBarView::LayoutItems(bool compute_bounds_only) {
   x += overflow_pref.width();
 
   // Separator.
-  if (!compute_bounds_only) {
-    bookmarks_separator_view_->SetBounds(x,
-                                         y - top_margin,
-                                         bookmarks_separator_pref.width(),
-                                         height + top_margin + kBottomMargin -
-                                         separator_margin);
-  }
+  if (bookmarks_separator_view_->IsVisible()) {
+    if (!compute_bounds_only) {
+      bookmarks_separator_view_->SetBounds(x,
+                                           y - top_margin,
+                                           bookmarks_separator_pref.width(),
+                                           height + top_margin + kBottomMargin -
+                                           separator_margin);
+    }
 
-  x += bookmarks_separator_pref.width();
+    x += bookmarks_separator_pref.width();
+  }
 
   // The other bookmarks button.
-  if (!compute_bounds_only) {
-    other_bookmarked_button_->SetBounds(x, y, other_bookmarked_pref.width(),
-                                        height);
+  if (other_bookmarked_button_->IsVisible()) {
+    if (!compute_bounds_only) {
+      other_bookmarked_button_->SetBounds(x, y, other_bookmarked_pref.width(),
+                                          height);
+    }
+    x += other_bookmarked_pref.width() + kButtonPadding;
   }
-  x += other_bookmarked_pref.width() + kButtonPadding;
 
   // Set the real bounds of the sync error button only if it needs to appear on
   // the bookmarks bar.
@@ -1736,7 +1745,7 @@ views::TextButton* BookmarkBarView::CreateSyncErrorButton() {
   sync_error_button->SetTooltipText(
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_SYNC_BOOKMARK_BAR_ERROR_DESC)));
   sync_error_button->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_SYNC_ERROR_BUTTON)));
+      l10n_util::GetStringUTF16(IDS_ACCNAME_SYNC_ERROR_BUTTON));
   sync_error_button->SetIcon(
       *ResourceBundle::GetSharedInstance().GetBitmapNamed(IDR_WARNING));
   return sync_error_button;

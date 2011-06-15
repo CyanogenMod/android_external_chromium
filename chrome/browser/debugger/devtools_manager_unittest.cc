@@ -40,6 +40,9 @@ class TestDevToolsClientHost : public DevToolsClientHost {
     last_sent_message = &message;
   }
 
+  virtual void TabReplaced(TabContentsWrapper* new_tab) {
+  }
+
   static void ResetCounters() {
     close_counter = 0;
   }
@@ -50,6 +53,8 @@ class TestDevToolsClientHost : public DevToolsClientHost {
 
  private:
   bool closed_;
+
+  virtual void FrameNavigating(const std::string& url) {}
 
   DISALLOW_COPY_AND_ASSIGN(TestDevToolsClientHost);
 };

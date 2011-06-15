@@ -1,33 +1,31 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/clear_server_data.h"
+#include "chrome/browser/ui/views/clear_server_data.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/command_line.h"
 #include "base/string16.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_window.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/pref_names.h"
-#include "gfx/insets.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "net/url_request/url_request_context.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/insets.h"
 #include "views/background.h"
 #include "views/controls/button/checkbox.h"
 #include "views/controls/label.h"
 #include "views/controls/separator.h"
 #include "views/controls/throbber.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/widget.h"
 #include "views/window/dialog_client_view.h"
 #include "views/window/window.h"
@@ -114,7 +112,7 @@ void ClearServerDataView::Init() {
 }
 
 void ClearServerDataView::InitControlLayout() {
-  GridLayout* layout = CreatePanelGridLayout(this);
+  GridLayout* layout = GridLayout::CreatePanel(this);
   this->SetLayoutManager(layout);
 
   int centered_column_set_id = 0;
@@ -131,10 +129,10 @@ void ClearServerDataView::InitControlLayout() {
   column_set = layout->AddColumnSet(three_column_set_id);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 1,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 1,
                         GridLayout::USE_PREF, 0, 0);
 
@@ -208,8 +206,9 @@ void ClearServerDataView::AddWrappingLabelRow(views::GridLayout* layout,
 
 void ClearServerDataView::AddSpacing(views::GridLayout* layout,
                                      bool related_follows) {
-  layout->AddPaddingRow(0, related_follows ? kRelatedControlVerticalSpacing
-                                           : kUnrelatedControlVerticalSpacing);
+  layout->AddPaddingRow(
+      0, related_follows ? views::kRelatedControlVerticalSpacing
+                         : views::kUnrelatedControlVerticalSpacing);
 }
 
 gfx::Size ClearServerDataView::GetPreferredSize() {
@@ -344,4 +343,3 @@ void ClearServerDataView::UpdateClearButtonEnabledState(
       sync_service_->HasSyncSetupCompleted() &&
       !delete_in_progress && allow_clear_);
 }
-

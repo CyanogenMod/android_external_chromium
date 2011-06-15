@@ -4,18 +4,20 @@
 
 #include "chrome/browser/chromeos/login/network_screen.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/logging.h"
 #include "base/string16.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
+#include "chrome/browser/chromeos/login/background_view.h"
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
+#include "chrome/browser/chromeos/login/login_utils.h"
 #include "chrome/browser/chromeos/login/network_selection_view.h"
 #include "chrome/browser/chromeos/login/screen_observer.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "views/controls/menu/menu_2.h"
 #include "views/widget/widget.h"
 #include "views/window/window.h"
@@ -100,8 +102,10 @@ NetworkSelectionView* NetworkScreen::AllocateView() {
 
 void NetworkScreen::OnHelpLinkActivated() {
   ClearErrors();
-  if (!help_app_.get())
-    help_app_.reset(new HelpAppLauncher(view()->GetNativeWindow()));
+  if (!help_app_.get()) {
+    help_app_ = new HelpAppLauncher(
+        LoginUtils::Get()->GetBackgroundView()->GetNativeWindow());
+  }
   help_app_->ShowHelpTopic(HelpAppLauncher::HELP_CONNECTIVITY);
 }
 
@@ -161,8 +165,7 @@ void NetworkScreen::OnConnectionTimeout() {
             IDS_NETWORK_SELECTION_ERROR,
             l10n_util::GetStringUTF16(IDS_PRODUCT_OS_NAME),
             network_id_)),
-        UTF16ToWide(
-            l10n_util::GetStringUTF16(IDS_NETWORK_SELECTION_ERROR_HELP)),
+        UTF16ToWide(l10n_util::GetStringUTF16(IDS_LEARN_MORE)),
         this);
     network_control->RequestFocus();
   }

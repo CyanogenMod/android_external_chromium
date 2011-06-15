@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 #include "chrome/common/page_type.h"
 
 class DictionaryValue;
-class ImporterHost;
 class TemplateURLModel;
 
 // This is an automation provider containing testing calls.
@@ -138,11 +137,11 @@ class TestingAutomationProvider : public AutomationProvider,
 
   // Retrieves the visible text from the autocomplete edit.
   void GetAutocompleteEditText(int autocomplete_edit_handle,
-                               bool* success, std::wstring* text);
+                               bool* success, string16* text);
 
   // Sets the visible text from the autocomplete edit.
   void SetAutocompleteEditText(int autocomplete_edit_handle,
-                               const std::wstring& text,
+                               const string16& text,
                                bool* success);
 
   // Retrieves if a query to an autocomplete provider is in progress.
@@ -291,12 +290,13 @@ class TestingAutomationProvider : public AutomationProvider,
                       bool* success);
 
   // Retrieves the number of info-bars currently showing in |count|.
-  void GetInfoBarCount(int handle, int* count);
+  void GetInfoBarCount(int handle, size_t* count);
 
   // Causes a click on the "accept" button of the info-bar at |info_bar_index|.
   // If |wait_for_navigation| is true, it sends the reply after a navigation has
   // occurred.
-  void ClickInfoBarAccept(int handle, int info_bar_index,
+  void ClickInfoBarAccept(int handle,
+                          size_t info_bar_index,
                           bool wait_for_navigation,
                           IPC::Message* reply_message);
 
@@ -371,7 +371,12 @@ class TestingAutomationProvider : public AutomationProvider,
 
   // Method ptr for json handlers.
   // Uses the JSON interface for input/output.
-  typedef void (TestingAutomationProvider::*JsonHandler)(
+  typedef void (TestingAutomationProvider::*JsonHandler)(DictionaryValue*,
+                                                         IPC::Message*);
+
+  // Method ptr for json handlers that take a browser argument.
+  // Uses the JSON interface for input/output.
+  typedef void (TestingAutomationProvider::*BrowserJsonHandler)(
       Browser* browser,
       DictionaryValue*,
       IPC::Message*);
@@ -688,9 +693,9 @@ class TestingAutomationProvider : public AutomationProvider,
 
   // Return the map from the internal data representation to the string value
   // of auto fill fields and credit card fields.
-  static std::map<AutoFillFieldType, std::wstring>
+  static std::map<AutoFillFieldType, std::string>
       GetAutoFillFieldToStringMap();
-  static std::map<AutoFillFieldType, std::wstring>
+  static std::map<AutoFillFieldType, std::string>
       GetCreditCardFieldToStringMap();
 
   // Get a list of active HTML5 notifications.
@@ -749,12 +754,31 @@ class TestingAutomationProvider : public AutomationProvider,
                            DictionaryValue* args,
                            IPC::Message* reply_message);
 
+  // Sends a web keyboard event to the active tab. This should not trigger any
+  // browser hotkeys.
+  // Uses the JSON interface for input/output.
+  void SendKeyEventToActiveTab(Browser* browser,
+                               DictionaryValue* args,
+                               IPC::Message* reply_message);
+
+#if defined(OS_CHROMEOS)
+  void LoginAsGuest(DictionaryValue* args, IPC::Message* reply_message);
+
+  void Login(DictionaryValue* args, IPC::Message* reply_message);
+
+  void Logout(DictionaryValue* args, IPC::Message* reply_message);
+
+  void ScreenLock(DictionaryValue* args, IPC::Message* reply_message);
+
+  void ScreenUnlock(DictionaryValue* args, IPC::Message* reply_message);
+#endif  // defined(OS_CHROMEOS)
+
   void WaitForTabCountToBecome(int browser_handle,
                                int target_tab_count,
                                IPC::Message* reply_message);
 
   void WaitForInfoBarCount(int tab_handle,
-                           int target_count,
+                           size_t target_count,
                            IPC::Message* reply_message);
 
   // Gets the current used encoding name of the page in the specified tab.
@@ -773,6 +797,8 @@ class TestingAutomationProvider : public AutomationProvider,
 
   // Resets to the default theme.
   void ResetToDefaultTheme();
+
+  void WaitForProcessLauncherThreadToGoIdle(IPC::Message* reply_message);
 
   // Callback for history redirect queries.
   virtual void OnRedirectQueryComplete(
@@ -803,8 +829,8 @@ class TestingAutomationProvider : public AutomationProvider,
 
   NotificationRegistrar registrar_;
 
-  // Used to import settings from browser profiles.
-  scoped_refptr<ImporterHost> importer_host_;
+  // Used to enumerate browser profiles.
+  scoped_refptr<ImporterList> importer_list_;
 
   // The stored data for the ImportSettings operation.
   ImportSettingsData import_settings_data_;

@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include <string>
 
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 
@@ -16,14 +16,14 @@ class ListValue;
 
 // Sends sync-state changes to the New Tab Page for UI updating and forwards
 // link clicks on the page to the sync service.
-class NewTabPageSyncHandler : public DOMMessageHandler,
+class NewTabPageSyncHandler : public WebUIMessageHandler,
                               public ProfileSyncServiceObserver {
  public:
   NewTabPageSyncHandler();
   virtual ~NewTabPageSyncHandler();
 
-  // DOMMessageHandler implementation.
-  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+  // WebUIMessageHandler implementation.
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
   virtual void RegisterMessages();
 
   // Callback for "GetSyncMessage".

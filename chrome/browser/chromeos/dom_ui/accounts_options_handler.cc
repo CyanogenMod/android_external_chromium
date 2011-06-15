@@ -1,18 +1,18 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/chromeos/dom_ui/accounts_options_handler.h"
 
-#include "app/l10n_util.h"
 #include "base/json/json_reader.h"
 #include "base/scoped_ptr.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/chromeos/user_cros_settings_provider.h"
-#include "chrome/browser/dom_ui/dom_ui_util.h"
+#include "chrome/browser/dom_ui/web_ui_util.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace chromeos {
 
@@ -24,22 +24,23 @@ AccountsOptionsHandler::~AccountsOptionsHandler() {
 }
 
 void AccountsOptionsHandler::RegisterMessages() {
-  DCHECK(dom_ui_);
-  dom_ui_->RegisterMessageCallback("whitelistUser",
+  DCHECK(web_ui_);
+  web_ui_->RegisterMessageCallback("whitelistUser",
       NewCallback(this, &AccountsOptionsHandler::WhitelistUser));
-  dom_ui_->RegisterMessageCallback("unwhitelistUser",
+  web_ui_->RegisterMessageCallback("unwhitelistUser",
       NewCallback(this, &AccountsOptionsHandler::UnwhitelistUser));
-  dom_ui_->RegisterMessageCallback("fetchUserPictures",
+  web_ui_->RegisterMessageCallback("fetchUserPictures",
       NewCallback(this, &AccountsOptionsHandler::FetchUserPictures));
-  dom_ui_->RegisterMessageCallback("whitelistExistingUsers",
+  web_ui_->RegisterMessageCallback("whitelistExistingUsers",
       NewCallback(this, &AccountsOptionsHandler::WhitelistExistingUsers));
 }
 
 void AccountsOptionsHandler::GetLocalizedValues(
     DictionaryValue* localized_strings) {
   DCHECK(localized_strings);
-  localized_strings->SetString("accountsPage", l10n_util::GetStringUTF16(
-      IDS_OPTIONS_ACCOUNTS_TAB_LABEL));
+
+  RegisterTitle(localized_strings, "accountsPage",
+                IDS_OPTIONS_ACCOUNTS_TAB_LABEL);
 
   localized_strings->SetString("allow_BWSI", l10n_util::GetStringUTF16(
       IDS_OPTIONS_ACCOUNTS_ALLOW_BWSI_DESCRIPTION));
@@ -88,26 +89,26 @@ void AccountsOptionsHandler::UnwhitelistUser(const ListValue* args) {
 void AccountsOptionsHandler::FetchUserPictures(const ListValue* args) {
   DictionaryValue user_pictures;
 
-  std::vector<UserManager::User> users = UserManager::Get()->GetUsers();
-  for (std::vector<UserManager::User>::const_iterator it = users.begin();
+  UserVector users = UserManager::Get()->GetUsers();
+  for (UserVector::const_iterator it = users.begin();
        it < users.end(); ++it) {
     if (!it->image().isNull()) {
       StringValue* picture = new StringValue(
-          dom_ui_util::GetImageDataUrl(it->image()));
+          web_ui_util::GetImageDataUrl(it->image()));
       // SetWithoutPathExpansion because email has "." in it.
       user_pictures.SetWithoutPathExpansion(it->email(), picture);
     }
   }
 
-  dom_ui_->CallJavascriptFunction(L"AccountsOptions.setUserPictures",
+  web_ui_->CallJavascriptFunction(L"AccountsOptions.setUserPictures",
       user_pictures);
 }
 
 void AccountsOptionsHandler::WhitelistExistingUsers(const ListValue* args) {
   ListValue whitelist_users;
 
-  std::vector<UserManager::User> users = UserManager::Get()->GetUsers();
-  for (std::vector<UserManager::User>::const_iterator it = users.begin();
+  UserVector users = UserManager::Get()->GetUsers();
+  for (UserVector::const_iterator it = users.begin();
        it < users.end(); ++it) {
     const std::string& email = it->email();
     if (!UserCrosSettingsProvider::IsEmailInCachedWhitelist(email)) {
@@ -120,7 +121,7 @@ void AccountsOptionsHandler::WhitelistExistingUsers(const ListValue* args) {
     }
   }
 
-  dom_ui_->CallJavascriptFunction(L"AccountsOptions.addUsers", whitelist_users);
+  web_ui_->CallJavascriptFunction(L"AccountsOptions.addUsers", whitelist_users);
 }
 
 }  // namespace chromeos

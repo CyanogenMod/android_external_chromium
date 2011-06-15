@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 #define CHROME_BROWSER_UI_VIEWS_IMPORTER_VIEW_H_
 #pragma once
 
-#include "app/combobox_model.h"
 #include "base/string16.h"
 #include "chrome/browser/importer/importer.h"
+#include "ui/base/models/combobox_model.h"
 #include "views/controls/button/native_button.h"
 #include "views/controls/combobox/combobox.h"
 #include "views/view.h"
@@ -20,6 +20,7 @@ class Label;
 class Window;
 }
 
+class ImporterList;
 class Profile;
 
 // ImporterView draws the dialog that allows the user to select what to
@@ -29,7 +30,7 @@ class Profile;
 class ImporterView : public views::View,
                      public views::DialogDelegate,
                      public views::ButtonListener,
-                     public ComboboxModel,
+                     public ui::ComboboxModel,
                      public views::Combobox::Listener,
                      public ImporterList::Observer,
                      public ImportObserver {
@@ -56,7 +57,7 @@ class ImporterView : public views::View,
   // views::ButtonListener implementation.
   virtual void ButtonPressed(views::Button* sender, const views::Event& event);
 
-  // ComboboxModel implementation.
+  // ui::ComboboxModel implementation.
   virtual int GetItemCount();
   virtual string16 GetItemAt(int index);
 
@@ -97,6 +98,7 @@ class ImporterView : public views::View,
   views::Checkbox* search_engines_checkbox_;
 
   scoped_refptr<ImporterHost> importer_host_;
+  scoped_refptr<ImporterList> importer_list_;
 
   // Stores the state of the checked items associated with the position of the
   // selected item in the combo-box.

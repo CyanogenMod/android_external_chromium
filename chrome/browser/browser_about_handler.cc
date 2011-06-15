@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,10 @@
 #include <string>
 #include <vector>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/i18n/number_formatting.h"
+#include "base/json/json_writer.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/stats_table.h"
 #include "base/path_service.h"
@@ -24,6 +23,7 @@
 #include "base/threading/thread.h"
 #include "base/tracked_objects.h"
 #include "base/utf_string_conversions.h"
+#include "base/values.h"
 #include "chrome/browser/about_flags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
@@ -35,21 +35,17 @@
 #include "chrome/browser/metrics/histogram_synchronizer.h"
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/platform_util.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/sync/profile_sync_service.h"
-#include "chrome/browser/sync/sync_ui_util.h"
-#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/common/about_handler.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/gpu_info.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/url_constants.h"
 #include "googleurl/src/gurl.h"
@@ -59,21 +55,20 @@
 #include "grit/locale_settings.h"
 #include "webkit/glue/webkit_glue.h"
 #include "net/base/escape.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 #ifdef CHROME_V8
 #include "v8/include/v8.h"
 #endif
 
 #if defined(OS_WIN)
 #include "chrome/browser/enumerate_modules_model_win.h"
-#include "chrome/browser/views/about_ipc_dialog.h"
 #elif defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/network_library.h"
 #include "chrome/browser/chromeos/cros/syslogs_library.h"
 #include "chrome/browser/chromeos/version_loader.h"
 #include "chrome/browser/zygote_host_linux.h"
-#elif defined(OS_MACOSX)
-#include "chrome/browser/ui/cocoa/about_ipc_dialog.h"
 #elif defined(OS_LINUX)
 #include "chrome/browser/zygote_host_linux.h"
 #endif
@@ -81,8 +76,6 @@
 #if defined(USE_TCMALLOC)
 #include "third_party/tcmalloc/chromium/src/google/malloc_extension.h"
 #endif
-
-using sync_api::SyncManager;
 
 using base::Time;
 using base::TimeDelta;
@@ -117,7 +110,6 @@ const char kHistogramsPath[] = "histograms";
 const char kMemoryRedirectPath[] = "memory-redirect";
 const char kMemoryPath[] = "memory";
 const char kStatsPath[] = "stats";
-const char kSyncPath[] = "sync";
 const char kTasksPath[] = "tasks";
 const char kTcmallocPath[] = "tcmalloc";
 const char kTermsPath[] = "terms";
@@ -126,6 +118,7 @@ const char kAboutPath[] = "about";
 // Not about:* pages, but included to make about:about look nicer
 const char kNetInternalsPath[] = "net-internals";
 const char kPluginsPath[] = "plugins";
+const char kSyncInternalsPath[] = "sync-internals";
 
 #if defined(OS_LINUX)
 const char kLinuxProxyConfigPath[] = "linux-proxy-config";
@@ -154,7 +147,7 @@ const char *kAllAboutPaths[] = {
   kNetInternalsPath,
   kPluginsPath,
   kStatsPath,
-  kSyncPath,
+  kSyncInternalsPath,
   kTasksPath,
   kTcmallocPath,
   kTermsPath,
@@ -167,9 +160,6 @@ const char *kAllAboutPaths[] = {
   kOSCreditsPath,
 #endif
   };
-
-// Points to the singleton AboutSource object, if any.
-ChromeURLDataManager::DataSource* about_source = NULL;
 
 // When you type about:memory, it actually loads an intermediate URL that
 // redirects you to the final page. This avoids the problem where typing
@@ -290,7 +280,8 @@ std::string AboutAbout() {
     html.append(kAllAboutPaths[i]);
     html.append("</a>\n");
   }
-  const char *debug[] = { "crash", "hang", "shorthang", "gpucrash", "gpuhang" };
+  const char *debug[] = { "crash", "kill", "hang", "shorthang",
+                          "gpucrash", "gpuhang" };
   html.append("</ul><h2>For Debug</h2>");
   html.append("</ul><p>The following pages are for debugging purposes only. "
               "Because they crash or hang the renderer, they're not linked "
@@ -437,10 +428,23 @@ static std::string AboutObjects(const std::string& query) {
 }
 #endif  // TRACK_ALL_TASK_OBJECTS
 
-std::string AboutStats() {
+// Handler for filling in the "about:stats" page, as called by the browser's
+// About handler processing.
+// |query| is roughly the query string of the about:stats URL.
+// Returns a string containing the HTML to render for the about:stats page.
+// Conditional Output:
+//      if |query| is "json", returns a JSON format of all counters.
+//      if |query| is "raw", returns plain text of counter deltas.
+//      otherwise, returns HTML with pretty JS/HTML to display the data.
+std::string AboutStats(const std::string& query) {
   // We keep the DictionaryValue tree live so that we can do delta
   // stats computations across runs.
   static DictionaryValue root;
+  static base::TimeTicks last_sample_time = base::TimeTicks::Now();
+
+  base::TimeTicks now = base::TimeTicks::Now();
+  base::TimeDelta time_since_last_sample = now - last_sample_time;
+  last_sample_time = now;
 
   base::StatsTable* table = base::StatsTable::current();
   if (!table)
@@ -528,22 +532,58 @@ std::string AboutStats() {
     }
   }
 
-  // Get about_stats.html
-  static const base::StringPiece stats_html(
-      ResourceBundle::GetSharedInstance().GetRawDataResource(
-          IDR_ABOUT_STATS_HTML));
+  std::string data;
+  if (query == "json") {
+    base::JSONWriter::WriteWithOptionalEscape(&root, true, false, &data);
+  } else if (query == "raw") {
+    // Dump the raw counters which have changed in text format.
+    data = "<pre>";
+    data.append(StringPrintf("Counter changes in the last %ldms\n",
+        static_cast<long int>(time_since_last_sample.InMilliseconds())));
+    for (size_t i = 0; i < counters->GetSize(); ++i) {
+      Value* entry = NULL;
+      bool rv = counters->Get(i, &entry);
+      if (!rv)
+        continue;  // None of these should fail.
+      DictionaryValue* counter = static_cast<DictionaryValue*>(entry);
+      int delta;
+      rv = counter->GetInteger("delta", &delta);
+      if (!rv)
+        continue;
+      if (delta > 0) {
+        std::string name;
+        rv = counter->GetString("name", &name);
+        if (!rv)
+          continue;
+        int value;
+        rv = counter->GetInteger("value", &value);
+        if (!rv)
+          continue;
+        data.append(name);
+        data.append(":");
+        data.append(base::IntToString(delta));
+        data.append("\n");
+      }
+    }
+    data.append("</pre>");
+  } else {
+    // Get about_stats.html and process a pretty page.
+    static const base::StringPiece stats_html(
+        ResourceBundle::GetSharedInstance().GetRawDataResource(
+            IDR_ABOUT_STATS_HTML));
 
-  // Create jstemplate and return.
-  std::string data = jstemplate_builder::GetTemplateHtml(
-      stats_html, &root, "t" /* template root node id */);
+    // Create jstemplate and return.
+    data = jstemplate_builder::GetTemplateHtml(
+        stats_html, &root, "t" /* template root node id */);
 
-  // Clear the timer list since we stored the data in the timers list as well.
-  for (int index = static_cast<int>(timers->GetSize())-1; index >= 0;
-       index--) {
-    Value* value;
-    timers->Remove(index, &value);
-    // We don't care about the value pointer; it's still tracked
-    // on the counters list.
+    // Clear the timer list since we stored the data in the timers list as well.
+    for (int index = static_cast<int>(timers->GetSize())-1; index >= 0;
+         index--) {
+      Value* value;
+      timers->Remove(index, &value);
+      // We don't care about the value pointer; it's still tracked
+      // on the counters list.
+    }
   }
 
   return data;
@@ -689,31 +729,6 @@ std::string AboutVersion(DictionaryValue* localized_strings) {
       version_html, localized_strings, "t" /* template root node id */);
 }
 
-
-
-std::string AboutSync() {
-  FilePath user_data_dir;
-  if (!PathService::Get(chrome::DIR_USER_DATA, &user_data_dir))
-    return std::string();
-  ProfileManager* profile_manager = g_browser_process->profile_manager();
-  Profile* profile = profile_manager->GetDefaultProfile(user_data_dir);
-  ProfileSyncService* service = profile->GetProfileSyncService();
-
-  DictionaryValue strings;
-  if (!service) {
-    strings.SetString("summary", "SYNC DISABLED");
-  } else {
-    sync_ui_util::ConstructAboutInformation(service, &strings);
-  }
-
-  static const base::StringPiece sync_html(
-      ResourceBundle::GetSharedInstance().GetRawDataResource(
-      IDR_ABOUT_SYNC_HTML));
-
-  return jstemplate_builder::GetTemplatesHtml(
-      sync_html, &strings , "t" /* template root node id */);
-}
-
 std::string VersionNumberToString(uint32 value) {
   int hi = (value >> 8) & 0xff;
   int low = value & 0xff;
@@ -724,21 +739,9 @@ std::string VersionNumberToString(uint32 value) {
 
 AboutSource::AboutSource()
     : DataSource(chrome::kAboutScheme, MessageLoop::current()) {
-  // This should be a singleton.
-  DCHECK(!about_source);
-  about_source = this;
-
-  // Add us to the global URL handler on the IO thread.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(
-          ChromeURLDataManager::GetInstance(),
-          &ChromeURLDataManager::AddDataSource,
-          make_scoped_refptr(this)));
 }
 
 AboutSource::~AboutSource() {
-  about_source = NULL;
 }
 
 void AboutSource::StartDataRequest(const std::string& path_raw,
@@ -768,7 +771,7 @@ void AboutSource::StartDataRequest(const std::string& path_raw,
     response = AboutObjects(info);
 #endif
   } else if (path == kStatsPath) {
-    response = AboutStats();
+    response = AboutStats(info);
 #if defined(USE_TCMALLOC)
   } else if (path == kTcmallocPath) {
     response = AboutTcmalloc(info);
@@ -802,8 +805,6 @@ void AboutSource::StartDataRequest(const std::string& path_raw,
   } else if (path == kSandboxPath) {
     response = AboutSandbox();
 #endif
-  } else if (path == kSyncPath) {
-    response = AboutSync();
   }
 
   FinishDataRequest(response, request_id);
@@ -1050,6 +1051,14 @@ bool WillHandleBrowserAboutURL(GURL* url, Profile* profile) {
     return true;
   }
 
+  // Rewrite about:sync-internals/* URLs (and about:sync, too, for
+  // legacy reasons) to chrome://sync-internals/*
+  if (StartsWithAboutSpecifier(*url, chrome::kAboutSyncInternalsURL) ||
+      StartsWithAboutSpecifier(*url, chrome::kAboutSyncURL)) {
+    *url = RemapAboutURL(chrome::kSyncViewInternalsURL, *url);
+    return true;
+  }
+
   // Rewrite about:plugins to chrome://plugins/.
   if (LowerCaseEqualsASCII(url->spec(), chrome::kAboutPluginsURL)) {
     *url = GURL(chrome::kChromeUIPluginsURL);
@@ -1080,7 +1089,7 @@ bool WillHandleBrowserAboutURL(GURL* url, Profile* profile) {
     return false;
 
   // Anything else requires our special handler; make sure it's initialized.
-  InitializeAboutDataSource();
+  InitializeAboutDataSource(profile);
 
   // Special case about:memory to go through a redirect before ending up on
   // the final page. See GetAboutMemoryRedirectResponse above for why.
@@ -1098,14 +1107,8 @@ bool WillHandleBrowserAboutURL(GURL* url, Profile* profile) {
   return true;
 }
 
-void InitializeAboutDataSource() {
-  // We only need to register the AboutSource once and it is kept globally.
-  // There is currently no way to remove a data source.
-  static bool initialized = false;
-  if (!initialized) {
-    about_source = new AboutSource();
-    initialized = true;
-  }
+void InitializeAboutDataSource(Profile* profile) {
+  profile->GetChromeURLDataManager()->AddDataSource(new AboutSource());
 }
 
 // This function gets called with the fixed-up chrome: URLs, so we have to
@@ -1117,7 +1120,7 @@ bool HandleNonNavigationAboutURL(const GURL& url) {
 #if (defined(OS_MACOSX) || defined(OS_WIN)) && defined(IPC_MESSAGE_LOG_ENABLED)
   if (LowerCaseEqualsASCII(url.spec(), chrome::kChromeUIIPCURL)) {
     // Run the dialog. This will re-use the existing one if it's already up.
-    AboutIPCDialog::RunDialog();
+    browser::ShowAboutIPCDialog();
     return true;
   }
 #endif

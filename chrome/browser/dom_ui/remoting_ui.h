@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,12 @@
 #define CHROME_BROWSER_DOM_UI_REMOTING_UI_H_
 #pragma once
 
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 
 class PrefService;
 class RefCountedMemory;
 
-class RemotingUI : public DOMUI {
+class RemotingUI : public WebUI {
  public:
   explicit RemotingUI(TabContents* contents);
 

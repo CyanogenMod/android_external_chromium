@@ -1,11 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/chromeos/dom_ui/system_info_ui.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/callback.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
@@ -20,6 +18,8 @@
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/syslogs_library.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/url_constants.h"
@@ -29,6 +29,8 @@
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 class SystemInfoUIHTMLSource : public ChromeURLDataManager::DataSource {
  public:
@@ -59,14 +61,14 @@ class SystemInfoUIHTMLSource : public ChromeURLDataManager::DataSource {
 };
 
 // The handler for Javascript messages related to the "system" view.
-class SystemInfoHandler : public DOMMessageHandler,
+class SystemInfoHandler : public WebUIMessageHandler,
                           public base::SupportsWeakPtr<SystemInfoHandler> {
  public:
   SystemInfoHandler();
   virtual ~SystemInfoHandler();
 
-  // DOMMessageHandler implementation.
-  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+  // WebUIMessageHandler implementation.
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
   virtual void RegisterMessages();
 
  private:
@@ -158,9 +160,9 @@ SystemInfoHandler::SystemInfoHandler() {
 SystemInfoHandler::~SystemInfoHandler() {
 }
 
-DOMMessageHandler* SystemInfoHandler::Attach(DOMUI* dom_ui) {
+WebUIMessageHandler* SystemInfoHandler::Attach(WebUI* web_ui) {
   // TODO(stevenjb): customize handler attach if needed...
-  return DOMMessageHandler::Attach(dom_ui);
+  return WebUIMessageHandler::Attach(web_ui);
 }
 
 void SystemInfoHandler::RegisterMessages() {
@@ -173,16 +175,11 @@ void SystemInfoHandler::RegisterMessages() {
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-SystemInfoUI::SystemInfoUI(TabContents* contents) : DOMUI(contents) {
+SystemInfoUI::SystemInfoUI(TabContents* contents) : WebUI(contents) {
   SystemInfoHandler* handler = new SystemInfoHandler();
   AddMessageHandler((handler)->Attach(this));
   SystemInfoUIHTMLSource* html_source = new SystemInfoUIHTMLSource();
 
   // Set up the chrome://system/ source.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(
-          ChromeURLDataManager::GetInstance(),
-          &ChromeURLDataManager::AddDataSource,
-          make_scoped_refptr(html_source)));
+  contents->profile()->GetChromeURLDataManager()->AddDataSource(html_source);
 }

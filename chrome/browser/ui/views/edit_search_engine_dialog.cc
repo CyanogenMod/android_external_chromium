@@ -1,11 +1,9 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/edit_search_engine_dialog.h"
+#include "chrome/browser/ui/views/edit_search_engine_dialog.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/i18n/rtl.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -15,11 +13,13 @@
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "views/controls/label.h"
 #include "views/controls/image_view.h"
 #include "views/controls/table/table_view.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/window/window.h"
 
 using views::GridLayout;
@@ -142,12 +142,12 @@ void EditSearchEngineDialog::Init() {
 
   UpdateImageViews();
 
-  const int related_x = kRelatedControlHorizontalSpacing;
-  const int related_y = kRelatedControlVerticalSpacing;
-  const int unrelated_y = kUnrelatedControlVerticalSpacing;
+  const int related_x = views::kRelatedControlHorizontalSpacing;
+  const int related_y = views::kRelatedControlVerticalSpacing;
+  const int unrelated_y = views::kUnrelatedControlVerticalSpacing;
 
   // View and GridLayout take care of deleting GridLayout for us.
-  GridLayout* layout = CreatePanelGridLayout(this);
+  GridLayout* layout = GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
 
   // Define the structure of the layout.

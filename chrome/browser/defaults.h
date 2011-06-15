@@ -15,14 +15,11 @@ namespace browser_defaults {
 
 #if defined(USE_X11)
 
-// Size of the font in pixels used in the autocomplete box for normal windows.
-extern const double kAutocompleteEditFontPixelSize;
+// Size of the font used in the autocomplete box for normal windows, in pixels.
+extern const int kAutocompleteEditFontPixelSize;
 
-// Size of the font in pixels used in the autocomplete box for popup windows.
-extern const double kAutocompleteEditFontPixelSizeInPopup;
-
-// Size of the font used in the autocomplete popup.
-extern const int kAutocompletePopupFontSize;
+// Size of the font used in the autocomplete box for popup windows, in pixels.
+extern const int kAutocompleteEditFontPixelSizeInPopup;
 
 // Can the user toggle the system title bar?
 extern const bool kCanToggleSystemTitleBar;
@@ -83,6 +80,10 @@ extern bool bookmarks_enabled;
 
 // Should we skip the user's preference for restore. False by default.
 extern bool skip_restore;
+
+// Whether HelpApp is enabled. True by default. This is only used by Chrome OS
+// today.
+extern bool enable_help_app;
 
 }  // namespace browser_defaults
 

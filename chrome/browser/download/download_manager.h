@@ -42,7 +42,7 @@
 #include "base/weak_ptr.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/download/download_status_updater_delegate.h"
-#include "chrome/browser/shell_dialogs.h"
+#include "chrome/browser/ui/shell_dialogs.h"
 
 class DownloadFileManager;
 class DownloadHistory;
@@ -63,10 +63,6 @@ class DownloadManager
                                         BrowserThread::DeleteOnUIThread>,
       public DownloadStatusUpdaterDelegate,
       public SelectFileDialog::Listener {
-  // For testing.
-  friend class DownloadManagerTest;
-  friend class MockDownloadManager;
-
  public:
   explicit DownloadManager(DownloadStatusUpdater* status_updater);
 
@@ -125,6 +121,17 @@ class DownloadManager
   void PauseDownload(int32 download_id, bool pause);
   void RemoveDownload(int64 download_handle);
 
+  // Determine if the download is ready for completion, i.e. has had
+  // all data received, and completed the filename determination and
+  // history insertion.
+  bool IsDownloadReadyForCompletion(DownloadItem* download);
+
+  // If all pre-requisites have been met, complete download processing, i.e.
+  // do internal cleanup, file rename, and potentially auto-open.
+  // (Dangerous downloads still may block on user acceptance after this
+  // point.)
+  void MaybeCompleteDownload(DownloadItem* download);
+
   // Called when the download is renamed to its final name.
   void DownloadRenamedToFinalName(int download_id, const FilePath& full_path);
 
@@ -142,6 +149,9 @@ class DownloadManager
   // Remove all downloads will delete all downloads. The number of downloads
   // deleted is returned back to the caller.
   int RemoveAllDownloads();
+
+  // Remove the download with id |download_id| from |active_downloads_|.
+  void RemoveFromActiveList(int32 download_id);
 
   // Called when a Save Page As download is started. Transfers ownership
   // of |download_item| to the DownloadManager.
@@ -212,6 +222,10 @@ class DownloadManager
   void DangerousDownloadValidated(DownloadItem* download);
 
  private:
+  // For testing.
+  friend class DownloadManagerTest;
+  friend class MockDownloadManager;
+
   // This class is used to let an incognito DownloadManager observe changes to
   // a normal DownloadManager, to propagate ModelChanged() calls from the parent
   // DownloadManager to the observers of the incognito DownloadManager.
@@ -310,6 +324,10 @@ class DownloadManager
   // is the handle returned by the history system, which is unique
   // across sessions.
   //
+  // |active_downloads_| is a map of all downloads that are currently being
+  // processed. The key is the ID assigned by the ResourceDispatcherHost,
+  // which is unique for the current session.
+  //
   // |in_progress_| is a map of all downloads that are in progress and that have
   // not yet received a valid history handle. The key is the ID assigned by the
   // ResourceDispatcherHost, which is unique for the current session.
@@ -319,11 +337,12 @@ class DownloadManager
   // until we are destroyed.  It is only used for debugging.
   //
   // When a download is created through a user action, the corresponding
-  // DownloadItem* is placed in |in_progress_| and remains there until it has
-  // received a valid handle from the history system. Once it has a valid
-  // handle, the DownloadItem* is placed in the |history_downloads_|
-  // map.  When the download is complete, it is removed from
-  // |in_progress_|.  Downloads from past sessions read from a
+  // DownloadItem* is placed in |active_downloads_| and remains there until the
+  // download has finished.  It is also placed in |in_progress_| and remains
+  // there until it has received a valid handle from the history system. Once
+  // it has a valid handle, the DownloadItem* is placed in the
+  // |history_downloads_| map.  When the download is complete, it is removed
+  // from |in_progress_|.  Downloads from past sessions read from a
   // persisted state from the history system are placed directly into
   // |history_downloads_| since they have valid handles in the history system.
   typedef std::set<DownloadItem*> DownloadSet;
@@ -332,6 +351,7 @@ class DownloadManager
   DownloadSet downloads_;
   DownloadMap history_downloads_;
   DownloadMap in_progress_;
+  DownloadMap active_downloads_;
 #if !defined(NDEBUG)
   DownloadSet save_page_as_downloads_;
 #endif
@@ -359,14 +379,6 @@ class DownloadManager
   // The user's last choice for download directory. This is only used when the
   // user wants us to prompt for a save location for each download.
   FilePath last_download_path_;
-
-  // Keep track of downloads that are completed before the user selects the
-  // destination, so that observers are appropriately notified of completion
-  // after this determination is made.
-  // The map is of download_id->remaining size (bytes), both of which are
-  // required when calling OnAllDataSaved.
-  typedef std::map<int32, int64> PendingFinishedMap;
-  PendingFinishedMap pending_finished_downloads_;
 
   // The "Save As" dialog box used to ask the user where a file should be
   // saved.

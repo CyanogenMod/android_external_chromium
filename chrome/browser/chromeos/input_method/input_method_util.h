@@ -71,9 +71,9 @@ std::string GetLanguageCodeFromDescriptor(
 // Examples:
 //
 // "xkb:us::eng"       => "us"
-// "xkb:us:dvorak:eng" => "us"
+// "xkb:us:dvorak:eng" => "us(dvorak)"
 // "xkb:gb::eng"       => "gb"
-// "pinyin"            => ""
+// "pinyin"            => "us" (because Pinyin uses US keyboard layout)
 std::string GetKeyboardLayoutName(const std::string& input_method_id);
 
 // Gets the ID for the keyboard overlay from the given input method ID.
@@ -95,10 +95,17 @@ std::string GetLanguageCodeFromInputMethodId(
     const std::string& input_method_id);
 
 // Converts an input method ID to a display name of the IME. Returns
-// "USA" (US keyboard) when |input_method_id| is unknown.
+// an empty strng when |input_method_id| is unknown.
 // Examples: "pinyin" => "Pinyin"
 //           "m17n:ar:kbd" => "kbd (m17n)"
 std::string GetInputMethodDisplayNameFromId(const std::string& input_method_id);
+
+// Converts an input method ID to an input method descriptor. Returns NULL
+// when |input_method_id| is unknown.
+// Example: "pinyin" => { id: "pinyin", display_name: "Pinyin",
+//                        keyboard_layout: "us", language_code: "zh" }
+const chromeos::InputMethodDescriptor* GetInputMethodDescriptorFromId(
+    const std::string& input_method_id);
 
 // Converts a language code to a language display name, using the
 // current application locale. MaybeRewriteLanguageName() is called
@@ -149,6 +156,17 @@ bool GetInputMethodIdsFromLanguageCode(
 void EnableInputMethods(const std::string& language_code, InputMethodType type,
                         const std::string& initial_input_method_id);
 
+// Returns the input method ID of the hardware keyboard.
+std::string GetHardwareInputMethodId();
+
+// Returns the fallback input method descriptor (the very basic US
+// keyboard). This function is mostly used for testing, but may be used
+// as the fallback, when there is no other choice.
+InputMethodDescriptor GetFallbackInputMethodDescriptor();
+
+// This function should be called when Chrome's application locale is
+// changed, so that the internal maps of this library is reloaded.
+void OnLocaleChanged();
 
 // DO NOT USE Functions below. These are only exported for unit tests.
 void SortInputMethodIdsByNamesInternal(
@@ -161,7 +179,7 @@ bool GetInputMethodIdsFromLanguageCodeInternal(
     InputMethodType type,
     std::vector<std::string>* out_input_method_ids);
 
-void OnLocaleChanged();
+void ReloadInternalMaps();
 
 }  // namespace input_method
 }  // namespace chromeos

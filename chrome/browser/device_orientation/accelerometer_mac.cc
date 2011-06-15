@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -108,33 +108,73 @@ const AccelerometerMac::GenericMacbookSensor
 // All non-tested entries from SMSLib have been removed.
 const AccelerometerMac::SensorDescriptor
     AccelerometerMac::kSupportedSensors[] = {
-  // Tested by leandrogracia on a 15'' MacBook Pro.
+  // Tested by S.Selz. (via avi) on a 13" MacBook.
+  { "MacBook2,1",    { { 0, true  }, { 2, false }, { 4, true  } } },
+
+  // Tested by adlr on a 13" MacBook.
+  { "MacBook4,1",    { { 0, true  }, { 2, true  }, { 4, false } } },
+
+  // Tested by avi on a 13" MacBook.
+  { "MacBook7,1",    { { 0, true  }, { 2, true  }, { 4, false } } },
+
+  // Tested by sfiera, pjw on a 13" MacBook Air.
+  { "MacBookAir2,1", { { 0, true  }, { 2, true  }, { 4, false } } },
+
+  // Note: MacBookAir3,1 (11" MacBook Air) and MacBookAir3,2 (13" MacBook Air)
+  // have no accelerometer sensors.
+
+  // Tested by L.V. (via avi) on a 17" MacBook Pro.
+  { "MacBookPro2,1", { { 0, true  }, { 2, false }, { 4, true  } } },
+
+  // Tested by leandrogracia on a 15" MacBook Pro.
   { "MacBookPro2,2", { { 0, true  }, { 2, true  }, { 4, false } } },
 
-  // Tested by leandrogracia on a 15'' MacBook Pro.
+  // Tested by leandrogracia on a 15" MacBook Pro.
+  // TODO(avi): this model name was also used for the 17" version; verify that
+  // these parameters are also valid for that model.
   { "MacBookPro3,1", { { 0, false }, { 2, true  }, { 4, true  } } },
 
-  // Tested by leandrogracia on a 15'' MacBook Pro.
+  // Tested by leandrogracia on a 15" MacBook Pro.
+  // Tested by Eric Shapiro (via avi) on a 17" MacBook Pro.
   { "MacBookPro4,1", { { 0, true  }, { 2, true  }, { 4, false } } },
 
-  // Tested by leandrogracia on a 15'' MacBook Pro.
+  // Tested by leandrogracia on a 15" MacBook Pro.
   { "MacBookPro5,1", { { 0, false }, { 2, false }, { 4, false } } },
 
-  // Tested by leandrogracia on a 15'' MacBook Pro.
+  // Tested by S.Selz. (via avi) on a 17" MacBook Pro.
+  { "MacBookPro5,2", { { 0, false }, { 2, false }, { 4, false } } },
+
+  // Tested by dmaclach on a 15" MacBook Pro.
+  { "MacBookPro5,3", { { 2, false }, { 0, false }, { 4, true  } } },
+
+  // Tested by leandrogracia on a 15" MacBook Pro.
   { "MacBookPro5,4", { { 0, false }, { 2, false }, { 4, false } } },
 
-  // Tested by leandrogracia on a 13'' MacBook Pro.
+  // Tested by leandrogracia on a 13" MacBook Pro.
   { "MacBookPro5,5", { { 0, true  }, { 2, true  }, { 4, false } } },
 
-  // Tested by leandrogracia on a 15'' MacBook Pro.
+  // Tested by khom, leadpipe on a 17" MacBook Pro.
+  { "MacBookPro6,1", { { 0, false }, { 2, false }, { 4, false } } },
+
+  // Tested by leandrogracia on a 15" MacBook Pro.
   { "MacBookPro6,2", { { 0, true  }, { 2, false }, { 4, true  } } },
 
-  // Tested by leandrogracia on a 13'' MacBook Pro.
+  // Tested by leandrogracia on a 13" MacBook Pro.
   { "MacBookPro7,1", { { 0, true  }, { 2, true  }, { 4, false } } },
 
-  // Generic MacBook accelerometer sensor data.
-  // Added for compatibility with non-tested models
-  // Note: there may be problems with inverted axes.
+  // Generic MacBook accelerometer sensor data, used for for both future models
+  // and past models for which there has been no testing. Note that this generic
+  // configuration may well have problems with inverted axes.
+  // TODO(avi): Find these past models and test on them; test on future models.
+  //  MacBook1,1
+  //  MacBook3,1
+  //  MacBook5,1
+  //  MacBook5,2
+  //  MacBook6,1
+  //  MacBookAir1,1
+  //  MacBookPro1,1
+  //  MacBookPro1,2
+  //  MacBookPro3,1 (17" to compare to 15")
   { "", { { 0, true  }, { 2, true  }, { 4, false } } }
 };
 
@@ -271,7 +311,6 @@ bool AccelerometerMac::Init() {
   const SensorDescriptor* sensor_candidate = NULL;
 
   // Look for the current model in the supported sensor list.
-  io_object_t device = 0;
   const int kNumSensors = arraysize(kSupportedSensors);
 
   for (int i = 0; i < kNumSensors; ++i) {
@@ -300,7 +339,9 @@ bool AccelerometerMac::Init() {
     }
 
     // Get the first device in the list.
-    if ((device = IOIteratorNext(device_iterator)) == 0)
+    io_object_t device = IOIteratorNext(device_iterator);
+    IOObjectRelease(device_iterator);
+    if (device == 0)
       continue;
 
     // Try to open device.

@@ -1,9 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/test/ui/ui_test.h"
 
+#include "base/test/test_timeouts.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/automation/browser_proxy.h"
@@ -21,7 +22,7 @@ class BookmarksUITest : public UITest {
         L"domAutomationController.send("
         L"    location.protocol == 'chrome-extension:' && "
         L"    document.readyState == 'complete')",
-        test_timeout_ms());
+        TestTimeouts::huge_test_timeout_ms());
   }
 
   scoped_refptr<TabProxy> GetBookmarksUITab() {
@@ -110,7 +111,8 @@ TEST_F(BookmarksUITest, CommandAgainGoesBackToBookmarksTab) {
 
   // Bring up the bookmarks manager tab.
   ASSERT_TRUE(browser->RunCommand(IDC_SHOW_BOOKMARK_MANAGER));
-  ASSERT_TRUE(browser->WaitForTabToBecomeActive(1, action_max_timeout_ms()));
+  ASSERT_TRUE(browser->WaitForTabToBecomeActive(
+      1, TestTimeouts::action_max_timeout_ms()));
   ASSERT_TRUE(browser->GetTabCount(&tab_count));
   ASSERT_EQ(2, tab_count);
 
@@ -121,11 +123,13 @@ TEST_F(BookmarksUITest, CommandAgainGoesBackToBookmarksTab) {
 
   // Switch to first tab and run command again.
   ASSERT_TRUE(browser->ActivateTab(0));
-  ASSERT_TRUE(browser->WaitForTabToBecomeActive(0, action_max_timeout_ms()));
+  ASSERT_TRUE(browser->WaitForTabToBecomeActive(
+      0, TestTimeouts::action_max_timeout_ms()));
   ASSERT_TRUE(browser->RunCommand(IDC_SHOW_BOOKMARK_MANAGER));
 
   // Ensure the bookmarks ui tab is active.
-  ASSERT_TRUE(browser->WaitForTabToBecomeActive(1, action_max_timeout_ms()));
+  ASSERT_TRUE(browser->WaitForTabToBecomeActive(
+      1, TestTimeouts::action_max_timeout_ms()));
   ASSERT_TRUE(browser->GetTabCount(&tab_count));
   ASSERT_EQ(2, tab_count);
 }

@@ -1,15 +1,16 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/options/content_page_view.h"
+#include "chrome/browser/ui/views/options/content_page_view.h"
 
 #include <windows.h>
 #include <shlobj.h>
 #include <vsstyle.h>
 #include <vssym32.h>
 
-#include "app/l10n_util.h"
+#include <string>
+
 #include "base/command_line.h"
 #include "base/string_util.h"
 #include "chrome/browser/autofill/autofill_dialog.h"
@@ -20,21 +21,20 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/sync/sync_setup_wizard.h"
-#include "chrome/browser/ui/browser.h"
-#include "chrome/browser/views/importer_view.h"
-#include "chrome/browser/views/options/managed_prefs_banner_view.h"
-#include "chrome/browser/views/options/options_group_view.h"
-#include "chrome/browser/views/options/passwords_exceptions_window_view.h"
-#include "chrome/common/chrome_switches.h"
+#include "chrome/browser/ui/views/importer_view.h"
+#include "chrome/browser/ui/views/options/managed_prefs_banner_view.h"
+#include "chrome/browser/ui/views/options/options_group_view.h"
+#include "chrome/browser/ui/views/options/passwords_exceptions_window_view.h"
 #include "chrome/common/pref_names.h"
-#include "gfx/canvas.h"
-#include "gfx/native_theme_win.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/native_theme_win.h"
 #include "views/controls/button/radio_button.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/widget.h"
 #include "views/window/window.h"
 
@@ -128,9 +128,8 @@ void ContentPageView::ButtonPressed(
       ConfirmMessageBoxDialog::RunWithCustomConfiguration(
           GetWindow()->GetNativeWindow(),
           this,
-          UTF16ToWide(l10n_util::GetStringFUTF16(
-              IDS_SYNC_STOP_SYNCING_EXPLANATION_LABEL,
-              l10n_util::GetStringUTF16(IDS_PRODUCT_NAME))),
+          UTF16ToWide(l10n_util::GetStringUTF16(
+              IDS_SYNC_STOP_SYNCING_EXPLANATION_LABEL)),
           UTF16ToWide(l10n_util::GetStringUTF16(
               IDS_SYNC_STOP_SYNCING_DIALOG_TITLE)),
           UTF16ToWide(l10n_util::GetStringUTF16(
@@ -160,7 +159,7 @@ void ContentPageView::LinkActivated(views::Link* source, int event_flags) {
   }
   if (source == sync_action_link_) {
     DCHECK(sync_service_ && !sync_service_->IsManaged());
-    sync_service_->ShowLoginDialog(GetWindow()->GetNativeWindow());
+    sync_service_->ShowErrorUI(GetWindow()->GetNativeWindow());
     return;
   }
   if (source == privacy_dashboard_link_) {
@@ -194,28 +193,28 @@ void ContentPageView::InitControlLayout() {
     layout->StartRow(0, single_column_view_set_id);
     InitSyncGroup();
     layout->AddView(sync_group_);
-    layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+    layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   }
 
   layout->StartRow(0, single_column_view_set_id);
   InitPasswordSavingGroup();
   layout->AddView(passwords_group_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   layout->StartRow(0, single_column_view_set_id);
   InitFormAutofillGroup();
   layout->AddView(form_autofill_group_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   layout->StartRow(0, single_column_view_set_id);
   InitBrowsingDataGroup();
   layout->AddView(browsing_data_group_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   layout->StartRow(0, single_column_view_set_id);
   InitThemesGroup();
   layout->AddView(themes_group_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   // Init member prefs so we can update the controls if prefs change.
   ask_to_save_passwords_.Init(prefs::kPasswordManagerEnabled,
@@ -307,11 +306,11 @@ void ContentPageView::InitPasswordSavingGroup() {
   layout->StartRow(0, single_column_view_set_id);
   layout->AddView(passwords_asktosave_radio_, 1, 1,
                   GridLayout::FILL, GridLayout::LEADING);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   layout->StartRow(0, single_column_view_set_id);
   layout->AddView(passwords_neversave_radio_, 1, 1,
                   GridLayout::FILL, GridLayout::LEADING);
-  layout->AddPaddingRow(0, kUnrelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kUnrelatedControlVerticalSpacing);
   layout->StartRow(0, single_column_view_set_id);
   layout->AddView(show_passwords_button_);
 
@@ -370,7 +369,7 @@ void ContentPageView::InitThemesGroup() {
   ColumnSet* double_col_set = layout->AddColumnSet(double_column_view_set_id);
   double_col_set->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                             GridLayout::USE_PREF, 0, 0);
-  double_col_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  double_col_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   double_col_set->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                             GridLayout::USE_PREF, 0, 0);
 
@@ -443,7 +442,7 @@ void ContentPageView::InitSyncGroup() {
   ColumnSet* column_set = layout->AddColumnSet(single_column_view_set_id);
   column_set->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 1,
                         GridLayout::USE_PREF, 0, 0);
 
@@ -452,11 +451,11 @@ void ContentPageView::InitSyncGroup() {
                   GridLayout::FILL, GridLayout::LEADING);
   layout->StartRow(0, single_column_view_set_id);
   layout->AddView(sync_action_link_, 3, 1);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   layout->StartRow(0, single_column_view_set_id);
   layout->AddView(sync_start_stop_button_);
   layout->AddView(sync_customize_button_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   layout->StartRow(0, single_column_view_set_id);
   layout->AddView(privacy_dashboard_link_, 3, 1);
 

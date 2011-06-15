@@ -1,17 +1,16 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/options/plugin_filter_page_view.h"
+#include "chrome/browser/ui/views/options/plugin_filter_page_view.h"
 
-#include "app/l10n_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/options/show_options_url.h"
 #include "chrome/common/url_constants.h"
 #include "grit/generated_resources.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 
 PluginFilterPageView::PluginFilterPageView(Profile* profile)
     : ContentFilterPageView(profile, CONTENT_SETTINGS_TYPE_PLUGINS) {
@@ -30,7 +29,7 @@ void PluginFilterPageView::InitControlLayout() {
 
   GridLayout* layout = static_cast<GridLayout*>(GetLayoutManager());
   const int single_column_set_id = 0;
-  layout->AddPaddingRow(0, kUnrelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kUnrelatedControlVerticalSpacing);
 
   views::Link* plugins_page_link = new views::Link(
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_PLUGIN_SELECTIVE_DISABLE)));

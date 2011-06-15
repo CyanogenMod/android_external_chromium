@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,7 +26,7 @@ cr.define('options', function() {
      * @private
      */
     dismissOverlay_: function() {
-      OptionsPage.clearOverlays();
+      OptionsPage.closeOverlay();
     },
 
     /**
@@ -49,7 +49,7 @@ cr.define('options', function() {
      */
     finishEdit_: function() {
       // TODO(mattm): Send checked values as booleans.  For now send them as
-      // strings, since DOMUIBindings::send does not support any other types :(
+      // strings, since WebUIBindings::send does not support any other types :(
       chrome.send('editCaCertificateTrust',
                   [this.certId,
                    $('certificateCaTrustSSLCheckbox').checked.toString(),
@@ -74,7 +74,7 @@ cr.define('options', function() {
      */
     finishImport_: function() {
       // TODO(mattm): Send checked values as booleans.  For now send them as
-      // strings, since DOMUIBindings::send does not support any other types :(
+      // strings, since WebUIBindings::send does not support any other types :(
       chrome.send('importCaCertificateTrustSelected',
                   [$('certificateCaTrustSSLCheckbox').checked.toString(),
                    $('certificateCaTrustEmailCheckbox').checked.toString(),
@@ -126,7 +126,7 @@ cr.define('options', function() {
         localStrings.getStringF('certificateEditCaTrustDescriptionFormat',
                                 certName);
     self.enableInputs_(false);
-    OptionsPage.showOverlay('certificateEditCaTrustOverlay');
+    OptionsPage.navigateToPage('certificateEditCaTrustOverlay');
     chrome.send('getCaCertificateTrust', [certId]);
   }
 
@@ -150,7 +150,7 @@ cr.define('options', function() {
         localStrings.getStringF('certificateImportCaDescriptionFormat',
                                 certName);
     CertificateEditCaTrustOverlay.populateTrust(false, false, false);
-    OptionsPage.showOverlay('certificateEditCaTrustOverlay');
+    OptionsPage.navigateToPage('certificateEditCaTrustOverlay');
   }
 
   CertificateEditCaTrustOverlay.dismiss = function() {
@@ -161,5 +161,4 @@ cr.define('options', function() {
   return {
     CertificateEditCaTrustOverlay: CertificateEditCaTrustOverlay
   };
-
 });

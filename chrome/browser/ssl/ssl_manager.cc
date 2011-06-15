@@ -4,12 +4,10 @@
 
 #include "chrome/browser/ssl/ssl_manager.h"
 
-#include "app/l10n_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/load_from_memory_cache_details.h"
 #include "chrome/browser/net/url_request_tracking.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/renderer_host/resource_request_details.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
@@ -21,9 +19,9 @@
 #include "chrome/browser/tab_contents/provisional_load_details.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/notification_service.h"
-#include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
 #include "net/base/cert_status_flags.h"
+#include "ui/base/l10n/l10n_util.h"
 
 // static
 void SSLManager::OnSSLCertificateError(ResourceDispatcherHost* rdh,

@@ -12,9 +12,8 @@
 #include "base/process_util.h"
 #include "base/sha2.h"
 #include "chrome/browser/safe_browsing/bloom_filter.h"
+#include "chrome/browser/safe_browsing/prefix_set.h"
 #include "chrome/browser/safe_browsing/safe_browsing_store_file.h"
-#include "chrome/browser/safe_browsing/safe_browsing_store_sqlite.h"
-#include "chrome/browser/safe_browsing/safe_browsing_util.h"
 #include "googleurl/src/gurl.h"
 
 namespace {
@@ -179,6 +178,37 @@ bool SBAddFullHashPrefixLess(const SBAddFullHash& a, const SBAddFullHash& b) {
   return a.full_hash.prefix < b.full_hash.prefix;
 }
 
+// Create a |PrefixSet| from a vector of add-prefixes.
+safe_browsing::PrefixSet* CreatePrefixSet(
+    const std::vector<SBAddPrefix>& add_prefixes) {
+  std::vector<SBPrefix> prefixes;
+  for (size_t i = 0; i < add_prefixes.size(); ++i) {
+    prefixes.push_back(add_prefixes[i].prefix);
+  }
+  return new safe_browsing::PrefixSet(prefixes);
+}
+
+// As compared to the bloom filter, PrefixSet should have these
+// properties:
+// - Any bloom filter miss should be a prefix set miss.
+// - Any prefix set hit should be a bloom filter hit.
+// - Bloom filter false positives are prefix set misses.
+// The following is to log actual performance to verify this.
+enum PrefixSetEvent {
+  PREFIX_SET_EVENT_HIT,
+  PREFIX_SET_EVENT_BLOOM_HIT,
+  PREFIX_SET_EVENT_BLOOM_MISS_PREFIX_HIT,
+
+  // Memory space for histograms is determined by the max.  ALWAYS ADD
+  // NEW VALUES BEFORE THIS ONE.
+  PREFIX_SET_EVENT_MAX
+};
+
+void RecordPrefixSetInfo(PrefixSetEvent event_type) {
+  UMA_HISTOGRAM_ENUMERATION("SB2.PrefixSetEvent", event_type,
+                            PREFIX_SET_EVENT_MAX);
+}
+
 }  // namespace
 
 // The default SafeBrowsingDatabaseFactory.
@@ -206,11 +236,9 @@ SafeBrowsingDatabaseFactory* SafeBrowsingDatabase::factory_ = NULL;
 
 // Factory method, non-thread safe. Caller has to make sure this s called
 // on SafeBrowsing Thread.
-// TODO(shess): Milestone-7 is converting from SQLite-based
-// SafeBrowsingDatabaseBloom to the new file format with
-// SafeBrowsingDatabaseNew.  Once that conversion is too far along to
-// consider reversing, circle back and lift SafeBrowsingDatabaseNew up
-// to SafeBrowsingDatabase and get rid of the abstract class.
+// TODO(shess): There's no need for a factory any longer.  Convert
+// SafeBrowsingDatabaseNew to SafeBrowsingDatabase, and have Create()
+// callers just construct things directly.
 SafeBrowsingDatabase* SafeBrowsingDatabase::Create(
     bool enable_download_protection) {
   if (!factory_)
@@ -259,7 +287,7 @@ void SafeBrowsingDatabase::RecordFailure(FailureType failure_type) {
 
 SafeBrowsingDatabaseNew::SafeBrowsingDatabaseNew()
     : creation_loop_(MessageLoop::current()),
-      browse_store_(new SafeBrowsingStoreSqlite),
+      browse_store_(new SafeBrowsingStoreFile),
       download_store_(NULL),
       ALLOW_THIS_IN_INITIALIZER_LIST(reset_factory_(this)) {
   DCHECK(browse_store_.get());
@@ -287,7 +315,7 @@ void SafeBrowsingDatabaseNew::Init(const FilePath& filename_base) {
   // until it returns, there are no pointers to this class on other
   // threads.  Then again, that means there is no possibility of
   // contention on the lock...
-  AutoLock locked(lookup_lock_);
+  base::AutoLock locked(lookup_lock_);
 
   DCHECK(browse_filename_.empty());  // Ensure we haven't been run before.
   DCHECK(download_filename_.empty());  // Ensure we haven't been run before.
@@ -324,13 +352,16 @@ bool SafeBrowsingDatabaseNew::ResetDatabase() {
 
   // Reset objects in memory.
   {
-    AutoLock locked(lookup_lock_);
+    base::AutoLock locked(lookup_lock_);
     full_browse_hashes_.clear();
     pending_browse_hashes_.clear();
     prefix_miss_cache_.clear();
     // TODO(shess): This could probably be |bloom_filter_.reset()|.
     browse_bloom_filter_ = new BloomFilter(BloomFilter::kBloomFilterMinSize *
                                            BloomFilter::kBloomFilterSizeRatio);
+    // TODO(shess): It is simpler for the code to assume that presence
+    // of a bloom filter always implies presence of a prefix set.
+    prefix_set_.reset(CreatePrefixSet(std::vector<SBAddPrefix>()));
   }
 
   return true;
@@ -355,17 +386,28 @@ bool SafeBrowsingDatabaseNew::ContainsBrowseUrl(
 
   // This function is called on the I/O thread, prevent changes to
   // bloom filter and caches.
-  AutoLock locked(lookup_lock_);
+  base::AutoLock locked(lookup_lock_);
 
   if (!browse_bloom_filter_.get())
     return false;
+  DCHECK(prefix_set_.get());
 
   size_t miss_count = 0;
   for (size_t i = 0; i < prefixes.size(); ++i) {
+    bool found = prefix_set_->Exists(prefixes[i]);
+
     if (browse_bloom_filter_->Exists(prefixes[i])) {
+      RecordPrefixSetInfo(PREFIX_SET_EVENT_BLOOM_HIT);
+      if (found)
+        RecordPrefixSetInfo(PREFIX_SET_EVENT_HIT);
       prefix_hits->push_back(prefixes[i]);
       if (prefix_miss_cache_.count(prefixes[i]) > 0)
         ++miss_count;
+    } else {
+      // Bloom filter misses should never be in prefix set.
+      DCHECK(!found);
+      if (found)
+        RecordPrefixSetInfo(PREFIX_SET_EVENT_BLOOM_MISS_PREFIX_HIT);
     }
   }
 
@@ -566,6 +608,8 @@ void SafeBrowsingDatabaseNew::InsertChunks(const std::string& list_name,
   SafeBrowsingStore* store = GetStore(list_id);
   if (!store) return;
 
+  change_detected_ = true;
+
   store->BeginChunk();
   if (chunks.front().is_add) {
     InsertAddChunks(list_id, chunks);
@@ -590,6 +634,8 @@ void SafeBrowsingDatabaseNew::DeleteChunks(
   SafeBrowsingStore* store = GetStore(list_id);
   if (!store) return;
 
+  change_detected_ = true;
+
   for (size_t i = 0; i < chunk_deletes.size(); ++i) {
     std::vector<int> chunk_numbers;
     RangesToChunks(chunk_deletes[i].chunk_del, &chunk_numbers);
@@ -607,7 +653,7 @@ void SafeBrowsingDatabaseNew::CacheHashResults(
     const std::vector<SBPrefix>& prefixes,
     const std::vector<SBFullHashResult>& full_hits) {
   // This is called on the I/O thread, lock against updates.
-  AutoLock locked(lookup_lock_);
+  base::AutoLock locked(lookup_lock_);
 
   if (full_hits.empty()) {
     prefix_miss_cache_.insert(prefixes.begin(), prefixes.end());
@@ -677,6 +723,7 @@ bool SafeBrowsingDatabaseNew::UpdateStarted(
   }
 
   corruption_detected_ = false;
+  change_detected_ = false;
   return true;
 }
 
@@ -685,8 +732,13 @@ void SafeBrowsingDatabaseNew::UpdateFinished(bool update_succeeded) {
   if (corruption_detected_)
     return;
 
-  // Unroll any partially-received transaction.
-  if (!update_succeeded) {
+  // Unroll the transaction if there was a protocol error or if the
+  // transaction was empty.  This will leave the bloom filter, the
+  // pending hashes, and the prefix miss cache in place.
+  if (!update_succeeded || !change_detected_) {
+    // Track empty updates to answer questions at http://crbug.com/72216 .
+    if (update_succeeded && !change_detected_)
+      UMA_HISTOGRAM_COUNTS("SB2.DatabaseUpdateKilobytes", 0);
     browse_store_->CancelUpdate();
     if (download_store_.get())
       download_store_->CancelUpdate();
@@ -716,10 +768,10 @@ void SafeBrowsingDatabaseNew:: UpdateDownloadStore() {
   std::vector<SBAddPrefix> add_prefixes_result;
   std::vector<SBAddFullHash> add_full_hashes_result;
 
-  if (download_store_->FinishUpdate(empty_add_hashes,
-                                    empty_miss_cache,
-                                    &add_prefixes_result,
-                                    &add_full_hashes_result))
+  if (!download_store_->FinishUpdate(empty_add_hashes,
+                                     empty_miss_cache,
+                                     &add_prefixes_result,
+                                     &add_full_hashes_result))
     RecordFailure(FAILURE_DOWNLOAD_DATABASE_UPDATE_FINISH);
   return;
 }
@@ -729,7 +781,7 @@ void SafeBrowsingDatabaseNew::UpdateBrowseStore() {
   // case |ContainsBrowseURL()| is called before the new filter is complete.
   std::vector<SBAddFullHash> pending_add_hashes;
   {
-    AutoLock locked(lookup_lock_);
+    base::AutoLock locked(lookup_lock_);
     pending_add_hashes.insert(pending_add_hashes.end(),
                               pending_browse_hashes_.begin(),
                               pending_browse_hashes_.end());
@@ -772,13 +824,16 @@ void SafeBrowsingDatabaseNew::UpdateBrowseStore() {
     filter->Insert(add_prefixes[i].prefix);
   }
 
+  scoped_ptr<safe_browsing::PrefixSet>
+      prefix_set(CreatePrefixSet(add_prefixes));
+
   // This needs to be in sorted order by prefix for efficient access.
   std::sort(add_full_hashes.begin(), add_full_hashes.end(),
             SBAddFullHashPrefixLess);
 
   // Swap in the newly built filter and cache.
   {
-    AutoLock locked(lookup_lock_);
+    base::AutoLock locked(lookup_lock_);
     full_browse_hashes_.swap(add_full_hashes);
 
     // TODO(shess): If |CacheHashResults()| is posted between the
@@ -789,6 +844,7 @@ void SafeBrowsingDatabaseNew::UpdateBrowseStore() {
     pending_browse_hashes_.clear();
     prefix_miss_cache_.clear();
     browse_bloom_filter_.swap(filter);
+    prefix_set_.swap(prefix_set);
   }
 
   const base::TimeDelta bloom_gen = base::Time::Now() - before;
@@ -872,6 +928,12 @@ void SafeBrowsingDatabaseNew::LoadBloomFilter() {
 
   if (!browse_bloom_filter_.get())
     RecordFailure(FAILURE_DATABASE_FILTER_READ);
+
+  // Manually re-generate the prefix set from the main database.
+  // TODO(shess): Write/read for prefix set.
+  std::vector<SBAddPrefix> add_prefixes;
+  browse_store_->GetAddPrefixes(&add_prefixes);
+  prefix_set_.reset(CreatePrefixSet(add_prefixes));
 }
 
 bool SafeBrowsingDatabaseNew::Delete() {

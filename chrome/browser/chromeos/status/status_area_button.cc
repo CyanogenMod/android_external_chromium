@@ -4,9 +4,9 @@
 
 #include "chrome/browser/chromeos/status/status_area_button.h"
 
-#include "gfx/canvas.h"
-#include "gfx/skbitmap_operations.h"
 #include "grit/theme_resources.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/skbitmap_operations.h"
 #include "views/border.h"
 #include "views/view.h"
 
@@ -20,7 +20,7 @@ static const SkColor kStatusTextHaloColor = SkColorSetARGB(0xB3, 0, 0, 0);
 
 StatusAreaButton::StatusAreaButton(views::ViewMenuDelegate* menu_delegate)
     : MenuButton(NULL, std::wstring(), menu_delegate, false),
-      use_menu_button_paint_(false), enabled_(true) {
+      use_menu_button_paint_(false), active_(true) {
   set_border(NULL);
 
   // Use an offset that is top aligned with toolbar.
@@ -88,7 +88,7 @@ void StatusAreaButton::DrawIcon(gfx::Canvas* canvas) {
 }
 
 bool StatusAreaButton::Activate() {
-  if (enabled_) {
+  if (active_) {
     return views::MenuButton::Activate();
   } else {
     return true;

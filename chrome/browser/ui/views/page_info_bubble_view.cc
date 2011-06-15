@@ -1,25 +1,25 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/page_info_bubble_view.h"
+#include "chrome/browser/ui/views/page_info_bubble_view.h"
 
-#include "app/l10n_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/cert_store.h"
 #include "chrome/browser/certificate_viewer.h"
 #include "chrome/browser/google/google_util.h"
-#include "chrome/browser/views/frame/browser_view.h"
-#include "chrome/browser/views/info_bubble.h"
-#include "chrome/browser/views/toolbar_view.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/info_bubble.h"
+#include "chrome/browser/ui/views/toolbar_view.h"
 #include "chrome/common/url_constants.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
 #include "views/controls/separator.h"
-#include "views/grid_layout.h"
+#include "views/layout/grid_layout.h"
 #include "views/widget/widget.h"
 #include "views/window/window.h"
 
@@ -207,6 +207,11 @@ void PageInfoBubbleView::ModelChanged() {
 }
 
 void PageInfoBubbleView::LinkActivated(views::Link* source, int event_flags) {
+  // We want to make sure the info bubble closes once the link is activated.  So
+  // we close it explicitly rather than relying on a side-effect of opening a
+  // new tab (see http://crosbug.com/10186).
+  info_bubble_->Close();
+
   GURL url = google_util::AppendGoogleLocaleParam(
       GURL(chrome::kPageInfoHelpCenterURL));
   Browser* browser = BrowserList::GetLastActive();

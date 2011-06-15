@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,6 @@
 #include <string>
 #include <vector>
 
-#include "app/gtk_signal.h"
-#include "app/l10n_util.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/utf_string_conversions.h"
@@ -21,23 +19,25 @@
 #include "chrome/browser/autofill/form_group.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
 #include "chrome/browser/autofill/phone_number.h"
-#include "chrome/browser/gtk/gtk_chrome_link_button.h"
-#include "chrome/browser/gtk/gtk_tree.h"
-#include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/gtk/gtk_chrome_link_button.h"
+#include "chrome/browser/ui/gtk/gtk_tree.h"
+#include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
-#include "gfx/gtk_util.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
+#include "ui/base/gtk/gtk_signal.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/gtk_util.h"
 
 // Shows the editor for adding/editing an AutoFillProfile. If
 // |auto_fill_profile| is NULL, a new AutoFillProfile should be created.

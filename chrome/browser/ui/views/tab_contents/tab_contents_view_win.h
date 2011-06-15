@@ -9,7 +9,7 @@
 #include "base/scoped_ptr.h"
 #include "base/timer.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
-#include "gfx/size.h"
+#include "ui/gfx/size.h"
 #include "views/widget/widget_win.h"
 
 class RenderViewContextMenuViews;
@@ -48,7 +48,8 @@ class TabContentsViewWin : public TabContentsView,
   virtual gfx::NativeWindow GetTopLevelNativeWindow() const;
   virtual void GetContainerBounds(gfx::Rect* out) const;
   virtual void SetPageTitle(const std::wstring& title);
-  virtual void OnTabCrashed();
+  virtual void OnTabCrashed(base::TerminationStatus status,
+                            int error_code);
   virtual void SizeContents(const gfx::Size& size);
   virtual void Focus();
   virtual void SetInitialFocus();
@@ -56,6 +57,7 @@ class TabContentsViewWin : public TabContentsView,
   virtual void RestoreFocus();
   virtual bool IsDoingDrag() const;
   virtual void CancelDragAndCloseTab();
+  virtual void GetViewBounds(gfx::Rect* out) const;
 
   // Backend implementation of RenderViewHostDelegate::View.
   virtual void ShowContextMenu(const ContextMenuParams& params);

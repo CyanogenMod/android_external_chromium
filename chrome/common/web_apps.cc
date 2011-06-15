@@ -7,8 +7,6 @@
 #include <string>
 #include <vector>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/json/json_reader.h"
 #include "base/string16.h"
 #include "base/string_number_conversions.h"
@@ -16,17 +14,19 @@
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/common/json_schema_validator.h"
-#include "gfx/size.h"
 #include "googleurl/src/gurl.h"
 #include "grit/common_resources.h"
 #include "grit/generated_resources.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebDocument.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebElement.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebFrame.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebNode.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebNodeList.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebString.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURL.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebDocument.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebElement.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebFrame.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebNode.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebNodeList.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebString.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURL.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/size.h"
 #include "webkit/glue/dom_operations.h"
 
 using WebKit::WebDocument;

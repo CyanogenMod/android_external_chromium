@@ -174,13 +174,16 @@ bool SetFieldTrialInfo(int size_group) {
 
   // Field trials involve static objects so we have to do this only once.
   first = false;
-  scoped_refptr<base::FieldTrial> trial1(
-      new base::FieldTrial("CacheSize", 10));
   std::string group1 = base::StringPrintf("CacheSizeGroup_%d", size_group);
-  trial1->AppendGroup(group1, base::FieldTrial::kAllRemainingProbability);
+  int totalProbability = 10;
+  scoped_refptr<base::FieldTrial> trial1(
+      new base::FieldTrial("CacheSize", totalProbability, group1, 2011, 6, 30));
+  trial1->AppendGroup(group1, totalProbability);
 
+  // After June 30, 2011 builds, it will always be in default group.
   scoped_refptr<base::FieldTrial> trial2(
-      new base::FieldTrial("CacheThrottle", 100));
+      new base::FieldTrial(
+          "CacheThrottle", 100, "CacheThrottle_Default", 2011, 6, 30));
   int group2a = trial2->AppendGroup("CacheThrottle_On", 10);  // 10 % in.
   trial2->AppendGroup("CacheThrottle_Off", 10);  // 10 % control.
 
@@ -341,34 +344,6 @@ int PreferedCacheSize(int64 available) {
 
 // ------------------------------------------------------------------------
 
-// If the initialization of the cache fails, and force is true, we will discard
-// the whole cache and create a new one. In order to process a potentially large
-// number of files, we'll rename the cache folder to old_ + original_name +
-// number, (located on the same parent folder), and spawn a worker thread to
-// delete all the files on all the stale cache folders. The whole process can
-// still fail if we are not able to rename the cache folder (for instance due to
-// a sharing violation), and in that case a cache for this profile (on the
-// desired path) cannot be created.
-//
-// Static.
-int BackendImpl::CreateBackend(const FilePath& full_path, bool force,
-                               int max_bytes, net::CacheType type,
-                               uint32 flags, base::MessageLoopProxy* thread,
-                               net::NetLog* net_log, Backend** backend,
-                               CompletionCallback* callback) {
-  DCHECK(callback);
-  CacheCreator* creator = new CacheCreator(full_path, force, max_bytes, type,
-                                           flags, thread, net_log, backend,
-                                           callback);
-  // This object will self-destroy when finished.
-  return creator->Run();
-}
-
-int BackendImpl::Init(CompletionCallback* callback) {
-  background_queue_.Init(callback);
-  return net::ERR_IO_PENDING;
-}
-
 BackendImpl::BackendImpl(const FilePath& path,
                          base::MessageLoopProxy* cache_thread,
                          net::NetLog* net_log)
@@ -433,7 +408,33 @@ BackendImpl::~BackendImpl() {
   }
 }
 
-// ------------------------------------------------------------------------
+// If the initialization of the cache fails, and force is true, we will discard
+// the whole cache and create a new one. In order to process a potentially large
+// number of files, we'll rename the cache folder to old_ + original_name +
+// number, (located on the same parent folder), and spawn a worker thread to
+// delete all the files on all the stale cache folders. The whole process can
+// still fail if we are not able to rename the cache folder (for instance due to
+// a sharing violation), and in that case a cache for this profile (on the
+// desired path) cannot be created.
+//
+// Static.
+int BackendImpl::CreateBackend(const FilePath& full_path, bool force,
+                               int max_bytes, net::CacheType type,
+                               uint32 flags, base::MessageLoopProxy* thread,
+                               net::NetLog* net_log, Backend** backend,
+                               CompletionCallback* callback) {
+  DCHECK(callback);
+  CacheCreator* creator = new CacheCreator(full_path, force, max_bytes, type,
+                                           flags, thread, net_log, backend,
+                                           callback);
+  // This object will self-destroy when finished.
+  return creator->Run();
+}
+
+int BackendImpl::Init(CompletionCallback* callback) {
+  background_queue_.Init(callback);
+  return net::ERR_IO_PENDING;
+}
 
 int BackendImpl::SyncInit() {
   DCHECK(!init_);
@@ -678,7 +679,8 @@ EntryImpl* BackendImpl::OpenEntryImpl(const std::string& key) {
   uint32 hash = Hash(key);
   Trace("Open hash 0x%x", hash);
 
-  EntryImpl* cache_entry = MatchEntry(key, hash, false);
+  bool error;
+  EntryImpl* cache_entry = MatchEntry(key, hash, false, Addr(), &error);
   if (!cache_entry) {
     stats_.OnEvent(Stats::OPEN_MISS);
     return NULL;
@@ -712,11 +714,13 @@ EntryImpl* BackendImpl::CreateEntryImpl(const std::string& key) {
   if (entry_address.is_initialized()) {
     // We have an entry already. It could be the one we are looking for, or just
     // a hash conflict.
-    EntryImpl* old_entry = MatchEntry(key, hash, false);
+    bool error;
+    EntryImpl* old_entry = MatchEntry(key, hash, false, Addr(), &error);
     if (old_entry)
       return ResurrectEntry(old_entry);
 
-    EntryImpl* parent_entry = MatchEntry(key, hash, true);
+    EntryImpl* parent_entry = MatchEntry(key, hash, true, Addr(), &error);
+    DCHECK(!error);
     if (parent_entry) {
       parent.swap(&parent_entry);
     } else if (data_->table[hash & mask_]) {
@@ -901,7 +905,9 @@ void BackendImpl::RecoveredEntry(CacheRankingsBlock* rankings) {
 void BackendImpl::InternalDoomEntry(EntryImpl* entry) {
   uint32 hash = entry->GetHash();
   std::string key = entry->GetKey();
-  EntryImpl* parent_entry = MatchEntry(key, hash, true);
+  Addr entry_addr = entry->entry()->address();
+  bool error;
+  EntryImpl* parent_entry = MatchEntry(key, hash, true, entry_addr, &error);
   CacheAddr child(entry->GetNextAddress());
 
   Trace("Doom entry 0x%p", entry);
@@ -912,7 +918,7 @@ void BackendImpl::InternalDoomEntry(EntryImpl* entry) {
   if (parent_entry) {
     parent_entry->SetNextAddress(Addr(child));
     parent_entry->Release();
-  } else {
+  } else if (!error) {
     data_->table[hash & mask_] = child;
   }
 
@@ -1141,7 +1147,7 @@ void BackendImpl::OnOperationCompleted(base::TimeDelta elapsed_time) {
   if (!throttle_requests_)
     return;
 
-  const int kMaxNormalDelayMS = 100;
+  const int kMaxNormalDelayMS = 460;
 
   bool throttling = io_delay_ > kMaxNormalDelayMS;
 
@@ -1235,6 +1241,16 @@ void BackendImpl::ThrottleRequestsForTest(bool throttle) {
     background_queue_.StartQueingOperations();
   else
     background_queue_.StopQueingOperations();
+}
+
+void BackendImpl::TrimForTest(bool empty) {
+  eviction_.SetTestMode();
+  eviction_.TrimCache(empty);
+}
+
+void BackendImpl::TrimDeletedListForTest(bool empty) {
+  eviction_.SetTestMode();
+  eviction_.TrimDeletedList(empty);
 }
 
 int BackendImpl::SelfCheck() {
@@ -1458,6 +1474,7 @@ void BackendImpl::RestartCache(bool failure) {
   int64 errors = stats_.GetCounter(Stats::FATAL_ERROR);
   int64 full_dooms = stats_.GetCounter(Stats::DOOM_CACHE);
   int64 partial_dooms = stats_.GetCounter(Stats::DOOM_RECENT);
+  int64 last_report = stats_.GetCounter(Stats::LAST_REPORT);
 
   PrepareForRestart();
   if (failure) {
@@ -1476,6 +1493,7 @@ void BackendImpl::RestartCache(bool failure) {
     stats_.SetCounter(Stats::FATAL_ERROR, errors);
     stats_.SetCounter(Stats::DOOM_CACHE, full_dooms);
     stats_.SetCounter(Stats::DOOM_RECENT, partial_dooms);
+    stats_.SetCounter(Stats::LAST_REPORT, last_report);
   }
 }
 
@@ -1557,15 +1575,27 @@ int BackendImpl::NewEntry(Addr address, EntryImpl** entry, bool* dirty) {
 }
 
 EntryImpl* BackendImpl::MatchEntry(const std::string& key, uint32 hash,
-                                   bool find_parent) {
+                                   bool find_parent, Addr entry_addr,
+                                   bool* match_error) {
   Addr address(data_->table[hash & mask_]);
   scoped_refptr<EntryImpl> cache_entry, parent_entry;
   EntryImpl* tmp = NULL;
   bool found = false;
+  std::set<CacheAddr> visited;
+  *match_error = false;
 
   for (;;) {
     if (disabled_)
       break;
+
+    if (visited.find(address.value()) != visited.end()) {
+      // It's possible for a buggy version of the code to write a loop. Just
+      // break it.
+      Trace("Hash collision loop 0x%x", address.value());
+      address.set_value(0);
+      parent_entry->SetNextAddress(address);
+    }
+    visited.insert(address.value());
 
     if (!address.is_initialized()) {
       if (find_parent)
@@ -1602,6 +1632,7 @@ EntryImpl* BackendImpl::MatchEntry(const std::string& key, uint32 hash,
 
       // Restart the search.
       address.set_value(data_->table[hash & mask_]);
+      visited.clear();
       continue;
     }
 
@@ -1610,6 +1641,11 @@ EntryImpl* BackendImpl::MatchEntry(const std::string& key, uint32 hash,
       if (!cache_entry->Update())
         cache_entry = NULL;
       found = true;
+      if (find_parent && entry_addr.value() != address.value()) {
+        Trace("Entry not on the index 0x%x", address.value());
+        *match_error = true;
+        parent_entry = NULL;
+      }
       break;
     }
     if (!cache_entry->Update())
@@ -1667,7 +1703,7 @@ EntryImpl* BackendImpl::OpenFollowingEntry(bool forward, void** iter) {
           OpenFollowingEntryFromList(forward, iterator->list,
                                      &iterator->nodes[i], &temp);
       } else {
-        temp = GetEnumeratedEntry(iterator->nodes[i], false);
+        temp = GetEnumeratedEntry(iterator->nodes[i]);
       }
 
       entries[i].swap(&temp);  // The entry was already addref'd.
@@ -1724,7 +1760,7 @@ bool BackendImpl::OpenFollowingEntryFromList(bool forward, Rankings::List list,
   Rankings::ScopedRankingsBlock next(&rankings_, next_block);
   *from_entry = NULL;
 
-  *next_entry = GetEnumeratedEntry(next.get(), false);
+  *next_entry = GetEnumeratedEntry(next.get());
   if (!*next_entry)
     return false;
 
@@ -1732,8 +1768,7 @@ bool BackendImpl::OpenFollowingEntryFromList(bool forward, Rankings::List list,
   return true;
 }
 
-EntryImpl* BackendImpl::GetEnumeratedEntry(CacheRankingsBlock* next,
-                                           bool to_evict) {
+EntryImpl* BackendImpl::GetEnumeratedEntry(CacheRankingsBlock* next) {
   if (!next || disabled_)
     return NULL;
 
@@ -1748,11 +1783,18 @@ EntryImpl* BackendImpl::GetEnumeratedEntry(CacheRankingsBlock* next,
     return NULL;
   }
 
-  // There is no need to store the entry to disk if we want to delete it.
-  if (!to_evict && !entry->Update()) {
+  if (!entry->Update()) {
     entry->Release();
     return NULL;
   }
+
+  // Note that it is unfortunate (but possible) for this entry to be clean, but
+  // not actually the real entry. In other words, we could have lost this entry
+  // from the index, and it could have been replaced with a newer one. It's not
+  // worth checking that this entry is "the real one", so we just return it and
+  // let the enumeration continue; this entry will be evicted at some point, and
+  // the regular path will work with the real entry. With time, this problem
+  // will disasappear because this scenario is just a bug.
 
   // Make sure that we save the key for later.
   entry->GetKey();
@@ -1805,7 +1847,7 @@ void BackendImpl::DestroyInvalidEntry(EntryImpl* entry) {
 void BackendImpl::DestroyInvalidEntryFromEnumeration(EntryImpl* entry) {
   std::string key = entry->GetKey();
   entry->SetPointerForInvalidEntry(GetCurrentEntryId());
-  CacheAddr next_entry = entry->entry()->Data()->next;
+  CacheAddr next_entry = entry->GetNextAddress();
   if (!next_entry) {
     DestroyInvalidEntry(entry);
     entry->Release();
@@ -1898,6 +1940,9 @@ void BackendImpl::ReportStats() {
             static_cast<int>(stats_.GetCounter(Stats::DOOM_CACHE)));
   CACHE_UMA(COUNTS_10000, "TotalDoomRecentEntries", 0,
             static_cast<int>(stats_.GetCounter(Stats::DOOM_RECENT)));
+  stats_.SetCounter(Stats::FATAL_ERROR, 0);
+  stats_.SetCounter(Stats::DOOM_CACHE, 0);
+  stats_.SetCounter(Stats::DOOM_RECENT, 0);
 
   int64 total_hours = stats_.GetCounter(Stats::TIMER) / 120;
   if (!data_->header.create_time || !data_->header.lru.filled) {

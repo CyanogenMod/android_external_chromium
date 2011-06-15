@@ -82,7 +82,7 @@ void HistoryContentsProvider::Start(const AutocompleteInput& input,
   if ((input.type() == AutocompleteInput::URL) ||
       (((input.type() == AutocompleteInput::REQUESTED_URL) ||
         (input.type() == AutocompleteInput::UNKNOWN)) &&
-       (input.text().find('.') != std::wstring::npos))) {
+       (input.text().find('.') != string16::npos))) {
     Stop();
     return;
   }
@@ -133,8 +133,8 @@ void HistoryContentsProvider::Start(const AutocompleteInput& input,
 
       history::QueryOptions options;
       options.SetRecentDayRange(kDaysToSearch);
-      options.max_count = kMaxMatchCount;
-      history->QueryHistory(WideToUTF16(input.text()), options,
+      options.max_count = kMaxMatches;
+      history->QueryHistory(input.text(), options,
           &request_consumer_,
           NewCallback(this, &HistoryContentsProvider::QueryComplete));
     }
@@ -183,34 +183,15 @@ void HistoryContentsProvider::ConvertResults() {
     result_refs.push_back(ref);
   }
 
-  // Get the top matches and add them. Always do max number of matches the popup
-  // will show plus one. This ensures that if the other providers provide the
-  // exact same set of results, and the db only has max_matches + 1 results
-  // available for this query, we know the last one.
-  //
-  // This is done to avoid having the history search shortcut show
-  // 'See 1 previously viewed ...'.
-  //
-  // Note that AutocompleteResult::kMaxMatches (maximum size of the popup)
-  // is different than both kMaxMatches (the provider's maximum) and
-  // kMaxMatchCount (the number of items we want from the history).
-  size_t max_for_popup = std::min(AutocompleteResult::kMaxMatches + 1,
-                                  result_refs.size());
+  // Get the top matches and add them.
   size_t max_for_provider = std::min(kMaxMatches, result_refs.size());
-  std::partial_sort(result_refs.begin(), result_refs.begin() + max_for_popup,
+  std::partial_sort(result_refs.begin(), result_refs.begin() + max_for_provider,
                     result_refs.end(), &CompareMatchRelevance);
   matches_.clear();
-  for (size_t i = 0; i < max_for_popup; i++) {
+  for (size_t i = 0; i < max_for_provider; i++) {
     matches_.push_back(ResultToMatch(*result_refs[i].result,
                                      result_refs[i].relevance));
   }
-
-  // We made more matches than the autocomplete service requested for this
-  // provider (see previous comment). We invert the weights for the items
-  // we want to get removed, but preserve their magnitude which will be used
-  // to fill them in with our other results.
-  for (size_t i = max_for_provider; i < max_for_popup; i++)
-      matches_[i].relevance = -matches_[i].relevance;
 }
 
 static bool MatchInTitle(const history::URLResult& result) {
@@ -231,7 +212,7 @@ AutocompleteMatch HistoryContentsProvider::ResultToMatch(
   match.destination_url = result.url();
   match.contents_class.push_back(
       ACMatchClassification(0, ACMatchClassification::URL));
-  match.description = UTF16ToWide(result.title());
+  match.description = result.title();
   match.starred =
       (profile_->GetBookmarkModel() &&
        profile_->GetBookmarkModel()->IsBookmarked(result.url()));
@@ -284,7 +265,7 @@ void HistoryContentsProvider::QueryBookmarks(const AutocompleteInput& input) {
 
   TimeTicks start_time = TimeTicks::Now();
   std::vector<bookmark_utils::TitleMatch> matches;
-  bookmark_model->GetBookmarksWithTitlesMatching(WideToUTF16Hack(input.text()),
+  bookmark_model->GetBookmarksWithTitlesMatching(input.text(),
                                                  kMaxMatches, &matches);
   for (size_t i = 0; i < matches.size(); ++i)
     AddBookmarkTitleMatchToResults(matches[i]);

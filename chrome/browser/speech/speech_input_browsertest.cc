@@ -14,7 +14,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebInputEvent.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebInputEvent.h"
 
 namespace speech_input {
 class FakeSpeechInputManager;
@@ -42,13 +42,14 @@ class FakeSpeechInputManager : public SpeechInputManager {
   }
 
   // SpeechInputManager methods.
-  void StartRecognition(Delegate* delegate,
-                        int caller_id,
-                        int render_process_id,
-                        int render_view_id,
-                        const gfx::Rect& element_rect,
-                        const std::string& language,
-                        const std::string& grammar) {
+  virtual void StartRecognition(Delegate* delegate,
+                                int caller_id,
+                                int render_process_id,
+                                int render_view_id,
+                                const gfx::Rect& element_rect,
+                                const std::string& language,
+                                const std::string& grammar,
+                                const std::string& origin_url) {
     VLOG(1) << "StartRecognition invoked.";
     EXPECT_EQ(0, caller_id_);
     EXPECT_EQ(NULL, delegate_);
@@ -59,16 +60,19 @@ class FakeSpeechInputManager : public SpeechInputManager {
     MessageLoop::current()->PostTask(FROM_HERE, NewRunnableMethod(this,
         &FakeSpeechInputManager::SetFakeRecognitionResult));
   }
-  void CancelRecognition(int caller_id) {
+  virtual void CancelRecognition(int caller_id) {
     VLOG(1) << "CancelRecognition invoked.";
     EXPECT_EQ(caller_id_, caller_id);
     caller_id_ = 0;
     delegate_ = NULL;
   }
-  void StopRecording(int caller_id) {
+  virtual void StopRecording(int caller_id) {
     VLOG(1) << "StopRecording invoked.";
     EXPECT_EQ(caller_id_, caller_id);
     // Nothing to do here since we aren't really recording.
+  }
+  virtual void CancelAllRequestsWithDelegate(Delegate* delegate) {
+    VLOG(1) << "CancelAllRequestsWithDelegate invoked.";
   }
 
  private:
@@ -166,7 +170,16 @@ SpeechInputManager* SpeechInputBrowserTest::speech_input_manager_ = NULL;
 // check for sending many clicks in succession to the speech button and verify
 // that it doesn't cause any crash but works as expected. This should act as the
 // test for http://crbug.com/59173
-#if defined(OS_WIN)
+//
+// TODO(satish): Similar to above, once this flakiness has been fixed add
+// another test here to check that when speech recognition is in progress and
+// a renderer crashes, we get a call to
+// SpeechInputManager::CancelAllRequestsWithDelegate.
+//
+// Marked as DISABLED due to http://crbug.com/71227
+#if defined(GOOGLE_CHROME_BUILD)
+#define MAYBE_TestBasicRecognition DISABLED_TestBasicRecognition
+#elif defined(OS_WIN)
 #define MAYBE_TestBasicRecognition FLAKY_TestBasicRecognition
 #else
 #define MAYBE_TestBasicRecognition TestBasicRecognition
@@ -177,7 +190,10 @@ IN_PROC_BROWSER_TEST_F(SpeechInputBrowserTest, MAYBE_TestBasicRecognition) {
 }
 
 // Marked as FLAKY due to http://crbug.com/51337
-#if defined(OS_WIN)
+// Marked as DISALBED due to http://crbug.com/71227
+#if defined(GOOGLE_CHROME_BUILD)
+#define MAYBE_GrammarAttribute DISABLED_GrammarAttribute
+#elif defined(OS_WIN)
 #define MAYBE_GrammarAttribute FLAKY_GrammarAttribute
 #else
 #define MAYBE_GrammarAttribute GrammarAttribute
@@ -188,4 +204,4 @@ IN_PROC_BROWSER_TEST_F(SpeechInputBrowserTest, MAYBE_GrammarAttribute) {
             fake_speech_input_manager_.grammar());
 }
 
-} //  namespace speech_input
+}  // namespace speech_input

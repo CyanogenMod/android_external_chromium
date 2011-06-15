@@ -123,10 +123,6 @@ class SSLHostInfo {
   // ParseInner is a helper function for Parse.
   bool ParseInner(const std::string& data);
 
-  // DnsComplete is a callback function which is called when our DNS resolution
-  // completes.
-  void DnsComplete(int rv);
-
   // This is the hostname that we'll validate the certificates against.
   const std::string hostname_;
   bool cert_parsing_failed_;
@@ -146,6 +142,7 @@ class SSLHostInfo {
   DnsRRResolver::Handle dns_handle_;
   RRResponse dns_response_;
   base::TimeTicks dns_lookup_start_time_;
+  base::TimeTicks cert_verification_finished_time_;
 };
 
 class SSLHostInfoFactory {

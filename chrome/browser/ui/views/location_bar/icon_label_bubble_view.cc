@@ -1,18 +1,18 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/location_bar/icon_label_bubble_view.h"
+#include "chrome/browser/ui/views/location_bar/icon_label_bubble_view.h"
 
-#include "app/resource_bundle.h"
-#include "chrome/browser/views/location_bar/location_bar_view.h"
-#include "gfx/canvas.h"
+#include "chrome/browser/ui/views/location_bar/location_bar_view.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
 
 // Amount of padding at the edges of the bubble.
-static const int kBubbleOuterPadding =
-    LocationBarView::kEdgeItemPadding - LocationBarView::kBubblePadding;
+static const int kBubbleOuterPadding = LocationBarView::kEdgeItemPadding -
+    LocationBarView::kBubbleHorizontalPadding;
 
 // Amount of padding after the label.
 static const int kLabelPadding = 5;

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_TABS_SIDE_TAB_STRIP_H_
 #pragma once
 
-#include "chrome/browser/views/tabs/base_tab_strip.h"
+#include "chrome/browser/ui/views/tabs/base_tab_strip.h"
 
 struct TabRendererData;
 
@@ -19,7 +19,6 @@ class SideTabStrip : public BaseTabStrip {
   virtual ~SideTabStrip();
 
   // BaseTabStrip implementation:
-  virtual int GetPreferredHeight();
   virtual void SetBackgroundOffset(const gfx::Point& offset);
   virtual bool IsPositionInWindowCaption(const gfx::Point& point);
 
@@ -39,8 +38,6 @@ class SideTabStrip : public BaseTabStrip {
   virtual BaseTab* CreateTab();
   virtual void GenerateIdealBounds();
   virtual void StartInsertTabAnimation(int model_index, bool foreground);
-  virtual void StartMoveTabAnimation();
-  virtual void StopAnimating(bool layout);
   virtual void AnimateToIdealBounds();
   virtual void DoLayout();
 

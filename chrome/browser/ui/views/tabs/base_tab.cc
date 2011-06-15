@@ -1,14 +1,11 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/tabs/base_tab.h"
+#include "chrome/browser/ui/views/tabs/base_tab.h"
 
 #include <limits>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
-#include "app/theme_provider.h"
 #include "base/command_line.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -16,14 +13,17 @@
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/tabs/tab_controller.h"
 #include "chrome/common/chrome_switches.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/favicon_size.h"
-#include "gfx/font.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "ui/base/animation/slide_animation.h"
 #include "ui/base/animation/throb_animation.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/theme_provider.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/favicon_size.h"
+#include "ui/gfx/font.h"
 #include "views/controls/button/image_button.h"
 
 // How long the pulse throb takes.
@@ -58,12 +58,12 @@ class TabCloseButton : public views::ImageButton {
   // fire before Enter events, so this works.
   virtual void OnMouseEntered(const views::MouseEvent& event) {
     CustomButton::OnMouseEntered(event);
-    GetParent()->OnMouseEntered(event);
+    parent()->OnMouseEntered(event);
   }
 
   virtual void OnMouseExited(const views::MouseEvent& event) {
     CustomButton::OnMouseExited(event);
-    GetParent()->OnMouseExited(event);
+    parent()->OnMouseExited(event);
   }
 
  private:
@@ -120,11 +120,11 @@ BaseTab::BaseTab(TabController* controller)
     : controller_(controller),
       closing_(false),
       dragging_(false),
-      loading_animation_frame_(0),
-      throbber_disabled_(false),
-      theme_provider_(NULL),
       fav_icon_hiding_offset_(0),
-      should_display_crashed_favicon_(false) {
+      loading_animation_frame_(0),
+      should_display_crashed_favicon_(false),
+      throbber_disabled_(false),
+      theme_provider_(NULL) {
   BaseTab::InitResources();
 
   SetID(VIEW_ID_TAB);
@@ -141,7 +141,7 @@ BaseTab::BaseTab(TabController* controller)
   close_button_->SetTooltipText(
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_TOOLTIP_CLOSE_TAB)));
   close_button_->SetAccessibleName(
-      UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_CLOSE)));
+      l10n_util::GetStringUTF16(IDS_ACCNAME_CLOSE));
   // Disable animation so that the red danger sign shows up immediately
   // to help avoid mis-clicks.
   close_button_->SetAnimationDuration(0);
@@ -157,9 +157,30 @@ void BaseTab::SetData(const TabRendererData& data) {
   TabRendererData old(data_);
   data_ = data;
 
-  if (data_.crashed) {
-    if (!should_display_crashed_favicon_ && !IsPerformingCrashAnimation())
-      StartCrashAnimation();
+  if (data_.IsCrashed()) {
+    if (!should_display_crashed_favicon_ && !IsPerformingCrashAnimation()) {
+      // When --reload-killed-tabs is specified, then the idea is that
+      // when tab is killed, the tab has no visual indication that it
+      // died and should reload when the tab is next focused without
+      // the user seeing the killed tab page.
+      //
+      // The only exception to this is when the tab is in the
+      // foreground (i.e. when it's the selected tab), because we
+      // don't want to go into an infinite loop reloading a page that
+      // will constantly get killed, or if it's the only tab.  So this
+      // code makes it so that the favicon will only be shown for
+      // killed tabs when the tab is currently selected.
+      if (CommandLine::ForCurrentProcess()->
+          HasSwitch(switches::kReloadKilledTabs) && !IsSelected()) {
+        // If we're reloading killed tabs, we don't want to display
+        // the crashed animation at all if the process was killed and
+        // the tab wasn't the current tab.
+        if (data_.crashed_status != base::TERMINATION_STATUS_PROCESS_WAS_KILLED)
+          StartCrashAnimation();
+      } else {
+        StartCrashAnimation();
+      }
+    }
   } else {
     if (IsPerformingCrashAnimation())
       StopCrashAnimation();
@@ -167,7 +188,7 @@ void BaseTab::SetData(const TabRendererData& data) {
   }
 
   // Sets the accessible name for the tab.
-  SetAccessibleName(UTF16ToWide(data_.title));
+  SetAccessibleName(data_.title);
 
   DataChanged(old);
 
@@ -305,8 +326,8 @@ AccessibilityTypes::Role BaseTab::GetAccessibleRole() {
   return AccessibilityTypes::ROLE_PAGETAB;
 }
 
-ThemeProvider* BaseTab::GetThemeProvider() {
-  ThemeProvider* tp = View::GetThemeProvider();
+ui::ThemeProvider* BaseTab::GetThemeProvider() {
+  ui::ThemeProvider* tp = View::GetThemeProvider();
   return tp ? tp : theme_provider_;
 }
 
@@ -359,7 +380,7 @@ void BaseTab::PaintIcon(gfx::Canvas* canvas, int x, int y) {
     favicon_x += (data().favicon.width() - kFavIconSize) / 2;
 
   if (data().network_state != TabRendererData::NETWORK_STATE_NONE) {
-    ThemeProvider* tp = GetThemeProvider();
+    ui::ThemeProvider* tp = GetThemeProvider();
     SkBitmap frames(*tp->GetBitmapNamed(
         (data().network_state == TabRendererData::NETWORK_STATE_WAITING) ?
         IDR_THROBBER_WAITING : IDR_THROBBER));
@@ -406,7 +427,7 @@ void BaseTab::PaintTitle(gfx::Canvas* canvas, SkColor title_color) {
     Browser::FormatTitleForDisplay(&title);
   }
 
-  canvas->DrawStringInt(UTF16ToWideHack(title), *font_, title_color,
+  canvas->DrawStringInt(title, *font_, title_color,
                         title_bounds().x(), title_bounds().y(),
                         title_bounds().width(), title_bounds().height());
 }

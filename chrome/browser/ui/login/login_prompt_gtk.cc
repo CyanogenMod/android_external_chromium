@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,8 @@
 
 #include <gtk/gtk.h>
 
-#include "app/l10n_util.h"
-#include "app/gtk_signal.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/gtk/constrained_window_gtk.h"
-#include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/password_manager/password_manager.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
@@ -19,9 +15,13 @@
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
 #include "chrome/browser/tab_contents/tab_contents_view_gtk.h"
 #include "chrome/browser/tab_contents/tab_util.h"
+#include "chrome/browser/ui/gtk/constrained_window_gtk.h"
+#include "chrome/browser/ui/gtk/gtk_util.h"
 #include "chrome/browser/ui/login/login_model.h"
 #include "grit/generated_resources.h"
 #include "net/url_request/url_request.h"
+#include "ui/base/gtk/gtk_signal.h"
+#include "ui/base/l10n/l10n_util.h"
 
 using webkit_glue::PasswordForm;
 
@@ -64,11 +64,11 @@ class LoginHandlerGtk : public LoginHandler,
 
   // LoginHandler:
   virtual void BuildViewForPasswordManager(PasswordManager* manager,
-                                           std::wstring explanation) {
+                                           const string16& explanation) {
     DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
     root_.Own(gtk_vbox_new(FALSE, gtk_util::kContentAreaBorder));
-    GtkWidget* label = gtk_label_new(WideToUTF8(explanation).c_str());
+    GtkWidget* label = gtk_label_new(UTF16ToUTF8(explanation).c_str());
     gtk_label_set_line_wrap(GTK_LABEL(label), TRUE);
     gtk_box_pack_start(GTK_BOX(root_.get()), label, FALSE, FALSE, 0);
 
@@ -153,8 +153,8 @@ class LoginHandlerGtk : public LoginHandler,
 
 void LoginHandlerGtk::OnOKClicked(GtkWidget* sender) {
   SetAuth(
-      UTF8ToWide(gtk_entry_get_text(GTK_ENTRY(username_entry_))),
-      UTF8ToWide(gtk_entry_get_text(GTK_ENTRY(password_entry_))));
+      UTF8ToUTF16(gtk_entry_get_text(GTK_ENTRY(username_entry_))),
+      UTF8ToUTF16(gtk_entry_get_text(GTK_ENTRY(password_entry_))));
 }
 
 void LoginHandlerGtk::OnCancelClicked(GtkWidget* sender) {

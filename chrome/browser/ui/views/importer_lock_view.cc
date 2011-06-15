@@ -1,23 +1,40 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/importer_lock_view.h"
+#include "chrome/browser/ui/views/importer_lock_view.h"
 
-#include "app/l10n_util.h"
 #include "base/message_loop.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/importer/importer.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "views/controls/label.h"
-#include "views/standard_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/window/window.h"
 
 // Default size of the dialog window.
 static const int kDefaultWindowWidth = 320;
 static const int kDefaultWindowHeight = 100;
+
+namespace browser {
+
+void ShowImportLockDialog(gfx::NativeWindow parent,
+                          ImporterHost* importer_host) {
+  ImporterLockView::Show(parent, importer_host);
+}
+
+}  // namespace browser
+
+// static
+void ImporterLockView::Show(gfx::NativeWindow parent,
+                            ImporterHost* importer_host) {
+  views::Window::CreateChromeWindow(
+      NULL, gfx::Rect(),
+      new ImporterLockView(importer_host))->Show();
+}
 
 ImporterLockView::ImporterLockView(ImporterHost* host)
     : description_label_(NULL),

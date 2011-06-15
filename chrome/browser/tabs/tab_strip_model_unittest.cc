@@ -5,7 +5,6 @@
 #include <map>
 #include <string>
 
-#include "app/system_monitor.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/path_service.h"
@@ -32,11 +31,11 @@
 #include "chrome/common/notification_observer_mock.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_source.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/common/property_bag.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/testing_profile.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/system_monitor/system_monitor.h"
 
 using testing::_;
 
@@ -231,8 +230,8 @@ class TabStripModelTest : public RenderViewHostTestHarness {
   std::wstring profile_path_;
   std::map<TabContents*, int> foo_;
 
-  // ProfileManager requires a SystemMonitor.
-  SystemMonitor system_monitor;
+  // ProfileManager requires a ui::SystemMonitor.
+  ui::SystemMonitor system_monitor;
 
   ProfileManager pm_;
 };
@@ -341,8 +340,10 @@ class MockTabStripModelObserver : public TabStripModelObserver {
                             TabChangeType change_type) {
     states_.push_back(new State(contents, index, CHANGE));
   }
-  virtual void TabReplacedAt(TabContentsWrapper* old_contents,
-                             TabContentsWrapper* new_contents, int index) {
+  virtual void TabReplacedAt(TabStripModel* tab_strip_model,
+                             TabContentsWrapper* old_contents,
+                             TabContentsWrapper* new_contents,
+                             int index) {
     State* s = new State(new_contents, index, REPLACED);
     s ->src_contents = old_contents;
     states_.push_back(s);

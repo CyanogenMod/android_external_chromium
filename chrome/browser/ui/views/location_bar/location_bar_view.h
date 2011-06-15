@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,11 +16,9 @@
 #include "chrome/browser/search_engines/template_url_model_observer.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
 #include "chrome/browser/ui/toolbar/toolbar_model.h"
-#include "chrome/browser/views/extensions/extension_popup.h"
-#include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_registrar.h"
-#include "gfx/font.h"
-#include "gfx/rect.h"
+#include "chrome/browser/ui/views/extensions/extension_popup.h"
+#include "ui/gfx/font.h"
+#include "ui/gfx/rect.h"
 #include "views/controls/native/native_view_host.h"
 
 #if defined(OS_WIN)
@@ -156,11 +154,6 @@ class LocationBarView : public LocationBar,
   // appears, not where the icons are shown).
   gfx::Point GetLocationEntryOrigin() const;
 
-#if defined(OS_WIN)
-  // Invoked from SuggestedTextView when the suggested text should be committed.
-  void OnCommitSuggestedText();
-#endif
-
   // Sizing functions
   virtual gfx::Size GetPreferredSize();
 
@@ -191,13 +184,16 @@ class LocationBarView : public LocationBar,
   virtual void OnMouseReleased(const views::MouseEvent& event, bool canceled);
 #endif
 
+  const LocationIconView* location_icon_view() const {
+    return location_icon_view_;
+  }
+
   // AutocompleteEditController
   virtual void OnAutocompleteWillClosePopup();
   virtual void OnAutocompleteLosingFocus(gfx::NativeView view_gaining_focus);
   virtual void OnAutocompleteWillAccept();
-  virtual bool OnCommitSuggestedText(const std::wstring& typed_text);
+  virtual bool OnCommitSuggestedText(bool skip_inline_autocomplete);
   virtual bool AcceptCurrentInstantPreview();
-  virtual void OnSetSuggestedSearchText(const string16& suggested_text);
   virtual void OnPopupBoundsChanged(const gfx::Rect& bounds);
   virtual void OnAutocompleteAccept(const GURL& url,
                                     WindowOpenDisposition disposition,
@@ -209,7 +205,7 @@ class LocationBarView : public LocationBar,
   virtual void OnKillFocus();
   virtual void OnSetFocus();
   virtual SkBitmap GetFavIcon() const;
-  virtual std::wstring GetTitle() const;
+  virtual string16 GetTitle() const;
 
   // Overridden from views::View:
   virtual std::string GetClassName() const;
@@ -269,7 +265,7 @@ class LocationBarView : public LocationBar,
   // Space between the edges and the items next to them.
   static const int kEdgeItemPadding;
   // Space between the edge and a bubble.
-  static const int kBubblePadding;
+  static const int kBubbleHorizontalPadding;
 
  protected:
   void Focus();

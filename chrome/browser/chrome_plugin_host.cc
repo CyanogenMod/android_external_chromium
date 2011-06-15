@@ -1,10 +1,12 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/chrome_plugin_host.h"
 
 #include <set>
+#include <string>
+#include <vector>
 
 #include "base/basictypes.h"
 #include "base/command_line.h"
@@ -31,7 +33,6 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_plugin_lib.h"
 #include "chrome/common/chrome_plugin_util.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/gears_api.h"
 #include "chrome/common/net/url_request_context_getter.h"
 #include "chrome/common/net/url_request_intercept_job.h"
@@ -157,7 +158,7 @@ class PluginRequestHandler : public PluginHelper,
       : PluginHelper(plugin), cprequest_(cprequest), user_buffer_(NULL) {
     cprequest_->data = this;  // see FromCPRequest().
 
-    URLRequestContext* context = CPBrowsingContextManager::GetInstance()->
+    net::URLRequestContext* context = CPBrowsingContextManager::GetInstance()->
         ToURLRequestContext(cprequest_->context);
     // TODO(mpcomplete): remove fallback case when Gears support is prevalent.
     if (!context)
@@ -317,8 +318,8 @@ class ModelessHtmlDialogDelegate : public HtmlDialogUIDelegate {
   virtual bool IsDialogModal() const { return false; }
   virtual std::wstring GetDialogTitle() const { return L"Gears"; }
   virtual GURL GetDialogContentURL() const { return params_.url; }
-  virtual void GetDOMMessageHandlers(
-      std::vector<DOMMessageHandler*>* handlers) const {}
+  virtual void GetWebUIMessageHandlers(
+      std::vector<WebUIMessageHandler*>* handlers) const {}
   virtual void GetDialogSize(gfx::Size* size) const {
     size->set_width(params_.width);
     size->set_height(params_.height);
@@ -387,7 +388,7 @@ void STDCALL CPB_SetKeepProcessAlive(CPID id, CPBool keep_alive) {
 CPError STDCALL CPB_GetCookies(CPID id, CPBrowsingContext bcontext,
                                const char* url, char** cookies) {
   CHECK(ChromePluginLib::IsPluginThread());
-  URLRequestContext* context = CPBrowsingContextManager::GetInstance()->
+  net::URLRequestContext* context = CPBrowsingContextManager::GetInstance()->
       ToURLRequestContext(bcontext);
   // TODO(mpcomplete): remove fallback case when Gears support is prevalent.
   if (!context) {
@@ -463,8 +464,14 @@ int STDCALL CPB_GetBrowsingContextInfo(
     if (!service)
       return CPERR_FAILURE;
     FilePath path = service->GetChromePluginDataDir();
-    std::string retval = WideToUTF8(
-        path.Append(chrome::kChromePluginDataDirname).ToWStringHack());
+    // This is wrong -- we can't in general stuff a path through a std::string.
+    // But this code is Gears-specific, so Windows-only anyway for now.
+    std::string retval;
+#if defined(OS_WIN)
+    retval = WideToUTF8(path.Append(chrome::kChromePluginDataDirname).value());
+#else
+    NOTREACHED();
+#endif
     *static_cast<char**>(buf) = CPB_StringDup(CPB_Alloc, retval);
     return CPERR_SUCCESS;
     }
@@ -695,7 +702,7 @@ CPBool STDCALL CPB_IsPluginProcessRunning(CPID id) {
   PluginService* service = PluginService::GetInstance();
   if (!service)
     return false;
-  PluginProcessHost *host = service->FindPluginProcess(plugin->filename());
+  PluginProcessHost *host = service->FindNpapiPluginProcess(plugin->filename());
   return host ? true : false;
 }
 
@@ -713,7 +720,7 @@ CPError STDCALL CPB_SendMessage(CPID id, const void *data, uint32 data_len) {
   if (!service)
     return CPERR_FAILURE;
   PluginProcessHost *host =
-  service->FindOrStartPluginProcess(plugin->filename());
+  service->FindOrStartNpapiPluginProcess(plugin->filename());
   if (!host)
     return CPERR_FAILURE;
 

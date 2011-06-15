@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,7 +34,7 @@
 #include "net/base/escape.h"
 
 #if defined(TOOLKIT_GTK)
-#include "chrome/browser/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
 #endif
 
 using WebKit::WebDragOperation;
@@ -92,12 +92,10 @@ class InterstitialPage::InterstitialPageRVHViewDelegate
   // RenderViewHostDelegate::View implementation:
   virtual void CreateNewWindow(
       int route_id,
-      WindowContainerType window_container_type,
-      const string16& frame_name);
+      const ViewHostMsg_CreateWindow_Params& params);
   virtual void CreateNewWidget(int route_id,
                                WebKit::WebPopupType popup_type);
-  virtual void CreateNewFullscreenWidget(int route_id,
-                                         WebKit::WebPopupType popup_type);
+  virtual void CreateNewFullscreenWidget(int route_id);
   virtual void ShowCreatedWindow(int route_id,
                                  WindowOpenDisposition disposition,
                                  const gfx::Rect& initial_pos,
@@ -594,8 +592,7 @@ InterstitialPage::InterstitialPageRVHViewDelegate::
 
 void InterstitialPage::InterstitialPageRVHViewDelegate::CreateNewWindow(
     int route_id,
-    WindowContainerType window_container_type,
-    const string16& frame_name) {
+    const ViewHostMsg_CreateWindow_Params& params) {
   NOTREACHED() << "InterstitialPage does not support showing popups yet.";
 }
 
@@ -606,7 +603,7 @@ void InterstitialPage::InterstitialPageRVHViewDelegate::CreateNewWidget(
 
 void
 InterstitialPage::InterstitialPageRVHViewDelegate::CreateNewFullscreenWidget(
-    int route_id, WebKit::WebPopupType popup_type) {
+    int route_id) {
   NOTREACHED()
       << "InterstitialPage does not support showing full screen popups.";
 }

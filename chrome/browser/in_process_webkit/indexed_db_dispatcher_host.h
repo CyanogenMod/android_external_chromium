@@ -10,7 +10,7 @@
 #include "base/id_map.h"
 #include "chrome/browser/browser_message_filter.h"
 #include "chrome/browser/in_process_webkit/webkit_context.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebExceptionCode.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebExceptionCode.h"
 
 class HostContentSettingsMap;
 class IndexedDBKey;
@@ -105,6 +105,7 @@ class IndexedDBDispatcherHost : public BrowserMessageFilter {
                        int32 mode, int32 timeout,
                        int32* idb_transaction_id,
                        WebKit::WebExceptionCode* ec);
+    void OnClose(int32 idb_database_id);
     void OnDestroyed(int32 idb_database_id);
 
     IndexedDBDispatcherHost* parent_;
@@ -168,6 +169,10 @@ class IndexedDBDispatcherHost : public BrowserMessageFilter {
                   const IndexedDBKey& key,
                   int32 transaction_id,
                   WebKit::WebExceptionCode* ec);
+    void OnClear(int idb_object_store_id,
+                 int32 response_id,
+                 int32 transaction_id,
+                 WebKit::WebExceptionCode* ec);
     void OnCreateIndex(
         const IndexedDBHostMsg_ObjectStoreCreateIndex_Params& params,
         int32* index_id,

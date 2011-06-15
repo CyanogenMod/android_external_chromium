@@ -43,12 +43,13 @@ OnlineAttempt::~OnlineAttempt() {
 }
 
 void OnlineAttempt::Initiate(Profile* profile) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
-  gaia_authenticator_.reset(
-      new GaiaAuthFetcher(this,
-                          GaiaConstants::kChromeOSSource,
-                          profile->GetRequestContext()));
-  TryClientLogin();
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  gaia_authenticator_.reset(new GaiaAuthFetcher(this,
+                                                GaiaConstants::kChromeOSSource,
+                                                profile->GetRequestContext()));
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
+      NewRunnableMethod(this, &OnlineAttempt::TryClientLogin));
 }
 
 void OnlineAttempt::OnClientLoginSuccess(
@@ -115,7 +116,7 @@ void OnlineAttempt::OnClientLoginFailure(
 
     return;
   }
-
+  VLOG(2) << "ClientLogin attempt failed with " << error.state();
   TriggerResolve(GaiaAuthConsumer::ClientLoginResult(),
                  LoginFailure::FromNetworkAuthFailure(error));
 }

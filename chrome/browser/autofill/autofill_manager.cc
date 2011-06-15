@@ -1,17 +1,20 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/autofill/autofill_manager.h"
 
 #include <limits>
+#include <map>
 #include <set>
+#include <utility>
 
-#include "app/l10n_util.h"
 #include "base/basictypes.h"
+#include "base/command_line.h"
 #include "base/string16.h"
 #include "base/utf_string_conversions.h"
 #ifndef ANDROID
+#include "chrome/browser/autocomplete_history_manager.h"
 #include "chrome/browser/autofill/autofill_cc_infobar_delegate.h"
 #endif
 #include "chrome/browser/autofill/autofill_dialog.h"
@@ -25,11 +28,19 @@
 #include "chrome/browser/renderer_host/render_view_host.h"
 #endif
 #include "chrome/browser/tab_contents/tab_contents.h"
+#ifndef ANDROID
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/common/autofill_messages.h"
+#endif
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/guid.h"
+#include "chrome/common/notification_details.h"
+#include "chrome/common/notification_service.h"
+#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "webkit/glue/form_data.h"
 #ifdef ANDROID
 #include <WebCoreSupport/autofill/FormFieldAndroid.h>
@@ -47,8 +58,8 @@ namespace {
 const double kAutoFillPositiveUploadRateDefaultValue = 0.01;
 const double kAutoFillNegativeUploadRateDefaultValue = 0.01;
 
-const string16::value_type kCreditCardPrefix[] = {'*',0};
-const string16::value_type kLabelSeparator[] = {';',' ','*',0};
+const string16::value_type kCreditCardPrefix[] = {'*', 0};
+const string16::value_type kLabelSeparator[] = {';', ' ', '*', 0};
 
 // Removes duplicate suggestions whilst preserving their original order.
 void RemoveDuplicateSuggestions(std::vector<string16>* values,
@@ -81,13 +92,93 @@ void RemoveDuplicateSuggestions(std::vector<string16>* values,
   unique_ids->swap(unique_ids_copy);
 }
 
+// Precondition: |form| should be the cached version of the form that is to be
+// autofilled, and |field| should be the field in the |form| that corresponds to
+// the initiating field. |is_filling_credit_card| should be true if filling
+// credit card data, false otherwise.
+// Fills |section_start| and |section_end| so that [section_start, section_end)
+// gives the bounds of logical section within |form| that includes |field|.
+// Logical sections are identified by two heuristics:
+//  1. The fields in the section must all be profile or credit card fields,
+//     depending on whether |is_filling_credit_card| is true.
+//  2. A logical section should not include multiple fields of the same autofill
+//     type (except for phone/fax numbers, as described below).
+void FindSectionBounds(const FormStructure& form,
+                       const AutoFillField& field,
+                       bool is_filling_credit_card,
+                       size_t* section_start,
+                       size_t* section_end) {
+  DCHECK(section_start);
+  DCHECK(section_end);
+
+  // By default, the relevant section is the entire form.
+  *section_start = 0;
+  *section_end = form.field_count();
+
+  std::set<AutoFillFieldType> seen_types;
+  bool initiating_field_is_in_current_section = false;
+  for (size_t i = 0; i < form.field_count(); ++i) {
+    const AutoFillField* current_field = form.field(i);
+    const AutoFillFieldType current_type =
+        AutoFillType::GetEquivalentFieldType(current_field->type());
+
+    // Fields of unknown type don't help us to distinguish sections.
+    if (current_type == UNKNOWN_TYPE)
+      continue;
+
+    bool already_saw_current_type = seen_types.count(current_type) > 0;
+    // Forms often ask for multiple phone numbers -- e.g. both a daytime and
+    // evening phone number.  Our phone and fax number detection is also
+    // generally a little off.  Hence, ignore both field types as a signal here.
+    AutoFillType::FieldTypeGroup current_type_group =
+        AutoFillType(current_type).group();
+    if (current_type_group == AutoFillType::PHONE_HOME ||
+        current_type_group == AutoFillType::PHONE_FAX)
+      already_saw_current_type = false;
+
+    // If we are filling credit card data, the relevant section should include
+    // only credit card fields; and similarly for profile data.
+    bool is_credit_card_field = current_type_group == AutoFillType::CREDIT_CARD;
+    bool is_appropriate_type = is_credit_card_field == is_filling_credit_card;
+
+    if (already_saw_current_type || !is_appropriate_type) {
+      if (initiating_field_is_in_current_section) {
+        // We reached the end of the section containing the initiating field.
+        *section_end = i;
+        break;
+      }
+
+      // We reached the end of a section, so start a new section.
+      seen_types.clear();
+
+      // Only include the current field in the new section if it matches the
+      // type of data we are filling.
+      if (is_appropriate_type) {
+        *section_start = i;
+      } else {
+        *section_start = i + 1;
+        continue;
+      }
+    }
+
+    seen_types.insert(current_type);
+
+    if (current_field == &field)
+      initiating_field_is_in_current_section = true;
+  }
+
+  // We should have found the initiating field.
+  DCHECK(initiating_field_is_in_current_section);
+}
+
 // Precondition: |form_structure| and |form| should correspond to the same
 // logical form. Returns true if the relevant portion of |form| is auto-filled.
-// If |is_filling_credit_card|, the relevant portion is the credit card portion;
-// otherwise it is the address and contact info portion.
-bool FormIsAutoFilled(const FormStructure* form_structure,
-                      const webkit_glue::FormData& form,
-                      bool is_filling_credit_card) {
+// The "relevant" fields in |form| are ones corresponding to fields in
+// |form_structure| with indices in the range [section_start, section_end).
+bool SectionIsAutoFilled(const FormStructure* form_structure,
+                         const webkit_glue::FormData& form,
+                         size_t section_start,
+                         size_t section_end) {
   // TODO(isherman): It would be nice to share most of this code with the loop
   // in |FillAutoFillFormData()|, but I don't see a particularly clean way to do
   // that.
@@ -96,8 +187,8 @@ bool FormIsAutoFilled(const FormStructure* form_structure,
   // directly and we can fill these corresponding fields; however, when the
   // |form_structure| and |form.fields| do not match directly we search
   // ahead in the |form_structure| for the matching field.
-  for (size_t i = 0, j = 0;
-       i < form_structure->field_count() && j < form.fields.size();
+  for (size_t i = section_start, j = 0;
+       i < section_end && j < form.fields.size();
        j++) {
     size_t k = i;
 
@@ -112,10 +203,7 @@ bool FormIsAutoFilled(const FormStructure* form_structure,
       continue;
 
     AutoFillType autofill_type(form_structure->field(k)->type());
-    bool is_credit_card_field =
-        autofill_type.group() == AutoFillType::CREDIT_CARD;
-    if (is_filling_credit_card == is_credit_card_field &&
-        form.fields[j].is_autofilled())
+    if (form.fields[j].is_autofilled())
       return true;
 
     // We found a matching field in the |form_structure| so we
@@ -164,13 +252,49 @@ void AutoFillManager::RegisterUserPrefs(PrefService* prefs) {
 #else
   prefs->RegisterBooleanPref(prefs::kAutoFillAuxiliaryProfilesEnabled, false);
 #endif
-  prefs->RegisterRealPref(prefs::kAutoFillPositiveUploadRate,
-                          kAutoFillPositiveUploadRateDefaultValue);
-  prefs->RegisterRealPref(prefs::kAutoFillNegativeUploadRate,
-                          kAutoFillNegativeUploadRateDefaultValue);
+  prefs->RegisterDoublePref(prefs::kAutoFillPositiveUploadRate,
+                            kAutoFillPositiveUploadRateDefaultValue);
+  prefs->RegisterDoublePref(prefs::kAutoFillNegativeUploadRate,
+                            kAutoFillNegativeUploadRateDefaultValue);
 }
 
-void AutoFillManager::FormSubmitted(const FormData& form) {
+#ifndef ANDROID
+void AutoFillManager::DidNavigateMainFramePostCommit(
+    const NavigationController::LoadCommittedDetails& details,
+    const ViewHostMsg_FrameNavigate_Params& params) {
+  Reset();
+}
+#endif
+
+#ifndef ANDROID
+bool AutoFillManager::OnMessageReceived(const IPC::Message& message) {
+  bool handled = true;
+  IPC_BEGIN_MESSAGE_MAP(AutoFillManager, message)
+    IPC_MESSAGE_HANDLER(AutoFillHostMsg_FormsSeen, OnFormsSeen)
+    IPC_MESSAGE_HANDLER(AutoFillHostMsg_FormSubmitted, OnFormSubmitted)
+    IPC_MESSAGE_HANDLER(AutoFillHostMsg_QueryFormFieldAutoFill,
+                        OnQueryFormFieldAutoFill)
+    IPC_MESSAGE_HANDLER(AutoFillHostMsg_ShowAutoFillDialog,
+                        OnShowAutoFillDialog)
+    IPC_MESSAGE_HANDLER(AutoFillHostMsg_FillAutoFillFormData,
+                        OnFillAutoFillFormData)
+    IPC_MESSAGE_HANDLER(AutoFillHostMsg_DidFillAutoFillFormData,
+                        OnDidFillAutoFillFormData)
+    IPC_MESSAGE_HANDLER(AutoFillHostMsg_DidShowAutoFillSuggestions,
+                        OnDidShowAutoFillSuggestions)
+    IPC_MESSAGE_UNHANDLED(handled = false)
+  IPC_END_MESSAGE_MAP()
+
+  return handled;
+}
+#endif
+
+void AutoFillManager::OnFormSubmitted(const FormData& form) {
+  // Let AutoComplete know as well.
+#ifndef ANDROID
+  tab_contents_->autocomplete_history_manager()->OnFormSubmitted(form);
+#endif
+
   if (!IsAutoFillEnabled())
     return;
 
@@ -182,31 +306,43 @@ void AutoFillManager::FormSubmitted(const FormData& form) {
     return;
 
   // Grab a copy of the form data.
-  upload_form_structure_.reset(new FormStructure(form));
+  FormStructure submitted_form(form);
 
   // Disregard forms that we wouldn't ever autofill in the first place.
-  if (!upload_form_structure_->ShouldBeParsed(true))
+  if (!submitted_form.ShouldBeParsed(true))
     return;
 
-  DeterminePossibleFieldTypesForUpload();
-  // TODO(isherman): Consider uploading to server here rather than in
-  // HandleSubmit().
+  DeterminePossibleFieldTypesForUpload(&submitted_form);
+  LogMetricsAboutSubmittedForm(form, &submitted_form);
 
-  if (!upload_form_structure_->IsAutoFillable(true))
+  UploadFormData(submitted_form);
+
+  if (!submitted_form.IsAutoFillable(true))
     return;
 
-  HandleSubmit();
+  ImportFormData(submitted_form);
 }
 
-void AutoFillManager::FormsSeen(const std::vector<FormData>& forms) {
+void AutoFillManager::OnFormsSeen(const std::vector<FormData>& forms) {
   if (!IsAutoFillEnabled())
     return;
 
   ParseForms(forms);
 }
 
-bool AutoFillManager::GetAutoFillSuggestions(const FormData& form,
-                                             const FormField& field) {
+#ifdef ANDROID
+bool AutoFillManager::OnQueryFormFieldAutoFill(
+#else
+void AutoFillManager::OnQueryFormFieldAutoFill(
+#endif
+    int query_id,
+    const webkit_glue::FormData& form,
+    const webkit_glue::FormField& field) {
+  std::vector<string16> values;
+  std::vector<string16> labels;
+  std::vector<string16> icons;
+  std::vector<int> unique_ids;
+
 #ifdef ANDROID
   AutoFillHost* host = NULL;
 #else
@@ -214,80 +350,86 @@ bool AutoFillManager::GetAutoFillSuggestions(const FormData& form,
 #endif
   FormStructure* form_structure = NULL;
   AutoFillField* autofill_field = NULL;
-  if (!GetHost(personal_data_->profiles(),
-               personal_data_->credit_cards(),
-               &host) ||
-      !FindCachedFormAndField(form, field, &form_structure, &autofill_field))
-    return false;
+  if (GetHost(
+          personal_data_->profiles(), personal_data_->credit_cards(), &host) &&
+      FindCachedFormAndField(form, field, &form_structure, &autofill_field) &&
+      // Don't send suggestions for forms that aren't auto-fillable.
+      form_structure->IsAutoFillable(false)) {
+    AutoFillType type(autofill_field->type());
+    bool is_filling_credit_card = (type.group() == AutoFillType::CREDIT_CARD);
+    if (is_filling_credit_card) {
+      GetCreditCardSuggestions(
+          form_structure, field, type, &values, &labels, &icons, &unique_ids);
+    } else {
+      GetProfileSuggestions(
+          form_structure, field, type, &values, &labels, &icons, &unique_ids);
+    }
 
-  DCHECK(host);
-  DCHECK(form_structure);
-  DCHECK(autofill_field);
+    DCHECK_EQ(values.size(), labels.size());
+    DCHECK_EQ(values.size(), icons.size());
+    DCHECK_EQ(values.size(), unique_ids.size());
 
-  // Don't send suggestions for forms that aren't auto-fillable.
-  if (!form_structure->IsAutoFillable(false))
-    return false;
-
-  std::vector<string16> values;
-  std::vector<string16> labels;
-  std::vector<string16> icons;
-  std::vector<int> unique_ids;
-
-  AutoFillType type(autofill_field->type());
-  bool is_filling_credit_card = (type.group() == AutoFillType::CREDIT_CARD);
-  if (is_filling_credit_card) {
-    GetCreditCardSuggestions(
-        form_structure, field, type, &values, &labels, &icons, &unique_ids);
-  } else {
-    GetProfileSuggestions(
-        form_structure, field, type, &values, &labels, &icons, &unique_ids);
-  }
-
-  DCHECK_EQ(values.size(), labels.size());
-  DCHECK_EQ(values.size(), icons.size());
-  DCHECK_EQ(values.size(), unique_ids.size());
-
-  // No suggestions.
-  if (values.empty())
-    return false;
-
+    if (!values.empty()) {
 #ifndef ANDROID
-  // Don't provide AutoFill suggestions when AutoFill is disabled, and don't
-  // provide credit card suggestions for non-HTTPS pages. However, provide a
-  // warning to the user in these cases.
-  int warning = 0;
-  if (!form_structure->IsAutoFillable(true))
-    warning = IDS_AUTOFILL_WARNING_FORM_DISABLED;
-  else if (is_filling_credit_card && !FormIsHTTPS(form_structure))
-    warning = IDS_AUTOFILL_WARNING_INSECURE_CONNECTION;
-  if (warning) {
-    values.assign(1, l10n_util::GetStringUTF16(warning));
-    labels.assign(1, string16());
-    icons.assign(1, string16());
-    unique_ids.assign(1, -1);
-    host->AutoFillSuggestionsReturned(values, labels, icons, unique_ids);
-    return true;
+      // Don't provide AutoFill suggestions when AutoFill is disabled, and don't
+      // provide credit card suggestions for non-HTTPS pages. However, provide a
+      // warning to the user in these cases.
+      int warning = 0;
+      if (!form_structure->IsAutoFillable(true))
+        warning = IDS_AUTOFILL_WARNING_FORM_DISABLED;
+      else if (is_filling_credit_card && !FormIsHTTPS(form_structure))
+        warning = IDS_AUTOFILL_WARNING_INSECURE_CONNECTION;
+      if (warning) {
+        values.assign(1, l10n_util::GetStringUTF16(warning));
+        labels.assign(1, string16());
+        icons.assign(1, string16());
+        unique_ids.assign(1, -1);
+      } else {
+        size_t section_start, section_end;
+        FindSectionBounds(*form_structure, *autofill_field,
+                          is_filling_credit_card, &section_start, &section_end);
+        if (SectionIsAutoFilled(form_structure, form, section_start,
+                                section_end)) {
+          // If the relevant section is auto-filled and the renderer is querying
+          // for suggestions, then the user is editing the value of a field.
+          // In this case, mimic autocomplete: don't display labels or icons,
+          // as that information is redundant.
+          labels.assign(labels.size(), string16());
+          icons.assign(icons.size(), string16());
+        }
+
+        RemoveDuplicateSuggestions(&values, &labels, &icons, &unique_ids);
+      }
+#endif
+    }
+#ifdef ANDROID
+    else {
+      return false;
+    }
+#endif
+  }
+#ifdef ANDROID
+  else {
+    return false;
   }
 #endif
 
-  // If the form is auto-filled and the renderer is querying for suggestions,
-  // then the user is editing the value of a field. In this case, mimic
-  // autocomplete: don't display labels or icons, as that information is
-  // redundant.
-  if (FormIsAutoFilled(form_structure, form, is_filling_credit_card)) {
-    labels.assign(labels.size(), string16());
-    icons.assign(icons.size(), string16());
-  }
-
-  RemoveDuplicateSuggestions(&values, &labels, &icons, &unique_ids);
+#ifdef ANDROID
   host->AutoFillSuggestionsReturned(values, labels, icons, unique_ids);
   return true;
+#else
+  // Add the results from AutoComplete.  They come back asynchronously, so we
+  // hand off what we generated and they will send the results back to the
+  // renderer.
+  tab_contents_->autocomplete_history_manager()->OnGetAutocompleteSuggestions(
+      query_id, field.name(), field.value(), values, labels, icons, unique_ids);
+#endif
 }
 
-bool AutoFillManager::FillAutoFillFormData(int query_id,
-                                           const FormData& form,
-                                           const FormField& field,
-                                           int unique_id) {
+void AutoFillManager::OnFillAutoFillFormData(int query_id,
+                                             const FormData& form,
+                                             const FormField& field,
+                                             int unique_id) {
   const std::vector<AutoFillProfile*>& profiles = personal_data_->profiles();
   const std::vector<CreditCard*>& credit_cards = personal_data_->credit_cards();
 #ifdef ANDROID
@@ -299,7 +441,7 @@ bool AutoFillManager::FillAutoFillFormData(int query_id,
   AutoFillField* autofill_field = NULL;
   if (!GetHost(profiles, credit_cards, &host) ||
       !FindCachedFormAndField(form, field, &form_structure, &autofill_field))
-    return false;
+    return;
 
   DCHECK(host);
   DCHECK(form_structure);
@@ -338,30 +480,40 @@ bool AutoFillManager::FillAutoFillFormData(int query_id,
   }
 
   if (!profile && !credit_card)
-    return false;
+    return;
+
+  // Find the section of the form that we are autofilling.
+  size_t section_start, section_end;
+  FindSectionBounds(*form_structure, *autofill_field, (credit_card != NULL),
+                    &section_start, &section_end);
 
   FormData result = form;
 
-  // If the form is auto-filled, we should fill |field| but not the rest of the
-  // form.
-  if (FormIsAutoFilled(form_structure, form, (credit_card != NULL))) {
+  // If the relevant section is auto-filled, we should fill |field| but not the
+  // rest of the form.
+  if (SectionIsAutoFilled(form_structure, form, section_start, section_end)) {
     for (std::vector<FormField>::iterator iter = result.fields.begin();
          iter != result.fields.end(); ++iter) {
       if ((*iter) == field) {
         AutoFillType autofill_type(autofill_field->type());
-        if (credit_card &&
-            autofill_type.group() == AutoFillType::CREDIT_CARD) {
-          FillCreditCardFormField(credit_card, autofill_type, &(*iter));
-        } else if (profile &&
-                   autofill_type.group() != AutoFillType::CREDIT_CARD) {
+        if (profile) {
+          DCHECK(autofill_type.group() != AutoFillType::CREDIT_CARD);
           FillFormField(profile, autofill_type, &(*iter));
+        } else {
+          DCHECK(autofill_type.group() == AutoFillType::CREDIT_CARD);
+          FillCreditCardFormField(credit_card, autofill_type, &(*iter));
         }
         break;
       }
     }
 
+#ifdef ANDROID
     host->AutoFillFormDataFilled(query_id, result);
-    return true;
+#else
+    host->Send(new AutoFillMsg_FormDataFilled(host->routing_id(), query_id,
+                                              result));
+#endif
+    return;
   }
 
   // The list of fields in |form_structure| and |result.fields| often match
@@ -370,30 +522,30 @@ bool AutoFillManager::FillAutoFillFormData(int query_id,
   // ahead in the |form_structure| for the matching field.
   // See unit tests: AutoFillManagerTest.FormChangesRemoveField and
   // AutoFillManagerTest.FormChangesAddField for usage.
-  for (size_t i = 0, j = 0;
-       i < form_structure->field_count() && j < result.fields.size();
+  for (size_t i = section_start, j = 0;
+       i < section_end && j < result.fields.size();
        j++) {
     size_t k = i;
 
     // Search forward in the |form_structure| for a corresponding field.
-    while (k < form_structure->field_count() &&
-           *form_structure->field(k) != result.fields[j]) {
+    while (k < section_end && *form_structure->field(k) != result.fields[j]) {
       k++;
     }
 
     // If we've found a match then fill the |result| field with the found
     // field in the |form_structure|.
-    if (k >= form_structure->field_count())
+    if (k >= section_end)
       continue;
 
-    const AutoFillField* field = form_structure->field(k);
-    AutoFillType autofill_type(field->type());
-    if (credit_card &&
-        autofill_type.group() == AutoFillType::CREDIT_CARD) {
-      FillCreditCardFormField(credit_card, autofill_type, &result.fields[j]);
-    } else if (profile &&
-               autofill_type.group() != AutoFillType::CREDIT_CARD) {
-      FillFormField(profile, autofill_type, &result.fields[j]);
+    AutoFillType autofill_type(form_structure->field(k)->type());
+    if (autofill_type.group() != AutoFillType::NO_GROUP) {
+      if (profile) {
+        DCHECK(autofill_type.group() != AutoFillType::CREDIT_CARD);
+        FillFormField(profile, autofill_type, &result.fields[j]);
+      } else {
+        DCHECK(autofill_type.group() == AutoFillType::CREDIT_CARD);
+        FillCreditCardFormField(credit_card, autofill_type, &result.fields[j]);
+      }
     }
 
     // We found a matching field in the |form_structure| so we
@@ -402,21 +554,46 @@ bool AutoFillManager::FillAutoFillFormData(int query_id,
   }
   autofilled_forms_signatures_.push_front(form_structure->FormSignature());
 
+#ifdef ANDROID
   host->AutoFillFormDataFilled(query_id, result);
-  return true;
-}
-
-void AutoFillManager::ShowAutoFillDialog() {
-#ifndef ANDROID
-  ::ShowAutoFillDialog(tab_contents_->GetContentNativeView(),
-                       personal_data_,
-                       tab_contents_->profile()->GetOriginalProfile());
+#else
+  host->Send(new AutoFillMsg_FormDataFilled(
+      host->routing_id(), query_id, result));
 #endif
 }
 
-void AutoFillManager::Reset() {
-  upload_form_structure_.reset();
-  form_structures_.reset();
+void AutoFillManager::OnShowAutoFillDialog() {
+#ifndef ANDROID
+  if (!CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDisableTabbedOptions)) {
+    Browser* browser = BrowserList::GetLastActive();
+    if (browser)
+      browser->ShowOptionsTab(chrome::kAutoFillSubPage);
+    return;
+  }
+
+  ShowAutoFillDialog(tab_contents_->GetContentNativeView(),
+                     personal_data_,
+                     tab_contents_->profile()->GetOriginalProfile());
+#endif
+}
+
+void AutoFillManager::OnDidFillAutoFillFormData() {
+#ifndef ANDROID
+  NotificationService::current()->Notify(
+      NotificationType::AUTOFILL_DID_FILL_FORM_DATA,
+      Source<RenderViewHost>(tab_contents_->render_view_host()),
+      NotificationService::NoDetails());
+#endif
+}
+
+void AutoFillManager::OnDidShowAutoFillSuggestions() {
+#ifndef ANDROID
+  NotificationService::current()->Notify(
+      NotificationType::AUTOFILL_DID_SHOW_SUGGESTIONS,
+      Source<RenderViewHost>(tab_contents_->render_view_host()),
+      NotificationService::NoDetails());
+#endif
 }
 
 void AutoFillManager::OnLoadedAutoFillHeuristics(
@@ -457,13 +634,40 @@ bool AutoFillManager::IsAutoFillEnabled() const {
   return prefs->GetBoolean(prefs::kAutoFillEnabled);
 }
 
-void AutoFillManager::DeterminePossibleFieldTypesForUpload() {
-  for (size_t i = 0; i < upload_form_structure_->field_count(); i++) {
-    const AutoFillField* field = upload_form_structure_->field(i);
+void AutoFillManager::DeterminePossibleFieldTypesForUpload(
+    FormStructure* submitted_form) {
+  for (size_t i = 0; i < submitted_form->field_count(); i++) {
+    const AutoFillField* field = submitted_form->field(i);
+    FieldTypeSet field_types;
+    personal_data_->GetPossibleFieldTypes(field->value(), &field_types);
+
+    DCHECK(!field_types.empty());
+    submitted_form->set_possible_types(i, field_types);
+  }
+}
+
+void AutoFillManager::LogMetricsAboutSubmittedForm(
+    const FormData& form,
+    const FormStructure* submitted_form) {
+  FormStructure* cached_submitted_form;
+  if (!FindCachedForm(form, &cached_submitted_form)) {
+    NOTREACHED();
+    return;
+  }
+
+  // Map from field signatures to cached fields.
+  std::map<std::string, const AutoFillField*> cached_fields;
+  for (size_t i = 0; i < cached_submitted_form->field_count(); ++i) {
+    const AutoFillField* field = cached_submitted_form->field(i);
+    cached_fields[field->FieldSignature()] = field;
+  }
+
+  std::string experiment_id = cached_submitted_form->server_experiment_id();
+  for (size_t i = 0; i < submitted_form->field_count(); ++i) {
+    const AutoFillField* field = submitted_form->field(i);
     FieldTypeSet field_types;
     personal_data_->GetPossibleFieldTypes(field->value(), &field_types);
     DCHECK(!field_types.empty());
-    upload_form_structure_->set_possible_types(i, field_types);
 
     if (field->form_control_type() == ASCIIToUTF16("select-one")) {
       // TODO(isherman): <select> fields don't support |is_autofilled()|. Since
@@ -473,16 +677,48 @@ void AutoFillManager::DeterminePossibleFieldTypesForUpload() {
     }
 
     // Log various quality metrics.
-    metric_logger_->Log(AutoFillMetrics::FIELD_SUBMITTED);
+    metric_logger_->Log(AutoFillMetrics::FIELD_SUBMITTED, experiment_id);
     if (field_types.find(EMPTY_TYPE) == field_types.end() &&
         field_types.find(UNKNOWN_TYPE) == field_types.end()) {
-      if (field->is_autofilled())
-         metric_logger_->Log(AutoFillMetrics::FIELD_AUTOFILLED);
-      else
-         metric_logger_->Log(AutoFillMetrics::FIELD_AUTOFILL_FAILED);
+      if (field->is_autofilled()) {
+        metric_logger_->Log(AutoFillMetrics::FIELD_AUTOFILLED, experiment_id);
+      } else {
+        metric_logger_->Log(AutoFillMetrics::FIELD_AUTOFILL_FAILED,
+                            experiment_id);
+
+        AutoFillFieldType heuristic_type = UNKNOWN_TYPE;
+        AutoFillFieldType server_type = NO_SERVER_DATA;
+        std::map<std::string, const AutoFillField*>::const_iterator
+            cached_field = cached_fields.find(field->FieldSignature());
+        if (cached_field != cached_fields.end()) {
+          heuristic_type = cached_field->second->heuristic_type();
+          server_type = cached_field->second->server_type();
+        }
+
+        if (heuristic_type == UNKNOWN_TYPE) {
+          metric_logger_->Log(AutoFillMetrics::FIELD_HEURISTIC_TYPE_UNKNOWN,
+                              experiment_id);
+        } else if (field_types.count(heuristic_type)) {
+          metric_logger_->Log(AutoFillMetrics::FIELD_HEURISTIC_TYPE_MATCH,
+                              experiment_id);
+        } else {
+          metric_logger_->Log(AutoFillMetrics::FIELD_HEURISTIC_TYPE_MISMATCH,
+                              experiment_id);
+        }
+
+        if (server_type == NO_SERVER_DATA) {
+          metric_logger_->Log(AutoFillMetrics::FIELD_SERVER_TYPE_UNKNOWN,
+                              experiment_id);
+        } else if (field_types.count(server_type)) {
+          metric_logger_->Log(AutoFillMetrics::FIELD_SERVER_TYPE_MATCH,
+                              experiment_id);
+        } else {
+          metric_logger_->Log(AutoFillMetrics::FIELD_SERVER_TYPE_MISMATCH,
+                              experiment_id);
+        }
+      }
 
       // TODO(isherman): Other things we might want to log here:
-      // * Did the field's heuristic type match the PDM type?
       // * Per Vadim's email, a combination of (1) whether heuristics fired,
       //   (2) whether the server returned something interesting, (3) whether
       //   the user filled the field
@@ -492,37 +728,27 @@ void AutoFillManager::DeterminePossibleFieldTypesForUpload() {
   }
 }
 
-void AutoFillManager::HandleSubmit() {
-  // If there wasn't enough data to import then we don't want to send an upload
-  // to the server.
-  // TODO(jhawkins): Import form data from |form_structures_|.  That will
-  // require querying the FormManager for updated field values.
-  std::vector<FormStructure*> import;
-  import.push_back(upload_form_structure_.get());
-  if (!personal_data_->ImportFormData(import))
-    return;
+void AutoFillManager::ImportFormData(const FormStructure& submitted_form) {
+  std::vector<const FormStructure*> import;
+  import.push_back(&submitted_form);
 
-  // Did we get credit card info?
-  AutoFillProfile* profile;
-  CreditCard* credit_card;
-  personal_data_->GetImportedFormData(&profile, &credit_card);
-
-  if (!credit_card) {
-    UploadFormData();
+  const CreditCard* imported_credit_card;
+  if (!personal_data_->ImportFormData(import, &imported_credit_card))
     return;
-  }
 
 #ifndef ANDROID
-  // Show an infobar to offer to save the credit card info.
-  if (tab_contents_) {
+  // If credit card information was submitted, show an infobar to offer to save
+  // it.
+  if (imported_credit_card && tab_contents_) {
+    imported_credit_card_.reset(imported_credit_card);
     tab_contents_->AddInfoBar(new AutoFillCCInfoBarDelegate(tab_contents_,
                                                             this));
   }
 #endif
 }
 
-void AutoFillManager::UploadFormData() {
-  if (!disable_download_manager_requests_ && upload_form_structure_.get()) {
+void AutoFillManager::UploadFormData(const FormStructure& submitted_form) {
+  if (!disable_download_manager_requests_) {
     bool was_autofilled = false;
     // Check if the form among last 3 forms that were auto-filled.
     // Clear older signatures.
@@ -531,7 +757,7 @@ void AutoFillManager::UploadFormData() {
     for (it = autofilled_forms_signatures_.begin();
          it != autofilled_forms_signatures_.end() && total_form_checked < 3;
          ++it, ++total_form_checked) {
-      if (*it == upload_form_structure_->FormSignature())
+      if (*it == submitted_form.FormSignature())
         was_autofilled = true;
     }
     // Remove outdated form signatures.
@@ -539,15 +765,17 @@ void AutoFillManager::UploadFormData() {
       autofilled_forms_signatures_.erase(it,
                                          autofilled_forms_signatures_.end());
     }
-    download_manager_.StartUploadRequest(*(upload_form_structure_.get()),
-                                         was_autofilled);
+    download_manager_.StartUploadRequest(submitted_form, was_autofilled);
   }
+}
+
+void AutoFillManager::Reset() {
+  form_structures_.reset();
 }
 
 void AutoFillManager::OnInfoBarClosed(bool should_save) {
   if (should_save)
-    personal_data_->SaveImportedCreditCard();
-  UploadFormData();
+    personal_data_->SaveImportedCreditCard(*imported_credit_card_);
 }
 
 AutoFillManager::AutoFillManager()
@@ -594,16 +822,14 @@ bool AutoFillManager::GetHost(const std::vector<AutoFillProfile*>& profiles,
 #else
   *host = tab_contents_->render_view_host();
 #endif
-  if (!(*host))
+  if (!*host)
     return false;
 
   return true;
 }
 
-bool AutoFillManager::FindCachedFormAndField(const FormData& form,
-                                             const FormField& field,
-                                             FormStructure** form_structure,
-                                             AutoFillField** autofill_field) {
+bool AutoFillManager::FindCachedForm(const FormData& form,
+                                     FormStructure** form_structure) {
   // Find the FormStructure that corresponds to |form|.
   *form_structure = NULL;
   for (std::vector<FormStructure*>::const_iterator iter =
@@ -616,6 +842,17 @@ bool AutoFillManager::FindCachedFormAndField(const FormData& form,
   }
 
   if (!(*form_structure))
+    return false;
+
+  return true;
+}
+
+bool AutoFillManager::FindCachedFormAndField(const FormData& form,
+                                             const FormField& field,
+                                             FormStructure** form_structure,
+                                             AutoFillField** autofill_field) {
+  // Find the FormStructure that corresponds to |form|.
+  if (!FindCachedForm(form, form_structure))
     return false;
 
   // No data to return if there are no auto-fillable fields.
@@ -720,10 +957,22 @@ void AutoFillManager::FillCreditCardFormField(const CreditCard* credit_card,
   DCHECK(type.group() == AutoFillType::CREDIT_CARD);
   DCHECK(field);
 
-  if (field->form_control_type() == ASCIIToUTF16("select-one"))
-    autofill::FillSelectControl(credit_card, type, field);
-  else
+  if (field->form_control_type() == ASCIIToUTF16("select-one")) {
+    autofill::FillSelectControl(*credit_card, type, field);
+  } else if (field->form_control_type() == ASCIIToUTF16("month")) {
+    // HTML5 input="month" consists of year-month.
+    string16 year = credit_card->GetFieldText(
+        AutoFillType(CREDIT_CARD_EXP_4_DIGIT_YEAR));
+    string16 month = credit_card->GetFieldText(
+        AutoFillType(CREDIT_CARD_EXP_MONTH));
+    if (!year.empty() && !month.empty()) {
+      // Fill the value only if |credit_card| includes both year and month
+      // information.
+      field->set_value(year + ASCIIToUTF16("-") + month);
+    }
+  } else {
     field->set_value(credit_card->GetFieldText(type));
+  }
 }
 
 void AutoFillManager::FillFormField(const AutoFillProfile* profile,
@@ -734,20 +983,21 @@ void AutoFillManager::FillFormField(const AutoFillProfile* profile,
   DCHECK(field);
 
   if (type.subgroup() == AutoFillType::PHONE_NUMBER) {
-    FillPhoneNumberField(profile, field);
+    FillPhoneNumberField(profile, type, field);
   } else {
     if (field->form_control_type() == ASCIIToUTF16("select-one"))
-      autofill::FillSelectControl(profile, type, field);
+      autofill::FillSelectControl(*profile, type, field);
     else
       field->set_value(profile->GetFieldText(type));
   }
 }
 
 void AutoFillManager::FillPhoneNumberField(const AutoFillProfile* profile,
+                                           AutoFillType type,
                                            webkit_glue::FormField* field) {
   // If we are filling a phone number, check to see if the size field
   // matches the "prefix" or "suffix" sizes and fill accordingly.
-  string16 number = profile->GetFieldText(AutoFillType(PHONE_HOME_NUMBER));
+  string16 number = profile->GetFieldText(AutoFillType(type));
   bool has_valid_suffix_and_prefix = (number.length() ==
       static_cast<size_t>(PhoneNumber::kPrefixLength +
                           PhoneNumber::kSuffixLength));
@@ -767,7 +1017,7 @@ void AutoFillManager::FillPhoneNumberField(const AutoFillProfile* profile,
 }
 
 void AutoFillManager::ParseForms(const std::vector<FormData>& forms) {
-  std::vector<FormStructure *> non_queryable_forms;
+  std::vector<FormStructure*> non_queryable_forms;
   for (std::vector<FormData>::const_iterator iter = forms.begin();
        iter != forms.end(); ++iter) {
     scoped_ptr<FormStructure> form_structure(new FormStructure(*iter));
@@ -783,12 +1033,10 @@ void AutoFillManager::ParseForms(const std::vector<FormData>& forms) {
   }
 
   // If none of the forms were parsed, no use querying the server.
-  if (!form_structures_.empty() && !disable_download_manager_requests_) {
-    download_manager_.StartQueryRequest(form_structures_,
-                                        *metric_logger_);
-  }
+  if (!form_structures_.empty() && !disable_download_manager_requests_)
+    download_manager_.StartQueryRequest(form_structures_, *metric_logger_);
 
-  for (std::vector<FormStructure *>::const_iterator iter =
+  for (std::vector<FormStructure*>::const_iterator iter =
            non_queryable_forms.begin();
        iter != non_queryable_forms.end(); ++iter) {
     form_structures_.push_back(*iter);

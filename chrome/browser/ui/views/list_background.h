@@ -6,8 +6,8 @@
 #define CHROME_BROWSER_UI_VIEWS_LIST_BACKGROUND_H_
 #pragma once
 
-#include "gfx/canvas_skia.h"
-#include "gfx/native_theme_win.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/native_theme_win.h"
 #include "views/background.h"
 
 // A background object that paints the scrollable list background,
@@ -24,7 +24,7 @@ class ListBackground : public views::Background {
 
   virtual void Paint(gfx::Canvas* canvas, views::View* view) const {
     HDC dc = canvas->BeginPlatformPaint();
-    RECT native_lb = view->GetLocalBounds(true).ToRECT();
+    RECT native_lb = view->GetLocalBounds().ToRECT();
     gfx::NativeTheme::instance()->PaintListBackground(dc, true, &native_lb);
     canvas->EndPlatformPaint();
   }

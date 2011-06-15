@@ -8,10 +8,10 @@
 #include "base/scoped_ptr.h"
 #include "chrome/browser/browser_message_filter.h"
 #include "chrome/common/child_process_info.h"
-#include "webkit/glue/resource_type.h"
 
 class ChromeURLRequestContext;
 class ResourceDispatcherHost;
+struct ViewHostMsg_Resource_Request;
 
 namespace net {
 class URLRequestContext;
@@ -24,14 +24,14 @@ class URLRequestContext;
 // will not interfere with browser UI.
 class ResourceMessageFilter : public BrowserMessageFilter {
  public:
-  // Allows overriding the URLRequestContext used to service requests.
+  // Allows overriding the net::URLRequestContext used to service requests.
   class URLRequestContextOverride
       : public base::RefCountedThreadSafe<URLRequestContextOverride> {
    public:
     URLRequestContextOverride() {}
 
     virtual net::URLRequestContext* GetRequestContext(
-        uint32 request_id, ResourceType::Type resource_type) = 0;
+        const ViewHostMsg_Resource_Request& resource_request) = 0;
 
    protected:
     friend class base::RefCountedThreadSafe<URLRequestContextOverride>;
@@ -49,9 +49,9 @@ class ResourceMessageFilter : public BrowserMessageFilter {
   virtual bool OnMessageReceived(const IPC::Message& message,
                                  bool* message_was_ok);
 
-  // Returns the URLRequestContext for the given request.
+  // Returns the net::URLRequestContext for the given request.
   ChromeURLRequestContext* GetURLRequestContext(
-      uint32 request_id, ResourceType::Type resource_type);
+      const ViewHostMsg_Resource_Request& resource_request);
 
   void set_url_request_context_override(URLRequestContextOverride* u) {
     url_request_context_override_ = u;

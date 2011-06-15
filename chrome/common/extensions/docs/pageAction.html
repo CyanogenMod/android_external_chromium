@@ -81,6 +81,16 @@
             </dl>
           </dd>
 
+          <!-- OBJECT METHODS -->
+          <dd>
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd>
+            <div></div>
+          </dd>
+
           <!-- FUNCTION PARAMETERS -->
           <dd>
             <div></div>
@@ -288,7 +298,7 @@
                     </ol>
                   </li>
                   <li>
-                    <a href="#methods">Methods</a>
+                    <a href="#global-methods">Methods</a>
                     <ol>
                       <li>
                         <a href="#method-hide">hide</a>
@@ -304,7 +314,7 @@
                     </ol>
                   </li>
                   <li>
-                    <a href="#events">Events</a>
+                    <a href="#global-events">Events</a>
                     <ol>
                       <li>
                         <a href="#event-onClicked">onClicked</a>
@@ -378,7 +388,7 @@ like this:
   "name": "My extension",
   ...
   <b>"page_action": {
-    "default_icon": "icons/foo.png", <em>// <b>required</b></em>
+    "default_icon": "icons/foo.png", <em>// optional</em>
     "default_title": "Do action",    <em>// optional; shown in tooltip</em>
     "default_popup": "popup.html"    <em>// optional</em>
   }</b>,
@@ -389,8 +399,8 @@ like this:
 
 <p>
 Like browser actions,
-page actions have an icon and
-can also have a tooltip and popup;
+page actions can have an icon,
+a tooltip, and popup;
 they can't have badges, however.
 In addition, page actions can appear and disappear.
 You can find information about icons, tooltips, and popups
@@ -427,15 +437,6 @@ follow these guidelines:</p>
     for features that make sense
     for most pages.
     Use <a href="browserAction.html">browser actions</a> instead.
-  </li><li><b>Do</b> use icons
-    that are slightly lighter weight
-    than <a href="browserAction.html#icon">browser action icons</a>.
-    Most icons that Chrome displays
-    in the location bar
-    are smaller than 19 pixels.
-    If the edge pixels are used,
-    they are usually only used
-    for a faint shadow.
   </li><li><b>Don't</b> constantly animate your icon.
     That's just annoying.
 </li></ul>
@@ -478,8 +479,8 @@ For other examples and for help in viewing the source code, see
           </div> <!-- /apiGroup -->
 
           <!-- METHODS -->
-          <div class="apiGroup" id="methods">
-            <a name="methods"></a>
+          <div id="methodsTemplate" class="apiGroup">
+            <a name="global-methods"></a>
             <h3>Methods</h3>
 
             <!-- iterates over all functions -->
@@ -549,6 +550,16 @@ For other examples and for help in viewing the source code, see
                 </div>
               </div>
             </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
           </dd>
 
           <!-- FUNCTION PARAMETERS -->
@@ -717,6 +728,16 @@ For other examples and for help in viewing the source code, see
             </dl>
           </dd>
 
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
           <!-- FUNCTION PARAMETERS -->
           <dd style="display: none; ">
             <div></div>
@@ -773,6 +794,16 @@ For other examples and for help in viewing the source code, see
                 </div>
               </div>
             </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
           </dd>
 
           <!-- FUNCTION PARAMETERS -->
@@ -833,6 +864,16 @@ For other examples and for help in viewing the source code, see
             </dl>
           </dd>
 
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
           <!-- FUNCTION PARAMETERS -->
           <dd style="display: none; ">
             <div></div>
@@ -891,6 +932,16 @@ For other examples and for help in viewing the source code, see
             </dl>
           </dd>
 
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
           <!-- FUNCTION PARAMETERS -->
           <dd style="display: none; ">
             <div></div>
@@ -899,6 +950,16 @@ For other examples and for help in viewing the source code, see
         </div>
               </div>
             </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
           </dd>
 
           <!-- FUNCTION PARAMETERS -->
@@ -1067,6 +1128,16 @@ For other examples and for help in viewing the source code, see
             </dl>
           </dd>
 
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
           <!-- FUNCTION PARAMETERS -->
           <dd style="display: none; ">
             <div></div>
@@ -1125,6 +1196,16 @@ For other examples and for help in viewing the source code, see
             </dl>
           </dd>
 
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
           <!-- FUNCTION PARAMETERS -->
           <dd style="display: none; ">
             <div></div>
@@ -1133,6 +1214,16 @@ For other examples and for help in viewing the source code, see
         </div>
               </div>
             </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
           </dd>
 
           <!-- FUNCTION PARAMETERS -->
@@ -1301,6 +1392,16 @@ For other examples and for help in viewing the source code, see
             </dl>
           </dd>
 
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
           <!-- FUNCTION PARAMETERS -->
           <dd style="display: none; ">
             <div></div>
@@ -1359,6 +1460,16 @@ For other examples and for help in viewing the source code, see
             </dl>
           </dd>
 
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
           <!-- FUNCTION PARAMETERS -->
           <dd style="display: none; ">
             <div></div>
@@ -1367,6 +1478,16 @@ For other examples and for help in viewing the source code, see
         </div>
               </div>
             </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
           </dd>
 
           <!-- FUNCTION PARAMETERS -->
@@ -1488,6 +1609,16 @@ For other examples and for help in viewing the source code, see
             </dl>
           </dd>
 
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
           <!-- FUNCTION PARAMETERS -->
           <dd style="display: none; ">
             <div></div>
@@ -1544,10 +1675,9 @@ For other examples and for help in viewing the source code, see
           </div>  <!-- /apiGroup -->
 
           <!-- EVENTS -->
-          <div class="apiGroup">
-            <a name="events"></a>
-            <h3 id="events">Events</h3>
-
+          <div id="eventsTemplate" class="apiGroup">
+            <a name="global-events"></a>
+            <h3>Events</h3>
             <!-- iterates over all events -->
             <div class="apiItem">
               <a name="event-onClicked"></a>
@@ -1563,10 +1693,11 @@ For other examples and for help in viewing the source code, see
                 <p>Fired when a page action icon is clicked.  This event will not fire if the page action has a popup.</p>
 
                 <!-- PARAMETERS -->
-                <h4>Parameters</h4>
-                <dl>
-                  <div>
+                <div>
+                  <h4>Parameters</h4>
+                  <dl>
                     <div>
+                      <div>
           <dt>
             <var>tab</var>
               <em>
@@ -1619,15 +1750,25 @@ For other examples and for help in viewing the source code, see
             </dl>
           </dd>
 
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
           <!-- FUNCTION PARAMETERS -->
           <dd style="display: none; ">
             <div></div>
           </dd>
 
         </div>
-                  </div>
-                </dl>
-
+                    </div>
+                  </dl>
+                </div>
               </div> <!-- /decription -->
 
             </div> <!-- /apiItem -->

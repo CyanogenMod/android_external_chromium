@@ -1,13 +1,13 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/task.h"
 #include "base/path_service.h"
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/views/html_dialog_view.h"
+#include "chrome/browser/ui/views/html_dialog_view.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/url_constants.h"
@@ -89,8 +89,8 @@ class FileBrowseUiObserver : public NotificationObserver {
     return file_browse_tab_;
   }
 
-  DOMUI* file_browse_ui() {
-    return file_browse_tab_ ? file_browse_tab_->render_manager()->dom_ui() :
+  WebUI* file_browse_ui() {
+    return file_browse_tab_ ? file_browse_tab_->render_manager()->web_ui() :
                               NULL;
   }
 
@@ -119,7 +119,7 @@ IN_PROC_BROWSER_TEST_F(FileBrowseBrowserTest, InputFileTriggerFileBrowse) {
   input_file->Click();
 
   observer.WaitForFileBrowseLoad();
-  DOMUI* file_browser_ui = observer.file_browse_ui();
+  WebUI* file_browser_ui = observer.file_browse_ui();
   ASSERT_TRUE(file_browser_ui);
 
   file_browser_ui->CallJavascriptFunction(L"dialogCancelClick");

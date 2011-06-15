@@ -8,38 +8,16 @@
 
 #include <string>
 
-#include "base/message_loop.h"
-#include "chrome/browser/sync/engine/syncapi.h"
-#include "chrome/browser/sync/profile_sync_factory.h"
-#include "chrome/browser/sync/profile_sync_service.h"
-#include "chrome/browser/sync/glue/data_type_controller.h"
 #include "chrome/browser/sync/glue/data_type_manager_impl.h"
-#include "chrome/browser/sync/glue/sync_backend_host.h"
-#include "chrome/browser/sync/sessions/session_state.h"
-#include "chrome/browser/sync/syncable/directory_manager.h"
-#include "chrome/browser/sync/syncable/syncable.h"
+#include "chrome/browser/sync/js_backend.h"
+#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/test/profile_mock.h"
-#include "chrome/test/sync/test_http_bridge_factory.h"
+#include "chrome/test/sync/engine/test_id_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 class Profile;
-
-using browser_sync::ModelSafeRoutingInfo;
-using browser_sync::sessions::ErrorCounters;
-using browser_sync::sessions::SyncerStatus;
-using browser_sync::sessions::SyncSessionSnapshot;
-using sync_api::UserShare;
-using syncable::DirectoryManager;
-using syncable::ModelType;
-using syncable::ScopedDirLookup;
-
-ACTION_P(CallOnPaused, core) {
-  core->OnPaused();
-};
-
-ACTION_P(CallOnResumed, core) {
-  core->OnResumed();
-}
+class Task;
+class TestProfileSyncService;
 
 ACTION(ReturnNewDataTypeManager) {
   return new browser_sync::DataTypeManagerImpl(arg0, arg1);
@@ -51,135 +29,53 @@ namespace browser_sync {
 // running in these tests, and allows tests to provide a task on construction
 // to set up initial nodes to mock out an actual server initial sync
 // download.
-class SyncBackendHostForProfileSyncTest : public SyncBackendHost {
+class SyncBackendHostForProfileSyncTest
+    : public SyncBackendHost, public JsBackend {
  public:
-  // |initial_condition_setup_task| can be used to populate nodes before the
-  //     OnBackendInitialized callback fires.
-  // |set_initial_sync_ended_on_init| determines whether we pretend that a full
-  //     initial download has occurred and set bits for enabled data types.  If
-  //     this is false, configuring data types will require a syncer nudge.
   // |synchronous_init| causes initialization to block until the syncapi has
   //     completed setting itself up and called us back.
-  SyncBackendHostForProfileSyncTest(SyncFrontend* frontend,
+  SyncBackendHostForProfileSyncTest(
       Profile* profile,
-      const FilePath& profile_path,
-      const DataTypeController::TypeMap& data_type_controllers,
-      Task* initial_condition_setup_task,
       int num_expected_resumes,
       int num_expected_pauses,
       bool set_initial_sync_ended_on_init,
-      bool synchronous_init)
-      : browser_sync::SyncBackendHost(frontend, profile, profile_path,
-                                      data_type_controllers),
-        initial_condition_setup_task_(initial_condition_setup_task),
-        set_initial_sync_ended_on_init_(set_initial_sync_ended_on_init),
-        synchronous_init_(synchronous_init) {
-    // By default, the RequestPause and RequestResume methods will
-    // send the confirmation notification and return true.
-    ON_CALL(*this, RequestPause()).
-        WillByDefault(testing::DoAll(CallOnPaused(core_),
-                                     testing::Return(true)));
-    ON_CALL(*this, RequestResume()).
-        WillByDefault(testing::DoAll(CallOnResumed(core_),
-                                     testing::Return(true)));
-    ON_CALL(*this, RequestNudge()).WillByDefault(testing::Invoke(this,
-         &SyncBackendHostForProfileSyncTest::
-             SimulateSyncCycleCompletedInitialSyncEnded));
-
-    EXPECT_CALL(*this, RequestPause()).Times(num_expected_pauses);
-    EXPECT_CALL(*this, RequestResume()).Times(num_expected_resumes);
-    EXPECT_CALL(*this, RequestNudge()).
-        Times(set_initial_sync_ended_on_init ? 0 : 1);
-  }
+      bool synchronous_init);
+  virtual ~SyncBackendHostForProfileSyncTest();
 
   MOCK_METHOD0(RequestPause, bool());
   MOCK_METHOD0(RequestResume, bool());
   MOCK_METHOD0(RequestNudge, void());
 
-  void SetInitialSyncEndedForEnabledTypes() {
-    UserShare* user_share = core_->syncapi()->GetUserShare();
-    DirectoryManager* dir_manager = user_share->dir_manager.get();
-
-    ScopedDirLookup dir(dir_manager, user_share->name);
-    if (!dir.good())
-      FAIL();
-
-    ModelSafeRoutingInfo enabled_types;
-    GetModelSafeRoutingInfo(&enabled_types);
-    for (ModelSafeRoutingInfo::const_iterator i = enabled_types.begin();
-         i != enabled_types.end(); ++i) {
-      dir->set_initial_sync_ended_for_type(i->first, true);
-    }
-  }
-
-  virtual void ConfigureDataTypes(const syncable::ModelTypeSet& types,
-      CancelableTask* ready_task) {
-    SetAutofillMigrationState(syncable::MIGRATED);
-    SyncBackendHost::ConfigureDataTypes(types, ready_task);
-  }
-
-  virtual void HandleInitializationCompletedOnFrontendLoop() {
-    set_syncapi_initialized();  // Need to do this asap so task below works.
-
-    // Set up any nodes the test wants around before model association.
-    if (initial_condition_setup_task_) {
-      initial_condition_setup_task_->Run();
-    }
-
-    // Pretend we downloaded initial updates and set initial sync ended bits
-    // if we were asked to.
-    if (set_initial_sync_ended_on_init_)
-      SetInitialSyncEndedForEnabledTypes();
-
-    SyncBackendHost::HandleInitializationCompletedOnFrontendLoop();
-  }
+  virtual void ConfigureDataTypes(
+      const DataTypeController::TypeMap& data_type_controllers,
+      const syncable::ModelTypeSet& types,
+      CancelableTask* ready_task);
 
   // Called when a nudge comes in.
-  void SimulateSyncCycleCompletedInitialSyncEnded() {
-    syncable::ModelTypeBitSet sync_ended;
-    ModelSafeRoutingInfo enabled_types;
-    GetModelSafeRoutingInfo(&enabled_types);
-    for (ModelSafeRoutingInfo::const_iterator i = enabled_types.begin();
-         i != enabled_types.end(); ++i) {
-      sync_ended.set(i->first);
-    }
-    core_->HandleSyncCycleCompletedOnFrontendLoop(new SyncSessionSnapshot(
-        SyncerStatus(), ErrorCounters(), 0, 0, false,
-        sync_ended, false, false, 0, 0, false));
-  }
+  void SimulateSyncCycleCompletedInitialSyncEnded();
 
   virtual sync_api::HttpPostProviderFactory* MakeHttpBridgeFactory(
-      URLRequestContextGetter* getter) {
-    return new browser_sync::TestHttpBridgeFactory;
-  }
+      URLRequestContextGetter* getter);
 
-  virtual void InitCore(const Core::DoInitializeOptions& options) {
-    std::wstring user = L"testuser";
-    core_loop()->PostTask(FROM_HERE,
-        NewRunnableMethod(core_.get(),
-        &SyncBackendHost::Core::DoInitializeForTest,
-        user,
-        options.http_bridge_factory,
-        options.delete_sync_data_folder));
+  virtual void InitCore(const Core::DoInitializeOptions& options);
 
-    // TODO(akalin): Figure out a better way to do this.
-    if (synchronous_init_) {
-      // The SyncBackend posts a task to the current loop when
-      // initialization completes.
-      MessageLoop::current()->Run();
-    }
-  }
+  virtual JsBackend* GetJsBackend();
 
-  static void SetDefaultExpectationsForWorkerCreation(ProfileMock* profile) {
-    EXPECT_CALL(*profile, GetPasswordStore(testing::_)).
-        WillOnce(testing::Return((PasswordStore*)NULL));
-    EXPECT_CALL(*profile, GetHistoryService(testing::_)).
-        WillOnce(testing::Return((HistoryService*)NULL));
-  }
+  // JsBackend implementation.
+  virtual void SetParentJsEventRouter(JsEventRouter* router);
+  virtual void RemoveParentJsEventRouter();
+  virtual const JsEventRouter* GetParentJsEventRouter() const;
+  // Fires an event identical to the message unless the message has
+  // "delay" as a prefix, in which case a task to fire the identical
+  // event is posted instead.
+  virtual void ProcessMessage(const std::string& name, const JsArgList& args,
+                              const JsEventHandler* sender);
+
+  static void SetDefaultExpectationsForWorkerCreation(ProfileMock* profile);
+
+  static void SetHistoryServiceExpectations(ProfileMock* profile);
 
  private:
-  Task* initial_condition_setup_task_;
-  bool set_initial_sync_ended_on_init_;
   bool synchronous_init_;
 };
 
@@ -187,73 +83,49 @@ class SyncBackendHostForProfileSyncTest : public SyncBackendHost {
 
 class TestProfileSyncService : public ProfileSyncService {
  public:
+  // |initial_condition_setup_task| can be used to populate nodes
+  // before the OnBackendInitialized callback fires.
   TestProfileSyncService(ProfileSyncFactory* factory,
                          Profile* profile,
                          const std::string& test_user,
                          bool synchronous_backend_initialization,
-                         Task* initial_condition_setup_task)
-      : ProfileSyncService(factory, profile,
-                           !test_user.empty() ?
-                           test_user : ""),
-        synchronous_backend_initialization_(
-            synchronous_backend_initialization),
-        synchronous_sync_configuration_(false),
-        num_expected_resumes_(1),
-        num_expected_pauses_(1),
-        initial_condition_setup_task_(initial_condition_setup_task),
-        set_initial_sync_ended_on_init_(true) {
-    RegisterPreferences();
-    SetSyncSetupCompleted();
-  }
-  virtual ~TestProfileSyncService() { }
+                         Task* initial_condition_setup_task);
 
-  virtual void CreateBackend() {
-    backend_.reset(new browser_sync::SyncBackendHostForProfileSyncTest(
-        this, profile(),
-        profile()->GetPath(), data_type_controllers(),
-        initial_condition_setup_task_.release(),
-        num_expected_resumes_, num_expected_pauses_,
-        set_initial_sync_ended_on_init_,
-        synchronous_backend_initialization_));
-  }
+  virtual ~TestProfileSyncService();
 
-  virtual void OnBackendInitialized() {
-    ProfileSyncService::OnBackendInitialized();
-    // TODO(akalin): Figure out a better way to do this.
-    if (synchronous_backend_initialization_) {
-      MessageLoop::current()->Quit();
-    }
-  }
+  void SetInitialSyncEndedForEnabledTypes();
+
+  virtual void OnBackendInitialized();
 
   virtual void Observe(NotificationType type,
-                      const NotificationSource& source,
-                      const NotificationDetails& details) {
-    ProfileSyncService::Observe(type, source, details);
-    if (type == NotificationType::SYNC_CONFIGURE_DONE &&
-        !synchronous_sync_configuration_) {
-      MessageLoop::current()->Quit();
-    }
-  }
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
 
-  void set_num_expected_resumes(int times) {
-    num_expected_resumes_ = times;
-  }
-  void set_num_expected_pauses(int num) {
-    num_expected_pauses_ = num;
-  }
-  void dont_set_initial_sync_ended_on_init() {
-    set_initial_sync_ended_on_init_ = false;
-  }
-  void set_synchronous_sync_configuration() {
-    synchronous_sync_configuration_ = true;
-  }
+  void set_num_expected_resumes(int times);
+  void set_num_expected_pauses(int num);
+
+  // If this is called, configuring data types will require a syncer
+  // nudge.
+  void dont_set_initial_sync_ended_on_init();
+  void set_synchronous_sync_configuration();
+
+  browser_sync::TestIdFactory* id_factory();
+
+  // Override of ProfileSyncService::GetBackendForTest() with a more
+  // specific return type (since C++ supports covariant return types)
+  // that is made public.
+  virtual browser_sync::SyncBackendHostForProfileSyncTest*
+      GetBackendForTest();
+
+ protected:
+  virtual void CreateBackend();
 
  private:
   // When testing under ChromiumOS, this method must not return an empty
   // value value in order for the profile sync service to start.
-  virtual std::string GetLsidForAuthBootstraping() {
-    return "foo";
-  }
+  virtual std::string GetLsidForAuthBootstraping();
+
+  browser_sync::TestIdFactory id_factory_;
 
   bool synchronous_backend_initialization_;
 
@@ -264,8 +136,10 @@ class TestProfileSyncService : public ProfileSyncService {
   int num_expected_resumes_;
   int num_expected_pauses_;
 
-  scoped_ptr<Task> initial_condition_setup_task_;
+  Task* initial_condition_setup_task_;
   bool set_initial_sync_ended_on_init_;
 };
+
+
 
 #endif  // CHROME_BROWSER_SYNC_TEST_PROFILE_SYNC_SERVICE_H_

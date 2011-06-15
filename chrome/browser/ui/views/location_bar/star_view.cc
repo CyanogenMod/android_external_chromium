@@ -1,11 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/location_bar/star_view.h"
+#include "chrome/browser/ui/views/location_bar/star_view.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/command_updater.h"
@@ -13,6 +11,8 @@
 #include "chrome/browser/ui/views/browser_dialogs.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 StarView::StarView(CommandUpdater* command_updater)
     : command_updater_(command_updater) {
@@ -30,7 +30,7 @@ void StarView::SetToggled(bool on) {
   // Since StarView is an ImageView, the SetTooltipText changes the accessible
   // name. To keep the accessible name unchanged, we need to set the accessible
   // name right after we modify the tooltip text for this view.
-  SetAccessibleName(UTF16ToWide(l10n_util::GetStringUTF16(IDS_ACCNAME_STAR)));
+  SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_STAR));
   SetImage(ResourceBundle::GetSharedInstance().GetBitmapNamed(
       on ? IDR_STAR_LIT : IDR_STAR));
 }
@@ -59,8 +59,7 @@ void StarView::OnMouseReleased(const views::MouseEvent& event, bool canceled) {
 }
 
 bool StarView::OnKeyPressed(const views::KeyEvent& e) {
-  if (e.GetKeyCode() == app::VKEY_SPACE ||
-      e.GetKeyCode() == app::VKEY_RETURN) {
+  if (e.key_code() == ui::VKEY_SPACE || e.key_code() == ui::VKEY_RETURN) {
     command_updater_->ExecuteCommand(IDC_BOOKMARK_PAGE);
     return true;
   }

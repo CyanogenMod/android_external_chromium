@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,18 +16,23 @@ SdchDictionaryFetcher::SdchDictionaryFetcher()
 SdchDictionaryFetcher::~SdchDictionaryFetcher() {
 }
 
+// static
+void SdchDictionaryFetcher::Shutdown() {
+  net::SdchManager::Shutdown();
+}
+
 void SdchDictionaryFetcher::Schedule(const GURL& dictionary_url) {
   // Avoid pushing duplicate copy onto queue.  We may fetch this url again later
   // and get a different dictionary, but there is no reason to have it in the
   // queue twice at one time.
   if (!fetch_queue_.empty() && fetch_queue_.back() == dictionary_url) {
-    SdchManager::SdchErrorRecovery(
-        SdchManager::DICTIONARY_ALREADY_SCHEDULED_TO_DOWNLOAD);
+    net::SdchManager::SdchErrorRecovery(
+        net::SdchManager::DICTIONARY_ALREADY_SCHEDULED_TO_DOWNLOAD);
     return;
   }
   if (attempted_load_.find(dictionary_url) != attempted_load_.end()) {
-    SdchManager::SdchErrorRecovery(
-        SdchManager::DICTIONARY_ALREADY_TRIED_TO_DOWNLOAD);
+    net::SdchManager::SdchErrorRecovery(
+        net::SdchManager::DICTIONARY_ALREADY_TRIED_TO_DOWNLOAD);
     return;
   }
   attempted_load_.insert(dictionary_url);
@@ -64,14 +69,16 @@ void SdchDictionaryFetcher::StartFetching() {
   current_fetch_->Start();
 }
 
-void SdchDictionaryFetcher::OnURLFetchComplete(const URLFetcher* source,
-                                               const GURL& url,
-                                               const URLRequestStatus& status,
-                                               int response_code,
-                                               const ResponseCookies& cookies,
-                                               const std::string& data) {
-  if ((200 == response_code) && (status.status() == URLRequestStatus::SUCCESS))
-    SdchManager::Global()->AddSdchDictionary(data, url);
+void SdchDictionaryFetcher::OnURLFetchComplete(
+    const URLFetcher* source,
+    const GURL& url,
+    const net::URLRequestStatus& status,
+    int response_code,
+    const ResponseCookies& cookies,
+    const std::string& data) {
+  if ((200 == response_code) &&
+      (status.status() == net::URLRequestStatus::SUCCESS))
+    net::SdchManager::Global()->AddSdchDictionary(data, url);
   current_fetch_.reset(NULL);
   ScheduleDelayedRun();
 }

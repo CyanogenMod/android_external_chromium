@@ -2,7 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <algorithm>
+
 #include "chrome/browser/autofill/form_group.h"
+
+#include <iterator>
 
 string16 FormGroup::GetPreviewText(const AutoFillType& type) const {
   return GetFieldText(type);

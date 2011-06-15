@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,16 @@
 #include <algorithm>
 #include <string>
 
-#include "app/resource_bundle.h"
 #include "base/singleton.h"
 #include "base/string_piece.h"
 #include "base/values.h"
 #include "chrome/browser/browser_thread.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/url_constants.h"
 #include "grit/browser_resources.h"
+#include "ui/base/resource/resource_bundle.h"
 
 /**
  * TextfieldsUIHTMLSource implementation.
@@ -46,21 +48,21 @@ TextfieldsUIHTMLSource::~TextfieldsUIHTMLSource() {}
 /**
  * TextfieldsDOMHandler implementation.
  */
-TextfieldsDOMHandler::TextfieldsDOMHandler() : DOMMessageHandler() {}
+TextfieldsDOMHandler::TextfieldsDOMHandler() : WebUIMessageHandler() {}
 
 void TextfieldsDOMHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("textfieldValue",
+  web_ui_->RegisterMessageCallback("textfieldValue",
       NewCallback(this, &TextfieldsDOMHandler::HandleTextfieldValue));
 }
 
 void TextfieldsDOMHandler::HandleTextfieldValue(const ListValue* args) {
-  static_cast<TextfieldsUI*>(dom_ui_)->set_text(ExtractStringValue(args));
+  static_cast<TextfieldsUI*>(web_ui_)->set_text(ExtractStringValue(args));
 }
 
 /**
  * TextfieldsUI implementation.
  */
-TextfieldsUI::TextfieldsUI(TabContents* contents) : DOMUI(contents) {
+TextfieldsUI::TextfieldsUI(TabContents* contents) : WebUI(contents) {
   TextfieldsDOMHandler* handler = new TextfieldsDOMHandler();
   AddMessageHandler(handler);
   handler->Attach(this);
@@ -68,9 +70,5 @@ TextfieldsUI::TextfieldsUI(TabContents* contents) : DOMUI(contents) {
   TextfieldsUIHTMLSource* html_source = new TextfieldsUIHTMLSource();
 
   // Set up the chrome://textfields/ source.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(ChromeURLDataManager::GetInstance(),
-                        &ChromeURLDataManager::AddDataSource,
-                        make_scoped_refptr(html_source)));
+  contents->profile()->GetChromeURLDataManager()->AddDataSource(html_source);
 }

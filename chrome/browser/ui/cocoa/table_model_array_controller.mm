@@ -4,12 +4,12 @@
 
 #import "chrome/browser/ui/cocoa/table_model_array_controller.h"
 
-#include "app/table_model.h"
 #include "base/logging.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/browser/remove_rows_table_model.h"
+#include "ui/base/models/table_model.h"
 
-@interface TableModelArrayController (PrivateMethods)
+@interface TableModelArrayController ()
 
 - (NSUInteger)offsetForGroupID:(int)groupID;
 - (NSUInteger)offsetForGroupID:(int)groupID startingOffset:(NSUInteger)offset;
@@ -24,13 +24,13 @@
 @end
 
 // Observer for a RemoveRowsTableModel.
-class RemoveRowsObserverBridge : public TableModelObserver {
+class RemoveRowsObserverBridge : public ui::TableModelObserver {
  public:
   RemoveRowsObserverBridge(TableModelArrayController* controller)
       : controller_(controller) {}
   virtual ~RemoveRowsObserverBridge() {}
 
-  // TableModelObserver methods
+  // ui::TableModelObserver methods
   virtual void OnModelChanged();
   virtual void OnItemsChanged(int start, int length);
   virtual void OnItemsAdded(int start, int length);
@@ -78,9 +78,9 @@ static NSString* const kGroupID = @"_group_id";
       NSMakeRange(0, [[self arrangedObjects] count])];
   [self removeObjectsAtArrangedObjectIndexes:indexes];
   if (model_->HasGroups()) {
-    const TableModel::Groups& groups = model_->GetGroups();
+    const ui::TableModel::Groups& groups = model_->GetGroups();
     DCHECK(groupTitle_.get());
-    for (TableModel::Groups::const_iterator it = groups.begin();
+    for (ui::TableModel::Groups::const_iterator it = groups.begin();
          it != groups.end(); ++it) {
       NSDictionary* group = [NSDictionary dictionaryWithObjectsAndKeys:
           base::SysUTF16ToNSString(it->title), groupTitle_.get(),
@@ -93,7 +93,7 @@ static NSString* const kGroupID = @"_group_id";
 }
 
 - (NSUInteger)offsetForGroupID:(int)groupID startingOffset:(NSUInteger)offset {
-  const TableModel::Groups& groups = model_->GetGroups();
+  const ui::TableModel::Groups& groups = model_->GetGroups();
   DCHECK_GT(offset, 0u);
   for (NSUInteger i = offset - 1; i < groups.size(); ++i) {
     if (groups[i].id == groupID)
@@ -150,14 +150,18 @@ static NSString* const kGroupID = @"_group_id";
 }
 
 - (void)modelDidAddItemsInRange:(NSRange)range {
+  if (range.length == 0)
+    return;
   NSMutableArray* rows = [NSMutableArray arrayWithCapacity:range.length];
-  for (NSUInteger i=range.location; i<NSMaxRange(range); ++i)
+  for (NSUInteger i = range.location; i < NSMaxRange(range); ++i)
     [rows addObject:[self columnValuesForRow:i]];
-  [self insertObjects:rows
-      atArrangedObjectIndexes:[self controllerRowsForModelRowsInRange:range]];
+  NSIndexSet* indexes = [self controllerRowsForModelRowsInRange:range];
+  [self insertObjects:rows atArrangedObjectIndexes:indexes];
 }
 
 - (void)modelDidRemoveItemsInRange:(NSRange)range {
+  if (range.length == 0)
+    return;
   NSMutableIndexSet* indexes =
       [NSMutableIndexSet indexSetWithIndexesInRange:range];
   if (model_->HasGroups()) {
@@ -197,7 +201,7 @@ static NSString* const kGroupID = @"_group_id";
   return dict;
 }
 
-// Overridden from NSArrayController -----------------------------------------
+#pragma mark Overridden from NSArrayController
 
 - (BOOL)canRemove {
   if (!model_)
@@ -213,9 +217,9 @@ static NSString* const kGroupID = @"_group_id";
   model_->RemoveRows(rows);
 }
 
-// Table View Delegate --------------------------------------------------------
+#pragma mark NSTableView delegate methods
 
-- (BOOL)tableView:(NSTableView*)tv isGroupRow:(NSInteger)row {
+- (BOOL)tableView:(NSTableView*)tableView isGroupRow:(NSInteger)row {
   NSDictionary* values = [[self arrangedObjects] objectAtIndex:row];
   return [[values objectForKey:kIsGroupRow] boolValue];
 }
@@ -237,10 +241,11 @@ static NSString* const kGroupID = @"_group_id";
   return indexes;
 }
 
-// Actions --------------------------------------------------------------------
+#pragma mark Actions
 
 - (IBAction)removeAll:(id)sender {
   model_->RemoveAll();
 }
 
 @end
+

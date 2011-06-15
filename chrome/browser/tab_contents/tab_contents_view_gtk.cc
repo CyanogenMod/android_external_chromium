@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,14 +14,6 @@
 #include "base/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/download/download_shelf.h"
-#include "chrome/browser/gtk/browser_window_gtk.h"
-#include "chrome/browser/gtk/constrained_window_gtk.h"
-#include "chrome/browser/gtk/gtk_expanded_container.h"
-#include "chrome/browser/gtk/gtk_floating_container.h"
-#include "chrome/browser/gtk/gtk_theme_provider.h"
-#include "chrome/browser/gtk/gtk_util.h"
-#include "chrome/browser/gtk/sad_tab_gtk.h"
-#include "chrome/browser/gtk/tab_contents_drag_source.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_view_host_factory.h"
 #include "chrome/browser/renderer_host/render_widget_host_view_gtk.h"
@@ -30,11 +22,19 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
 #include "chrome/browser/tab_contents/web_drag_dest_gtk.h"
+#include "chrome/browser/ui/gtk/browser_window_gtk.h"
+#include "chrome/browser/ui/gtk/constrained_window_gtk.h"
+#include "chrome/browser/ui/gtk/gtk_expanded_container.h"
+#include "chrome/browser/ui/gtk/gtk_floating_container.h"
+#include "chrome/browser/ui/gtk/gtk_theme_provider.h"
+#include "chrome/browser/ui/gtk/gtk_util.h"
+#include "chrome/browser/ui/gtk/sad_tab_gtk.h"
+#include "chrome/browser/ui/gtk/tab_contents_drag_source.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
-#include "gfx/point.h"
-#include "gfx/rect.h"
-#include "gfx/size.h"
+#include "ui/gfx/point.h"
+#include "ui/gfx/rect.h"
+#include "ui/gfx/size.h"
 #include "webkit/glue/webdropdata.h"
 
 using WebKit::WebDragOperation;
@@ -203,9 +203,13 @@ void TabContentsViewGtk::SetPageTitle(const std::wstring& title) {
     gdk_window_set_title(content_view->window, WideToUTF8(title).c_str());
 }
 
-void TabContentsViewGtk::OnTabCrashed() {
+void TabContentsViewGtk::OnTabCrashed(base::TerminationStatus status,
+                                      int error_code) {
   if (tab_contents() != NULL && !sad_tab_.get()) {
-    sad_tab_.reset(new SadTabGtk(tab_contents()));
+    sad_tab_.reset(new SadTabGtk(
+        tab_contents(),
+        status == base::TERMINATION_STATUS_PROCESS_WAS_KILLED ?
+        SadTabGtk::KILLED : SadTabGtk::CRASHED));
     InsertIntoContentArea(sad_tab_->widget());
     gtk_widget_show(sad_tab_->widget());
   }
@@ -247,6 +251,16 @@ void TabContentsViewGtk::RestoreFocus() {
     gtk_widget_grab_focus(focus_store_.widget());
   else
     SetInitialFocus();
+}
+
+void TabContentsViewGtk::GetViewBounds(gfx::Rect* out) const {
+  if (!floating_->window) {
+    out->SetRect(0, 0, requested_size_.width(), requested_size_.height());
+    return;
+  }
+  int x = 0, y = 0, w, h;
+  gdk_window_get_geometry(floating_->window, &x, &y, &w, &h, NULL);
+  out->SetRect(x, y, w, h);
 }
 
 void TabContentsViewGtk::SetFocusedWidget(GtkWidget* widget) {

@@ -7,12 +7,11 @@
 #include "base/command_line.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
 
-TabMenuModel::TabMenuModel(menus::SimpleMenuModel::Delegate* delegate,
+TabMenuModel::TabMenuModel(ui::SimpleMenuModel::Delegate* delegate,
                            bool is_pinned)
-    : menus::SimpleMenuModel(delegate) {
+    : ui::SimpleMenuModel(delegate) {
   Build(is_pinned);
 }
 

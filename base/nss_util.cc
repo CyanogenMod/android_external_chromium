@@ -29,9 +29,10 @@
 // use NSS for crypto or certificate verification, and we don't use the NSS
 // certificate and key databases.
 #if defined(USE_NSS)
+#include "base/crypto/crypto_module_blocking_password_delegate.h"
 #include "base/environment.h"
-#include "base/lock.h"
 #include "base/scoped_ptr.h"
+#include "base/synchronization/lock.h"
 #endif  // defined(USE_NSS)
 
 namespace base {
@@ -69,6 +70,26 @@ FilePath GetInitialConfigDirectory() {
 #endif  // defined(OS_CHROMEOS)
 }
 
+// This callback for NSS forwards all requests to a caller-specified
+// CryptoModuleBlockingPasswordDelegate object.
+char* PKCS11PasswordFunc(PK11SlotInfo* slot, PRBool retry, void* arg) {
+  base::CryptoModuleBlockingPasswordDelegate* delegate =
+      reinterpret_cast<base::CryptoModuleBlockingPasswordDelegate*>(arg);
+  if (delegate) {
+    bool cancelled = false;
+    std::string password = delegate->RequestPassword(PK11_GetTokenName(slot),
+                                                     retry != PR_FALSE,
+                                                     &cancelled);
+    if (cancelled)
+      return NULL;
+    char* result = PORT_Strdup(password.c_str());
+    password.replace(0, password.size(), password.size(), 0);
+    return result;
+  }
+  DLOG(ERROR) << "PK11 password requested with NULL arg";
+  return NULL;
+}
+
 // NSS creates a local cache of the sqlite database if it detects that the
 // filesystem the database is on is much slower than the local disk.  The
 // detection doesn't work with the latest versions of sqlite, such as 3.6.22
@@ -78,6 +99,9 @@ FilePath GetInitialConfigDirectory() {
 //
 // TODO(wtc): port this function to other USE_NSS platforms.  It is defined
 // only for OS_LINUX simply because the statfs structure is OS-specific.
+//
+// Because this function sets an environment variable it must be run before we
+// go multi-threaded.
 void UseLocalCacheOfNSSDatabaseIfNFS(const FilePath& database_dir) {
 #if defined(OS_LINUX)
   struct statfs buf;
@@ -141,6 +165,9 @@ class NSSInitSingleton {
 #if defined(OS_CHROMEOS)
   void OpenPersistentNSSDB() {
     if (!chromeos_user_logged_in_) {
+      // GetDefaultConfigDirectory causes us to do blocking IO on UI thread.
+      // Temporarily allow it until we fix http://crbug.com.70119
+      ThreadRestrictions::ScopedAllowIO allow_io;
       chromeos_user_logged_in_ = true;
       real_db_slot_ = OpenUserDB(GetDefaultConfigDirectory(),
                                  "Real NSS database");
@@ -219,6 +246,9 @@ class NSSInitSingleton {
 #else
     FilePath database_dir = GetInitialConfigDirectory();
     if (!database_dir.empty()) {
+      // This duplicates the work which should have been done in
+      // EarlySetupForNSSInit. However, this function is idempotent so there's
+      // no harm done.
       UseLocalCacheOfNSSDatabaseIfNFS(database_dir);
 
       // Initialize with a persistent database (likely, ~/.pki/nssdb).
@@ -246,6 +276,8 @@ class NSSInitSingleton {
         return;
       }
     }
+
+    PK11_SetPasswordFunc(PKCS11PasswordFunc);
 
     // If we haven't initialized the password for the NSS databases,
     // initialize an empty-string password so that we don't need to
@@ -320,6 +352,14 @@ LazyInstance<NSSInitSingleton, LeakyLazyInstanceTraits<NSSInitSingleton> >
     g_nss_singleton(LINKER_INITIALIZED);
 
 }  // namespace
+
+#if defined(USE_NSS)
+void EarlySetupForNSSInit() {
+  FilePath database_dir = GetInitialConfigDirectory();
+  if (!database_dir.empty())
+    UseLocalCacheOfNSSDatabaseIfNFS(database_dir);
+}
+#endif
 
 void EnsureNSPRInit() {
   g_nspr_singleton.Get();

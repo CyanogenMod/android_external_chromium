@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <vector>
 
-#include "app/l10n_util.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/string_util.h"
@@ -23,6 +22,7 @@
 #include "grit/generated_resources.h"
 #include "net/base/load_flags.h"
 #include "net/url_request/url_request_status.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
@@ -73,15 +73,11 @@ string16 GoogleURLTrackerInfoBarDelegate::GetMessageText() const {
                                     UTF8ToUTF16(new_google_url_.spec()));
 }
 
-int GoogleURLTrackerInfoBarDelegate::GetButtons() const {
-  return BUTTON_OK | BUTTON_CANCEL;
-}
-
 string16 GoogleURLTrackerInfoBarDelegate::GetButtonLabel(
     InfoBarButton button) const {
   return l10n_util::GetStringUTF16((button == BUTTON_OK) ?
-                                   IDS_CONFIRM_MESSAGEBOX_YES_BUTTON_LABEL :
-                                   IDS_CONFIRM_MESSAGEBOX_NO_BUTTON_LABEL);
+      IDS_CONFIRM_MESSAGEBOX_YES_BUTTON_LABEL :
+      IDS_CONFIRM_MESSAGEBOX_NO_BUTTON_LABEL);
 }
 
 
@@ -213,7 +209,7 @@ void GoogleURLTracker::StartFetchIfDesirable() {
 
 void GoogleURLTracker::OnURLFetchComplete(const URLFetcher* source,
                                           const GURL& url,
-                                          const URLRequestStatus& status,
+                                          const net::URLRequestStatus& status,
                                           int response_code,
                                           const ResponseCookies& cookies,
                                           const std::string& data) {

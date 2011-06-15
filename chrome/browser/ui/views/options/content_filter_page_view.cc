@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/options/content_filter_page_view.h"
+#include "chrome/browser/ui/views/options/content_filter_page_view.h"
 
-#include "app/l10n_util.h"
 #include "base/command_line.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/content_settings/content_settings_details.h"
@@ -14,16 +13,17 @@
 #include "chrome/browser/notifications/notification_exceptions_table_model.h"
 #include "chrome/browser/plugin_exceptions_table_model.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/views/options/exceptions_view.h"
-#include "chrome/browser/views/options/simple_content_exceptions_view.h"
+#include "chrome/browser/ui/views/options/exceptions_view.h"
+#include "chrome/browser/ui/views/options/simple_content_exceptions_view.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "views/controls/button/radio_button.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/window/window.h"
 
 ContentFilterPageView::ContentFilterPageView(Profile* profile,
@@ -50,10 +50,10 @@ void ContentFilterPageView::InitControlLayout() {
 
   const int single_column_set_id = 0;
   views::ColumnSet* column_set = layout->AddColumnSet(single_column_set_id);
-  column_set->AddPaddingColumn(0, kRelatedControlVerticalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlVerticalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 1,
                         GridLayout::USE_PREF, 0, 0);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   static const int kTitleIDs[] = {
     IDS_MODIFY_COOKIE_STORING_LABEL,
@@ -73,7 +73,7 @@ void ContentFilterPageView::InitControlLayout() {
 
   layout->StartRow(0, single_column_set_id);
   layout->AddView(title_label);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   static const int kAllowIDs[] = {
     IDS_COOKIES_ALLOW_RADIO,
@@ -94,7 +94,7 @@ void ContentFilterPageView::InitControlLayout() {
   allow_radio_->SetMultiLine(true);
   layout->StartRow(0, single_column_set_id);
   layout->AddView(allow_radio_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   static const int kAskIDs[] = {
     IDS_COOKIES_ASK_EVERY_TIME_RADIO,
@@ -121,7 +121,7 @@ void ContentFilterPageView::InitControlLayout() {
       ask_radio_->SetMultiLine(true);
       layout->StartRow(0, single_column_set_id);
       layout->AddView(ask_radio_);
-      layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+      layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
     }
   }
 
@@ -143,7 +143,7 @@ void ContentFilterPageView::InitControlLayout() {
   block_radio_->SetMultiLine(true);
   layout->StartRow(0, single_column_set_id);
   layout->AddView(block_radio_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   exceptions_button_ = new views::NativeButton(this,
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_COOKIES_EXCEPTIONS_BUTTON)));

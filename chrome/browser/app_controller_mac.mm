@@ -1,11 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "chrome/browser/app_controller_mac.h"
 
-#include "app/l10n_util.h"
-#include "app/l10n_util_mac.h"
 #include "base/auto_reset.h"
 #include "base/command_line.h"
 #include "base/file_path.h"
@@ -21,7 +19,6 @@
 #include "chrome/browser/command_updater.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/printing/print_job_manager.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
@@ -42,21 +39,22 @@
 #import "chrome/browser/ui/cocoa/confirm_quit_panel_controller.h"
 #import "chrome/browser/ui/cocoa/encoding_menu_controller_delegate_mac.h"
 #import "chrome/browser/ui/cocoa/history_menu_bridge.h"
-#import "chrome/browser/ui/cocoa/import_settings_dialog.h"
-#import "chrome/browser/ui/cocoa/preferences_window_controller.h"
-#import "chrome/browser/ui/cocoa/tab_strip_controller.h"
-#import "chrome/browser/ui/cocoa/tab_window_controller.h"
+#import "chrome/browser/ui/cocoa/importer/import_settings_dialog.h"
+#import "chrome/browser/ui/cocoa/options/preferences_window_controller.h"
+#import "chrome/browser/ui/cocoa/tabs/tab_strip_controller.h"
+#import "chrome/browser/ui/cocoa/tabs/tab_window_controller.h"
 #include "chrome/browser/ui/cocoa/task_manager_mac.h"
 #include "chrome/browser/ui/options/options_window.h"
 #include "chrome/common/app_mode_common_mac.h"
 #include "chrome/common/chrome_paths_internal.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "net/base/net_util.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/l10n/l10n_util_mac.h"
 
 // 10.6 adds a public API for the Spotlight-backed search menu item in the Help
 // menu.  Provide the declaration so it can be called below when building with
@@ -611,11 +609,6 @@ void RecordLastRunAppBundlePath() {
     [self openUrls:startupUrls_];
     [self clearStartupUrls];
   }
-
-  const CommandLine& parsed_command_line = *CommandLine::ForCurrentProcess();
-  if (!parsed_command_line.HasSwitch(switches::kEnableExposeForTabs)) {
-    [tabposeMenuItem_ setHidden:YES];
-  }
 }
 
 // This is called after profiles have been loaded and preferences registered.
@@ -850,15 +843,33 @@ void RecordLastRunAppBundlePath() {
       break;
     case IDC_CLEAR_BROWSING_DATA: {
       // There may not be a browser open, so use the default profile.
-      [ClearBrowsingDataController
-          showClearBrowsingDialogForProfile:defaultProfile];
+      if (CommandLine::ForCurrentProcess()->HasSwitch(
+              switches::kDisableTabbedOptions)) {
+        [ClearBrowsingDataController
+            showClearBrowsingDialogForProfile:defaultProfile];
+      } else {
+        if (Browser* browser = ActivateBrowser(defaultProfile)) {
+          browser->OpenClearBrowsingDataDialog();
+        } else {
+          Browser::OpenClearBrowingDataDialogWindow(defaultProfile);
+        }
+      }
       break;
     }
     case IDC_IMPORT_SETTINGS: {
-      UserMetrics::RecordAction(UserMetricsAction("Import_ShowDlg"),
-                                defaultProfile);
-      [ImportSettingsDialogController
-          showImportSettingsDialogForProfile:defaultProfile];
+      if (CommandLine::ForCurrentProcess()->HasSwitch(
+              switches::kDisableTabbedOptions)) {
+        UserMetrics::RecordAction(UserMetricsAction("Import_ShowDlg"),
+                                  defaultProfile);
+        [ImportSettingsDialogController
+            showImportSettingsDialogForProfile:defaultProfile];
+      } else {
+        if (Browser* browser = ActivateBrowser(defaultProfile)) {
+          browser->OpenImportSettingsDialog();
+        } else {
+          Browser::OpenImportSettingsDialogWindow(defaultProfile);
+        }
+      }
       break;
     }
     case IDC_SHOW_BOOKMARK_MANAGER:
@@ -920,12 +931,13 @@ void RecordLastRunAppBundlePath() {
       // TODO(akalin): Add a constant to denote starting sync from the
       // main menu and use that instead of START_FROM_WRENCH.
       sync_ui_util::OpenSyncMyBookmarksDialog(
-          defaultProfile, ProfileSyncService::START_FROM_WRENCH);
+          defaultProfile, ActivateBrowser(defaultProfile),
+          ProfileSyncService::START_FROM_WRENCH);
       break;
     case IDC_TASK_MANAGER:
       UserMetrics::RecordAction(UserMetricsAction("TaskManager"),
                                 defaultProfile);
-      TaskManagerMac::Show();
+      TaskManagerMac::Show(false);
       break;
     case IDC_OPTIONS:
       [self showPreferences:sender];
@@ -1196,47 +1208,58 @@ void RecordLastRunAppBundlePath() {
   NSMenu* dockMenu = [[[NSMenu alloc] initWithTitle: @""] autorelease];
   Profile* profile = [self defaultProfile];
 
-  // TODO(rickcam): Mock out BackgroundApplicationListModel, then add unit
-  // tests which use the mock in place of the profile-initialized model.
-
-  // Avoid breaking unit tests which have no profile.
-  if (profile) {
-    int position = 0;
-    BackgroundApplicationListModel applications(profile);
-    for (ExtensionList::const_iterator cursor = applications.begin();
-         cursor != applications.end();
-         ++cursor, ++position) {
-      DCHECK(position == applications.GetPosition(*cursor));
-      scoped_nsobject<NSMenuItem> appItem([[NSMenuItem alloc]
-          initWithTitle:base::SysUTF16ToNSString(UTF8ToUTF16((*cursor)->name()))
-          action:@selector(commandFromDock:)
-          keyEquivalent:@""]);
-      [appItem setTarget:self];
-      [appItem setTag:position];
-      [dockMenu addItem:appItem];
-    }
-    if (applications.begin() != applications.end()) {
-      NSMenuItem* sepItem = [[NSMenuItem separatorItem] init];
-      [dockMenu addItem:sepItem];
-    }
-  }
-
   NSString* titleStr = l10n_util::GetNSStringWithFixup(IDS_NEW_WINDOW_MAC);
-  scoped_nsobject<NSMenuItem> item([[NSMenuItem alloc]
-                                    initWithTitle:titleStr
-                                    action:@selector(commandFromDock:)
-                                    keyEquivalent:@""]);
+  scoped_nsobject<NSMenuItem> item(
+      [[NSMenuItem alloc] initWithTitle:titleStr
+                                 action:@selector(commandFromDock:)
+                          keyEquivalent:@""]);
   [item setTarget:self];
   [item setTag:IDC_NEW_WINDOW];
   [dockMenu addItem:item];
 
   titleStr = l10n_util::GetNSStringWithFixup(IDS_NEW_INCOGNITO_WINDOW_MAC);
   item.reset([[NSMenuItem alloc] initWithTitle:titleStr
-                                 action:@selector(commandFromDock:)
+                                        action:@selector(commandFromDock:)
                                  keyEquivalent:@""]);
   [item setTarget:self];
   [item setTag:IDC_NEW_INCOGNITO_WINDOW];
   [dockMenu addItem:item];
+
+  // TODO(rickcam): Mock out BackgroundApplicationListModel, then add unit
+  // tests which use the mock in place of the profile-initialized model.
+
+  // Avoid breaking unit tests which have no profile.
+  if (profile) {
+    BackgroundApplicationListModel applications(profile);
+    if (applications.size()) {
+      int position = 0;
+      NSString* menuStr =
+          l10n_util::GetNSStringWithFixup(IDS_BACKGROUND_APPS_MAC);
+      scoped_nsobject<NSMenu> appMenu([[NSMenu alloc] initWithTitle:menuStr]);
+      for (ExtensionList::const_iterator cursor = applications.begin();
+           cursor != applications.end();
+           ++cursor, ++position) {
+        DCHECK(position == applications.GetPosition(*cursor));
+        NSString* itemStr =
+            base::SysUTF16ToNSString(UTF8ToUTF16((*cursor)->name()));
+        scoped_nsobject<NSMenuItem> appItem([[NSMenuItem alloc]
+            initWithTitle:itemStr
+                   action:@selector(commandFromDock:)
+            keyEquivalent:@""]);
+        [appItem setTarget:self];
+        [appItem setTag:position];
+        [appMenu addItem:appItem];
+      }
+      scoped_nsobject<NSMenuItem> appMenuItem([[NSMenuItem alloc]
+          initWithTitle:menuStr
+                 action:@selector(commandFromDock:)
+          keyEquivalent:@""]);
+      [appMenuItem setTarget:self];
+      [appMenuItem setTag:position];
+      [appMenuItem setSubmenu:appMenu];
+      [dockMenu addItem:appMenuItem];
+    }
+  }
 
   return dockMenu;
 }

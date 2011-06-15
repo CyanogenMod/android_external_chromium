@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,9 +14,9 @@
 #include "chrome/browser/extensions/extension_context_menu_model.h"
 #include "chrome/browser/extensions/extension_toolbar_model.h"
 #include "chrome/browser/extensions/image_loading_tracker.h"
-#include "chrome/browser/views/browser_bubble.h"
-#include "chrome/browser/views/extensions/browser_action_overflow_menu_controller.h"
-#include "chrome/browser/views/extensions/extension_popup.h"
+#include "chrome/browser/ui/views/browser_bubble.h"
+#include "chrome/browser/ui/views/extensions/browser_action_overflow_menu_controller.h"
+#include "chrome/browser/ui/views/extensions/extension_popup.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "ui/base/animation/animation_delegate.h"
@@ -323,9 +323,9 @@ class BrowserActionsContainer
                                     views::View* parent,
                                     views::View* child);
   virtual bool GetDropFormats(
-      int* formats, std::set<OSExchangeData::CustomFormat>* custom_formats);
+      int* formats, std::set<ui::OSExchangeData::CustomFormat>* custom_formats);
   virtual bool AreDropTypesRequired();
-  virtual bool CanDrop(const OSExchangeData& data);
+  virtual bool CanDrop(const ui::OSExchangeData& data);
   virtual void OnDragEntered(const views::DropTargetEvent& event);
   virtual int OnDragUpdated(const views::DropTargetEvent& event);
   virtual void OnDragExited();
@@ -339,7 +339,7 @@ class BrowserActionsContainer
   // Overridden from views::DragController:
   virtual void WriteDragData(View* sender,
                              const gfx::Point& press_pt,
-                             OSExchangeData* data);
+                             ui::OSExchangeData* data);
   virtual int GetDragOperations(View* sender, const gfx::Point& p);
   virtual bool CanStartDrag(View* sender,
                             const gfx::Point& press_pt,

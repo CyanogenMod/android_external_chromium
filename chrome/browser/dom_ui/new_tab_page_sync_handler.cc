@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,21 +6,19 @@
 
 #include <vector>
 
-#include "app/l10n_util.h"
 #include "base/callback.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/common/pref_names.h"
 #include "grit/browser_resources.h"
 #include "grit/generated_resources.h"
 #include "net/base/cookie_monster.h"
 #include "net/url_request/url_request_context.h"
+#include "ui/base/l10n/l10n_util.h"
 
 // Default URL for the sync web interface.
 //
@@ -99,18 +97,18 @@ NewTabPageSyncHandler::MessageType
   }
 }
 
-DOMMessageHandler* NewTabPageSyncHandler::Attach(DOMUI* dom_ui) {
-  sync_service_ = dom_ui->GetProfile()->GetProfileSyncService();
+WebUIMessageHandler* NewTabPageSyncHandler::Attach(WebUI* web_ui) {
+  sync_service_ = web_ui->GetProfile()->GetProfileSyncService();
   DCHECK(sync_service_);  // This shouldn't get called by an incognito NTP.
   DCHECK(!sync_service_->IsManaged());  // And neither if sync is managed.
   sync_service_->AddObserver(this);
-  return DOMMessageHandler::Attach(dom_ui);
+  return WebUIMessageHandler::Attach(web_ui);
 }
 
 void NewTabPageSyncHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("GetSyncMessage",
+  web_ui_->RegisterMessageCallback("GetSyncMessage",
       NewCallback(this, &NewTabPageSyncHandler::HandleGetSyncMessage));
-  dom_ui_->RegisterMessageCallback("SyncLinkClicked",
+  web_ui_->RegisterMessageCallback("SyncLinkClicked",
       NewCallback(this, &NewTabPageSyncHandler::HandleSyncLinkClicked));
 }
 
@@ -146,7 +144,9 @@ void NewTabPageSyncHandler::BuildAndSendSyncStatus() {
   string16 status_msg;
   string16 link_text;
   sync_ui_util::MessageType type =
-      sync_ui_util::GetStatusLabels(sync_service_, &status_msg, &link_text);
+      sync_ui_util::GetStatusLabelsForNewTabPage(sync_service_,
+                                                 &status_msg,
+                                                 &link_text);
   SendSyncMessageToPage(FromSyncStatusMessageType(type),
                         UTF16ToUTF8(status_msg), UTF16ToUTF8(link_text));
 }
@@ -157,31 +157,12 @@ void NewTabPageSyncHandler::HandleSyncLinkClicked(const ListValue* args) {
   if (!sync_service_->IsSyncEnabled())
     return;
   if (sync_service_->HasSyncSetupCompleted()) {
-    if (sync_service_->observed_passphrase_required()) {
-      if (sync_service_->IsUsingSecondaryPassphrase())
-        sync_service_->PromptForExistingPassphrase(NULL);
-      else
-        sync_service_->SigninForPassphrase(dom_ui_->tab_contents());
-      return;
-    }
-    if (sync_service_->GetAuthError().state() ==
-        GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS ||
-        sync_service_->GetAuthError().state() ==
-        GoogleServiceAuthError::CAPTCHA_REQUIRED ||
-        sync_service_->GetAuthError().state() ==
-        GoogleServiceAuthError::ACCOUNT_DELETED ||
-        sync_service_->GetAuthError().state() ==
-        GoogleServiceAuthError::ACCOUNT_DISABLED ||
-        sync_service_->GetAuthError().state() ==
-        GoogleServiceAuthError::SERVICE_UNAVAILABLE) {
-      sync_service_->ShowLoginDialog(NULL);
-      return;
-    }
+    sync_service_->ShowErrorUI(NULL);
     DictionaryValue value;
     value.SetString("syncEnabledMessage",
                     l10n_util::GetStringFUTF16(IDS_SYNC_NTP_SYNCED_TO,
                         sync_service_->GetAuthenticatedUsername()));
-    dom_ui_->CallJavascriptFunction(L"syncAlreadyEnabled", value);
+    web_ui_->CallJavascriptFunction(L"syncAlreadyEnabled", value);
   } else {
     // User clicked the 'Start now' link to begin syncing.
     ProfileSyncService::SyncEvent(ProfileSyncService::START_FROM_NTP);
@@ -236,5 +217,5 @@ void NewTabPageSyncHandler::SendSyncMessageToPage(
       }
     }
   }
-  dom_ui_->CallJavascriptFunction(L"syncMessageChanged", value);
+  web_ui_->CallJavascriptFunction(L"syncMessageChanged", value);
 }

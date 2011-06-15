@@ -6,8 +6,6 @@
 #define CHROME_BROWSER_RENDERER_HOST_BROWSER_RENDER_PROCESS_HOST_H_
 #pragma once
 
-#include "build/build_config.h"
-
 #include <map>
 #include <queue>
 #include <string>
@@ -22,22 +20,15 @@
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebCache.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebCache.h"
 
 class CommandLine;
-class GURL;
 class RendererMainThread;
 class RenderWidgetHelper;
-class TabContents;
 class VisitedLinkUpdater;
-class URLRequestContextGetter;
 
 namespace base {
 class SharedMemory;
-}
-
-namespace gfx {
-class Size;
 }
 
 // Implements a concrete RenderProcessHost for the browser process for talking
@@ -131,10 +122,6 @@ class BrowserRenderProcessHost : public RenderProcessHost,
 
   // Sends the renderer process a new set of user scripts.
   void SendUserScriptsUpdate(base::SharedMemory* shared_memory);
-
-  // Sends the renderer process the list of all loaded extensions along with a
-  // subset of information the renderer needs about them.
-  void SendExtensionInfo();
 
   // Generates a command line to be used to spawn a renderer and appends the
   // results to |*command_line|.

@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,23 +8,24 @@
 
 #include "base/logging.h"
 #include "base/task.h"
-#include "chrome/browser/gtk/browser_window_gtk.h"
-#include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "gfx/native_widget_types.h"
+#include "chrome/browser/ui/gtk/browser_window_gtk.h"
+#include "chrome/browser/ui/gtk/gtk_util.h"
+#include "ui/base/x/x11_util.h"
+#include "ui/gfx/native_widget_types.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 // BaseWindowFinder
 //
 // Base class used to locate a window. A subclass need only override
 // ShouldStopIterating to determine when iteration should stop.
-class BaseWindowFinder : public x11_util::EnumerateWindowsDelegate {
+class BaseWindowFinder : public ui::EnumerateWindowsDelegate {
  public:
   explicit BaseWindowFinder(const std::set<GtkWidget*>& ignore) {
     std::set<GtkWidget*>::iterator iter;
     for (iter = ignore.begin(); iter != ignore.end(); iter++) {
-      XID xid = x11_util::GetX11WindowFromGtkWidget(*iter);
+      XID xid = ui::GetX11WindowFromGtkWidget(*iter);
       ignore_.insert(xid);
     }
   }
@@ -75,13 +76,13 @@ class TopMostFinder : public BaseWindowFinder {
       return true;
     }
 
-    if (!x11_util::IsWindowVisible(window)) {
+    if (!ui::IsWindowVisible(window)) {
       // The window isn't visible, keep iterating.
       return false;
     }
 
     gfx::Rect rect;
-    if (x11_util::GetWindowRect(window, &rect) && rect.Contains(screen_loc_)) {
+    if (ui::GetWindowRect(window, &rect) && rect.Contains(screen_loc_)) {
       // At this point we haven't found our target window, so this window is
       // higher in the z-order than the target window.  If this window contains
       // the point, then we can stop the search now because this window is
@@ -145,11 +146,11 @@ class LocalProcessWindowFinder : public BaseWindowFinder {
     if (!BrowserWindowGtk::GetBrowserWindowForXID(window))
       return false;
 
-    if (!x11_util::IsWindowVisible(window))
+    if (!ui::IsWindowVisible(window))
       return false;
 
     gfx::Rect rect;
-    if (x11_util::GetWindowRect(window, &rect) && rect.Contains(screen_loc_)) {
+    if (ui::GetWindowRect(window, &rect) && rect.Contains(screen_loc_)) {
       result_ = window;
       return true;
     }

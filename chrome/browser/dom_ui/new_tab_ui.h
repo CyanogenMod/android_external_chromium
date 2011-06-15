@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,9 @@
 #include <string>
 
 #include "base/gtest_prod_util.h"
-#include "chrome/browser/dom_ui/dom_ui.h"
+#include "base/timer.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
+#include "chrome/browser/dom_ui/web_ui.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
@@ -21,13 +22,13 @@ class PrefService;
 class Profile;
 
 // The TabContents used for the New Tab page.
-class NewTabUI : public DOMUI,
+class NewTabUI : public WebUI,
                  public NotificationObserver {
  public:
   explicit NewTabUI(TabContents* manager);
   ~NewTabUI();
 
-  // Override DOMUI methods so we can hook up the paint timer to the render
+  // Override WebUI methods so we can hook up the paint timer to the render
   // view host.
   virtual void RenderViewCreated(RenderViewHost* render_view_host);
   virtual void RenderViewReused(RenderViewHost* render_view_host);
@@ -96,12 +97,21 @@ class NewTabUI : public DOMUI,
   // Reset the CSS caches.
   void InitializeCSSCaches();
 
+  void StartTimingPaint(RenderViewHost* render_view_host);
+  void PaintTimeout();
+
   // Updates the user prefs version and calls |MigrateUserPrefs| if needed.
   // Returns true if the version was updated.
   static bool UpdateUserPrefsVersion(PrefService* prefs);
 
   NotificationRegistrar registrar_;
 
+  // The time when we started benchmarking.
+  base::TimeTicks start_;
+  // The last time we got a paint notification.
+  base::TimeTicks last_paint_;
+  // Scoping so we can be sure our timeouts don't outlive us.
+  base::OneShotTimer<NewTabUI> timer_;
   // The preference version. This used for migrating prefs of the NTP.
   static const int current_pref_version_ = 3;
 

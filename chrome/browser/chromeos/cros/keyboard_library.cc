@@ -14,20 +14,6 @@ class KeyboardLibraryImpl : public KeyboardLibrary {
   KeyboardLibraryImpl() {}
   virtual ~KeyboardLibraryImpl() {}
 
-  std::string GetHardwareKeyboardLayoutName() const {
-    if (CrosLibrary::Get()->EnsureLoaded()) {
-      return chromeos::GetHardwareKeyboardLayoutName();
-    }
-    return "";
-  }
-
-  std::string GetCurrentKeyboardLayoutName() const {
-    if (CrosLibrary::Get()->EnsureLoaded()) {
-      return chromeos::GetCurrentKeyboardLayoutName();
-    }
-    return "";
-  }
-
   bool SetCurrentKeyboardLayoutByName(const std::string& layout_name) {
     if (CrosLibrary::Get()->EnsureLoaded()) {
       return chromeos::SetCurrentKeyboardLayoutByName(layout_name);
@@ -38,20 +24,6 @@ class KeyboardLibraryImpl : public KeyboardLibrary {
   bool RemapModifierKeys(const ModifierMap& modifier_map) {
     if (CrosLibrary::Get()->EnsureLoaded()) {
       return chromeos::RemapModifierKeys(modifier_map);
-    }
-    return false;
-  }
-
-  bool GetKeyboardLayoutPerWindow(bool* is_per_window) const {
-    if (CrosLibrary::Get()->EnsureLoaded()) {
-      return chromeos::GetKeyboardLayoutPerWindow(is_per_window);
-    }
-    return false;
-  }
-
-  bool SetKeyboardLayoutPerWindow(bool is_per_window) {
-    if (CrosLibrary::Get()->EnsureLoaded()) {
-      return chromeos::SetKeyboardLayoutPerWindow(is_per_window);
     }
     return false;
   }
@@ -93,27 +65,11 @@ class KeyboardLibraryStubImpl : public KeyboardLibrary {
   KeyboardLibraryStubImpl() {}
   virtual ~KeyboardLibraryStubImpl() {}
 
-  std::string GetHardwareKeyboardLayoutName() const {
-    return "xkb:us::eng";
-  }
-
-  std::string GetCurrentKeyboardLayoutName() const {
-    return "";
-  }
-
   bool SetCurrentKeyboardLayoutByName(const std::string& layout_name) {
     return false;
   }
 
   bool RemapModifierKeys(const ModifierMap& modifier_map) {
-    return false;
-  }
-
-  bool GetKeyboardLayoutPerWindow(bool* is_per_window) const {
-    return false;
-  }
-
-  bool SetKeyboardLayoutPerWindow(bool is_per_window) {
     return false;
   }
 

@@ -1,6 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+#include <string>
+#include <vector>
 
 #include "base/scoped_ptr.h"
 #include "base/utf_string_conversions.h"
@@ -8,17 +11,15 @@
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/page_navigator.h"
-#include "chrome/browser/views/bookmark_context_menu.h"
-#include "chrome/common/pref_names.h"
+#include "chrome/browser/ui/views/bookmark_context_menu.h"
 #include "chrome/test/testing_profile.h"
 #include "grit/generated_resources.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if defined(OS_WIN)
-#include "chrome/browser/views/bookmark_bar_view.h"
+#include "chrome/browser/ui/views/bookmark_bar_view.h"
 #endif
 
 namespace {
@@ -314,4 +315,3 @@ TEST_F(BookmarkContextMenuTest, CutCopyPasteNode) {
   ASSERT_TRUE(model_->GetBookmarkBarNode()->GetChild(1)->is_folder());
   ASSERT_EQ(old_count, model_->GetBookmarkBarNode()->GetChildCount());
 }
-

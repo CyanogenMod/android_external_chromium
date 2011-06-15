@@ -85,7 +85,7 @@
 #if defined(COMPILER_MSVC)
 #define OVERRIDE override
 #elif defined(__clang__)
-#define OVERRIDE __attribute__((override))
+#define OVERRIDE override
 #else
 #define OVERRIDE
 #endif

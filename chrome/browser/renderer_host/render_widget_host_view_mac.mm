@@ -38,8 +38,8 @@
 #include "chrome/common/render_messages.h"
 #include "skia/ext/platform_canvas.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "third_party/WebKit/WebKit/chromium/public/mac/WebInputEventFactory.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebInputEvent.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/mac/WebInputEventFactory.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebInputEvent.h"
 #include "webkit/glue/webaccessibility.h"
 #include "webkit/plugins/npapi/webplugin.h"
 #import "third_party/mozilla/ComplexTextInputPanel.h"
@@ -63,6 +63,7 @@ static inline int ToWebKitModifiers(NSUInteger flags) {
 - (id)initWithRenderWidgetHostViewMac:(RenderWidgetHostViewMac*)r;
 - (void)keyEvent:(NSEvent *)theEvent wasKeyEquivalent:(BOOL)equiv;
 - (void)cancelChildPopups;
+- (void)checkForPluginImeCancellation;
 @end
 
 // This API was published since 10.6. Provide the declaration so it can be
@@ -91,8 +92,8 @@ WebKit::WebColor WebColorFromNSColor(NSColor *color) {
       std::max(0, std::min(static_cast<int>(lroundf(255.0f * b)), 255));
 }
 
-// Extract underline information from an attributed string.
-// Mostly copied from third_party/WebKit/WebKit/mac/WebView/WebHTMLView.mm
+// Extract underline information from an attributed string. Mostly copied from
+// third_party/WebKit/Source/WebKit/mac/WebView/WebHTMLView.mm
 void ExtractUnderlines(
     NSAttributedString* string,
     std::vector<WebKit::WebCompositionUnderline>* underlines) {
@@ -132,6 +133,39 @@ void EnablePasswordInput() {
 
 void DisablePasswordInput() {
   TSMRemoveDocumentProperty(0, kTSMDocumentEnabledInputSourcesPropertyTag);
+}
+
+// Adjusts an NSRect in Cocoa screen coordinates to have an origin in the upper
+// left of the primary screen (Carbon coordinates), and stuffs it into a
+// gfx::Rect.
+gfx::Rect FlipNSRectToRectScreen(const NSRect& rect) {
+  gfx::Rect new_rect(NSRectToCGRect(rect));
+  if ([[NSScreen screens] count] > 0) {
+    new_rect.set_y([[[NSScreen screens] objectAtIndex:0] frame].size.height -
+                   new_rect.y() - new_rect.height());
+  }
+  return new_rect;
+}
+
+// Returns the window that visually contains the given view. This is different
+// from [view window] in the case of tab dragging, where the view's owning
+// window is a floating panel attached to the actual browser window that the tab
+// is visually part of.
+NSWindow* ApparentWindowForView(NSView* view) {
+  // TODO(shess): In case of !window, the view has been removed from
+  // the view hierarchy because the tab isn't main.  Could retrieve
+  // the information from the main tab for our window.
+  NSWindow* enclosing_window = [view window];
+
+  // See if this is a tab drag window. The width check is to distinguish that
+  // case from extension popup windows.
+  NSWindow* ancestor_window = [enclosing_window parentWindow];
+  if (ancestor_window && (NSWidth([enclosing_window frame]) ==
+                          NSWidth([ancestor_window frame]))) {
+    enclosing_window = ancestor_window;
+  }
+
+  return enclosing_window;
 }
 
 }  // namespace
@@ -191,6 +225,9 @@ void DisablePasswordInput() {
   // view's size, since it's required on the displaylink thread.
   NSSize cachedSize_;
 
+  // Rects that should show web content rather than plugin content.
+  scoped_nsobject<NSArray> cutoutRects_;
+
   // -globalFrameDidChange: can be called recursively, this counts how often it
   // holds the CGL lock.
   int globalFrameDidChangeCGLLockCount_;
@@ -199,6 +236,12 @@ void DisablePasswordInput() {
 - (id)initWithRenderWidgetHostViewMac:(RenderWidgetHostViewMac*)r
                          pluginHandle:(gfx::PluginWindowHandle)pluginHandle;
 - (void)drawView;
+
+// Sets the list of rectangles that should show the web page, rather than the
+// accelerated plugin. This is used to simulate the iframe-based trick that web
+// pages have long used to show web content above windowed plugins on Windows
+// and Linux.
+- (void)setCutoutRects:(NSArray*)cutout_rects;
 
 // Updates the number of swap buffers calls that have been requested.
 // This is currently called with non-zero values only in response to
@@ -328,6 +371,10 @@ static CVReturn DrawOneAcceleratedPluginCallback(
   CGLUnlockContext(cglContext_);
 }
 
+- (void)setCutoutRects:(NSArray*)cutout_rects {
+  cutoutRects_.reset([cutout_rects copy]);
+}
+
 - (void)updateSwapBuffersCount:(uint64)count
                   fromRenderer:(int)rendererId
                        routeId:(int32)routeId {
@@ -361,9 +408,36 @@ static CVReturn DrawOneAcceleratedPluginCallback(
     int dirtyRectCount;
     [self getRectsBeingDrawn:&dirtyRects count:&dirtyRectCount];
 
+    [NSGraphicsContext saveGraphicsState];
+
+    // Mask out any cutout rects--somewhat counterintuitively cutout rects are
+    // places where clearColor is *not* drawn. The trick is that drawing nothing
+    // lets the parent view (i.e., the web page) show through, whereas drawing
+    // clearColor punches a hole in the window (letting OpenGL show through).
+    if ([cutoutRects_.get() count] > 0) {
+      NSBezierPath* path = [NSBezierPath bezierPath];
+      // Trace the bounds clockwise to give a base clip rect of the whole view.
+      NSRect bounds = [self bounds];
+      [path moveToPoint:bounds.origin];
+      [path lineToPoint:NSMakePoint(NSMinX(bounds), NSMaxY(bounds))];
+      [path lineToPoint:NSMakePoint(NSMaxX(bounds), NSMaxY(bounds))];
+      [path lineToPoint:NSMakePoint(NSMaxX(bounds), NSMinY(bounds))];
+      [path closePath];
+
+      // Then trace each cutout rect counterclockwise to remove that region from
+      // the clip region.
+      for (NSValue* rectWrapper in cutoutRects_.get()) {
+        [path appendBezierPathWithRect:[rectWrapper rectValue]];
+      }
+
+      [path addClip];
+    }
+
     // Punch a hole so that the OpenGL view shows through.
     [[NSColor clearColor] set];
     NSRectFillList(dirtyRects, dirtyRectCount);
+
+    [NSGraphicsContext restoreGraphicsState];
   }
 
   [self drawView];
@@ -558,8 +632,7 @@ void RenderWidgetHostViewMac::InitAsPopup(
   [cocoa_view_ setFrame:initial_frame];
 }
 
-void RenderWidgetHostViewMac::InitAsFullscreen(
-    RenderWidgetHostView* parent_host_view) {
+void RenderWidgetHostViewMac::InitAsFullscreen() {
   NOTIMPLEMENTED() << "Full screen not implemented on Mac";
 }
 
@@ -648,6 +721,15 @@ void RenderWidgetHostViewMac::MovePluginWindows(
       }
       NSRect new_rect([cocoa_view_ flipRectToNSRect:rect]);
       [view setFrame:new_rect];
+      NSMutableArray* cutout_rects =
+          [NSMutableArray arrayWithCapacity:geom.cutout_rects.size()];
+      for (unsigned int i = 0; i < geom.cutout_rects.size(); ++i) {
+        // Convert to NSRect, and flip vertically.
+        NSRect cutout_rect = NSRectFromCGRect(geom.cutout_rects[i].ToCGRect());
+        cutout_rect.origin.y = new_rect.size.height - NSMaxY(cutout_rect);
+        [cutout_rects addObject:[NSValue valueWithRect:cutout_rect]];
+      }
+      [view setCutoutRects:cutout_rects];
       [view setNeedsDisplay:YES];
     }
 
@@ -688,7 +770,17 @@ bool RenderWidgetHostViewMac::IsShowing() {
 }
 
 gfx::Rect RenderWidgetHostViewMac::GetViewBounds() const {
-  return [cocoa_view_ flipNSRectToRect:[cocoa_view_ bounds]];
+  // TODO(shess): In case of !window, the view has been removed from
+  // the view hierarchy because the tab isn't main.  Could retrieve
+  // the information from the main tab for our window.
+  NSWindow* enclosing_window = ApparentWindowForView(cocoa_view_);
+  if (!enclosing_window)
+    return gfx::Rect();
+
+  NSRect bounds = [cocoa_view_ bounds];
+  bounds = [cocoa_view_ convertRect:bounds toView:nil];
+  bounds.origin = [enclosing_window convertBaseToScreen:bounds.origin];
+  return FlipNSRectToRectScreen(bounds);
 }
 
 void RenderWidgetHostViewMac::UpdateCursor(const WebCursor& cursor) {
@@ -881,8 +973,12 @@ void RenderWidgetHostViewMac::KillSelf() {
   }
 }
 
-void RenderWidgetHostViewMac::SetPluginImeEnabled(bool enabled, int plugin_id) {
-  [cocoa_view_ setPluginImeEnabled:(enabled ? YES : NO) forPlugin:plugin_id];
+void RenderWidgetHostViewMac::PluginFocusChanged(bool focused, int plugin_id) {
+  [cocoa_view_ pluginFocusChanged:(focused ? YES : NO) forPlugin:plugin_id];
+}
+
+void RenderWidgetHostViewMac::StartPluginIme() {
+  [cocoa_view_ setPluginImeActive:YES];
 }
 
 bool RenderWidgetHostViewMac::PostProcessEventForPluginIme(
@@ -898,10 +994,10 @@ bool RenderWidgetHostViewMac::PostProcessEventForPluginIme(
   return false;
 }
 
-void RenderWidgetHostViewMac::PluginImeCompositionConfirmed(
+void RenderWidgetHostViewMac::PluginImeCompositionCompleted(
     const string16& text, int plugin_id) {
   if (render_widget_host_) {
-    render_widget_host_->Send(new ViewMsg_PluginImeCompositionConfirmed(
+    render_widget_host_->Send(new ViewMsg_PluginImeCompositionCompleted(
         render_widget_host_->routing_id(), text, plugin_id));
   }
 }
@@ -1190,55 +1286,8 @@ bool RenderWidgetHostViewMac::IsVoiceOverRunning() {
   return 1 == [user_defaults integerForKey:@"voiceOverOnOffKey"];
 }
 
-namespace {
-
-// Adjusts an NSRect in Cocoa screen coordinates to have an origin in the upper
-// left of the primary screen (Carbon coordinates), and stuffs it into a
-// gfx::Rect.
-gfx::Rect FlipNSRectToRectScreen(const NSRect& rect) {
-  gfx::Rect new_rect(NSRectToCGRect(rect));
-  if ([[NSScreen screens] count] > 0) {
-    new_rect.set_y([[[NSScreen screens] objectAtIndex:0] frame].size.height -
-                   new_rect.y() - new_rect.height());
-  }
-  return new_rect;
-}
-
-// Returns the window that visually contains the given view. This is different
-// from [view window] in the case of tab dragging, where the view's owning
-// window is a floating panel attached to the actual browser window that the tab
-// is visually part of.
-NSWindow* ApparentWindowForView(NSView* view) {
-  // TODO(shess): In case of !window, the view has been removed from
-  // the view hierarchy because the tab isn't main.  Could retrieve
-  // the information from the main tab for our window.
-  NSWindow* enclosing_window = [view window];
-
-  // See if this is a tab drag window. The width check is to distinguish that
-  // case from extension popup windows.
-  NSWindow* ancestor_window = [enclosing_window parentWindow];
-  if (ancestor_window && (NSWidth([enclosing_window frame]) ==
-                          NSWidth([ancestor_window frame]))) {
-    enclosing_window = ancestor_window;
-  }
-
-  return enclosing_window;
-}
-
-}  // namespace
-
-gfx::Rect RenderWidgetHostViewMac::GetWindowRect() {
-  // TODO(shess): In case of !window, the view has been removed from
-  // the view hierarchy because the tab isn't main.  Could retrieve
-  // the information from the main tab for our window.
-  NSWindow* enclosing_window = ApparentWindowForView(cocoa_view_);
-  if (!enclosing_window)
-    return gfx::Rect();
-
-  NSRect bounds = [cocoa_view_ bounds];
-  bounds = [cocoa_view_ convertRect:bounds toView:nil];
-  bounds.origin = [enclosing_window convertBaseToScreen:bounds.origin];
-  return FlipNSRectToRectScreen(bounds);
+gfx::Rect RenderWidgetHostViewMac::GetViewCocoaBounds() const {
+  return gfx::Rect(NSRectToCGRect([cocoa_view_ bounds]));
 }
 
 gfx::Rect RenderWidgetHostViewMac::GetRootWindowRect() {
@@ -1258,6 +1307,8 @@ void RenderWidgetHostViewMac::SetActive(bool active) {
     render_widget_host_->SetActive(active);
   if (HasFocus())
     SetTextInputActive(active);
+  if (!active)
+    [cocoa_view_ setPluginImeActive:NO];
 }
 
 void RenderWidgetHostViewMac::SetWindowVisibility(bool visible) {
@@ -1271,7 +1322,7 @@ void RenderWidgetHostViewMac::WindowFrameChanged() {
   if (render_widget_host_) {
     render_widget_host_->Send(new ViewMsg_WindowFrameChanged(
         render_widget_host_->routing_id(), GetRootWindowRect(),
-        GetWindowRect()));
+        GetViewBounds()));
   }
 }
 
@@ -1331,7 +1382,7 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
     canBeKeyView_ = YES;
     takesFocusOnlyOnMouseDown_ = NO;
     closeOnDeactivate_ = NO;
-    pluginImeIdentifier_ = -1;
+    focusedPluginIdentifier_ = -1;
   }
   return self;
 }
@@ -1487,11 +1538,17 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
   hasEditCommands_ = NO;
   editCommands_.clear();
 
+  // Before doing anything with a key down, check to see if plugin IME has been
+  // cancelled, since the plugin host needs to be informed of that before
+  // receiving the keydown.
+  if ([theEvent type] == NSKeyDown)
+    [self checkForPluginImeCancellation];
+
   // Sends key down events to input method first, then we can decide what should
   // be done according to input method's feedback.
   // If a plugin is active, bypass this step since events are forwarded directly
   // to the plugin IME.
-  if (pluginImeIdentifier_ == -1)
+  if (focusedPluginIdentifier_ == -1)
     [self interpretKeyEvents:[NSArray arrayWithObject:theEvent]];
 
   handlingKeyDown_ = NO;
@@ -1907,8 +1964,37 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
       action == @selector(copy:) ||
       action == @selector(copyToFindPboard:) ||
       action == @selector(paste:) ||
-      action == @selector(pasteAsPlainText:)) {
+      action == @selector(pasteAsPlainText:) ||
+      action == @selector(checkSpelling:)) {
     return renderWidgetHostView_->render_widget_host_->IsRenderView();
+  }
+
+  if (action == @selector(toggleContinuousSpellChecking:)) {
+    RenderViewHost::CommandState state;
+    state.is_enabled = false;
+    state.checked_state = RENDER_VIEW_COMMAND_CHECKED_STATE_UNCHECKED;
+    if (renderWidgetHostView_->render_widget_host_->IsRenderView()) {
+      state = static_cast<RenderViewHost*>(
+          renderWidgetHostView_->render_widget_host_)->
+              GetStateForCommand(RENDER_VIEW_COMMAND_TOGGLE_SPELL_CHECK);
+    }
+    if ([(id)item respondsToSelector:@selector(setState:)]) {
+      NSCellStateValue checked_state =
+          RENDER_VIEW_COMMAND_CHECKED_STATE_UNCHECKED;
+      switch (state.checked_state) {
+        case RENDER_VIEW_COMMAND_CHECKED_STATE_UNCHECKED:
+          checked_state = NSOffState;
+          break;
+        case RENDER_VIEW_COMMAND_CHECKED_STATE_CHECKED:
+          checked_state = NSOnState;
+          break;
+        case RENDER_VIEW_COMMAND_CHECKED_STATE_MIXED:
+          checked_state = NSMixedState;
+          break;
+      }
+      [(id)item setState:checked_state];
+    }
+    return state.is_enabled;
   }
 
   return editCommand_helper_->IsMenuItemEnabled(action, self);
@@ -2062,6 +2148,7 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
 // other spelling panel methods. This is probably because Apple assumes that the
 // the spelling panel will be used with an NSText, which will automatically
 // catch this and advance to the next word for you. Thanks Apple.
+// This is also called from the Edit -> Spelling -> Check Spelling menu item.
 - (void)checkSpelling:(id)sender {
   RenderWidgetHostViewMac* thisHostView = [self renderWidgetHostViewMac];
   thisHostView->GetRenderWidgetHost()->AdvanceToNextMisspelling();
@@ -2082,6 +2169,13 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
   RenderWidgetHostViewMac* thisHostView = [self renderWidgetHostViewMac];
   thisHostView->GetRenderWidgetHost()->ToggleSpellPanel(
       SpellCheckerPlatform::SpellingPanelVisible());
+}
+
+- (void)toggleContinuousSpellChecking:(id)sender {
+  if (renderWidgetHostView_->render_widget_host_->IsRenderView()) {
+    static_cast<RenderViewHost*>(renderWidgetHostView_->render_widget_host_)->
+      ToggleSpellCheck();
+  }
 }
 
 // END Spellchecking methods
@@ -2399,7 +2493,7 @@ extern NSString *NSTextInputReplacementRangeAttributeName;
 // nil when the caret is in non-editable content or password box to avoid
 // making input methods do their work.
 - (NSTextInputContext *)inputContext {
-  if (pluginImeIdentifier_ != -1)
+  if (focusedPluginIdentifier_ != -1)
     return [[ComplexTextInputPanel sharedComplexTextInputPanel] inputContext];
 
   switch(renderWidgetHostView_->text_input_type_) {
@@ -2632,33 +2726,30 @@ extern NSString *NSTextInputReplacementRangeAttributeName;
   [self cancelComposition];
 }
 
-- (void)setPluginImeEnabled:(BOOL)enabled forPlugin:(int)pluginId {
-  if ((enabled && pluginId == pluginImeIdentifier_) ||
-      (!enabled && pluginId != pluginImeIdentifier_))
+- (void)setPluginImeActive:(BOOL)active {
+  if (active == pluginImeActive_)
     return;
 
-  // If IME was already active then either it is being cancelled, or the plugin
-  // changed; either way the current input needs to be cleared.
-  if (pluginImeIdentifier_ != -1)
-    [[ComplexTextInputPanel sharedComplexTextInputPanel] cancelInput];
+  pluginImeActive_ = active;
+  if (!active) {
+    [[ComplexTextInputPanel sharedComplexTextInputPanel] cancelComposition];
+    renderWidgetHostView_->PluginImeCompositionCompleted(
+        string16(), focusedPluginIdentifier_);
+  }
+}
 
-  pluginImeIdentifier_ = enabled ? pluginId : -1;
+- (void)pluginFocusChanged:(BOOL)focused forPlugin:(int)pluginId {
+  if (focused)
+    focusedPluginIdentifier_ = pluginId;
+  else if (focusedPluginIdentifier_ == pluginId)
+    focusedPluginIdentifier_ = -1;
+
+  // Whenever plugin focus changes, plugin IME resets.
+  [self setPluginImeActive:NO];
 }
 
 - (BOOL)postProcessEventForPluginIme:(NSEvent*)event {
-  if (pluginImeIdentifier_ == -1)
-    return false;
-
-  // ComplexTextInputPanel only works on 10.6+.
-  static BOOL sImeSupported = NO;
-  static BOOL sHaveCheckedSupport = NO;
-  if (!sHaveCheckedSupport) {
-    int32 major, minor, bugfix;
-    base::SysInfo::OperatingSystemVersionNumbers(&major, &minor, &bugfix);
-    sImeSupported = major > 10 || (major == 10 && minor > 5);
-    sHaveCheckedSupport = YES;
-  }
-  if (!sImeSupported)
+  if (!pluginImeActive_)
     return false;
 
   ComplexTextInputPanel* inputPanel =
@@ -2667,10 +2758,20 @@ extern NSString *NSTextInputReplacementRangeAttributeName;
   BOOL handled = [inputPanel interpretKeyEvent:event
                                         string:&composited_string];
   if (composited_string) {
-    renderWidgetHostView_->PluginImeCompositionConfirmed(
-        base::SysNSStringToUTF16(composited_string), pluginImeIdentifier_);
+    renderWidgetHostView_->PluginImeCompositionCompleted(
+        base::SysNSStringToUTF16(composited_string), focusedPluginIdentifier_);
+    pluginImeActive_ = NO;
   }
   return handled;
+}
+
+- (void)checkForPluginImeCancellation {
+  if (pluginImeActive_ &&
+      ![[ComplexTextInputPanel sharedComplexTextInputPanel] inComposition]) {
+    renderWidgetHostView_->PluginImeCompositionCompleted(
+        string16(), focusedPluginIdentifier_);
+    pluginImeActive_ = NO;
+  }
 }
 
 - (ViewID)viewID {

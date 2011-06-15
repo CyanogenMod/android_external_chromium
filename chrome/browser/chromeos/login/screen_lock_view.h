@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,18 +59,13 @@ class ScreenLockView : public ThrobberHostView,
 
   // views::Textfield::Controller implementation:
   virtual void ContentsChanged(views::Textfield* sender,
-                               const string16& new_contents) {}
+                               const string16& new_contents);
   virtual bool HandleKeyEvent(views::Textfield* sender,
                               const views::KeyEvent& keystroke);
 
   // UserView::Delegate implementation:
   virtual void OnSignout();
-
- protected:
-  // views::View implementation:
-  virtual void ViewHierarchyChanged(bool is_add,
-                                    views::View* parent,
-                                    views::View* child);
+  virtual bool IsUserSelected() const { return true; }
 
  private:
   friend class test::ScreenLockerTester;

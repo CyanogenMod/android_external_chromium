@@ -17,7 +17,6 @@
 #include "chrome/browser/notifications/notification_test_util.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/notifications/notifications_prefs_cache.h"
-#include "chrome/common/render_messages.h"
 #include "chrome/test/testing_profile.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -29,7 +28,8 @@ typedef LoggingNotificationDelegate<DesktopNotificationsTest>
 // of notifications that are added to it.
 class MockBalloonCollection : public BalloonCollectionImpl {
  public:
-  MockBalloonCollection() {}
+  MockBalloonCollection();
+  virtual ~MockBalloonCollection();
 
   // Our mock collection has an area large enough for a fixed number
   // of balloons.
@@ -59,6 +59,11 @@ class MockBalloonCollection : public BalloonCollectionImpl {
   int MinHeight() { return Layout::min_balloon_height(); }
   int MaxHeight() { return Layout::max_balloon_height(); }
 
+  // Returns the bounding box.
+  gfx::Rect GetBalloonsBoundingBox() {
+    return BalloonCollectionImpl::GetBalloonsBoundingBox();
+  }
+
  private:
   std::deque<Balloon*> balloons_;
 };
@@ -66,7 +71,7 @@ class MockBalloonCollection : public BalloonCollectionImpl {
 class DesktopNotificationsTest : public testing::Test {
  public:
   DesktopNotificationsTest();
-  ~DesktopNotificationsTest();
+  virtual ~DesktopNotificationsTest();
 
   static void log(const std::string& message) {
     log_output_.append(message);

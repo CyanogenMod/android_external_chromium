@@ -12,11 +12,10 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/lock.h"
 #include "base/ref_counted.h"
+#include "base/synchronization/lock.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
 #include "chrome/browser/sync/engine/syncapi.h"
-#include "chrome/browser/sync/glue/autofill_model_associator2.h"
 #include "chrome/browser/sync/glue/model_associator.h"
 #include "chrome/browser/sync/protocol/autofill_specifics.pb.h"
 #include "chrome/browser/webdata/autofill_entry.h"
@@ -100,9 +99,6 @@ class AutofillModelAssociator
   // TODO(georgey) : add the same processing for CC info (already in protocol
   // buffers).
 
-  // Returns sync service instance.
-  ProfileSyncService* sync_service() { return sync_service_; }
-
   // Is called to determine if we need to upgrade to the new
   // autofillprofile2 data type. If so we need to sync up autofillprofile
   // first to the latest available changes on the server and then upgrade
@@ -184,7 +180,7 @@ class AutofillModelAssociator
   // Abort association pending flag and lock.  If this is set to true
   // (via the AbortAssociation method), return from the
   // AssociateModels method as soon as possible.
-  Lock abort_association_pending_lock_;
+  base::Lock abort_association_pending_lock_;
   bool abort_association_pending_;
   int number_of_entries_created_;
 

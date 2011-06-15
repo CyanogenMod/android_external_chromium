@@ -9,7 +9,7 @@
 #endif
 
 #include "base/basictypes.h"
-#include "views/event.h"
+#include "views/events/event.h"
 #include "views/view_constants.h"
 
 BookmarkDropInfo::BookmarkDropInfo(gfx::NativeWindow wnd, int top_margin)
@@ -26,7 +26,7 @@ BookmarkDropInfo::~BookmarkDropInfo() {
 }
 
 void BookmarkDropInfo::Update(const views::DropTargetEvent& event) {
-  source_operations_ = event.GetSourceOperations();
+  source_operations_ = event.source_operations();
   is_control_down_ = event.IsControlDown();
   last_y_ = event.y();
 

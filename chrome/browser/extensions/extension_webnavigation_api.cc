@@ -15,8 +15,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "chrome/browser/tab_contents/provisional_load_details.h"
-#include "chrome/common/notification_type.h"
+#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/notification_service.h"
+#include "chrome/common/render_messages_params.h"
 #include "net/base/net_errors.h"
 
 namespace keys = extension_webnavigation_api_constants;
@@ -126,6 +127,9 @@ void ExtensionWebNavigationEventRouter::Init() {
                    NotificationType::FAIL_PROVISIONAL_LOAD_WITH_ERROR,
                    NotificationService::AllSources());
     registrar_.Add(this,
+                   NotificationType::CREATING_NEW_WINDOW,
+                   NotificationService::AllSources());
+    registrar_.Add(this,
                    NotificationType::TAB_CONTENTS_DESTROYED,
                    NotificationService::AllSources());
   }
@@ -161,6 +165,11 @@ void ExtensionWebNavigationEventRouter::Observe(
           Source<NavigationController>(source).ptr(),
           Details<ProvisionalLoadDetails>(details).ptr());
       break;
+    case NotificationType::CREATING_NEW_WINDOW:
+      CreatingNewWindow(
+          Source<TabContents>(source).ptr(),
+          Details<const ViewHostMsg_CreateWindow_Params>(details).ptr());
+      break;
     case NotificationType::TAB_CONTENTS_DESTROYED:
       navigation_state_.RemoveTabContentsState(
           Source<TabContents>(source).ptr());
@@ -187,7 +196,7 @@ void ExtensionWebNavigationEventRouter::FrameProvisionalLoadStart(
   dict->SetString(keys::kUrlKey, details->url().spec());
   dict->SetInteger(keys::kFrameIdKey, GetFrameId(details));
   dict->SetInteger(keys::kRequestIdKey, 0);
-  dict->SetReal(keys::kTimeStampKey, MilliSecondsFromTime(base::Time::Now()));
+  dict->SetDouble(keys::kTimeStampKey, MilliSecondsFromTime(base::Time::Now()));
   args.Append(dict);
 
   std::string json_args;
@@ -212,7 +221,7 @@ void ExtensionWebNavigationEventRouter::FrameProvisionalLoadCommitted(
   dict->SetString(keys::kTransitionQualifiersKey,
                   PageTransition::QualifierString(
                       details->transition_type()));
-  dict->SetReal(keys::kTimeStampKey, MilliSecondsFromTime(base::Time::Now()));
+  dict->SetDouble(keys::kTimeStampKey, MilliSecondsFromTime(base::Time::Now()));
   args.Append(dict);
 
   std::string json_args;
@@ -232,7 +241,7 @@ void ExtensionWebNavigationEventRouter::FrameDomContentLoaded(
   dict->SetString(keys::kUrlKey, navigation_state_.GetUrl(frame_id).spec());
   dict->SetInteger(keys::kFrameIdKey,
       navigation_state_.IsMainFrame(frame_id) ? 0 : static_cast<int>(frame_id));
-  dict->SetReal(keys::kTimeStampKey, MilliSecondsFromTime(base::Time::Now()));
+  dict->SetDouble(keys::kTimeStampKey, MilliSecondsFromTime(base::Time::Now()));
   args.Append(dict);
 
   std::string json_args;
@@ -252,7 +261,7 @@ void ExtensionWebNavigationEventRouter::FrameDidFinishLoad(
   dict->SetString(keys::kUrlKey, navigation_state_.GetUrl(frame_id).spec());
   dict->SetInteger(keys::kFrameIdKey,
       navigation_state_.IsMainFrame(frame_id) ? 0 : static_cast<int>(frame_id));
-  dict->SetReal(keys::kTimeStampKey, MilliSecondsFromTime(base::Time::Now()));
+  dict->SetDouble(keys::kTimeStampKey, MilliSecondsFromTime(base::Time::Now()));
   args.Append(dict);
 
   std::string json_args;
@@ -273,13 +282,31 @@ void ExtensionWebNavigationEventRouter::FailProvisionalLoadWithError(
   dict->SetInteger(keys::kFrameIdKey, GetFrameId(details));
   dict->SetString(keys::kErrorKey,
                   std::string(net::ErrorToString(details->error_code())));
-  dict->SetReal(keys::kTimeStampKey, MilliSecondsFromTime(base::Time::Now()));
+  dict->SetDouble(keys::kTimeStampKey, MilliSecondsFromTime(base::Time::Now()));
   args.Append(dict);
 
   std::string json_args;
   base::JSONWriter::Write(&args, false, &json_args);
   navigation_state_.ErrorOccurredInFrame(details->frame_id());
   DispatchEvent(controller->profile(), keys::kOnErrorOccurred, json_args);
+}
+
+void ExtensionWebNavigationEventRouter::CreatingNewWindow(
+    TabContents* tab_contents,
+    const ViewHostMsg_CreateWindow_Params* details) {
+  ListValue args;
+  DictionaryValue* dict = new DictionaryValue();
+  dict->SetInteger(keys::kSourceTabIdKey,
+                   ExtensionTabUtil::GetTabId(tab_contents));
+  dict->SetString(keys::kSourceUrlKey, details->opener_url.spec());
+  dict->SetString(keys::kTargetUrlKey,
+                  details->target_url.possibly_invalid_spec());
+  dict->SetDouble(keys::kTimeStampKey, MilliSecondsFromTime(base::Time::Now()));
+  args.Append(dict);
+
+  std::string json_args;
+  base::JSONWriter::Write(&args, false, &json_args);
+  DispatchEvent(tab_contents->profile(), keys::kOnBeforeRetarget, json_args);
 }
 
 void ExtensionWebNavigationEventRouter::DispatchEvent(

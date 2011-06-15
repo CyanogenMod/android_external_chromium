@@ -29,9 +29,10 @@ struct Experiment {
     SINGLE_VALUE,
 
     // The experiment has multiple values only one of which is ever enabled.
-    // For MULTI_VALUE experiments the command_line of the Experiment is not
-    // used. If the experiment is enabled the command line of the selected
-    // Choice is enabled.
+    // The first of the values should correspond to a deactivated state for this
+    // lab (i.e. no command line option). For MULTI_VALUE experiments the
+    // command_line of the Experiment is not used. If the experiment is enabled
+    // the command line of the selected Choice is enabled.
     MULTI_VALUE,
   };
 
@@ -41,8 +42,10 @@ struct Experiment {
     // ID of the message containing the choice name.
     int description_id;
 
-    // Command line to enabled for this choice.
-    const char* command_line;
+    // Command line switch and value to enabled for this choice.
+    const char* command_line_switch;
+    // Simple switches that have no value should use "" for command_line_value.
+    const char* command_line_value;
   };
 
   // The internal name of the experiment. This is never shown to the user.
@@ -63,11 +66,13 @@ struct Experiment {
   // Type of experiment.
   Type type;
 
-  // The commandline parameter that's added when this lab is active. This is
-  // different from |internal_name| so that the commandline flag can be
+  // The commandline switch and value that are added when this lab is active.
+  // This is different from |internal_name| so that the commandline flag can be
   // renamed without breaking the prefs file.
   // This is used if type is SINGLE_VALUE.
-  const char* command_line;
+  const char* command_line_switch;
+  // Simple switches that have no value should use "" for command_line_value.
+  const char* command_line_value;
 
   // This is used if type is MULTI_VALUE.
   const Choice* choices;

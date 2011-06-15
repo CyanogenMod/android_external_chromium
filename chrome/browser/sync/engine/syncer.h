@@ -12,8 +12,8 @@
 #include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/gtest_prod_util.h"
-#include "base/lock.h"
 #include "base/scoped_ptr.h"
+#include "base/synchronization/lock.h"
 #include "chrome/browser/sync/engine/conflict_resolver.h"
 #include "chrome/browser/sync/engine/syncer_types.h"
 #include "chrome/browser/sync/engine/syncproto.h"
@@ -41,8 +41,6 @@ class SyncProcessState;
 class URLFactory;
 struct HttpResponse;
 
-static const int kDefaultMaxCommitBatchSize = 25;
-
 enum SyncerStep {
   SYNCER_BEGIN,
   CLEANUP_DISABLED_TYPES,
@@ -58,7 +56,7 @@ enum SyncerStep {
   BUILD_AND_PROCESS_CONFLICT_SETS,
   RESOLVE_CONFLICTS,
   APPLY_UPDATES_TO_RESOLVE_CONFLICTS,
-  CLEAR_PRIVATE_DATA,
+  CLEAR_PRIVATE_DATA,  // TODO(tim): Rename 'private' to 'user'.
   SYNCER_END
 };
 
@@ -79,39 +77,31 @@ class Syncer {
   // The constructor may be called from a thread that is not the Syncer's
   // dedicated thread, to allow some flexibility in the setup.
   Syncer();
-  ~Syncer();
+  virtual ~Syncer();
 
   // Called by other threads to tell the syncer to stop what it's doing
   // and return early from SyncShare, if possible.
   bool ExitRequested();
   void RequestEarlyExit();
 
+  // TODO(tim): Deprecated.
   // Cause one sync cycle to occur.  Like a good parent, it is the caller's
   // responsibility to clean up after the syncer when it finishes a sync share
   // operation and honor server mandated throttles.
-  void SyncShare(sessions::SyncSession* session);
+  virtual void SyncShare(sessions::SyncSession* session);
 
-  // Limit the batch size of commit operations to a specified number of items.
-  void set_max_commit_batch_size(int x) { max_commit_batch_size_ = x; }
+  // Like SyncShare() above, but |first_step| and |last_step| are provided to
+  // perform a partial sync cycle, stopping after |last_step| is performed.
+  virtual void SyncShare(sessions::SyncSession* session,
+                         SyncerStep first_step,
+                         SyncerStep last_step);
 
  private:
-  void RequestNudge(int milliseconds);
-
   // Implements the PROCESS_CLIENT_COMMAND syncer step.
   void ProcessClientCommand(sessions::SyncSession *session);
 
-  // This is the bottom-most SyncShare variant, and does not cause transient
-  // state to be reset in session.
-  // Like SyncShare(), but |first_step| and |last_step| are provided to perform
-  // a partial sync cycle, stopping after |last_step| is performed.
-  void SyncShare(sessions::SyncSession* session,
-                 SyncerStep first_step,
-                 SyncerStep last_step);
-
   bool early_exit_requested_;
-  Lock early_exit_requested_lock_;
-
-  int32 max_commit_batch_size_;
+  base::Lock early_exit_requested_lock_;
 
   ConflictResolver resolver_;
 
@@ -174,3 +164,4 @@ void ClearServerData(syncable::MutableEntry* entry);
 }  // namespace browser_sync
 
 #endif  // CHROME_BROWSER_SYNC_ENGINE_SYNCER_H_
+

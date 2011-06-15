@@ -1,18 +1,18 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/chromeos/login/existing_user_view.h"
 
-#include "app/l10n_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/login/user_controller.h"
 #include "chrome/browser/chromeos/login/textfield_with_margin.h"
 #include "chrome/browser/chromeos/login/wizard_accessibility_helper.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "views/background.h"
 #include "views/focus/focus_manager.h"
-#include "views/fill_layout.h"
+#include "views/layout/fill_layout.h"
 
 namespace chromeos {
 
@@ -33,22 +33,22 @@ class UserEntryTextfield : public TextfieldWithMargin {
 
   // Overridden from views::View:
   virtual bool OnKeyPressed(const views::KeyEvent& e) {
-    if (e.GetKeyCode() == app::VKEY_TAB) {
+    if (e.key_code() == ui::VKEY_TAB) {
       controller_->SelectUserRelative(e.IsShiftDown() ? -1 : 1);
       return true;
-    } else if (e.GetKeyCode() == app::VKEY_LEFT) {
+    } else if (e.key_code() == ui::VKEY_LEFT) {
       controller_->SelectUserRelative(-1);
       return true;
-    } else if (e.GetKeyCode() == app::VKEY_RIGHT) {
+    } else if (e.key_code() == ui::VKEY_RIGHT) {
       controller_->SelectUserRelative(1);
       return true;
     } else {
-      return false;
+      return TextfieldWithMargin::OnKeyPressed(e);
     }
   }
 
   virtual bool SkipDefaultKeyEventProcessing(const views::KeyEvent& e) {
-    if (e.GetKeyCode() == app::VKEY_TAB)
+    if (e.key_code() == ui::VKEY_TAB)
       return true;
     else
       return views::Textfield::SkipDefaultKeyEventProcessing(e);
@@ -65,7 +65,7 @@ ExistingUserView::ExistingUserView(UserController* user_controller)
     : user_controller_(user_controller),
       password_field_(NULL),
       accel_login_off_the_record_(
-        views::Accelerator(app::VKEY_B, false, false, true)),
+        views::Accelerator(ui::VKEY_B, false, false, true)),
       accel_toggle_accessibility_(
           WizardAccessibilityHelper::GetAccelerator()) {
   AddAccelerator(accel_login_off_the_record_);
@@ -93,10 +93,10 @@ void ExistingUserView::RecreateFields() {
 bool ExistingUserView::AcceleratorPressed(
     const views::Accelerator& accelerator) {
   if (accelerator == accel_login_off_the_record_) {
-    user_controller_->OnLoginOffTheRecord();
+    user_controller_->OnLoginAsGuest();
     return true;
   } else if (accelerator == accel_toggle_accessibility_) {
-    WizardAccessibilityHelper::GetInstance()->ToggleAccessibility(this);
+    WizardAccessibilityHelper::GetInstance()->ToggleAccessibility();
     return true;
   }
   return false;
@@ -104,7 +104,7 @@ bool ExistingUserView::AcceleratorPressed(
 
 bool ExistingUserView::HandleKeyEvent(views::Textfield* sender,
                                       const views::KeyEvent& key_event) {
-  if (key_event.GetKeyCode() == app::VKEY_RETURN) {
+  if (key_event.key_code() == ui::VKEY_RETURN) {
     if (!password_field_->text().empty())
       user_controller_->OnLogin("", UTF16ToUTF8(password_field_->text()));
   } else {
@@ -114,8 +114,14 @@ bool ExistingUserView::HandleKeyEvent(views::Textfield* sender,
   return true;
 }
 
+void ExistingUserView::RequestFocus() {
+  password_field_->RequestFocus();
+}
+
 void ExistingUserView::ContentsChanged(views::Textfield* sender,
                                        const string16& new_contents) {
+  if (!new_contents.empty())
+    user_controller_->ClearErrors();
 }
 
 void ExistingUserView::EnableInputControls(bool enabled) {
@@ -129,13 +135,6 @@ void ExistingUserView::ClearAndFocusControls() {
 void ExistingUserView::ClearAndFocusPassword() {
   password_field_->SetText(string16());
   FocusPasswordField();
-}
-
-void ExistingUserView::ViewHierarchyChanged(bool is_add,
-                                            views::View* parent,
-                                            views::View* child) {
-  if (is_add && this == child)
-    WizardAccessibilityHelper::GetInstance()->MaybeEnableAccessibility(this);
 }
 
 void ExistingUserView::FocusPasswordField() {

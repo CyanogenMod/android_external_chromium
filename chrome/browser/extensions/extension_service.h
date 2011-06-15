@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #pragma once
 
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -26,7 +27,7 @@
 #include "chrome/browser/extensions/extension_process_manager.h"
 #include "chrome/browser/extensions/extension_toolbar_model.h"
 #include "chrome/browser/extensions/extensions_quota_service.h"
-#include "chrome/browser/extensions/external_extension_provider.h"
+#include "chrome/browser/extensions/external_extension_provider_interface.h"
 #include "chrome/browser/extensions/sandboxed_extension_unpacker.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/common/notification_observer.h"
@@ -34,6 +35,7 @@
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/property_bag.h"
 
+class ExtensionBrowserEventRouter;
 class ExtensionServiceBackend;
 class ExtensionToolbarModel;
 class ExtensionUpdater;
@@ -92,6 +94,7 @@ class ExtensionUpdateService {
   virtual bool HasInstalledExtensions() = 0;
 
   virtual ExtensionPrefs* extension_prefs() = 0;
+  virtual Profile* profile() = 0;
 };
 
 // Manages installed and running Chromium extensions.
@@ -99,6 +102,7 @@ class ExtensionService
     : public base::RefCountedThreadSafe<ExtensionService,
                                         BrowserThread::DeleteOnUIThread>,
       public ExtensionUpdateService,
+      public ExternalExtensionProviderInterface::VisitorInterface,
       public NotificationObserver {
  public:
   // Information about a registered component extension.
@@ -148,14 +152,15 @@ class ExtensionService
   // Constructor stores pointers to |profile| and |extension_prefs| but
   // ownership remains at caller.
   ExtensionService(Profile* profile,
-                    const CommandLine* command_line,
-                    const FilePath& install_directory,
-                    ExtensionPrefs* extension_prefs,
-                    bool autoupdate_enabled);
+                   const CommandLine* command_line,
+                   const FilePath& install_directory,
+                   ExtensionPrefs* extension_prefs,
+                   bool autoupdate_enabled);
 
   // Gets the list of currently installed extensions.
   virtual const ExtensionList* extensions() const;
   virtual const ExtensionList* disabled_extensions() const;
+  virtual const ExtensionList* terminated_extensions() const;
 
   // Gets the set of pending extensions.
   virtual const PendingExtensionMap& pending_extensions() const;
@@ -297,10 +302,6 @@ class ExtensionService
   // Check for updates (or potentially new extensions from external providers)
   void CheckForExternalUpdates();
 
-  // Copies the list of force-installed extensions from the user PrefService
-  // to ExternalPolicyExtensionProvider.
-  void UpdateExternalPolicyExtensionProvider();
-
   // Unload the specified extension.
   void UnloadExtension(const std::string& extension_id,
                        UnloadedExtensionInfo::Reason reason);
@@ -342,27 +343,16 @@ class ExtensionService
   // extension.
   const SkBitmap& GetOmniboxPopupIcon(const std::string& extension_id);
 
-  // Clear all ExternalExtensionProviders.
-  void ClearProvidersForTesting();
-
-  // Sets an ExternalExtensionProvider for the service to use during testing.
-  // Takes ownership of |test_provider|.
-  void AddProviderForTesting(ExternalExtensionProvider* test_provider);
-
   // Called when the initial extensions load has completed.
   virtual void OnLoadedInstalledExtensions();
 
-  // Called when an extension has been loaded.
-  void OnExtensionLoaded(const Extension* extension);
+  // Adds |extension| to this ExtensionService and notifies observers than an
+  // extension has been loaded.  Called by the backend after an extension has
+  // been loaded from a file and installed.
+  void AddExtension(const Extension* extension);
 
   // Called by the backend when an extension has been installed.
   void OnExtensionInstalled(const Extension* extension);
-
-  // Called by the backend when an external extension is found.
-  void OnExternalExtensionFileFound(const std::string& id,
-                                    const std::string& version,
-                                    const FilePath& path,
-                                    Extension::Location location);
 
   // Checks if the privileges requested by |extension| have increased, and if
   // so, disables the extension and prompts the user to approve the change.
@@ -389,7 +379,7 @@ class ExtensionService
     return show_extensions_prompts_;
   }
 
-  Profile* profile() { return profile_; }
+  virtual Profile* profile();
 
   // Profile calls this when it is being destroyed so that we know not to call
   // it.
@@ -410,6 +400,10 @@ class ExtensionService
 
   ExtensionMenuManager* menu_manager() { return &menu_manager_; }
 
+  ExtensionBrowserEventRouter* browser_event_router() {
+    return browser_event_router_.get();
+  }
+
   const std::map<GURL, int>& protected_storage_map() const {
     return protected_storage_map_;
   }
@@ -424,6 +418,29 @@ class ExtensionService
   // ExtensionHost of background page calls this method right after its render
   // view has been created.
   void DidCreateRenderViewForBackgroundPage(ExtensionHost* host);
+
+  // For the extension in |version_path| with |id|, check to see if it's an
+  // externally managed extension.  If so, uninstall it.
+  void CheckExternalUninstall(const std::string& id);
+
+  // Clear all ExternalExtensionProviders.
+  void ClearProvidersForTesting();
+
+  // Adds an ExternalExtensionProviderInterface for the service to use during
+  // testing. Takes ownership of |test_provider|.
+  void AddProviderForTesting(ExternalExtensionProviderInterface* test_provider);
+
+  // ExternalExtensionProvider::Visitor implementation.
+  virtual void OnExternalExtensionFileFound(const std::string& id,
+                                            const Version* version,
+                                            const FilePath& path,
+                                            Extension::Location location);
+
+  virtual void OnExternalExtensionUpdateUrlFound(const std::string& id,
+                                                 const GURL& update_url,
+                                                 Extension::Location location);
+
+  virtual void OnExternalProviderReady();
 
   // NotificationObserver
   virtual void Observe(NotificationType type,
@@ -468,6 +485,11 @@ class ExtensionService
                                             bool include_enabled,
                                             bool include_disabled);
 
+
+  // Keep track of terminated extensions.
+  void TrackTerminatedExtension(const Extension* extension);
+  void UntrackTerminatedExtension(const std::string& id);
+
   // Like AddPendingExtension*() functions above, but assumes an
   // extension with the same id is not already installed.
   void AddPendingExtensionInternal(
@@ -503,10 +525,17 @@ class ExtensionService
   ExtensionPrefs* extension_prefs_;
 
   // The current list of installed extensions.
+  // TODO(aa): This should use chrome/common/extensions/extension_set.h.
   ExtensionList extensions_;
 
   // The list of installed extensions that have been disabled.
   ExtensionList disabled_extensions_;
+
+  // The list of installed extensions that have been terminated.
+  ExtensionList terminated_extensions_;
+
+  // Used to quickly check if an extension was terminated.
+  std::set<std::string> terminated_extension_ids_;
 
   // The set of pending extensions.
   PendingExtensionMap pending_extensions_;
@@ -588,6 +617,18 @@ class ExtensionService
 
   // Flag to make sure event routers are only initialized once.
   bool event_routers_initialized_;
+
+  scoped_ptr<ExtensionBrowserEventRouter> browser_event_router_;
+
+  // A collection of external extension providers.  Each provider reads
+  // a source of external extension information.  Examples include the
+  // windows registry and external_extensions.json.
+  ProviderCollection external_extension_providers_;
+
+  // Set to true by OnExternalExtensionUpdateUrlFound() when an external
+  // extension URL is found.  Used in CheckForExternalUpdates() to see
+  // if an update check is needed to install pending extensions.
+  bool external_extension_url_added_;
 
   FRIEND_TEST_ALL_PREFIXES(ExtensionServiceTest,
                            UpdatePendingExtensionAlreadyInstalled);

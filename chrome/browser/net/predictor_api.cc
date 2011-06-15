@@ -20,6 +20,7 @@
 #include "chrome/browser/net/preconnect.h"
 #include "chrome/browser/net/referrer.h"
 #include "chrome/browser/net/url_info.h"
+#include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile.h"
@@ -246,7 +247,7 @@ void InitialObserver::Append(const GURL& url) {
     return;
 
   if (url.SchemeIs("http") || url.SchemeIs("https")) {
-    const GURL url_without_path(url.GetWithEmptyPath());
+    const GURL url_without_path(Predictor::CanonicalizeUrl(url));
     if (first_navigations_.find(url_without_path) == first_navigations_.end())
       first_navigations_[url_without_path] = base::TimeTicks::Now();
   }
@@ -394,16 +395,15 @@ static void InitNetworkPredictor(TimeDelta max_dns_queue_delay,
           prefs::kDnsPrefetchingHostReferralList)->DeepCopy());
 
   // Remove obsolete preferences from local state if necessary.
-  int dns_prefs_version =
-      user_prefs->GetInteger(prefs::kMultipleProfilePrefMigration);
-  if (dns_prefs_version < 1) {
-    // These prefs only need to be registered if they need to be cleared from
-    // local state.
+  int current_version =
+      local_state->GetInteger(prefs::kMultipleProfilePrefMigration);
+  if ((current_version & browser::DNS_PREFS) == 0) {
     local_state->RegisterListPref(prefs::kDnsStartupPrefetchList);
     local_state->RegisterListPref(prefs::kDnsHostReferralList);
     local_state->ClearPref(prefs::kDnsStartupPrefetchList);
     local_state->ClearPref(prefs::kDnsHostReferralList);
-    user_prefs->SetInteger(prefs::kMultipleProfilePrefMigration, 1);
+    local_state->SetInteger(prefs::kMultipleProfilePrefMigration,
+        current_version | browser::DNS_PREFS);
   }
 
   g_browser_process->io_thread()->InitNetworkPredictor(
@@ -551,12 +551,14 @@ PredictorInit::PredictorInit(PrefService* user_prefs,
   // For each option (i.e., non-default), we have a fixed probability.
   base::FieldTrial::Probability kProbabilityPerGroup = 100;  // 10% probability.
 
-  trial_ = new base::FieldTrial("DnsImpact", kDivisor);
+  // After June 30, 2011 builds, it will always be in default group
+  // (default_enabled_prefetch).
+  trial_ = new base::FieldTrial("DnsImpact", kDivisor,
+                                "default_enabled_prefetch", 2011, 6, 30);
 
   // First option is to disable prefetching completely.
   int disabled_prefetch = trial_->AppendGroup("disabled_prefetch",
                                               kProbabilityPerGroup);
-
 
   // We're running two experiments at the same time.  The first set of trials
   // modulates the delay-time until we declare a congestion event (and purge
@@ -585,9 +587,6 @@ PredictorInit::PredictorInit(PrefService* user_prefs,
       "max_4 concurrent_prefetch", kProbabilityPerGroup);
   int max_6_concurrent_prefetch = trial_->AppendGroup(
       "max_6 concurrent_prefetch", kProbabilityPerGroup);
-
-  trial_->AppendGroup("default_enabled_prefetch",
-      base::FieldTrial::kAllRemainingProbability);
 
   // We will register the incognito observer regardless of whether prefetching
   // is enabled, as it is also used to clear the host cache.

@@ -13,10 +13,10 @@
 #include "base/hash_tables.h"
 #include "base/process.h"
 #include "base/ref_counted.h"
-#include "base/lock.h"
+#include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
 #include "chrome/common/window_container_type.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebPopupType.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebPopupType.h"
 
 namespace IPC {
 class Message;
@@ -27,7 +27,9 @@ class TimeDelta;
 }
 
 class ResourceDispatcherHost;
+struct ViewHostMsg_CreateWindow_Params;
 struct ViewMsg_ClosePage_Params;
+
 
 // Instantiated per RenderProcessHost to provide various optimizations on
 // behalf of a RenderWidgetHost.  This class bridges between the IO thread
@@ -121,18 +123,13 @@ class RenderWidgetHelper
   // Called on the IO thread when a UpdateRect message is received.
   void DidReceiveUpdateMsg(const IPC::Message& msg);
 
-  void CreateNewWindow(int opener_id,
-                       bool user_gesture,
-                       WindowContainerType window_container_type,
-                       const string16& frame_name,
+  void CreateNewWindow(const ViewHostMsg_CreateWindow_Params& params,
                        base::ProcessHandle render_process,
                        int* route_id);
   void CreateNewWidget(int opener_id,
                        WebKit::WebPopupType popup_type,
                        int* route_id);
-  void CreateNewFullscreenWidget(int opener_id,
-                                 WebKit::WebPopupType popup_type,
-                                 int* route_id);
+  void CreateNewFullscreenWidget(int opener_id, int* route_id);
 
 #if defined(OS_MACOSX)
   // Called on the IO thread to handle the allocation of a TransportDIB.  If
@@ -167,10 +164,8 @@ class RenderWidgetHelper
   void OnDispatchUpdateMsg(UpdateMsgProxy* proxy);
 
   // Called on the UI thread to finish creating a window.
-  void OnCreateWindowOnUI(int opener_id,
-                          int route_id,
-                          WindowContainerType window_container_type,
-                          string16 frame_name);
+  void OnCreateWindowOnUI(const ViewHostMsg_CreateWindow_Params& params,
+                          int route_id);
 
   // Called on the IO thread after a window was created on the UI thread.
   void OnCreateWindowOnIO(int route_id);
@@ -180,10 +175,8 @@ class RenderWidgetHelper
                           int route_id,
                           WebKit::WebPopupType popup_type);
 
-  // Called on the UI thread to create a full screen widget.
-  void OnCreateFullscreenWidgetOnUI(int opener_id,
-                                    int route_id,
-                                    WebKit::WebPopupType popup_type);
+  // Called on the UI thread to create a fullscreen widget.
+  void OnCreateFullscreenWidgetOnUI(int opener_id, int route_id);
 
   // Called on the IO thread to cancel resource requests for the render widget.
   void OnCancelResourceRequests(int render_widget_id);
@@ -197,7 +190,7 @@ class RenderWidgetHelper
 
   // On OSX we keep file descriptors to all the allocated DIBs around until
   // the renderer frees them.
-  Lock allocated_dibs_lock_;
+  base::Lock allocated_dibs_lock_;
   std::map<TransportDIB::Id, int> allocated_dibs_;
 #endif
 
@@ -205,7 +198,7 @@ class RenderWidgetHelper
   // The UpdateMsgProxy objects are not owned by this map.  (See UpdateMsgProxy
   // for details about how the lifetime of instances are managed.)
   UpdateMsgProxyMap pending_paints_;
-  Lock pending_paints_lock_;
+  base::Lock pending_paints_lock_;
 
   int render_process_id_;
 

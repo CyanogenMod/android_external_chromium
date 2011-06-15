@@ -289,6 +289,12 @@ void MessageLoop::RemoveTaskObserver(TaskObserver* task_observer) {
   task_observers_.RemoveObserver(task_observer);
 }
 
+void MessageLoop::AssertIdle() const {
+  // We only check |incoming_queue_|, since we don't want to lock |work_queue_|.
+  base::AutoLock lock(incoming_queue_lock_);
+  DCHECK(incoming_queue_.empty());
+}
+
 //------------------------------------------------------------------------------
 
 // Runs the loop in two different SEH modes:
@@ -399,7 +405,7 @@ void MessageLoop::ReloadWorkQueue() {
 
   // Acquire all we can from the inter-thread queue with one lock acquisition.
   {
-    AutoLock lock(incoming_queue_lock_);
+    base::AutoLock lock(incoming_queue_lock_);
     if (incoming_queue_.empty())
       return;
     incoming_queue_.Swap(&work_queue_);  // Constant time
@@ -500,7 +506,7 @@ void MessageLoop::PostTask_Helper(
 
   scoped_refptr<base::MessagePump> pump;
   {
-    AutoLock locked(incoming_queue_lock_);
+    base::AutoLock locked(incoming_queue_lock_);
 
     bool was_empty = incoming_queue_.empty();
     incoming_queue_.push(pending_task);

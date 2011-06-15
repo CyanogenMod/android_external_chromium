@@ -74,6 +74,193 @@ std::string HttpAuthHandlerDigest::FixedNonceGenerator::GenerateNonce() const {
   return nonce_;
 }
 
+HttpAuthHandlerDigest::Factory::Factory()
+    : nonce_generator_(new DynamicNonceGenerator()) {
+}
+
+HttpAuthHandlerDigest::Factory::~Factory() {
+}
+
+void HttpAuthHandlerDigest::Factory::set_nonce_generator(
+    const NonceGenerator* nonce_generator) {
+  nonce_generator_.reset(nonce_generator);
+}
+
+int HttpAuthHandlerDigest::Factory::CreateAuthHandler(
+    HttpAuth::ChallengeTokenizer* challenge,
+    HttpAuth::Target target,
+    const GURL& origin,
+    CreateReason reason,
+    int digest_nonce_count,
+    const BoundNetLog& net_log,
+    scoped_ptr<HttpAuthHandler>* handler) {
+  // TODO(cbentzel): Move towards model of parsing in the factory
+  //                 method and only constructing when valid.
+  scoped_ptr<HttpAuthHandler> tmp_handler(
+      new HttpAuthHandlerDigest(digest_nonce_count, nonce_generator_.get()));
+  if (!tmp_handler->InitFromChallenge(challenge, target, origin, net_log))
+    return ERR_INVALID_RESPONSE;
+  handler->swap(tmp_handler);
+  return OK;
+}
+
+HttpAuth::AuthorizationResult HttpAuthHandlerDigest::HandleAnotherChallenge(
+    HttpAuth::ChallengeTokenizer* challenge) {
+  // Even though Digest is not connection based, a "second round" is parsed
+  // to differentiate between stale and rejected responses.
+  // Note that the state of the current handler is not mutated - this way if
+  // there is a rejection the realm hasn't changed.
+  if (!LowerCaseEqualsASCII(challenge->scheme(), "digest"))
+    return HttpAuth::AUTHORIZATION_RESULT_INVALID;
+
+  HttpUtil::NameValuePairsIterator parameters = challenge->param_pairs();
+
+  // Try to find the "stale" value.
+  while (parameters.GetNext()) {
+    if (!LowerCaseEqualsASCII(parameters.name(), "stale"))
+      continue;
+    if (LowerCaseEqualsASCII(parameters.value(), "true"))
+      return HttpAuth::AUTHORIZATION_RESULT_STALE;
+  }
+
+  return HttpAuth::AUTHORIZATION_RESULT_REJECT;
+}
+
+bool HttpAuthHandlerDigest::Init(HttpAuth::ChallengeTokenizer* challenge) {
+  return ParseChallenge(challenge);
+}
+
+int HttpAuthHandlerDigest::GenerateAuthTokenImpl(
+    const string16* username,
+    const string16* password,
+    const HttpRequestInfo* request,
+    CompletionCallback* callback,
+    std::string* auth_token) {
+  // Generate a random client nonce.
+  std::string cnonce = nonce_generator_->GenerateNonce();
+
+  // Extract the request method and path -- the meaning of 'path' is overloaded
+  // in certain cases, to be a hostname.
+  std::string method;
+  std::string path;
+  GetRequestMethodAndPath(request, &method, &path);
+
+  *auth_token = AssembleCredentials(method, path,
+                                    *username,
+                                    *password,
+                                    cnonce, nonce_count_);
+  return OK;
+}
+
+HttpAuthHandlerDigest::HttpAuthHandlerDigest(
+    int nonce_count, const NonceGenerator* nonce_generator)
+    : stale_(false),
+      algorithm_(ALGORITHM_UNSPECIFIED),
+      qop_(QOP_UNSPECIFIED),
+      nonce_count_(nonce_count),
+      nonce_generator_(nonce_generator) {
+  DCHECK(nonce_generator_);
+}
+
+HttpAuthHandlerDigest::~HttpAuthHandlerDigest() {
+}
+
+// The digest challenge header looks like:
+//   WWW-Authenticate: Digest
+//     [realm="<realm-value>"]
+//     nonce="<nonce-value>"
+//     [domain="<list-of-URIs>"]
+//     [opaque="<opaque-token-value>"]
+//     [stale="<true-or-false>"]
+//     [algorithm="<digest-algorithm>"]
+//     [qop="<list-of-qop-values>"]
+//     [<extension-directive>]
+//
+// Note that according to RFC 2617 (section 1.2) the realm is required.
+// However we allow it to be omitted, in which case it will default to the
+// empty string.
+//
+// This allowance is for better compatibility with webservers that fail to
+// send the realm (See http://crbug.com/20984 for an instance where a
+// webserver was not sending the realm with a BASIC challenge).
+bool HttpAuthHandlerDigest::ParseChallenge(
+    HttpAuth::ChallengeTokenizer* challenge) {
+  auth_scheme_ = HttpAuth::AUTH_SCHEME_DIGEST;
+  score_ = 2;
+  properties_ = ENCRYPTS_IDENTITY;
+
+  // Initialize to defaults.
+  stale_ = false;
+  algorithm_ = ALGORITHM_UNSPECIFIED;
+  qop_ = QOP_UNSPECIFIED;
+  realm_ = nonce_ = domain_ = opaque_ = std::string();
+
+  // FAIL -- Couldn't match auth-scheme.
+  if (!LowerCaseEqualsASCII(challenge->scheme(), "digest"))
+    return false;
+
+  HttpUtil::NameValuePairsIterator parameters = challenge->param_pairs();
+
+  // Loop through all the properties.
+  while (parameters.GetNext()) {
+    // FAIL -- couldn't parse a property.
+    if (!ParseChallengeProperty(parameters.name(),
+                                parameters.value()))
+      return false;
+  }
+
+  // Check if tokenizer failed.
+  if (!parameters.valid())
+    return false;
+
+  // Check that a minimum set of properties were provided.
+  if (nonce_.empty())
+    return false;
+
+  return true;
+}
+
+bool HttpAuthHandlerDigest::ParseChallengeProperty(const std::string& name,
+                                                   const std::string& value) {
+  if (LowerCaseEqualsASCII(name, "realm")) {
+    realm_ = value;
+  } else if (LowerCaseEqualsASCII(name, "nonce")) {
+    nonce_ = value;
+  } else if (LowerCaseEqualsASCII(name, "domain")) {
+    domain_ = value;
+  } else if (LowerCaseEqualsASCII(name, "opaque")) {
+    opaque_ = value;
+  } else if (LowerCaseEqualsASCII(name, "stale")) {
+    // Parse the stale boolean.
+    stale_ = LowerCaseEqualsASCII(value, "true");
+  } else if (LowerCaseEqualsASCII(name, "algorithm")) {
+    // Parse the algorithm.
+    if (LowerCaseEqualsASCII(value, "md5")) {
+      algorithm_ = ALGORITHM_MD5;
+    } else if (LowerCaseEqualsASCII(value, "md5-sess")) {
+      algorithm_ = ALGORITHM_MD5_SESS;
+    } else {
+      DVLOG(1) << "Unknown value of algorithm";
+      return false;  // FAIL -- unsupported value of algorithm.
+    }
+  } else if (LowerCaseEqualsASCII(name, "qop")) {
+    // Parse the comma separated list of qops.
+    // auth is the only supported qop, and all other values are ignored.
+    HttpUtil::ValuesIterator qop_values(value.begin(), value.end(), ',');
+    qop_ = QOP_UNSPECIFIED;
+    while (qop_values.GetNext()) {
+      if (LowerCaseEqualsASCII(qop_values.value(), "auth")) {
+        qop_ = QOP_AUTH;
+        break;
+      }
+    }
+  } else {
+    DVLOG(1) << "Skipping unrecognized digest property";
+    // TODO(eroman): perhaps we should fail instead of silently skipping?
+  }
+  return true;
+}
+
 // static
 std::string HttpAuthHandlerDigest::QopToString(QualityOfProtection qop) {
   switch (qop) {
@@ -101,41 +288,6 @@ std::string HttpAuthHandlerDigest::AlgorithmToString(
       NOTREACHED();
       return "";
   }
-}
-
-HttpAuthHandlerDigest::HttpAuthHandlerDigest(
-    int nonce_count, const NonceGenerator* nonce_generator)
-    : stale_(false),
-      algorithm_(ALGORITHM_UNSPECIFIED),
-      qop_(QOP_UNSPECIFIED),
-      nonce_count_(nonce_count),
-      nonce_generator_(nonce_generator) {
-  DCHECK(nonce_generator_);
-}
-
-HttpAuthHandlerDigest::~HttpAuthHandlerDigest() {
-}
-
-int HttpAuthHandlerDigest::GenerateAuthTokenImpl(
-    const string16* username,
-    const string16* password,
-    const HttpRequestInfo* request,
-    CompletionCallback* callback,
-    std::string* auth_token) {
-  // Generate a random client nonce.
-  std::string cnonce = nonce_generator_->GenerateNonce();
-
-  // Extract the request method and path -- the meaning of 'path' is overloaded
-  // in certain cases, to be a hostname.
-  std::string method;
-  std::string path;
-  GetRequestMethodAndPath(request, &method, &path);
-
-  *auth_token = AssembleCredentials(method, path,
-                                    *username,
-                                    *password,
-                                    cnonce, nonce_count_);
-  return OK;
 }
 
 void HttpAuthHandlerDigest::GetRequestMethodAndPath(
@@ -218,159 +370,6 @@ std::string HttpAuthHandlerDigest::AssembleCredentials(
   }
 
   return authorization;
-}
-
-bool HttpAuthHandlerDigest::Init(HttpAuth::ChallengeTokenizer* challenge) {
-  return ParseChallenge(challenge);
-}
-
-HttpAuth::AuthorizationResult HttpAuthHandlerDigest::HandleAnotherChallenge(
-    HttpAuth::ChallengeTokenizer* challenge) {
-  // Even though Digest is not connection based, a "second round" is parsed
-  // to differentiate between stale and rejected responses.
-  // Note that the state of the current handler is not mutated - this way if
-  // there is a rejection the realm hasn't changed.
-  if (!LowerCaseEqualsASCII(challenge->scheme(), "digest"))
-    return HttpAuth::AUTHORIZATION_RESULT_INVALID;
-
-  HttpUtil::NameValuePairsIterator parameters = challenge->param_pairs();
-
-  // Try to find the "stale" value.
-  while (parameters.GetNext()) {
-    if (!LowerCaseEqualsASCII(parameters.name(), "stale"))
-      continue;
-    if (LowerCaseEqualsASCII(parameters.value(), "true"))
-      return HttpAuth::AUTHORIZATION_RESULT_STALE;
-  }
-
-  return HttpAuth::AUTHORIZATION_RESULT_REJECT;
-}
-
-// The digest challenge header looks like:
-//   WWW-Authenticate: Digest
-//     [realm="<realm-value>"]
-//     nonce="<nonce-value>"
-//     [domain="<list-of-URIs>"]
-//     [opaque="<opaque-token-value>"]
-//     [stale="<true-or-false>"]
-//     [algorithm="<digest-algorithm>"]
-//     [qop="<list-of-qop-values>"]
-//     [<extension-directive>]
-//
-// Note that according to RFC 2617 (section 1.2) the realm is required.
-// However we allow it to be omitted, in which case it will default to the
-// empty string.
-//
-// This allowance is for better compatibility with webservers that fail to
-// send the realm (See http://crbug.com/20984 for an instance where a
-// webserver was not sending the realm with a BASIC challenge).
-bool HttpAuthHandlerDigest::ParseChallenge(
-    HttpAuth::ChallengeTokenizer* challenge) {
-  auth_scheme_ = AUTH_SCHEME_DIGEST;
-  scheme_ = "digest";
-  score_ = 2;
-  properties_ = ENCRYPTS_IDENTITY;
-
-  // Initialize to defaults.
-  stale_ = false;
-  algorithm_ = ALGORITHM_UNSPECIFIED;
-  qop_ = QOP_UNSPECIFIED;
-  realm_ = nonce_ = domain_ = opaque_ = std::string();
-
-  // FAIL -- Couldn't match auth-scheme.
-  if (!LowerCaseEqualsASCII(challenge->scheme(), "digest"))
-    return false;
-
-  HttpUtil::NameValuePairsIterator parameters = challenge->param_pairs();
-
-  // Loop through all the properties.
-  while (parameters.GetNext()) {
-    // FAIL -- couldn't parse a property.
-    if (!ParseChallengeProperty(parameters.name(),
-                                parameters.value()))
-      return false;
-  }
-
-  // Check if tokenizer failed.
-  if (!parameters.valid())
-    return false;
-
-  // Check that a minimum set of properties were provided.
-  if (nonce_.empty())
-    return false;
-
-  return true;
-}
-
-bool HttpAuthHandlerDigest::ParseChallengeProperty(const std::string& name,
-                                                   const std::string& value) {
-  if (LowerCaseEqualsASCII(name, "realm")) {
-    realm_ = value;
-  } else if (LowerCaseEqualsASCII(name, "nonce")) {
-    nonce_ = value;
-  } else if (LowerCaseEqualsASCII(name, "domain")) {
-    domain_ = value;
-  } else if (LowerCaseEqualsASCII(name, "opaque")) {
-    opaque_ = value;
-  } else if (LowerCaseEqualsASCII(name, "stale")) {
-    // Parse the stale boolean.
-    stale_ = LowerCaseEqualsASCII(value, "true");
-  } else if (LowerCaseEqualsASCII(name, "algorithm")) {
-    // Parse the algorithm.
-    if (LowerCaseEqualsASCII(value, "md5")) {
-      algorithm_ = ALGORITHM_MD5;
-    } else if (LowerCaseEqualsASCII(value, "md5-sess")) {
-      algorithm_ = ALGORITHM_MD5_SESS;
-    } else {
-      DVLOG(1) << "Unknown value of algorithm";
-      return false;  // FAIL -- unsupported value of algorithm.
-    }
-  } else if (LowerCaseEqualsASCII(name, "qop")) {
-    // Parse the comma separated list of qops.
-    // auth is the only supported qop, and all other values are ignored.
-    HttpUtil::ValuesIterator qop_values(value.begin(), value.end(), ',');
-    qop_ = QOP_UNSPECIFIED;
-    while (qop_values.GetNext()) {
-      if (LowerCaseEqualsASCII(qop_values.value(), "auth")) {
-        qop_ = QOP_AUTH;
-        break;
-      }
-    }
-  } else {
-    DVLOG(1) << "Skipping unrecognized digest property";
-    // TODO(eroman): perhaps we should fail instead of silently skipping?
-  }
-  return true;
-}
-
-HttpAuthHandlerDigest::Factory::Factory()
-    : nonce_generator_(new DynamicNonceGenerator()) {
-}
-
-HttpAuthHandlerDigest::Factory::~Factory() {
-}
-
-void HttpAuthHandlerDigest::Factory::set_nonce_generator(
-    const NonceGenerator* nonce_generator) {
-  nonce_generator_.reset(nonce_generator);
-}
-
-int HttpAuthHandlerDigest::Factory::CreateAuthHandler(
-    HttpAuth::ChallengeTokenizer* challenge,
-    HttpAuth::Target target,
-    const GURL& origin,
-    CreateReason reason,
-    int digest_nonce_count,
-    const BoundNetLog& net_log,
-    scoped_ptr<HttpAuthHandler>* handler) {
-  // TODO(cbentzel): Move towards model of parsing in the factory
-  //                 method and only constructing when valid.
-  scoped_ptr<HttpAuthHandler> tmp_handler(
-      new HttpAuthHandlerDigest(digest_nonce_count, nonce_generator_.get()));
-  if (!tmp_handler->InitFromChallenge(challenge, target, origin, net_log))
-    return ERR_INVALID_RESPONSE;
-  handler->swap(tmp_handler);
-  return OK;
 }
 
 }  // namespace net

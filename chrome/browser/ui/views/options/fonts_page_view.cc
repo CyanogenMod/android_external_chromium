@@ -1,8 +1,8 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/options/fonts_page_view.h"
+#include "chrome/browser/ui/views/options/fonts_page_view.h"
 
 #include <windows.h>
 #include <shlobj.h>
@@ -11,26 +11,25 @@
 
 #include <vector>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/file_util.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/default_encoding_combo_model.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/shell_dialogs.h"
 #include "chrome/common/pref_names.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/font.h"
-#include "gfx/native_theme_win.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "grit/locale_settings.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/font.h"
+#include "ui/gfx/native_theme_win.h"
 #include "views/controls/button/native_button.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/widget.h"
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -257,7 +256,7 @@ void FontsPageView::InitControlLayout() {
   using views::GridLayout;
   using views::ColumnSet;
 
-  GridLayout* layout = CreatePanelGridLayout(this);
+  GridLayout* layout = GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
 
   const int single_column_view_set_id = 0;
@@ -273,11 +272,11 @@ void FontsPageView::InitControlLayout() {
   fonts_group_title_->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
   layout->StartRow(0, single_column_view_set_id);
   layout->AddView(fonts_group_title_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   layout->StartRow(0, single_column_view_set_id);
   InitFontLayout();
   layout->AddView(fonts_contents_);
-  layout->AddPaddingRow(0, kUnrelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kUnrelatedControlVerticalSpacing);
 
   // Encoding group.
   encoding_group_title_ = new views::Label(
@@ -287,7 +286,7 @@ void FontsPageView::InitControlLayout() {
   encoding_group_title_->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
   layout->StartRow(0, single_column_view_set_id);
   layout->AddView(encoding_group_title_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   layout->StartRow(0, single_column_view_set_id);
   InitEncodingLayout();
   layout->AddView(encoding_contents_);
@@ -364,10 +363,10 @@ void FontsPageView::InitFontLayout() {
 
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 1,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
 
@@ -377,7 +376,7 @@ void FontsPageView::InitFontLayout() {
   layout->AddView(serif_font_display_view_, 1, 1,
                   GridLayout::FILL, GridLayout::CENTER);
   layout->AddView(serif_font_change_page_button_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   // Sans serif font controls.
   layout->StartRow(0, triple_column_view_set_id);
@@ -385,7 +384,7 @@ void FontsPageView::InitFontLayout() {
   layout->AddView(sans_serif_font_display_view_, 1, 1,
                   GridLayout::FILL, GridLayout::CENTER);
   layout->AddView(sans_serif_font_change_page_button_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   // Fixed-width font controls.
   layout->StartRow(0, triple_column_view_set_id);
@@ -393,7 +392,7 @@ void FontsPageView::InitFontLayout() {
   layout->AddView(fixed_width_font_display_view_, 1, 1,
                   GridLayout::FILL, GridLayout::CENTER);
   layout->AddView(fixed_width_font_change_page_button_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 }
 
 void FontsPageView::InitEncodingLayout() {
@@ -423,7 +422,7 @@ void FontsPageView::InitEncodingLayout() {
   ColumnSet* column_set = layout->AddColumnSet(double_column_view_set_id);
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 1,
                         GridLayout::USE_PREF, 0, 0);
 

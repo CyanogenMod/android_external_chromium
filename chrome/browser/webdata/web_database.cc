@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include <set>
 #include <string>
 
-#include "app/l10n_util.h"
 #include "app/sql/statement.h"
 #include "app/sql/transaction.h"
 #include "base/string_number_conversions.h"
@@ -27,8 +26,9 @@
 #include "chrome/browser/webdata/autofill_change.h"
 #include "chrome/common/guid.h"
 #include "chrome/common/notification_service.h"
-#include "gfx/codec/png_codec.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/codec/png_codec.h"
 #include "webkit/glue/form_field.h"
 #include "webkit/glue/password_form.h"
 
@@ -179,8 +179,8 @@ const char* kBuiltinKeywordVersion = "Builtin Keyword Version";
 const size_t kMaxDataLength = 1024;
 
 void BindURLToStatement(const TemplateURL& url, sql::Statement* s) {
-  s->BindString(0, WideToUTF8(url.short_name()));
-  s->BindString(1, WideToUTF8(url.keyword()));
+  s->BindString(0, UTF16ToUTF8(url.short_name()));
+  s->BindString(1, UTF16ToUTF8(url.keyword()));
   GURL favicon_url = url.GetFavIconURL();
   if (!favicon_url.is_valid()) {
     s->BindString(2, std::string());
@@ -866,9 +866,9 @@ bool WebDatabase::GetKeywords(std::vector<TemplateURL*>* urls) {
     std::string tmp;
     tmp = s.ColumnString(1);
     DCHECK(!tmp.empty());
-    template_url->set_short_name(UTF8ToWide(tmp));
+    template_url->set_short_name(UTF8ToUTF16(tmp));
 
-    template_url->set_keyword(UTF8ToWide(s.ColumnString(2)));
+    template_url->set_keyword(UTF8ToUTF16(s.ColumnString(2)));
 
     tmp = s.ColumnString(3);
     if (!tmp.empty())
@@ -1202,6 +1202,7 @@ bool WebDatabase::GetIDAndCountOfFormElement(
   s.BindString16(0, element.name());
   s.BindString16(1, element.value());
 
+  *pair_id = 0;
   *count = 0;
 
   if (s.Step()) {
@@ -2203,8 +2204,8 @@ sql::InitStatus WebDatabase::MigrateOldVersionsAsNeeded(){
             "INSERT INTO credit_cards_temp "
             "SELECT label,unique_id,name_on_card,type,card_number,"
             "expiration_month,expiration_year,verification_code,0,"
-            "shipping_address,card_number_encrypted,verification_code_encrypted "
-            "FROM credit_cards")) {
+            "shipping_address,card_number_encrypted,"
+            "verification_code_encrypted FROM credit_cards")) {
           LOG(WARNING) << "Unable to update web database to version 27.";
           NOTREACHED();
           return sql::INIT_FAILURE;
@@ -2509,8 +2510,8 @@ sql::InitStatus WebDatabase::MigrateOldVersionsAsNeeded(){
         if (!db_.Execute(
             "INSERT INTO autofill_profiles_temp "
             "SELECT guid, label, first_name, middle_name, last_name, email, "
-            "company_name, address_line_1, address_line_2, city, state, zipcode, "
-            "country, phone, fax, date_modified "
+            "company_name, address_line_1, address_line_2, city, state, "
+            "zipcode, country, phone, fax, date_modified "
             "FROM autofill_profiles")) {
           LOG(WARNING) << "Unable to update web database to version 32.";
           NOTREACHED();

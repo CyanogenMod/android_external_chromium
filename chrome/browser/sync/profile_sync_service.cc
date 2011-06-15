@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <map>
 #include <set>
 
-#include "app/l10n_util.h"
 #include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/command_line.h"
@@ -18,6 +17,7 @@
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/task.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_signin.h"
 #include "chrome/browser/history/history_types.h"
@@ -30,9 +30,9 @@
 #include "chrome/browser/sync/glue/data_type_controller.h"
 #include "chrome/browser/sync/glue/data_type_manager.h"
 #include "chrome/browser/sync/glue/session_data_type_controller.h"
+#include "chrome/browser/sync/js_arg_list.h"
 #include "chrome/browser/sync/profile_sync_factory.h"
 #include "chrome/browser/sync/signin_manager.h"
-#include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/sync/token_migrator.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/net/gaia/gaia_constants.h"
@@ -45,6 +45,7 @@
 #include "grit/generated_resources.h"
 #include "jingle/notifier/communicator/const_communicator.h"
 #include "net/base/cookie_monster.h"
+#include "ui/base/l10n/l10n_util.h"
 
 using browser_sync::ChangeProcessor;
 using browser_sync::DataTypeController;
@@ -66,17 +67,20 @@ ProfileSyncService::ProfileSyncService(ProfileSyncFactory* factory,
                                        Profile* profile,
                                        const std::string& cros_user)
     : last_auth_error_(AuthError::None()),
+      tried_creating_explicit_passphrase_(false),
+      tried_setting_explicit_passphrase_(false),
       observed_passphrase_required_(false),
       passphrase_required_for_decryption_(false),
+      passphrase_migration_in_progress_(false),
       factory_(factory),
       profile_(profile),
       cros_user_(cros_user),
       sync_service_url_(kDevServerUrl),
       backend_initialized_(false),
       is_auth_in_progress_(false),
-      ALLOW_THIS_IN_INITIALIZER_LIST(wizard_(this)),
+      wizard_(ALLOW_THIS_IN_INITIALIZER_LIST(this)),
       unrecoverable_error_detected_(false),
-      ALLOW_THIS_IN_INITIALIZER_LIST(scoped_runnable_method_factory_(this)),
+      scoped_runnable_method_factory_(ALLOW_THIS_IN_INITIALIZER_LIST(this)),
       token_migrator_(NULL),
       clear_server_data_state_(CLEAR_NOT_STARTED) {
   DCHECK(factory);
@@ -89,9 +93,11 @@ ProfileSyncService::ProfileSyncService(ProfileSyncFactory* factory,
   // Dev servers have more features than standard sync servers.
   // Chrome stable and beta builds will go to the standard sync servers.
 #if defined(GOOGLE_CHROME_BUILD)
+  // GetVersionStringModifier hits the registry. See http://crbug.com/70380.
+  base::ThreadRestrictions::ScopedAllowIO allow_io;
   // For stable, this is "". For dev, this is "dev". For beta, this is "beta".
   // For daily, this is "canary build".
-  // For linux Chromium builds, this could be anything depending on the
+  // For Linux Chromium builds, this could be anything depending on the
   // distribution, so always direct those users to dev server urls.
   // If this is an official build, it will always be one of the above.
   std::string channel = platform_util::GetVersionStringModifier();
@@ -402,12 +408,6 @@ void ProfileSyncService::InitializeBackend(bool delete_sync_data_folder) {
     return;
   }
 
-  // TODO(chron): Reimplement invalidate XMPP login / Sync login
-  //              command line switches. Perhaps make it a command
-  //              line in the TokenService itself to pass an arbitrary
-  //              token.
-
-
   syncable::ModelTypeSet types;
   // If sync setup hasn't finished, we don't want to initialize routing info
   // for any data types so that we don't download updates for types that the
@@ -418,7 +418,8 @@ void ProfileSyncService::InitializeBackend(bool delete_sync_data_folder) {
 
   SyncCredentials credentials = GetCredentials();
 
-  backend_->Initialize(sync_service_url_,
+  backend_->Initialize(this,
+                       sync_service_url_,
                        types,
                        profile_->GetRequestContext(),
                        credentials,
@@ -427,9 +428,15 @@ void ProfileSyncService::InitializeBackend(bool delete_sync_data_folder) {
 }
 
 void ProfileSyncService::CreateBackend() {
-  backend_.reset(
-      new SyncBackendHost(this, profile_, profile_->GetPath(),
-                          data_type_controllers_));
+  backend_.reset(new SyncBackendHost(profile_));
+}
+
+bool ProfileSyncService::IsEncryptedDatatypeEnabled() const {
+  // Currently on passwords are an encrypted datatype, so
+  // we check to see if it is enabled.
+  syncable::ModelTypeSet types;
+  GetPreferredDataTypes(&types);
+  return types.count(syncable::PASSWORDS) != 0;
 }
 
 void ProfileSyncService::StartUp() {
@@ -445,13 +452,6 @@ void ProfileSyncService::StartUp() {
       profile_->GetPrefs()->GetInt64(prefs::kSyncLastSyncedTime));
 
   CreateBackend();
-
-  registrar_.Add(this,
-                 NotificationType::SYNC_PASSPHRASE_REQUIRED,
-                 Source<SyncBackendHost>(backend_.get()));
-  registrar_.Add(this,
-                 NotificationType::SYNC_PASSPHRASE_ACCEPTED,
-                 Source<SyncBackendHost>(backend_.get()));
 
   // Initialize the backend.  Every time we start up a new SyncBackendHost,
   // we'll want to start from a fresh SyncDB, so delete any old one that might
@@ -475,18 +475,13 @@ void ProfileSyncService::Shutdown(bool sync_disabled) {
     data_type_manager_.reset();
   }
 
+  js_event_handlers_.RemoveBackend();
+
   // Move aside the backend so nobody else tries to use it while we are
   // shutting it down.
   scoped_ptr<SyncBackendHost> doomed_backend(backend_.release());
   if (doomed_backend.get()) {
     doomed_backend->Shutdown(sync_disabled);
-
-    registrar_.Remove(this,
-                   NotificationType::SYNC_PASSPHRASE_REQUIRED,
-                   Source<SyncBackendHost>(doomed_backend.get()));
-    registrar_.Remove(this,
-                   NotificationType::SYNC_PASSPHRASE_ACCEPTED,
-                   Source<SyncBackendHost>(doomed_backend.get()));
 
     doomed_backend.reset();
   }
@@ -517,7 +512,7 @@ void ProfileSyncService::DisableForUser() {
     signin_->SignOut();
   }
 
-  FOR_EACH_OBSERVER(Observer, observers_, OnStateChanged());
+  NotifyObservers();
 }
 
 bool ProfileSyncService::HasSyncSetupCompleted() const {
@@ -543,6 +538,14 @@ void ProfileSyncService::UpdateLastSyncedTime() {
   profile_->GetPrefs()->ScheduleSavePersistentPrefs();
 }
 
+void ProfileSyncService::NotifyObservers() {
+  FOR_EACH_OBSERVER(Observer, observers_, OnStateChanged());
+  // TODO(akalin): Make an Observer subclass that listens and does the
+  // event routing.
+  js_event_handlers_.RouteJsEvent(
+      "onSyncServiceStateChanged", browser_sync::JsArgList(), NULL);
+}
+
 // static
 const char* ProfileSyncService::GetPrefNameForDataType(
     syncable::ModelType data_type) {
@@ -557,7 +560,6 @@ const char* ProfileSyncService::GetPrefNameForDataType(
       return prefs::kSyncAutofill;
     case syncable::AUTOFILL_PROFILE:
       return prefs::kSyncAutofillProfile;
-      break;
     case syncable::THEMES:
       return prefs::kSyncThemes;
     case syncable::TYPED_URLS:
@@ -569,9 +571,10 @@ const char* ProfileSyncService::GetPrefNameForDataType(
     case syncable::SESSIONS:
       return prefs::kSyncSessions;
     default:
-      NOTREACHED();
-      return NULL;
+      break;
   }
+  NOTREACHED();
+  return NULL;
 }
 
 // An invariant has been violated.  Transition to an error state where we try
@@ -589,7 +592,7 @@ void ProfileSyncService::OnUnrecoverableError(
   // Tell the wizard so it can inform the user only if it is already open.
   wizard_.Step(SyncSetupWizard::FATAL_ERROR);
 
-  FOR_EACH_OBSERVER(Observer, observers_, OnStateChanged());
+  NotifyObservers();
   LOG(ERROR) << "Unrecoverable error detected -- ProfileSyncService unusable."
       << message;
   std::string location;
@@ -605,13 +608,15 @@ void ProfileSyncService::OnUnrecoverableError(
 void ProfileSyncService::OnBackendInitialized() {
   backend_initialized_ = true;
 
+  js_event_handlers_.SetBackend(backend_->GetJsBackend());
+
   // The very first time the backend initializes is effectively the first time
   // we can say we successfully "synced".  last_synced_time_ will only be null
   // in this case, because the pref wasn't restored on StartUp.
   if (last_synced_time_.is_null()) {
     UpdateLastSyncedTime();
   }
-  FOR_EACH_OBSERVER(Observer, observers_, OnStateChanged());
+  NotifyObservers();
 
   if (!cros_user_.empty()) {
     if (profile_->GetPrefs()->GetBoolean(prefs::kSyncSuppressStart)) {
@@ -628,7 +633,7 @@ void ProfileSyncService::OnBackendInitialized() {
 
 void ProfileSyncService::OnSyncCycleCompleted() {
   UpdateLastSyncedTime();
-  FOR_EACH_OBSERVER(Observer, observers_, OnStateChanged());
+  NotifyObservers();
 }
 
 void ProfileSyncService::UpdateAuthErrorState(
@@ -652,7 +657,7 @@ void ProfileSyncService::UpdateAuthErrorState(
 
   is_auth_in_progress_ = false;
   // Fan the notification out to interested UI-thread components.
-  FOR_EACH_OBSERVER(Observer, observers_, OnStateChanged());
+  NotifyObservers();
 }
 
 void ProfileSyncService::OnAuthError() {
@@ -672,7 +677,7 @@ void ProfileSyncService::OnClearServerDataTimeout() {
   if (clear_server_data_state_ != CLEAR_SUCCEEDED &&
       clear_server_data_state_ != CLEAR_FAILED) {
     clear_server_data_state_ = CLEAR_FAILED;
-    FOR_EACH_OBSERVER(Observer, observers_, OnStateChanged());
+    NotifyObservers();
   }
 }
 
@@ -685,7 +690,7 @@ void ProfileSyncService::OnClearServerDataFailed() {
   if (clear_server_data_state_ != CLEAR_SUCCEEDED &&
       clear_server_data_state_ != CLEAR_FAILED) {
     clear_server_data_state_ = CLEAR_FAILED;
-    FOR_EACH_OBSERVER(Observer, observers_, OnStateChanged());
+    NotifyObservers();
   }
 }
 
@@ -696,8 +701,53 @@ void ProfileSyncService::OnClearServerDataSucceeded() {
   // we want UI to update itself and no longer allow the user to press "clear"
   if (clear_server_data_state_ != CLEAR_SUCCEEDED) {
     clear_server_data_state_ = CLEAR_SUCCEEDED;
-    FOR_EACH_OBSERVER(Observer, observers_, OnStateChanged());
+    NotifyObservers();
   }
+}
+
+void ProfileSyncService::OnPassphraseRequired(bool for_decryption) {
+  DCHECK(backend_.get());
+  DCHECK(backend_->IsNigoriEnabled());
+  observed_passphrase_required_ = true;
+  passphrase_required_for_decryption_ = for_decryption;
+
+  if (!cached_passphrase_.value.empty()) {
+    SetPassphrase(cached_passphrase_.value,
+                  cached_passphrase_.is_explicit,
+                  cached_passphrase_.is_creation);
+    cached_passphrase_ = CachedPassphrase();
+    return;
+  }
+
+  // We will skip the passphrase prompt and suppress the warning
+  // if the passphrase is needed for decryption but the user is
+  // not syncing an encrypted data type on this machine.
+  // Otherwise we prompt.
+  if (!IsEncryptedDatatypeEnabled() && for_decryption) {
+    OnPassphraseAccepted();
+    return;
+  }
+
+  if (WizardIsVisible()) {
+    wizard_.Step(SyncSetupWizard::ENTER_PASSPHRASE);
+  }
+
+  NotifyObservers();
+}
+
+void ProfileSyncService::OnPassphraseAccepted() {
+  // Make sure the data types that depend on the passphrase are started at
+  // this time.
+  syncable::ModelTypeSet types;
+  GetPreferredDataTypes(&types);
+  data_type_manager_->Configure(types);
+
+  NotifyObservers();
+  observed_passphrase_required_ = false;
+  tried_setting_explicit_passphrase_ = false;
+  tried_creating_explicit_passphrase_ = false;
+
+  wizard_.Step(SyncSetupWizard::DONE);
 }
 
 void ProfileSyncService::ShowLoginDialog(gfx::NativeWindow parent_window) {
@@ -721,8 +771,27 @@ void ProfileSyncService::ShowLoginDialog(gfx::NativeWindow parent_window) {
   wizard_.SetParent(parent_window);
   wizard_.Step(SyncSetupWizard::GAIA_LOGIN);
 
-  FOR_EACH_OBSERVER(Observer, observers_, OnStateChanged());
+  NotifyObservers();
 }
+
+void ProfileSyncService::ShowErrorUI(gfx::NativeWindow parent_window) {
+  if (observed_passphrase_required()) {
+    if (IsUsingSecondaryPassphrase())
+      PromptForExistingPassphrase(parent_window);
+    else
+      SigninForPassphraseMigration(parent_window);
+    return;
+  }
+  const GoogleServiceAuthError& error = GetAuthError();
+  if (error.state() == GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS ||
+      error.state() == GoogleServiceAuthError::CAPTCHA_REQUIRED ||
+      error.state() == GoogleServiceAuthError::ACCOUNT_DELETED ||
+      error.state() == GoogleServiceAuthError::ACCOUNT_DISABLED ||
+      error.state() == GoogleServiceAuthError::SERVICE_UNAVAILABLE) {
+    ShowLoginDialog(parent_window);
+  }
+}
+
 
 void ProfileSyncService::ShowConfigure(gfx::NativeWindow parent_window) {
   if (WizardIsVisible()) {
@@ -743,19 +812,10 @@ void ProfileSyncService::PromptForExistingPassphrase(
   wizard_.Step(SyncSetupWizard::ENTER_PASSPHRASE);
 }
 
-void ProfileSyncService::ShowPassphraseMigration(
+void ProfileSyncService::SigninForPassphraseMigration(
     gfx::NativeWindow parent_window) {
-  wizard_.SetParent(parent_window);
-  wizard_.Step(SyncSetupWizard::PASSPHRASE_MIGRATION);
-}
-
-void ProfileSyncService::SigninForPassphrase(TabContents* container) {
-  string16 prefilled_username = GetAuthenticatedUsername();
-  string16 login_message = sync_ui_util::GetLoginMessageForEncryption();
-  profile_->GetBrowserSignin()->RequestSignin(container,
-                                              prefilled_username,
-                                              login_message,
-                                              this);
+  passphrase_migration_in_progress_ = true;
+  ShowLoginDialog(parent_window);
 }
 
 SyncBackendHost::StatusSummary ProfileSyncService::QuerySyncStatusSummary() {
@@ -780,24 +840,18 @@ bool ProfileSyncService::SetupInProgress() const {
 }
 
 std::string ProfileSyncService::BuildSyncStatusSummaryText(
-  const sync_api::SyncManager::Status::Summary& summary) {
-  switch (summary) {
-    case sync_api::SyncManager::Status::OFFLINE:
-      return "OFFLINE";
-    case sync_api::SyncManager::Status::OFFLINE_UNSYNCED:
-      return "OFFLINE_UNSYNCED";
-    case sync_api::SyncManager::Status::SYNCING:
-      return "SYNCING";
-    case sync_api::SyncManager::Status::READY:
-      return "READY";
-    case sync_api::SyncManager::Status::CONFLICT:
-      return "CONFLICT";
-    case sync_api::SyncManager::Status::OFFLINE_UNUSABLE:
-      return "OFFLINE_UNUSABLE";
-    case sync_api::SyncManager::Status::INVALID:  // fall through
-    default:
-      return "UNKNOWN";
+    const sync_api::SyncManager::Status::Summary& summary) {
+  const char* strings[] = {"INVALID", "OFFLINE", "OFFLINE_UNSYNCED", "SYNCING",
+      "READY", "CONFLICT", "OFFLINE_UNUSABLE"};
+  COMPILE_ASSERT(arraysize(strings) ==
+                 sync_api::SyncManager::Status::SUMMARY_STATUS_COUNT,
+                 enum_indexed_array);
+  if (summary < 0 ||
+      summary >= sync_api::SyncManager::Status::SUMMARY_STATUS_COUNT) {
+    LOG(DFATAL) << "Illegal Summary Value: " << summary;
+    return "UNKNOWN";
   }
+  return strings[summary];
 }
 
 bool ProfileSyncService::unrecoverable_error_detected() const {
@@ -828,7 +882,7 @@ void ProfileSyncService::OnUserSubmittedAuth(
     const std::string& captcha, const std::string& access_code) {
   last_attempted_user_email_ = username;
   is_auth_in_progress_ = true;
-  FOR_EACH_OBSERVER(Observer, observers_, OnStateChanged());
+  NotifyObservers();
 
   auth_start_time_ = base::TimeTicks::Now();
 
@@ -893,7 +947,7 @@ void ProfileSyncService::OnUserCancelledDialog() {
   // good if invalid creds were provided, but it's an edge case and the user
   // can of course get themselves out of it.
   is_auth_in_progress_ = false;
-  FOR_EACH_OBSERVER(Observer, observers_, OnStateChanged());
+  NotifyObservers();
 }
 
 void ProfileSyncService::ChangePreferredDataTypes(
@@ -980,6 +1034,12 @@ bool ProfileSyncService::IsCryptographerReady() const {
   return backend_.get() && backend_->IsCryptographerReady();
 }
 
+SyncBackendHost* ProfileSyncService::GetBackendForTest() {
+  // We don't check |backend_initialized_|; we assume the test class
+  // knows what it's doing.
+  return backend_.get();
+}
+
 void ProfileSyncService::ConfigureDataTypeManager() {
   if (!data_type_manager_.get()) {
     data_type_manager_.reset(
@@ -998,6 +1058,78 @@ void ProfileSyncService::ConfigureDataTypeManager() {
   data_type_manager_->Configure(types);
 }
 
+sync_api::UserShare* ProfileSyncService::GetUserShare() const {
+  if (backend_.get() && backend_initialized_) {
+    return backend_->GetUserShare();
+  }
+  NOTREACHED();
+  return NULL;
+}
+
+const browser_sync::sessions::SyncSessionSnapshot*
+    ProfileSyncService::GetLastSessionSnapshot() const {
+  if (backend_.get() && backend_initialized_) {
+    return backend_->GetLastSessionSnapshot();
+  }
+  NOTREACHED();
+  return NULL;
+}
+
+bool ProfileSyncService::HasUnsyncedItems() const {
+  if (backend_.get() && backend_initialized_) {
+    return backend_->HasUnsyncedItems();
+  }
+  NOTREACHED();
+  return false;
+}
+
+void ProfileSyncService::GetModelSafeRoutingInfo(
+    browser_sync::ModelSafeRoutingInfo* out) {
+  if (backend_.get() && backend_initialized_) {
+    backend_->GetModelSafeRoutingInfo(out);
+  } else {
+    NOTREACHED();
+  }
+}
+
+syncable::AutofillMigrationState
+    ProfileSyncService::GetAutofillMigrationState() {
+  if (backend_.get() && backend_initialized_) {
+    return backend_->GetAutofillMigrationState();
+  }
+  NOTREACHED();
+  return syncable::NOT_DETERMINED;
+}
+
+void ProfileSyncService::SetAutofillMigrationState(
+    syncable::AutofillMigrationState state) {
+  if (backend_.get() && backend_initialized_) {
+    backend_->SetAutofillMigrationState(state);
+  } else {
+    NOTREACHED();
+  }
+}
+
+syncable::AutofillMigrationDebugInfo
+    ProfileSyncService::GetAutofillMigrationDebugInfo() {
+  if (backend_.get() && backend_initialized_) {
+    return backend_->GetAutofillMigrationDebugInfo();
+  }
+  NOTREACHED();
+  syncable::AutofillMigrationDebugInfo debug_info = { 0 };
+  return debug_info;
+}
+
+void ProfileSyncService::SetAutofillMigrationDebugInfo(
+    syncable::AutofillMigrationDebugInfo::PropertyToSet property_to_set,
+    const syncable::AutofillMigrationDebugInfo& info) {
+  if (backend_.get() && backend_initialized_) {
+    backend_->SetAutofillMigrationDebugInfo(property_to_set, info);
+  } else {
+    NOTREACHED();
+  }
+}
+
 void ProfileSyncService::ActivateDataType(
     DataTypeController* data_type_controller,
     ChangeProcessor* change_processor) {
@@ -1006,7 +1138,7 @@ void ProfileSyncService::ActivateDataType(
     return;
   }
   DCHECK(backend_initialized_);
-  change_processor->Start(profile(), backend_->GetUserShareHandle());
+  change_processor->Start(profile(), backend_->GetUserShare());
   backend_->ActivateDataType(data_type_controller, change_processor);
 }
 
@@ -1019,13 +1151,20 @@ void ProfileSyncService::DeactivateDataType(
 }
 
 void ProfileSyncService::SetPassphrase(const std::string& passphrase,
-                                       bool is_explicit) {
+                                       bool is_explicit,
+                                       bool is_creation) {
   if (ShouldPushChanges() || observed_passphrase_required_) {
     backend_->SetPassphrase(passphrase, is_explicit);
   } else {
     cached_passphrase_.value = passphrase;
     cached_passphrase_.is_explicit = is_explicit;
+    cached_passphrase_.is_creation = is_creation;
   }
+
+  if (is_explicit && is_creation)
+    tried_creating_explicit_passphrase_ = true;
+  else if (is_explicit)
+    tried_setting_explicit_passphrase_ = true;
 }
 
 void ProfileSyncService::Observe(NotificationType type,
@@ -1033,7 +1172,7 @@ void ProfileSyncService::Observe(NotificationType type,
                                  const NotificationDetails& details) {
   switch (type.value) {
     case NotificationType::SYNC_CONFIGURE_START: {
-      FOR_EACH_OBSERVER(Observer, observers_, OnStateChanged());
+      NotifyObservers();
       // TODO(sync): Maybe toast?
       break;
     }
@@ -1053,35 +1192,16 @@ void ProfileSyncService::Observe(NotificationType type,
       if (!cached_passphrase_.value.empty()) {
         // Don't hold on to the passphrase in raw form longer than needed.
         SetPassphrase(cached_passphrase_.value,
-                      cached_passphrase_.is_explicit);
+                      cached_passphrase_.is_explicit,
+                      cached_passphrase_.is_creation);
         cached_passphrase_ = CachedPassphrase();
       }
 
       // TODO(sync): Less wizard, more toast.
       if (!observed_passphrase_required_)
         wizard_.Step(SyncSetupWizard::DONE);
-      FOR_EACH_OBSERVER(Observer, observers_, OnStateChanged());
+      NotifyObservers();
 
-      break;
-    }
-    case NotificationType::SYNC_PASSPHRASE_REQUIRED: {
-      DCHECK(backend_.get());
-      DCHECK(backend_->IsNigoriEnabled());
-      observed_passphrase_required_ = true;
-      passphrase_required_for_decryption_ = *(Details<bool>(details).ptr());
-
-      if (!cached_passphrase_.value.empty()) {
-        SetPassphrase(cached_passphrase_.value,
-                      cached_passphrase_.is_explicit);
-        cached_passphrase_ = CachedPassphrase();
-        break;
-      }
-
-      if (WizardIsVisible()) {
-        wizard_.Step(SyncSetupWizard::ENTER_PASSPHRASE);
-      }
-
-      FOR_EACH_OBSERVER(Observer, observers_, OnStateChanged());
       break;
     }
     case NotificationType::SYNC_DATA_TYPES_UPDATED: {
@@ -1092,23 +1212,10 @@ void ProfileSyncService::Observe(NotificationType type,
       OnUserChoseDatatypes(false, types);
       break;
     }
-    case NotificationType::SYNC_PASSPHRASE_ACCEPTED: {
-      // Make sure the data types that depend on the passphrase are started at
-      // this time.
-      syncable::ModelTypeSet types;
-      GetPreferredDataTypes(&types);
-      data_type_manager_->Configure(types);
-
-      FOR_EACH_OBSERVER(Observer, observers_, OnStateChanged());
-      observed_passphrase_required_ = false;
-
-      wizard_.Step(SyncSetupWizard::DONE);
-      break;
-    }
     case NotificationType::PREF_CHANGED: {
       std::string* pref_name = Details<std::string>(details).ptr();
       if (*pref_name == prefs::kSyncManaged) {
-        FOR_EACH_OBSERVER(Observer, observers_, OnStateChanged());
+        NotifyObservers();
         if (*pref_sync_managed_) {
           DisableForUser();
         } else if (HasSyncSetupCompleted() && AreCredentialsAvailable()) {
@@ -1126,7 +1233,16 @@ void ProfileSyncService::Observe(NotificationType type,
       // actually change), or the user has an explicit passphrase set so this
       // becomes a no-op.
       tried_implicit_gaia_remove_when_bug_62103_fixed_ = true;
-      SetPassphrase(successful->password, false);
+      SetPassphrase(successful->password, false, true);
+
+      // If this signin was to initiate a passphrase migration (on the
+      // first computer, thus not for decryption), continue the migration.
+      if (passphrase_migration_in_progress_ &&
+          !passphrase_required_for_decryption_) {
+        wizard_.Step(SyncSetupWizard::PASSPHRASE_MIGRATION);
+        passphrase_migration_in_progress_ = false;
+      }
+
       break;
     }
     case NotificationType::GOOGLE_SIGNIN_FAILED: {
@@ -1162,27 +1278,6 @@ void ProfileSyncService::Observe(NotificationType type,
   }
 }
 
-// This is the delegate callback from BrowserSigin.
-void ProfileSyncService::OnLoginSuccess() {
-  // The reason for the browser signin was a non-explicit passphrase
-  // required signal.  If this is the first time through the passphrase
-  // process, we want to show the migration UI and offer an explicit
-  // passphrase.  Otherwise, we're done because the implicit is enough.
-
-  if (passphrase_required_for_decryption_) {
-    // NOT first time (decrypting something encrypted elsewhere).
-    // Do nothing.
-  } else {
-    ShowPassphraseMigration(NULL);
-  }
-}
-
-// This is the delegate callback from BrowserSigin.
-void ProfileSyncService::OnLoginFailure(const GoogleServiceAuthError& error) {
-  // Do nothing.  The UI will already reflect the fact that the
-  // user is not signed in.
-}
-
 void ProfileSyncService::AddObserver(Observer* observer) {
   observers_.AddObserver(observer);
 }
@@ -1193,6 +1288,10 @@ void ProfileSyncService::RemoveObserver(Observer* observer) {
 
 bool ProfileSyncService::HasObserver(Observer* observer) const {
   return observers_.HasObserver(observer);
+}
+
+browser_sync::JsFrontend* ProfileSyncService::GetJsFrontend() {
+  return &js_event_handlers_;
 }
 
 void ProfileSyncService::SyncEvent(SyncEventCodes code) {

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_INFOBARS_INFOBAR_CONTAINER_H_
 #pragma once
 
-#include "chrome/browser/views/accessible_pane_view.h"
+#include "chrome/browser/ui/views/accessible_pane_view.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "views/view.h"
@@ -25,7 +25,7 @@ class InfoBarContainer : public AccessiblePaneView,
   class Delegate {
    public:
     virtual ~Delegate() {}
-    virtual void InfoBarSizeChanged(bool is_animating) = 0;
+    virtual void InfoBarContainerSizeChanged(bool is_animating) = 0;
   };
 
   explicit InfoBarContainer(Delegate* delegate);
@@ -44,18 +44,21 @@ class InfoBarContainer : public AccessiblePaneView,
   // the InfoBar's close button handler.
   void RemoveDelegate(InfoBarDelegate* delegate);
 
-  // Overridden from views::View:
+  // Paint the InfoBar arrows on |canvas|. |arrow_center_x| indicates
+  // the desired location of the center of the arrow in the
+  // |outer_view| coordinate system.
+  void PaintInfoBarArrows(gfx::Canvas* canvas,
+                          View* outer_view,
+                          int arrow_center_x);
+
+ private:
+  // AccessiblePaneView:
   virtual gfx::Size GetPreferredSize();
   virtual void Layout();
   virtual AccessibilityTypes::Role GetAccessibleRole();
+  virtual void ViewHierarchyChanged(bool is_add, View* parent, View* child);
 
- protected:
-  virtual void ViewHierarchyChanged(bool is_add,
-                                    views::View* parent,
-                                    views::View* child);
-
- private:
-  // Overridden from NotificationObserver:
+  // NotificationObserver:
   virtual void Observe(NotificationType type,
                        const NotificationSource& source,
                        const NotificationDetails& details);

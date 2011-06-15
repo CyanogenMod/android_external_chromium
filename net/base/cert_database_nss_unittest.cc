@@ -10,16 +10,17 @@
 #include "base/crypto/scoped_nss_types.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/lazy_instance.h"
 #include "base/nss_util.h"
 #include "base/nss_util_internal.h"
 #include "base/path_service.h"
 #include "base/scoped_temp_dir.h"
-#include "base/singleton.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "net/base/cert_database.h"
 #include "net/base/cert_status_flags.h"
 #include "net/base/cert_verify_result.h"
+#include "net/base/crypto_module.h"
 #include "net/base/net_errors.h"
 #include "net/base/x509_certificate.h"
 #include "net/third_party/mozilla_security_manager/nsNSSCertificateDB.h"
@@ -104,29 +105,39 @@ bool ReadCertIntoList(const std::string& name, CertificateList* certs) {
 class CertDatabaseNSSTest : public testing::Test {
  public:
   virtual void SetUp() {
-    ASSERT_TRUE(temp_db_dir_.CreateUniqueTempDir());
-    ASSERT_TRUE(
-        base::OpenTestNSSDB(temp_db_dir_.path(), "CertDatabaseNSSTest db"));
-    slot_.reset(base::GetDefaultNSSKeySlot());
+    if (!temp_db_initialized_) {
+      ASSERT_TRUE(temp_db_dir_.Get().CreateUniqueTempDir());
+      ASSERT_TRUE(
+          base::OpenTestNSSDB(temp_db_dir_.Get().path(),
+                              "CertDatabaseNSSTest db"));
+      temp_db_initialized_ = true;
+    }
+    slot_ = cert_db_.GetDefaultModule();
 
     // Test db should be empty at start of test.
-    EXPECT_EQ(0U, ListCertsInSlot(slot_.get()).size());
+    EXPECT_EQ(0U, ListCertsInSlot(slot_->os_module_handle()).size());
   }
   virtual void TearDown() {
     // Don't try to cleanup if the setup failed.
-    ASSERT_TRUE(slot_.get());
+    ASSERT_TRUE(slot_->os_module_handle());
 
-    EXPECT_TRUE(CleanupSlotContents(slot_.get()));
-    EXPECT_EQ(0U, ListCertsInSlot(slot_.get()).size());
+    EXPECT_TRUE(CleanupSlotContents(slot_->os_module_handle()));
+    EXPECT_EQ(0U, ListCertsInSlot(slot_->os_module_handle()).size());
   }
 
  protected:
-  base::ScopedPK11Slot slot_;
+  scoped_refptr<CryptoModule> slot_;
   CertDatabase cert_db_;
 
  private:
-  ScopedTempDir temp_db_dir_;
+  static base::LazyInstance<ScopedTempDir> temp_db_dir_;
+  static bool temp_db_initialized_;
 };
+
+// static
+base::LazyInstance<ScopedTempDir> CertDatabaseNSSTest::temp_db_dir_(
+    base::LINKER_INITIALIZED);
+bool CertDatabaseNSSTest::temp_db_initialized_ = false;
 
 TEST_F(CertDatabaseNSSTest, ListCerts) {
   // This test isn't terribly useful, though it will at least let valgrind test
@@ -142,18 +153,22 @@ TEST_F(CertDatabaseNSSTest, ImportFromPKCS12WrongPassword) {
   std::string pkcs12_data = ReadTestFile("client.p12");
 
   EXPECT_EQ(ERR_PKCS12_IMPORT_BAD_PASSWORD,
-            cert_db_.ImportFromPKCS12(pkcs12_data, ASCIIToUTF16("")));
+            cert_db_.ImportFromPKCS12(slot_,
+                                      pkcs12_data,
+                                      ASCIIToUTF16("")));
 
   // Test db should still be empty.
-  EXPECT_EQ(0U, ListCertsInSlot(slot_.get()).size());
+  EXPECT_EQ(0U, ListCertsInSlot(slot_->os_module_handle()).size());
 }
 
 TEST_F(CertDatabaseNSSTest, ImportFromPKCS12AndExportAgain) {
   std::string pkcs12_data = ReadTestFile("client.p12");
 
-  EXPECT_EQ(OK, cert_db_.ImportFromPKCS12(pkcs12_data, ASCIIToUTF16("12345")));
+  EXPECT_EQ(OK, cert_db_.ImportFromPKCS12(slot_,
+                                          pkcs12_data,
+                                          ASCIIToUTF16("12345")));
 
-  CertificateList cert_list = ListCertsInSlot(slot_.get());
+  CertificateList cert_list = ListCertsInSlot(slot_->os_module_handle());
   ASSERT_EQ(1U, cert_list.size());
   scoped_refptr<X509Certificate> cert(cert_list[0]);
 
@@ -179,12 +194,12 @@ TEST_F(CertDatabaseNSSTest, ImportCACert_SSLTrust) {
 
   // Import it.
   CertDatabase::ImportCertFailureList failed;
-  EXPECT_EQ(true, cert_db_.ImportCACerts(certs, CertDatabase::TRUSTED_SSL,
-                                         &failed));
+  EXPECT_TRUE(cert_db_.ImportCACerts(certs, CertDatabase::TRUSTED_SSL,
+                                     &failed));
 
   EXPECT_EQ(0U, failed.size());
 
-  CertificateList cert_list = ListCertsInSlot(slot_.get());
+  CertificateList cert_list = ListCertsInSlot(slot_->os_module_handle());
   ASSERT_EQ(1U, cert_list.size());
   scoped_refptr<X509Certificate> cert(cert_list[0]);
   EXPECT_EQ("Test CA", cert->subject().common_name);
@@ -211,12 +226,12 @@ TEST_F(CertDatabaseNSSTest, ImportCACert_EmailTrust) {
 
   // Import it.
   CertDatabase::ImportCertFailureList failed;
-  EXPECT_EQ(true, cert_db_.ImportCACerts(certs, CertDatabase::TRUSTED_EMAIL,
-                                         &failed));
+  EXPECT_TRUE(cert_db_.ImportCACerts(certs, CertDatabase::TRUSTED_EMAIL,
+                                     &failed));
 
   EXPECT_EQ(0U, failed.size());
 
-  CertificateList cert_list = ListCertsInSlot(slot_.get());
+  CertificateList cert_list = ListCertsInSlot(slot_->os_module_handle());
   ASSERT_EQ(1U, cert_list.size());
   scoped_refptr<X509Certificate> cert(cert_list[0]);
   EXPECT_EQ("Test CA", cert->subject().common_name);
@@ -242,12 +257,12 @@ TEST_F(CertDatabaseNSSTest, ImportCACert_ObjSignTrust) {
 
   // Import it.
   CertDatabase::ImportCertFailureList failed;
-  EXPECT_EQ(true, cert_db_.ImportCACerts(certs, CertDatabase::TRUSTED_OBJ_SIGN,
-                                         &failed));
+  EXPECT_TRUE(cert_db_.ImportCACerts(certs, CertDatabase::TRUSTED_OBJ_SIGN,
+                                     &failed));
 
   EXPECT_EQ(0U, failed.size());
 
-  CertificateList cert_list = ListCertsInSlot(slot_.get());
+  CertificateList cert_list = ListCertsInSlot(slot_->os_module_handle());
   ASSERT_EQ(1U, cert_list.size());
   scoped_refptr<X509Certificate> cert(cert_list[0]);
   EXPECT_EQ("Test CA", cert->subject().common_name);
@@ -273,8 +288,8 @@ TEST_F(CertDatabaseNSSTest, ImportCA_NotCACert) {
 
   // Import it.
   CertDatabase::ImportCertFailureList failed;
-  EXPECT_EQ(true,
-            cert_db_.ImportCACerts(certs, CertDatabase::TRUSTED_SSL, &failed));
+  EXPECT_TRUE(cert_db_.ImportCACerts(certs, CertDatabase::TRUSTED_SSL,
+                                     &failed));
   ASSERT_EQ(1U, failed.size());
   // Note: this compares pointers directly.  It's okay in this case because
   // ImportCACerts returns the same pointers that were passed in.  In the
@@ -282,7 +297,7 @@ TEST_F(CertDatabaseNSSTest, ImportCA_NotCACert) {
   EXPECT_EQ(certs[0], failed[0].certificate);
   EXPECT_EQ(ERR_IMPORT_CA_CERT_NOT_CA, failed[0].net_error);
 
-  EXPECT_EQ(0U, ListCertsInSlot(slot_.get()).size());
+  EXPECT_EQ(0U, ListCertsInSlot(slot_->os_module_handle()).size());
 }
 
 TEST_F(CertDatabaseNSSTest, ImportCACertHierarchy) {
@@ -297,7 +312,7 @@ TEST_F(CertDatabaseNSSTest, ImportCACertHierarchy) {
   // work (see
   // http://mxr.mozilla.org/mozilla/source/security/nss/lib/certhigh/certvfy.c#752
   // "XXX This choice of trustType seems arbitrary.")
-  EXPECT_EQ(true, cert_db_.ImportCACerts(
+  EXPECT_TRUE(cert_db_.ImportCACerts(
       certs, CertDatabase::TRUSTED_SSL | CertDatabase::TRUSTED_EMAIL,
       &failed));
 
@@ -305,7 +320,7 @@ TEST_F(CertDatabaseNSSTest, ImportCACertHierarchy) {
   EXPECT_EQ("www.us.army.mil", failed[0].certificate->subject().common_name);
   EXPECT_EQ(ERR_IMPORT_CA_CERT_NOT_CA, failed[0].net_error);
 
-  CertificateList cert_list = ListCertsInSlot(slot_.get());
+  CertificateList cert_list = ListCertsInSlot(slot_->os_module_handle());
   ASSERT_EQ(2U, cert_list.size());
   EXPECT_EQ("DoD Root CA 2", cert_list[0]->subject().common_name);
   EXPECT_EQ("DOD CA-17", cert_list[1]->subject().common_name);
@@ -317,12 +332,12 @@ TEST_F(CertDatabaseNSSTest, ImportCACertHierarchyDupeRoot) {
 
   // First import just the root.
   CertDatabase::ImportCertFailureList failed;
-  EXPECT_EQ(true, cert_db_.ImportCACerts(
+  EXPECT_TRUE(cert_db_.ImportCACerts(
       certs, CertDatabase::TRUSTED_SSL | CertDatabase::TRUSTED_EMAIL,
       &failed));
 
   EXPECT_EQ(0U, failed.size());
-  CertificateList cert_list = ListCertsInSlot(slot_.get());
+  CertificateList cert_list = ListCertsInSlot(slot_->os_module_handle());
   ASSERT_EQ(1U, cert_list.size());
   EXPECT_EQ("DoD Root CA 2", cert_list[0]->subject().common_name);
 
@@ -332,7 +347,7 @@ TEST_F(CertDatabaseNSSTest, ImportCACertHierarchyDupeRoot) {
   // Now import with the other certs in the list too.  Even though the root is
   // already present, we should still import the rest.
   failed.clear();
-  EXPECT_EQ(true, cert_db_.ImportCACerts(
+  EXPECT_TRUE(cert_db_.ImportCACerts(
       certs, CertDatabase::TRUSTED_SSL | CertDatabase::TRUSTED_EMAIL,
       &failed));
 
@@ -342,7 +357,7 @@ TEST_F(CertDatabaseNSSTest, ImportCACertHierarchyDupeRoot) {
   EXPECT_EQ("www.us.army.mil", failed[1].certificate->subject().common_name);
   EXPECT_EQ(ERR_IMPORT_CA_CERT_NOT_CA, failed[1].net_error);
 
-  cert_list = ListCertsInSlot(slot_.get());
+  cert_list = ListCertsInSlot(slot_->os_module_handle());
   ASSERT_EQ(2U, cert_list.size());
   EXPECT_EQ("DoD Root CA 2", cert_list[0]->subject().common_name);
   EXPECT_EQ("DOD CA-17", cert_list[1]->subject().common_name);
@@ -355,8 +370,7 @@ TEST_F(CertDatabaseNSSTest, ImportCACertHierarchyUntrusted) {
 
   // Import it.
   CertDatabase::ImportCertFailureList failed;
-  EXPECT_EQ(true, cert_db_.ImportCACerts(certs, CertDatabase::UNTRUSTED,
-                                         &failed));
+  EXPECT_TRUE(cert_db_.ImportCACerts(certs, CertDatabase::UNTRUSTED, &failed));
 
   ASSERT_EQ(1U, failed.size());
   EXPECT_EQ("DOD CA-17", failed[0].certificate->subject().common_name);
@@ -364,7 +378,7 @@ TEST_F(CertDatabaseNSSTest, ImportCACertHierarchyUntrusted) {
   // SEC_ERROR_UNTRUSTED_ISSUER
   EXPECT_EQ(ERR_FAILED, failed[0].net_error);
 
-  CertificateList cert_list = ListCertsInSlot(slot_.get());
+  CertificateList cert_list = ListCertsInSlot(slot_->os_module_handle());
   ASSERT_EQ(1U, cert_list.size());
   EXPECT_EQ("DoD Root CA 2", cert_list[0]->subject().common_name);
 }
@@ -377,13 +391,13 @@ TEST_F(CertDatabaseNSSTest, ImportCACertHierarchyTree) {
 
   // Import it.
   CertDatabase::ImportCertFailureList failed;
-  EXPECT_EQ(true, cert_db_.ImportCACerts(
+  EXPECT_TRUE(cert_db_.ImportCACerts(
       certs, CertDatabase::TRUSTED_SSL | CertDatabase::TRUSTED_EMAIL,
       &failed));
 
   EXPECT_EQ(0U, failed.size());
 
-  CertificateList cert_list = ListCertsInSlot(slot_.get());
+  CertificateList cert_list = ListCertsInSlot(slot_->os_module_handle());
   ASSERT_EQ(3U, cert_list.size());
   EXPECT_EQ("DOD CA-13", cert_list[0]->subject().common_name);
   EXPECT_EQ("DoD Root CA 2", cert_list[1]->subject().common_name);
@@ -401,7 +415,7 @@ TEST_F(CertDatabaseNSSTest, ImportCACertNotHierarchy) {
 
   // Import it.
   CertDatabase::ImportCertFailureList failed;
-  EXPECT_EQ(true, cert_db_.ImportCACerts(
+  EXPECT_TRUE(cert_db_.ImportCACerts(
       certs, CertDatabase::TRUSTED_SSL | CertDatabase::TRUSTED_EMAIL |
       CertDatabase::TRUSTED_OBJ_SIGN, &failed));
 
@@ -413,7 +427,7 @@ TEST_F(CertDatabaseNSSTest, ImportCACertNotHierarchy) {
   EXPECT_EQ("DOD CA-17", failed[1].certificate->subject().common_name);
   EXPECT_EQ(ERR_FAILED, failed[1].net_error);
 
-  CertificateList cert_list = ListCertsInSlot(slot_.get());
+  CertificateList cert_list = ListCertsInSlot(slot_->os_module_handle());
   ASSERT_EQ(1U, cert_list.size());
   EXPECT_EQ("Test CA", cert_list[0]->subject().common_name);
 }
@@ -429,11 +443,11 @@ TEST_F(CertDatabaseNSSTest, ImportServerCert) {
   ASSERT_EQ(2U, certs.size());
 
   CertDatabase::ImportCertFailureList failed;
-  EXPECT_EQ(true, cert_db_.ImportServerCert(certs, &failed));
+  EXPECT_TRUE(cert_db_.ImportServerCert(certs, &failed));
 
   EXPECT_EQ(0U, failed.size());
 
-  CertificateList cert_list = ListCertsInSlot(slot_.get());
+  CertificateList cert_list = ListCertsInSlot(slot_->os_module_handle());
   ASSERT_EQ(2U, cert_list.size());
   scoped_refptr<X509Certificate> goog_cert(cert_list[0]);
   scoped_refptr<X509Certificate> thawte_cert(cert_list[1]);
@@ -457,11 +471,11 @@ TEST_F(CertDatabaseNSSTest, ImportServerCert_SelfSigned) {
   ASSERT_TRUE(ReadCertIntoList("punycodetest.der", &certs));
 
   CertDatabase::ImportCertFailureList failed;
-  EXPECT_EQ(true, cert_db_.ImportServerCert(certs, &failed));
+  EXPECT_TRUE(cert_db_.ImportServerCert(certs, &failed));
 
   EXPECT_EQ(0U, failed.size());
 
-  CertificateList cert_list = ListCertsInSlot(slot_.get());
+  CertificateList cert_list = ListCertsInSlot(slot_->os_module_handle());
   ASSERT_EQ(1U, cert_list.size());
   scoped_refptr<X509Certificate> puny_cert(cert_list[0]);
 

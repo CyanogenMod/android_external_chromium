@@ -4,19 +4,19 @@
 
 #include "chrome/browser/extensions/extension_icon_manager.h"
 
-#include "app/resource_bundle.h"
 #include "base/logging.h"
 #include "base/stl_util-inl.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_icon_set.h"
 #include "chrome/common/extensions/extension_resource.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/color_utils.h"
-#include "gfx/favicon_size.h"
-#include "gfx/skbitmap_operations.h"
-#include "gfx/size.h"
 #include "grit/theme_resources.h"
 #include "skia/ext/image_operations.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/color_utils.h"
+#include "ui/gfx/favicon_size.h"
+#include "ui/gfx/size.h"
+#include "ui/gfx/skbitmap_operations.h"
 
 namespace {
 

@@ -4,9 +4,6 @@
 
 #include "chrome/browser/custom_home_pages_table_model.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
-#include "app/table_model_observer.h"
 #include "base/i18n/rtl.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
@@ -16,12 +13,15 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
-#include "gfx/codec/png_codec.h"
 #include "googleurl/src/gurl.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "net/base/net_util.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/models/table_model_observer.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/codec/png_codec.h"
 
 struct CustomHomePagesTableModel::Entry {
   Entry() : title_handle(0), fav_icon_handle(0) {}
@@ -70,6 +70,7 @@ void CustomHomePagesTableModel::Add(int index, const GURL& url) {
   DCHECK(index >= 0 && index <= RowCount());
   entries_.insert(entries_.begin() + static_cast<size_t>(index), Entry());
   entries_[index].url = url;
+  LoadTitleAndFavIcon(&(entries_[index]));
   if (observer_)
     observer_->OnItemsAdded(index, 1);
 }
@@ -147,7 +148,7 @@ string16 CustomHomePagesTableModel::GetTooltip(int row) {
                                  entries_[row].title, FormattedURL(row));
 }
 
-void CustomHomePagesTableModel::SetObserver(TableModelObserver* observer) {
+void CustomHomePagesTableModel::SetObserver(ui::TableModelObserver* observer) {
   observer_ = observer;
 }
 

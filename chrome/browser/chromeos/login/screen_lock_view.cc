@@ -4,8 +4,6 @@
 
 #include "chrome/browser/chromeos/login/screen_lock_view.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/login/rounded_rect_painter.h"
 #include "chrome/browser/chromeos/login/screen_locker.h"
@@ -19,11 +17,13 @@
 #include "chrome/common/notification_service.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "views/background.h"
 #include "views/border.h"
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
-#include "views/grid_layout.h"
+#include "views/layout/grid_layout.h"
 
 namespace chromeos {
 
@@ -117,7 +117,8 @@ void ScreenLockView::Init() {
   std::wstring text = UTF8ToWide(user.GetDisplayName());
 
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  const gfx::Font& font = rb.GetFont(ResourceBundle::MediumBoldFont);
+  const gfx::Font& font = rb.GetFont(ResourceBundle::MediumBoldFont).DeriveFont(
+      kSelectedUsernameFontDelta);
 
   // Layouts image, textfield and button components.
   GridLayout* layout = new GridLayout(main_);
@@ -187,11 +188,17 @@ void ScreenLockView::OnSignout() {
   screen_locker_->Signout();
 }
 
+void ScreenLockView::ContentsChanged(views::Textfield* sender,
+                                     const string16& new_contents) {
+  if (!new_contents.empty())
+    screen_locker_->ClearErrors();
+}
+
 bool ScreenLockView::HandleKeyEvent(
     views::Textfield* sender,
     const views::KeyEvent& key_event) {
   screen_locker_->ClearErrors();
-  if (key_event.GetKeyCode() == app::VKEY_RETURN) {
+  if (key_event.key_code() == ui::VKEY_RETURN) {
     screen_locker_->Authenticate(password_field_->text());
     return true;
   }
@@ -209,13 +216,6 @@ void ScreenLockView::Observe(
   if (screen_locker_->user().email() != user->email())
     return;
   user_view_->SetImage(user->image(), user->image());
-}
-
-void ScreenLockView::ViewHierarchyChanged(bool is_add,
-                                          views::View* parent,
-                                          views::View* child) {
-  if (is_add && this == child)
-    WizardAccessibilityHelper::GetInstance()->MaybeEnableAccessibility(this);
 }
 
 }  // namespace chromeos

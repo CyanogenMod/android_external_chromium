@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,7 @@ cr.define('options', function() {
    */
   function ContentSettings() {
     this.activeNavTab = null;
-    OptionsPage.call(this, 'content', templateData.contentSettingsPage,
+    OptionsPage.call(this, 'content', templateData.contentSettingsPageTabTitle,
                      'content-settings-page');
   }
 
@@ -33,9 +33,15 @@ cr.define('options', function() {
           this.pageDiv.querySelectorAll('.exceptions-list-button');
       for (var i = 0; i < exceptionsButtons.length; i++) {
         exceptionsButtons[i].onclick = function(event) {
-          ContentSettingsExceptionsArea.getInstance().showList(
+          var page = ContentSettingsExceptionsArea.getInstance();
+          page.showList(
               event.target.getAttribute('contentType'));
-          OptionsPage.showPageByName('contentExceptions');
+          OptionsPage.navigateToPage('contentExceptions');
+          // Add on the proper hash for the content type, and store that in the
+          // history so back/forward and tab restore works.
+          var hash = event.target.getAttribute('contentType');
+          window.history.replaceState({pageName: page.name}, page.title,
+                                      '/' + page.name + "#" + hash);
         };
       }
 
@@ -47,26 +53,11 @@ cr.define('options', function() {
 
       $('show-cookies-button').onclick = function(event) {
         chrome.send('coreOptionsUserMetricsAction', ['Options_ShowCookies']);
-        OptionsPage.showPageByName('cookiesView');
-      };
-
-      $('plugins-tab').onclick = function(event) {
-        chrome.send('openPluginsTab');
-        return false;
+        OptionsPage.navigateToPage('cookiesView');
       };
 
       if (!templateData.enable_click_to_play)
         $('click_to_play').style.display = 'none';
-    },
-
-    /**
-     * Handles a hash value in the URL (such as bar in
-     * chrome://options/foo#bar).
-     * @param {string} hash The hash value.
-     */
-    handleHash: function(hash) {
-      ContentSettingsExceptionsArea.getInstance().showList(hash);
-      OptionsPage.showPageByName('contentExceptions');
     },
   };
 
@@ -83,8 +74,10 @@ cr.define('options', function() {
                                              group + ']');
       for (var i = 0, len = radios.length; i < len; i++) {
         radios[i].disabled = dict[group]['managed'];
+        radios[i].managed = dict[group]['managed'];
       }
     }
+    OptionsPage.updateManagedBannerVisibility();
   };
 
   /**
@@ -98,11 +91,7 @@ cr.define('options', function() {
         document.querySelector('div[contentType=' + type + ']' +
                                ' list[mode=normal]');
 
-    exceptionsList.reset();
-    for (var i = 0; i < list.length; i++) {
-      exceptionsList.addException(list[i]);
-    }
-    exceptionsList.redraw();
+    exceptionsList.setExceptions(list);
   };
 
   ContentSettings.setOTRExceptions = function(type, list) {
@@ -111,12 +100,7 @@ cr.define('options', function() {
                                ' list[mode=otr]');
 
     exceptionsList.parentNode.classList.remove('hidden');
-
-    exceptionsList.reset();
-    for (var i = 0; i < list.length; i++) {
-      exceptionsList.addException(list[i]);
-    }
-    exceptionsList.redraw();
+    exceptionsList.setExceptions(list);
   };
 
   /**
@@ -142,6 +126,10 @@ cr.define('options', function() {
         document.querySelector('div[contentType=' + type + '] ' +
                                'list[mode=' + mode + ']');
     exceptionsList.patternValidityCheckComplete(pattern, valid);
+  };
+
+  ContentSettings.setClearLocalDataOnShutdownLabel = function(label) {
+    $('clear-cookies-on-exit-label').innerText = label;
   };
 
   // Export

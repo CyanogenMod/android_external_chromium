@@ -4,7 +4,6 @@
 
 #include "chrome/browser/renderer_host/render_widget_host.h"
 
-#include "app/keyboard_codes.h"
 #include "base/auto_reset.h"
 #include "base/command_line.h"
 #include "base/message_loop.h"
@@ -15,7 +14,6 @@
 #include "chrome/browser/renderer_host/backing_store_manager.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_widget_helper.h"
-#include "chrome/browser/renderer_host/render_widget_host_painting_observer.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/result_codes.h"
@@ -23,7 +21,8 @@
 #include "chrome/common/notification_service.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/render_messages_params.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebCompositionUnderline.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebCompositionUnderline.h"
+#include "ui/base/keycodes/keyboard_codes.h"
 #include "webkit/glue/webcursor.h"
 #include "webkit/plugins/npapi/webplugin.h"
 
@@ -32,8 +31,8 @@
 #endif
 
 #if defined (OS_MACOSX)
-#include "third_party/WebKit/WebKit/chromium/public/WebScreenInfo.h"
-#include "third_party/WebKit/WebKit/chromium/public/mac/WebScreenInfoFactory.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebScreenInfo.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/mac/WebScreenInfoFactory.h"
 #endif
 
 using base::Time;
@@ -74,7 +73,6 @@ RenderWidgetHost::RenderWidgetHost(RenderProcessHost* process,
       renderer_accessible_(false),
       view_(NULL),
       process_(process),
-      painting_observer_(NULL),
       routing_id_(routing_id),
       is_loading_(false),
       is_hidden_(false),
@@ -175,8 +173,10 @@ bool RenderWidgetHost::OnMessageReceived(const IPC::Message &msg) {
     IPC_MESSAGE_HANDLER(ViewHostMsg_GetScreenInfo, OnMsgGetScreenInfo)
     IPC_MESSAGE_HANDLER(ViewHostMsg_GetWindowRect, OnMsgGetWindowRect)
     IPC_MESSAGE_HANDLER(ViewHostMsg_GetRootWindowRect, OnMsgGetRootWindowRect)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_SetPluginImeEnabled,
-                        OnMsgSetPluginImeEnabled)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_PluginFocusChanged,
+                        OnMsgPluginFocusChanged)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_StartPluginIme,
+                        OnMsgStartPluginIme)
     IPC_MESSAGE_HANDLER(ViewHostMsg_AllocateFakePluginWindowHandle,
                         OnAllocateFakePluginWindowHandle)
     IPC_MESSAGE_HANDLER(ViewHostMsg_DestroyFakePluginWindowHandle,
@@ -286,7 +286,15 @@ void RenderWidgetHost::WasResized() {
     return;
   }
 
+#if !defined(OS_MACOSX)
   gfx::Size new_size = view_->GetViewBounds().size();
+#else
+  // When UI scaling is enabled on OS X, allocate a smaller bitmap and
+  // pixel-scale it up.
+  // TODO(thakis): Use pixel size on mac and set UI scale in renderer.
+  // http://crbug.com/31960
+  gfx::Size new_size(view_->GetViewCocoaBounds().size());
+#endif
   gfx::Rect reserved_rect = view_->reserved_contents_rect();
 
   // Avoid asking the RenderWidget to resize to its current size, since it
@@ -542,8 +550,8 @@ void RenderWidgetHost::ForwardKeyboardEvent(
     return;
 
   if (key_event.type == WebKeyboardEvent::Char &&
-      (key_event.windowsKeyCode == app::VKEY_RETURN ||
-       key_event.windowsKeyCode == app::VKEY_SPACE)) {
+      (key_event.windowsKeyCode == ui::VKEY_RETURN ||
+       key_event.windowsKeyCode == ui::VKEY_SPACE)) {
     OnUserGesture();
   }
 
@@ -798,20 +806,27 @@ void RenderWidgetHost::OnMsgRequestMove(const gfx::Rect& pos) {
 }
 
 void RenderWidgetHost::OnMsgPaintAtSizeAck(int tag, const gfx::Size& size) {
-  if (painting_observer_) {
-    painting_observer_->WidgetDidReceivePaintAtSizeAck(this, tag, size);
-  }
+  PaintAtSizeAckDetails details = {tag, size};
+  gfx::Size size_details = size;
+  NotificationService::current()->Notify(
+      NotificationType::RENDER_WIDGET_HOST_DID_RECEIVE_PAINT_AT_SIZE_ACK,
+      Source<RenderWidgetHost>(this),
+      Details<PaintAtSizeAckDetails>(&details));
 }
 
 void RenderWidgetHost::OnMsgUpdateRect(
     const ViewHostMsg_UpdateRect_Params& params) {
   TimeTicks paint_start = TimeTicks::Now();
 
-  if (paint_observer_.get())
-    paint_observer_->RenderWidgetHostWillPaint(this);
+  NotificationService::current()->Notify(
+      NotificationType::RENDER_WIDGET_HOST_WILL_PAINT,
+      Source<RenderWidgetHost>(this),
+      NotificationService::NoDetails());
 
   // Update our knowledge of the RenderWidget's size.
   current_size_ = params.view_size;
+  // Update our knowledge of the RenderWidget's scroll offset.
+  last_scroll_offset_ = params.scroll_offset;
 
   bool is_resize_ack =
       ViewHostMsg_UpdateRect_Flags::is_resize_ack(params.flags);
@@ -900,8 +915,10 @@ void RenderWidgetHost::OnMsgUpdateRect(
     }
   }
 
-  if (paint_observer_.get())
-    paint_observer_->RenderWidgetHostDidPaint(this);
+  NotificationService::current()->Notify(
+      NotificationType::RENDER_WIDGET_HOST_DID_PAINT,
+      Source<RenderWidgetHost>(this),
+      NotificationService::NoDetails());
 
   // If we got a resize ack, then perhaps we have another resize to send?
   if (is_resize_ack && view_) {
@@ -910,8 +927,10 @@ void RenderWidgetHost::OnMsgUpdateRect(
     WasResized();
   }
 
-  if (painting_observer_)
-    painting_observer_->WidgetDidUpdateBackingStore(this);
+  NotificationService::current()->Notify(
+      NotificationType::RENDER_WIDGET_HOST_DID_UPDATE_BACKING_STORE,
+      Source<RenderWidgetHost>(this),
+      NotificationService::NoDetails());
 
   // Log the time delta for processing a paint message.
   TimeDelta delta = TimeTicks::Now() - paint_start;
@@ -950,6 +969,11 @@ void RenderWidgetHost::OnMsgInputEventAck(const IPC::Message& message) {
 
     ProcessKeyboardEventAck(type, processed);
   }
+  // This is used only for testing.
+  NotificationService::current()->Notify(
+      NotificationType::RENDER_WIDGET_HOST_DID_RECEIVE_INPUT_EVENT_ACK,
+      Source<RenderWidgetHost>(this),
+      Details<int>(&type));
 }
 
 void RenderWidgetHost::ProcessWheelAck() {
@@ -1023,7 +1047,7 @@ void RenderWidgetHost::OnMsgGetScreenInfo(gfx::NativeViewId view,
 void RenderWidgetHost::OnMsgGetWindowRect(gfx::NativeViewId window_id,
                                           gfx::Rect* results) {
   if (view_) {
-    *results = view_->GetWindowRect();
+    *results = view_->GetViewBounds();
   }
 }
 
@@ -1034,8 +1058,14 @@ void RenderWidgetHost::OnMsgGetRootWindowRect(gfx::NativeViewId window_id,
   }
 }
 
-void RenderWidgetHost::OnMsgSetPluginImeEnabled(bool enabled, int plugin_id) {
-  view_->SetPluginImeEnabled(enabled, plugin_id);
+void RenderWidgetHost::OnMsgPluginFocusChanged(bool focused, int plugin_id) {
+  if (view_)
+    view_->PluginFocusChanged(focused, plugin_id);
+}
+
+void RenderWidgetHost::OnMsgStartPluginIme() {
+  if (view_)
+    view_->StartPluginIme();
 }
 
 void RenderWidgetHost::OnAllocateFakePluginWindowHandle(

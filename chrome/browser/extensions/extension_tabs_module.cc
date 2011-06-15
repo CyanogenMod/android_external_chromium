@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,6 @@
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/extension_function_dispatcher.h"
 #include "chrome/browser/extensions/extension_host.h"
-#include "chrome/browser/extensions/extension_infobar_delegate.h"
 #include "chrome/browser/extensions/extension_tabs_module_constants.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
@@ -34,12 +33,13 @@
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_error_utils.h"
 #include "chrome/common/notification_service.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
-#include "gfx/codec/jpeg_codec.h"
-#include "gfx/codec/png_codec.h"
 #include "skia/ext/image_operations.h"
 #include "skia/ext/platform_canvas.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/codec/jpeg_codec.h"
+#include "ui/gfx/codec/png_codec.h"
 
 namespace keys = extension_tabs_module_constants;
 
@@ -154,7 +154,11 @@ DictionaryValue* ExtensionTabUtil::CreateWindowValue(const Browser* browser,
   result->SetBoolean(keys::kIncognitoKey,
                      browser->profile()->IsOffTheRecord());
   result->SetBoolean(keys::kFocusedKey, browser->window()->IsActive());
-  gfx::Rect bounds = browser->window()->GetRestoredBounds();
+  gfx::Rect bounds;
+  if (browser->window()->IsMaximized() || browser->window()->IsFullscreen())
+    bounds = browser->window()->GetBounds();
+  else
+    bounds = browser->window()->GetRestoredBounds();
 
   result->SetInteger(keys::kLeftKey, bounds.x());
   result->SetInteger(keys::kTopKey, bounds.y());
@@ -435,6 +439,11 @@ bool CreateWindowFunction::RunImpl() {
     if (args->HasKey(keys::kIncognitoKey)) {
       EXTENSION_FUNCTION_VALIDATE(args->GetBoolean(keys::kIncognitoKey,
                                                    &incognito));
+      if (!profile_->GetPrefs()->GetBoolean(prefs::kIncognitoEnabled)) {
+        error_ = keys::kIncognitoModeIsDisabled;
+        return false;
+      }
+
       if (incognito)
         window_profile = window_profile->GetOffTheRecordProfile();
     }
@@ -495,6 +504,7 @@ bool UpdateWindowFunction::RunImpl() {
   }
 
   gfx::Rect bounds = browser->window()->GetRestoredBounds();
+  bool set_bounds = false;
   // Any part of the bounds can optionally be set by the caller.
   int bounds_val;
   if (update_props->HasKey(keys::kLeftKey)) {
@@ -502,6 +512,7 @@ bool UpdateWindowFunction::RunImpl() {
         keys::kLeftKey,
         &bounds_val));
     bounds.set_x(bounds_val);
+    set_bounds = true;
   }
 
   if (update_props->HasKey(keys::kTopKey)) {
@@ -509,6 +520,7 @@ bool UpdateWindowFunction::RunImpl() {
         keys::kTopKey,
         &bounds_val));
     bounds.set_y(bounds_val);
+    set_bounds = true;
   }
 
   if (update_props->HasKey(keys::kWidthKey)) {
@@ -516,6 +528,7 @@ bool UpdateWindowFunction::RunImpl() {
         keys::kWidthKey,
         &bounds_val));
     bounds.set_width(bounds_val);
+    set_bounds = true;
   }
 
   if (update_props->HasKey(keys::kHeightKey)) {
@@ -523,8 +536,10 @@ bool UpdateWindowFunction::RunImpl() {
         keys::kHeightKey,
         &bounds_val));
     bounds.set_height(bounds_val);
+    set_bounds = true;
   }
-  browser->window()->SetBounds(bounds);
+  if (set_bounds)
+    browser->window()->SetBounds(bounds);
 
   bool selected_val = false;
   if (update_props->HasKey(keys::kFocusedKey)) {
@@ -776,15 +791,8 @@ bool UpdateTabFunction::RunImpl() {
     // JavaScript URLs can do the same kinds of things as cross-origin XHR, so
     // we need to check host permissions before allowing them.
     if (url.SchemeIs(chrome::kJavaScriptScheme)) {
-      const Extension* extension = GetExtension();
-      const std::vector<URLPattern> host_permissions =
-          extension->host_permissions();
-      if (!Extension::CanExecuteScriptOnPage(
-              contents->tab_contents()->GetURL(),
-              extension->CanExecuteScriptEverywhere(),
-              &host_permissions,
-              NULL,
-              &error_)) {
+      if (!GetExtension()->CanExecuteScriptOnPage(
+              contents->tab_contents()->GetURL(), NULL, &error_)) {
         return false;
       }
 
@@ -878,6 +886,11 @@ bool MoveTabFunction::RunImpl() {
 
     if (target_browser->type() != Browser::TYPE_NORMAL) {
       error_ = keys::kCanOnlyMoveTabsWithinNormalWindowsError;
+      return false;
+    }
+
+    if (target_browser->profile() != source_browser->profile()) {
+      error_ = keys::kCanOnlyMoveTabsWithinSameProfileError;
       return false;
     }
 

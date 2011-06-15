@@ -20,10 +20,10 @@
 #include "net/http/http_auth_handler_factory.h"
 #include "net/http/http_cache.h"
 #include "net/http/http_network_layer.h"
+#include "net/http/http_network_session.h"
 #include "net/http/http_request_info.h"
 #include "net/http/http_transaction.h"
 #include "net/proxy/proxy_service.h"
-#include "net/socket/client_socket_factory.h"
 
 void usage(const char* program_name) {
   printf("usage: %s --url=<url>  [--n=<clients>] [--stats] [--use_cache]\n",
@@ -149,24 +149,21 @@ int main(int argc, char**argv) {
   net::HttpTransactionFactory* factory = NULL;
   scoped_ptr<net::HttpAuthHandlerFactory> http_auth_handler_factory(
       net::HttpAuthHandlerFactory::CreateDefault(host_resolver.get()));
+
+  net::HttpNetworkSession::Params session_params;
+  session_params.host_resolver = host_resolver.get();
+  session_params.cert_verifier = cert_verifier.get();
+  session_params.proxy_service = proxy_service;
+  session_params.http_auth_handler_factory = http_auth_handler_factory.get();
+  session_params.ssl_config_service = ssl_config_service;
+
+  scoped_refptr<net::HttpNetworkSession> network_session(
+      new net::HttpNetworkSession(session_params));
   if (use_cache) {
-    factory = new net::HttpCache(host_resolver.get(), cert_verifier.get(),
-        NULL, NULL, proxy_service, ssl_config_service,
-        http_auth_handler_factory.get(), NULL, NULL,
-        net::HttpCache::DefaultBackend::InMemory(0));
+    factory = new net::HttpCache(network_session,
+                                 net::HttpCache::DefaultBackend::InMemory(0));
   } else {
-    factory = new net::HttpNetworkLayer(
-        net::ClientSocketFactory::GetDefaultFactory(),
-        host_resolver.get(),
-        cert_verifier.get(),
-        NULL /* dnsrr_resolver */,
-        NULL /* dns_cert_checker */,
-        NULL /* ssl_host_info_factory */,
-        proxy_service,
-        ssl_config_service,
-        http_auth_handler_factory.get(),
-        NULL,
-        NULL);
+    factory = new net::HttpNetworkLayer(network_session);
   }
 
   {

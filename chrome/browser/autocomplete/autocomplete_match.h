@@ -77,8 +77,6 @@ struct AutocompleteMatch {
                              // containing the input.
     SEARCH_SUGGEST,          // A suggested search (with the default engine).
     SEARCH_OTHER_ENGINE,     // A search with a non-default engine.
-    OPEN_HISTORY_PAGE,       // A synthetic result that opens the history page
-                             // to search for the input.
     NUM_TYPES,
   };
 
@@ -110,8 +108,8 @@ struct AutocompleteMatch {
   // Fills in the classifications for |text|, using |style| as the base style
   // and marking the first instance of |find_text| as a match.  (This match
   // will also not be dimmed, if |style| has DIM set.)
-  static void ClassifyMatchInString(const std::wstring& find_text,
-                                    const std::wstring& text,
+  static void ClassifyMatchInString(const string16& find_text,
+                                    const string16& text,
                                     int style,
                                     ACMatchClassifications* classifications);
 
@@ -135,13 +133,6 @@ struct AutocompleteMatch {
   // providers, so different providers must be carefully tuned to supply
   // matches with appropriate relevance.
   //
-  // If the relevance is negative, it will only be displayed if there are not
-  // enough non-negative items in all the providers to max out the popup. In
-  // this case, the relevance of the additional items will be inverted so they
-  // can be mixed in with the rest of the relevances. This allows a provider
-  // to group its matches, having the added items appear intermixed with its
-  // other matches.
-  //
   // TODO(pkasting): http://b/1111299 This should be calculated algorithmically,
   // rather than being a fairly fixed value defined by the table above.
   int relevance;
@@ -152,10 +143,10 @@ struct AutocompleteMatch {
   // This string is loaded into the location bar when the item is selected
   // by pressing the arrow keys. This may be different than a URL, for example,
   // for search suggestions, this would just be the search terms.
-  std::wstring fill_into_edit;
+  string16 fill_into_edit;
 
   // The position within fill_into_edit from which we'll display the inline
-  // autocomplete string.  This will be std::wstring::npos if this match should
+  // autocomplete string.  This will be string16::npos if this match should
   // not be inline autocompleted.
   size_t inline_autocomplete_offset;
 
@@ -165,11 +156,11 @@ struct AutocompleteMatch {
   GURL destination_url;
 
   // The main text displayed in the address bar dropdown.
-  std::wstring contents;
+  string16 contents;
   ACMatchClassifications contents_class;
 
   // Additional helper text for each entry, such as a title or description.
-  std::wstring description;
+  string16 description;
   ACMatchClassifications description_class;
 
   // The transition type to use when the user opens this match.  By default
@@ -191,13 +182,16 @@ struct AutocompleteMatch {
   // True if the user has starred the destination URL.
   bool starred;
 
+  // True if this match is from a previous result.
+  bool from_previous;
+
 #ifndef NDEBUG
   // Does a data integrity check on this match.
   void Validate() const;
 
   // Checks one text/classifications pair for valid values.
   void ValidateClassifications(
-      const std::wstring& text,
+      const string16& text,
       const ACMatchClassifications& classifications) const;
 #endif
 };

@@ -27,9 +27,9 @@
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/icon_manager.h"
-#include "gfx/font.h"
 #include "ui/base/animation/animation_delegate.h"
-#include "views/event.h"
+#include "ui/gfx/font.h"
+#include "views/events/event.h"
 #include "views/controls/button/button.h"
 #include "views/view.h"
 

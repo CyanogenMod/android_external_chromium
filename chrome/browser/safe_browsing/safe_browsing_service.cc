@@ -9,6 +9,7 @@
 #include "base/lazy_instance.h"
 #include "base/path_service.h"
 #include "base/string_util.h"
+#include "base/threading/thread_restrictions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/metrics/metrics_service.h"
@@ -47,6 +48,7 @@ const char* const kSbDefaultInfoURLPrefix =
 const char* const kSbDefaultMacKeyURLPrefix =
     "https://sb-ssl.google.com/safebrowsing";
 
+// TODO(lzheng): Replace this with Profile* ProfileManager::GetDefaultProfile().
 Profile* GetDefaultProfile() {
   FilePath user_data_dir;
   PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
@@ -152,6 +154,20 @@ bool SafeBrowsingService::CanCheckUrl(const GURL& url) const {
   return url.SchemeIs(chrome::kFtpScheme) ||
          url.SchemeIs(chrome::kHttpScheme) ||
          url.SchemeIs(chrome::kHttpsScheme);
+}
+
+// Only report SafeBrowsing related stats when UMA is enabled and
+// safe browsing is enabled.
+bool SafeBrowsingService::CanReportStats() const {
+  const MetricsService* metrics = g_browser_process->metrics_service();
+  const PrefService* pref_service = GetDefaultProfile()->GetPrefs();
+  return metrics && metrics->reporting_active() &&
+      pref_service && pref_service->GetBoolean(prefs::kSafeBrowsingEnabled);
+}
+
+// Binhash verification is only enabled for UMA users for now.
+bool SafeBrowsingService::DownloadBinHashNeeded() const {
+  return enable_download_protection_ && CanReportStats();
 }
 
 void SafeBrowsingService::CheckDownloadUrlDone(
@@ -281,13 +297,15 @@ void SafeBrowsingService::CancelCheck(Client* client) {
   }
 }
 
-void SafeBrowsingService::DisplayBlockingPage(const GURL& url,
-                                              const GURL& original_url,
-                                              ResourceType::Type resource_type,
-                                              UrlCheckResult result,
-                                              Client* client,
-                                              int render_process_host_id,
-                                              int render_view_id) {
+void SafeBrowsingService::DisplayBlockingPage(
+    const GURL& url,
+    const GURL& original_url,
+    const std::vector<GURL>& redirect_urls,
+    ResourceType::Type resource_type,
+    UrlCheckResult result,
+    Client* client,
+    int render_process_host_id,
+    int render_view_id) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   // Check if the user has already ignored our warning for this render_view
@@ -309,6 +327,7 @@ void SafeBrowsingService::DisplayBlockingPage(const GURL& url,
   UnsafeResource resource;
   resource.url = url;
   resource.original_url = original_url;
+  resource.redirect_urls = redirect_urls;
   resource.resource_type = resource_type;
   resource.threat_type= result;
   resource.client = client;
@@ -560,7 +579,12 @@ void SafeBrowsingService::OnIOShutdown() {
   // Note that to avoid leaking the database, we rely on the fact that no new
   // tasks will be added to the db thread between the call above and this one.
   // See comments on the declaration of |safe_browsing_thread_|.
-  safe_browsing_thread_.reset();
+  {
+    // A ScopedAllowIO object is required to join the thread when calling Stop.
+    // See http://crbug.com/72696.
+    base::ThreadRestrictions::ScopedAllowIO allow_io_for_thread_join;
+    safe_browsing_thread_.reset();
+  }
 
   // Delete pending checks, calling back any clients with 'URL_SAFE'.  We have
   // to do this after the db thread returns because methods on it can have
@@ -577,7 +601,7 @@ void SafeBrowsingService::OnIOShutdown() {
 }
 
 bool SafeBrowsingService::DatabaseAvailable() const {
-  AutoLock lock(database_lock_);
+  base::AutoLock lock(database_lock_);
   return !closing_database_ && (database_ != NULL);
 }
 
@@ -610,7 +634,7 @@ SafeBrowsingDatabase* SafeBrowsingService::GetDatabase() {
   {
     // Acquiring the lock here guarantees correct ordering between the writes to
     // the new database object above, and the setting of |databse_| below.
-    AutoLock lock(database_lock_);
+    base::AutoLock lock(database_lock_);
     database_ = database;
   }
 
@@ -814,7 +838,7 @@ void SafeBrowsingService::OnCloseDatabase() {
   // of |database_| above and of |closing_database_| below, which ensures there
   // won't be a window during which the IO thread falsely believes the database
   // is available.
-  AutoLock lock(database_lock_);
+  base::AutoLock lock(database_lock_);
   closing_database_ = false;
 }
 

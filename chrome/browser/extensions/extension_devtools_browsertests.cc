@@ -18,7 +18,6 @@
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/devtools_messages.h"
 #include "chrome/common/url_constants.h"
@@ -82,7 +81,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionDevToolsBrowserTest, FLAKY_TimelineApi) {
   // Test onPageEvent event.
   result = false;
 
-  DevToolsClientMsg_DispatchToAPU pageEventMessage("");
+  DevToolsClientMsg_DispatchOnInspectorFrontend pageEventMessage("");
   devtools_client_host->SendMessageToClient(pageEventMessage);
   ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractBool(
       host->render_view_host(), L"", L"testReceivePageEvent()", &result));

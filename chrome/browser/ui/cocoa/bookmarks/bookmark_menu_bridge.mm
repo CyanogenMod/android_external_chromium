@@ -4,21 +4,20 @@
 
 #import <AppKit/AppKit.h>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "app/mac/nsimage_cache.h"
 #include "base/sys_string_conversions.h"
 #import "chrome/browser/app_controller_mac.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/cocoa/bookmarks/bookmark_menu_bridge.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_menu_cocoa_controller.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "skia/ext/skia_utils_mac.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 BookmarkMenuBridge::BookmarkMenuBridge(Profile* profile)
     : menuIsValid_(false),

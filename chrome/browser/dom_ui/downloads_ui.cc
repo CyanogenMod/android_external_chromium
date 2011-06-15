@@ -1,11 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/dom_ui/downloads_ui.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/singleton.h"
 #include "base/string_piece.h"
 #include "base/threading/thread.h"
@@ -16,11 +14,14 @@
 #include "chrome/browser/dom_ui/downloads_dom_handler.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/url_constants.h"
 #include "grit/browser_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 namespace {
 
@@ -123,7 +124,7 @@ void DownloadsUIHTMLSource::StartDataRequest(const std::string& path,
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-DownloadsUI::DownloadsUI(TabContents* contents) : DOMUI(contents) {
+DownloadsUI::DownloadsUI(TabContents* contents) : WebUI(contents) {
   DownloadManager* dlm = GetProfile()->GetDownloadManager();
 
   DownloadsDOMHandler* handler = new DownloadsDOMHandler(dlm);
@@ -134,11 +135,7 @@ DownloadsUI::DownloadsUI(TabContents* contents) : DOMUI(contents) {
   DownloadsUIHTMLSource* html_source = new DownloadsUIHTMLSource();
 
   // Set up the chrome://downloads/ source.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(ChromeURLDataManager::GetInstance(),
-                        &ChromeURLDataManager::AddDataSource,
-                        make_scoped_refptr(html_source)));
+  contents->profile()->GetChromeURLDataManager()->AddDataSource(html_source);
 }
 
 // static

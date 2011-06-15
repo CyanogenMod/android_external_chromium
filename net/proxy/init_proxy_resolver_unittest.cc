@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -187,7 +187,7 @@ TEST(InitProxyResolverTest, CustomPacSucceeds) {
   EXPECT_EQ(rule.text(), resolver.script_data()->utf16());
 
   // Check the NetLog was filled correctly.
-  net::CapturingNetLog::EntryList entries;
+  CapturingNetLog::EntryList entries;
   log.GetEntries(&entries);
 
   EXPECT_EQ(6u, entries.size());
@@ -224,7 +224,7 @@ TEST(InitProxyResolverTest, CustomPacFails1) {
   EXPECT_EQ(NULL, resolver.script_data());
 
   // Check the NetLog was filled correctly.
-  net::CapturingNetLog::EntryList entries;
+  CapturingNetLog::EntryList entries;
   log.GetEntries(&entries);
 
   EXPECT_EQ(4u, entries.size());
@@ -338,7 +338,7 @@ TEST(InitProxyResolverTest, AutodetectFailCustomSuccess2) {
   // Check the NetLog was filled correctly.
   // (Note that the Fetch and Set states are repeated since both WPAD and custom
   // PAC scripts are tried).
-  net::CapturingNetLog::EntryList entries;
+  CapturingNetLog::EntryList entries;
   log.GetEntries(&entries);
 
   EXPECT_EQ(11u, entries.size());
@@ -453,7 +453,7 @@ TEST(InitProxyResolverTest, CustomPacFails1_WithPositiveDelay) {
   EXPECT_EQ(NULL, resolver.script_data());
 
   // Check the NetLog was filled correctly.
-  net::CapturingNetLog::EntryList entries;
+  CapturingNetLog::EntryList entries;
   log.GetEntries(&entries);
 
   EXPECT_EQ(6u, entries.size());
@@ -493,7 +493,7 @@ TEST(InitProxyResolverTest, CustomPacFails1_WithNegativeDelay) {
   EXPECT_EQ(NULL, resolver.script_data());
 
   // Check the NetLog was filled correctly.
-  net::CapturingNetLog::EntryList entries;
+  CapturingNetLog::EntryList entries;
   log.GetEntries(&entries);
 
   EXPECT_EQ(4u, entries.size());

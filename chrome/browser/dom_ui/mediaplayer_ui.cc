@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/dom_ui/mediaplayer_ui.h"
 
-#include "app/resource_bundle.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
@@ -18,7 +17,7 @@
 #include "base/weak_ptr.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/dom_ui/dom_ui_favicon_source.h"
+#include "chrome/browser/dom_ui/web_ui_favicon_source.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/download/download_util.h"
 #include "chrome/browser/history/history_types.h"
@@ -42,6 +41,7 @@
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
 #include "net/url_request/url_request_job.h"
+#include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/frame/panel_browser_view.h"
@@ -80,7 +80,7 @@ class MediaplayerUIHTMLSource : public ChromeURLDataManager::DataSource {
 };
 
 // The handler for Javascript messages related to the "mediaplayer" view.
-class MediaplayerHandler : public DOMMessageHandler,
+class MediaplayerHandler : public WebUIMessageHandler,
                            public base::SupportsWeakPtr<MediaplayerHandler> {
  public:
 
@@ -101,8 +101,8 @@ class MediaplayerHandler : public DOMMessageHandler,
   // Init work after Attach.
   void Init(bool is_playlist, TabContents* contents);
 
-  // DOMMessageHandler implementation.
-  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+  // WebUIMessageHandler implementation.
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
   virtual void RegisterMessages();
 
   // Callback for the "currentOffsetChanged" message.
@@ -207,16 +207,13 @@ MediaplayerHandler::MediaplayerHandler(bool is_playlist)
 MediaplayerHandler::~MediaplayerHandler() {
 }
 
-DOMMessageHandler* MediaplayerHandler::Attach(DOMUI* dom_ui) {
+WebUIMessageHandler* MediaplayerHandler::Attach(WebUI* web_ui) {
   // Create our favicon data source.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(
-          ChromeURLDataManager::GetInstance(),
-          &ChromeURLDataManager::AddDataSource,
-          make_scoped_refptr(new DOMUIFavIconSource(dom_ui->GetProfile()))));
+  Profile* profile = web_ui->GetProfile();
+  profile->GetChromeURLDataManager()->AddDataSource(
+      new WebUIFavIconSource(profile));
 
-  return DOMMessageHandler::Attach(dom_ui);
+  return WebUIMessageHandler::Attach(web_ui);
 }
 
 void MediaplayerHandler::Init(bool is_playlist, TabContents* contents) {
@@ -229,19 +226,19 @@ void MediaplayerHandler::Init(bool is_playlist, TabContents* contents) {
 }
 
 void MediaplayerHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("currentOffsetChanged",
+  web_ui_->RegisterMessageCallback("currentOffsetChanged",
       NewCallback(this, &MediaplayerHandler::HandleCurrentOffsetChanged));
-  dom_ui_->RegisterMessageCallback("playbackError",
+  web_ui_->RegisterMessageCallback("playbackError",
       NewCallback(this, &MediaplayerHandler::HandlePlaybackError));
-  dom_ui_->RegisterMessageCallback("getCurrentPlaylist",
+  web_ui_->RegisterMessageCallback("getCurrentPlaylist",
       NewCallback(this, &MediaplayerHandler::HandleGetCurrentPlaylist));
-  dom_ui_->RegisterMessageCallback("togglePlaylist",
+  web_ui_->RegisterMessageCallback("togglePlaylist",
       NewCallback(this, &MediaplayerHandler::HandleTogglePlaylist));
-  dom_ui_->RegisterMessageCallback("setCurrentPlaylistOffset",
+  web_ui_->RegisterMessageCallback("setCurrentPlaylistOffset",
       NewCallback(this, &MediaplayerHandler::HandleSetCurrentPlaylistOffset));
-  dom_ui_->RegisterMessageCallback("toggleFullscreen",
+  web_ui_->RegisterMessageCallback("toggleFullscreen",
       NewCallback(this, &MediaplayerHandler::HandleToggleFullscreen));
-  dom_ui_->RegisterMessageCallback("showPlaylist",
+  web_ui_->RegisterMessageCallback("showPlaylist",
       NewCallback(this, &MediaplayerHandler::HandleShowPlaylist));
 }
 
@@ -288,7 +285,7 @@ void MediaplayerHandler::FirePlaylistChanged(const std::string& path,
   info_value.SetString(kPropertyPath, path);
   info_value.SetBoolean(kPropertyForce, force);
   info_value.SetInteger(kPropertyOffset, offset);
-  dom_ui_->CallJavascriptFunction(L"playlistChanged", info_value, urls);
+  web_ui_->CallJavascriptFunction(L"playlistChanged", info_value, urls);
 }
 
 void MediaplayerHandler::SetCurrentPlaylistOffset(int offset) {
@@ -597,7 +594,7 @@ MediaPlayer::MediaPlayer()
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-MediaplayerUI::MediaplayerUI(TabContents* contents) : DOMUI(contents) {
+MediaplayerUI::MediaplayerUI(TabContents* contents) : WebUI(contents) {
   const GURL& url = contents->GetURL();
   bool is_playlist = (url.ref() == "playlist");
   MediaplayerHandler* handler = new MediaplayerHandler(is_playlist);
@@ -612,10 +609,5 @@ MediaplayerUI::MediaplayerUI(TabContents* contents) : DOMUI(contents) {
       new MediaplayerUIHTMLSource(is_playlist);
 
   // Set up the chrome://mediaplayer/ source.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(
-          ChromeURLDataManager::GetInstance(),
-          &ChromeURLDataManager::AddDataSource,
-          make_scoped_refptr(html_source)));
+  contents->profile()->GetChromeURLDataManager()->AddDataSource(html_source);
 }

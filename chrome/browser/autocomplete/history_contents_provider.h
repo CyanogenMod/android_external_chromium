@@ -30,15 +30,6 @@ class HistoryContentsProvider : public HistoryProvider {
                      bool minimal_changes) OVERRIDE;
   virtual void Stop() OVERRIDE;
 
-  // Returns the total number of matches available in the database, up to
-  // kMaxMatchCount, whichever is smaller.
-  // Return value is incomplete if done() returns false.
-  size_t db_match_count() const { return results_.size(); }
-
-  // The maximum match count we'll report. If the db_match_count is greater
-  // than this, it will be clamped to this result.
-  static const size_t kMaxMatchCount = 50;
-
  private:
   ~HistoryContentsProvider();
 
@@ -93,7 +84,7 @@ class HistoryContentsProvider : public HistoryProvider {
   bool have_results_;
 
   // Current query string.
-  std::wstring query_;
+  string16 query_;
 
   DISALLOW_COPY_AND_ASSIGN(HistoryContentsProvider);
 };

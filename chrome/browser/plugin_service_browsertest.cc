@@ -72,19 +72,19 @@ IN_PROC_BROWSER_TEST_F(PluginServiceTest, StartAndFindPluginProcess) {
   // Try to load the default plugin and if this is successful consecutive
   // calls to FindPluginProcess should return non-zero values.
   PluginProcessHost* default_plugin_process_host =
-      plugin_service_->FindOrStartPluginProcess(
+      plugin_service_->FindOrStartNpapiPluginProcess(
           FilePath(webkit::npapi::kDefaultPluginLibraryName));
 
-  EXPECT_EQ(default_plugin_process_host, plugin_service_->FindPluginProcess(
-      FilePath(webkit::npapi::kDefaultPluginLibraryName)));
+  EXPECT_EQ(default_plugin_process_host,
+            plugin_service_->FindNpapiPluginProcess(
+                FilePath(webkit::npapi::kDefaultPluginLibraryName)));
 }
 
 IN_PROC_BROWSER_TEST_F(PluginServiceTest, OpenChannelToPlugin) {
   MockPluginProcessHostClient mock_client;
   EXPECT_CALL(mock_client, SetPluginInfo(testing::_)).Times(1);
-  plugin_service_->OpenChannelToPlugin(GURL("http://google.com/"),
-                                       "audio/mp3",
-                                       &mock_client);
+  plugin_service_->OpenChannelToNpapiPlugin(0, 0, GURL("http://google.com/"),
+                                            "audio/mp3", &mock_client);
   message_loop_.RunAllPending();
 }
 
@@ -97,7 +97,7 @@ IN_PROC_BROWSER_TEST_F(PluginServiceTest, GetFirstAllowedPluginInfo) {
   // supports all mime types.
   webkit::npapi::WebPluginInfo plugin_info;
   std::string plugin_mime_type;
-  plugin_service_->GetFirstAllowedPluginInfo(GURL("http://google.com/"),
+  plugin_service_->GetFirstAllowedPluginInfo(0, 0, GURL("http://google.com/"),
                                              "application/pdf",
                                              &plugin_info,
                                              &plugin_mime_type);

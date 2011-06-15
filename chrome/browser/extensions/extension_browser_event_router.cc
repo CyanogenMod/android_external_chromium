@@ -61,10 +61,6 @@ DictionaryValue* ExtensionBrowserEventRouter::TabEntry::DidNavigate(
   return changed_properties;
 }
 
-ExtensionBrowserEventRouter* ExtensionBrowserEventRouter::GetInstance() {
-  return Singleton<ExtensionBrowserEventRouter>::get();
-}
-
 static void DispatchEvent(Profile* profile,
                           const char* event_name,
                           const std::string& json_args) {
@@ -111,16 +107,14 @@ static void DispatchSimpleBrowserEvent(Profile* profile,
   DispatchEvent(profile, event_name, json_args);
 }
 
-void ExtensionBrowserEventRouter::Init(Profile* profile) {
+void ExtensionBrowserEventRouter::Init() {
   if (initialized_)
     return;
-  DCHECK(!profile->IsOffTheRecord());
-  profile_ = profile;
   BrowserList::AddObserver(this);
 #if defined(TOOLKIT_VIEWS)
   views::FocusManager::GetWidgetFocusManager()->AddFocusChangeListener(this);
 #elif defined(TOOLKIT_GTK)
-  ActiveWindowWatcherX::AddObserver(this);
+  ui::ActiveWindowWatcherX::AddObserver(this);
 #elif defined(OS_MACOSX)
   // Needed for when no suitable window can be passed to an extension as the
   // currently focused window.
@@ -148,12 +142,21 @@ void ExtensionBrowserEventRouter::Init(Profile* profile) {
   initialized_ = true;
 }
 
-ExtensionBrowserEventRouter::ExtensionBrowserEventRouter()
+ExtensionBrowserEventRouter::ExtensionBrowserEventRouter(Profile* profile)
     : initialized_(false),
       focused_window_id_(extension_misc::kUnknownWindowId),
-      profile_(NULL) { }
+      profile_(profile) {
+  DCHECK(!profile->IsOffTheRecord());
+}
 
-ExtensionBrowserEventRouter::~ExtensionBrowserEventRouter() {}
+ExtensionBrowserEventRouter::~ExtensionBrowserEventRouter() {
+  BrowserList::RemoveObserver(this);
+#if defined(TOOLKIT_VIEWS)
+  views::FocusManager::GetWidgetFocusManager()->RemoveFocusChangeListener(this);
+#elif defined(TOOLKIT_GTK)
+  ui::ActiveWindowWatcherX::RemoveObserver(this);
+#endif
+}
 
 void ExtensionBrowserEventRouter::OnBrowserAdded(const Browser* browser) {
   RegisterForBrowserNotifications(browser);
@@ -466,11 +469,13 @@ void ExtensionBrowserEventRouter::TabChangedAt(TabContentsWrapper* contents,
 }
 
 void ExtensionBrowserEventRouter::TabReplacedAt(
+    TabStripModel* tab_strip_model,
     TabContentsWrapper* old_contents,
     TabContentsWrapper* new_contents,
     int index) {
-  UnregisterForTabNotifications(old_contents->tab_contents());
-  RegisterForTabNotifications(new_contents->tab_contents());
+  TabClosingAt(tab_strip_model, old_contents, index);
+  TabInsertedAt(new_contents, index,
+                tab_strip_model->selected_index() == index);
 }
 
 void ExtensionBrowserEventRouter::TabPinnedStateChanged(

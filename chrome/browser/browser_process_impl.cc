@@ -6,8 +6,6 @@
 
 #include <map>
 
-#include "app/clipboard/clipboard.h"
-#include "app/l10n_util.h"
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/path_service.h"
@@ -15,7 +13,6 @@
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/synchronization/waitable_event.h"
-#include "chrome/browser/appcache/chrome_appcache_service.h"
 #include "chrome/browser/automation/automation_provider_list.h"
 #include "chrome/browser/browser_child_process_host.h"
 #include "chrome/browser/browser_list.h"
@@ -23,8 +20,10 @@
 #include "chrome/browser/browser_process_sub_thread.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_trial.h"
-#include "chrome/browser/debugger/debugger_wrapper.h"
+#include "chrome/browser/debugger/browser_list_tabcontents_provider.h"
+#include "chrome/browser/debugger/devtools_http_protocol_handler.h"
 #include "chrome/browser/debugger/devtools_manager.h"
+#include "chrome/browser/debugger/devtools_protocol_handler.h"
 #include "chrome/browser/download/download_file_manager.h"
 #include "chrome/browser/download/save_file_manager.h"
 #include "chrome/browser/first_run/first_run.h"
@@ -49,6 +48,7 @@
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/safe_browsing/client_side_detection_service.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
+#include "chrome/browser/shell_integration.h"
 #include "chrome/browser/sidebar/sidebar_manager.h"
 #include "chrome/browser/tab_closeable_state_watcher.h"
 #include "chrome/common/chrome_constants.h"
@@ -63,6 +63,8 @@
 #include "chrome/common/switch_utils.h"
 #include "chrome/installer/util/google_update_constants.h"
 #include "ipc/ipc_logging.h"
+#include "ui/base/clipboard/clipboard.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "webkit/database/database_tracker.h"
 
 #if defined(OS_WIN)
@@ -98,7 +100,6 @@ BrowserProcessImpl::BrowserProcessImpl(const CommandLine& command_line)
       created_profile_manager_(false),
       created_local_state_(false),
       created_icon_manager_(false),
-      created_debugger_wrapper_(false),
       created_devtools_manager_(false),
       created_sidebar_manager_(false),
       created_configuration_policy_provider_keeper_(false),
@@ -110,7 +111,7 @@ BrowserProcessImpl::BrowserProcessImpl(const CommandLine& command_line)
       using_new_frames_(false),
       have_inspector_files_(true) {
   g_browser_process = this;
-  clipboard_.reset(new Clipboard);
+  clipboard_.reset(new ui::Clipboard);
   main_notification_service_.reset(new NotificationService);
 
   notification_registrar_.Add(this,
@@ -147,14 +148,16 @@ BrowserProcessImpl::~BrowserProcessImpl() {
   // any pending URLFetchers, and avoid creating any more.
   SdchDictionaryFetcher::Shutdown();
 
-  // We need to destroy the MetricsService, GoogleURLTracker, and
-  // IntranetRedirectDetector before the io_thread_ gets destroyed, since their
-  // destructors can call the URLFetcher destructor, which does a
-  // PostDelayedTask operation on the IO thread.  (The IO thread will handle
-  // that URLFetcher operation before going away.)
+  // We need to destroy the MetricsService, GoogleURLTracker,
+  // IntranetRedirectDetector, and SafeBrowsing ClientSideDetectionService
+  // before the io_thread_ gets destroyed, since their destructors can call the
+  // URLFetcher destructor, which does a PostDelayedTask operation on the IO
+  // thread. (The IO thread will handle that URLFetcher operation before going
+  // away.)
   metrics_service_.reset();
   google_url_tracker_.reset();
   intranet_redirect_detector_.reset();
+  safe_browsing_detection_service_.reset();
 
   // Need to clear the desktop notification balloons before the io_thread_ and
   // before the profiles, since if there are any still showing we will access
@@ -165,7 +168,14 @@ BrowserProcessImpl::~BrowserProcessImpl() {
   profile_manager_.reset();
 
   // Debugger must be cleaned up before IO thread and NotificationService.
-  debugger_wrapper_ = NULL;
+  if (devtools_http_handler_.get()) {
+    devtools_http_handler_->Stop();
+    devtools_http_handler_ = NULL;
+  }
+  if (devtools_legacy_handler_.get()) {
+    devtools_legacy_handler_->Stop();
+    devtools_legacy_handler_ = NULL;
+  }
 
   if (resource_dispatcher_host_.get()) {
     // Need to tell Safe Browsing Service that the IO thread is going away
@@ -408,7 +418,7 @@ SidebarManager* BrowserProcessImpl::sidebar_manager() {
   return sidebar_manager_.get();
 }
 
-Clipboard* BrowserProcessImpl::clipboard() {
+ui::Clipboard* BrowserProcessImpl::clipboard() {
   DCHECK(CalledOnValidThread());
   return clipboard_.get();
 }
@@ -451,10 +461,21 @@ AutomationProviderList* BrowserProcessImpl::InitAutomationProviderList() {
   return automation_provider_list_.get();
 }
 
-void BrowserProcessImpl::InitDebuggerWrapper(int port, bool useHttp) {
+void BrowserProcessImpl::InitDevToolsHttpProtocolHandler(
+    const std::string& ip,
+    int port,
+    const std::string& frontend_url) {
   DCHECK(CalledOnValidThread());
-  if (!created_debugger_wrapper_)
-    CreateDebuggerWrapper(port, useHttp);
+  devtools_http_handler_ =
+      DevToolsHttpProtocolHandler::Start(ip,
+                                         port,
+                                         frontend_url,
+                                         new BrowserListTabContentsProvider());
+}
+
+void BrowserProcessImpl::InitDevToolsLegacyProtocolHandler(int port) {
+  DCHECK(CalledOnValidThread());
+  devtools_legacy_handler_ = DevToolsProtocolHandler::Start(port);
 }
 
 bool BrowserProcessImpl::IsShuttingDown() {
@@ -540,11 +561,19 @@ void BrowserProcessImpl::Observe(NotificationType type,
     Profile* profile = ProfileManager::GetDefaultProfile();
     if (profile) {
       PrefService* prefs = profile->GetPrefs();
-      if (prefs->GetBoolean(prefs::kClearPluginLSODataOnExit) &&
+      if (prefs->GetBoolean(prefs::kClearSiteDataOnExit) &&
           local_state()->GetBoolean(prefs::kClearPluginLSODataEnabled)) {
         plugin_data_remover_ = new PluginDataRemover();
-        plugin_data_remover_->StartRemoving(base::Time(), NULL);
+        if (!plugin_data_remover_mime_type().empty())
+          plugin_data_remover_->set_mime_type(plugin_data_remover_mime_type());
+        plugin_data_remover_->StartRemoving(base::Time());
       }
+    }
+  } else if (type == NotificationType::PREF_CHANGED) {
+    std::string* pref = Details<std::string>(details).ptr();
+    if (*pref == prefs::kDefaultBrowserSettingEnabled) {
+      if (local_state_->GetBoolean(prefs::kDefaultBrowserSettingEnabled))
+        ShellIntegration::SetAsDefaultBrowser();
     }
   } else {
     NOTREACHED();
@@ -552,13 +581,8 @@ void BrowserProcessImpl::Observe(NotificationType type,
 }
 
 void BrowserProcessImpl::WaitForPluginDataRemoverToFinish() {
-  if (!plugin_data_remover_.get() || !plugin_data_remover_->is_removing())
-    return;
-  plugin_data_remover_->set_done_task(new MessageLoop::QuitTask());
-  base::Time start_time(base::Time::Now());
-  MessageLoop::current()->Run();
-  UMA_HISTOGRAM_TIMES("ClearPluginData.wait_at_shutdown",
-                      base::Time::Now() - start_time);
+  if (plugin_data_remover_.get())
+    plugin_data_remover_->Wait();
 }
 
 #if (defined(OS_WIN) || defined(OS_LINUX)) && !defined(OS_CHROMEOS)
@@ -574,9 +598,12 @@ bool BrowserProcessImpl::have_inspector_files() const {
   return have_inspector_files_;
 }
 
+ChromeNetLog* BrowserProcessImpl::net_log() {
+  return net_log_.get();
+}
+
 void BrowserProcessImpl::ClearLocalState(const FilePath& profile_path) {
   webkit_database::DatabaseTracker::ClearLocalState(profile_path);
-  ChromeAppCacheService::ClearLocalState(profile_path);
 }
 
 bool BrowserProcessImpl::ShouldClearLocalState(FilePath* profile_path) {
@@ -728,19 +755,21 @@ void BrowserProcessImpl::CreateLocalState() {
   print_job_manager_->set_printing_enabled(printing_enabled);
   pref_change_registrar_.Add(prefs::kPrintingEnabled,
                              print_job_manager_.get());
+
+  // Initialize the notification for the default browser setting policy.
+  local_state_->RegisterBooleanPref(prefs::kDefaultBrowserSettingEnabled,
+                                    false);
+  if (local_state_->IsManagedPreference(prefs::kDefaultBrowserSettingEnabled)) {
+    if (local_state_->GetBoolean(prefs::kDefaultBrowserSettingEnabled))
+      ShellIntegration::SetAsDefaultBrowser();
+  }
+  pref_change_registrar_.Add(prefs::kDefaultBrowserSettingEnabled, this);
 }
 
 void BrowserProcessImpl::CreateIconManager() {
   DCHECK(!created_icon_manager_ && icon_manager_.get() == NULL);
   created_icon_manager_ = true;
   icon_manager_.reset(new IconManager);
-}
-
-void BrowserProcessImpl::CreateDebuggerWrapper(int port, bool useHttp) {
-  DCHECK(debugger_wrapper_.get() == NULL);
-  created_debugger_wrapper_ = true;
-
-  debugger_wrapper_ = new DebuggerWrapper(port, useHttp);
 }
 
 void BrowserProcessImpl::CreateDevToolsManager() {
@@ -806,15 +835,11 @@ void BrowserProcessImpl::CreateSafeBrowsingDetectionService() {
 
 bool BrowserProcessImpl::IsSafeBrowsingDetectionServiceEnabled() {
   // The safe browsing client-side detection is enabled only if the switch is
-  // enabled, the user has opted in to UMA usage stats and SafeBrowsing
-  // is enabled.
-  Profile* profile = profile_manager() ?
-      profile_manager()->GetDefaultProfile() : NULL;
-  return (CommandLine::ForCurrentProcess()->HasSwitch(
-              switches::kEnableClientSidePhishingDetection) &&
-          metrics_service() && metrics_service()->reporting_active() &&
-          profile && profile->GetPrefs() &&
-          profile->GetPrefs()->GetBoolean(prefs::kSafeBrowsingEnabled));
+  // enabled and when safe browsing related stats is allowed to be collected.
+  return CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kEnableClientSidePhishingDetection) &&
+      resource_dispatcher_host()->safe_browsing_service() &&
+      resource_dispatcher_host()->safe_browsing_service()->CanReportStats();
 }
 
 // The BrowserProcess object must outlive the file thread so we use traits

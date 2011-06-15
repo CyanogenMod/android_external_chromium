@@ -18,28 +18,14 @@ class KeyboardLibrary {
  public:
   virtual ~KeyboardLibrary() {}
 
-  // Returns the hardware layout name like "xkb:us::eng". On error, returns "".
-  virtual std::string GetHardwareKeyboardLayoutName() const = 0;
-
-  // Returns the current layout name like "us". On error, returns "".
-  virtual std::string GetCurrentKeyboardLayoutName() const = 0;
-
   // Sets the current keyboard layout to |layout_name|.  Returns true on
-  // success.
+  // success. |layout_name| should look like XKB layout like "us" and
+  // "us(dvorak)".
   virtual bool SetCurrentKeyboardLayoutByName(
       const std::string& layout_name) = 0;
 
   // Remaps modifier keys.  Returns true on success.
   virtual bool RemapModifierKeys(const ModifierMap& modifier_map) = 0;
-
-  // Gets whehter we have separate keyboard layout per window, or not. The
-  // result is stored in |is_per_window|.  Returns true on success.
-  virtual bool GetKeyboardLayoutPerWindow(bool* is_per_window) const = 0;
-
-  // Sets whether we have separate keyboard layout per window, or not. If false
-  // is given, the same keyboard layout will be shared for all applications.
-  // Returns true on success.
-  virtual bool SetKeyboardLayoutPerWindow(bool is_per_window) = 0;
 
   // Gets the current auto-repeat mode of the keyboard. The result is stored in
   // |enabled|. Returns true on success.

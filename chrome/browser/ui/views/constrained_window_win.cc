@@ -1,14 +1,12 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/constrained_window_win.h"
+#include "chrome/browser/ui/views/constrained_window_win.h"
 
-#include "app/resource_bundle.h"
-#include "app/win/hwnd_util.h"
-#include "app/win/win_util.h"
+#include <algorithm>
+
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
@@ -17,22 +15,24 @@
 #include "chrome/browser/ui/window_sizer.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/notification_service.h"
-#include "chrome/common/pref_names.h"
-#include "gfx/canvas.h"
-#include "gfx/font.h"
-#include "gfx/path.h"
-#include "gfx/rect.h"
 #include "grit/app_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "net/base/net_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/font.h"
+#include "ui/gfx/path.h"
+#include "ui/gfx/rect.h"
 #include "views/controls/button/image_button.h"
 #include "views/focus/focus_manager.h"
+#include "views/widget/widget_win.h"
 #include "views/window/client_view.h"
 #include "views/window/non_client_view.h"
 #include "views/window/window_resources.h"
 #include "views/window/window_shape.h"
+#include "views/window/window_win.h"
 
 using base::TimeDelta;
 
@@ -198,7 +198,8 @@ class ConstrainedWindowFrameView
 
   SkColor GetTitleColor() const {
     return (container_->owner()->profile()->IsOffTheRecord() ||
-        !app::win::ShouldUseVistaFrame()) ? SK_ColorWHITE : SK_ColorBLACK;
+            !views::WidgetWin::IsAeroGlassEnabled()) ? SK_ColorWHITE
+                                                     : SK_ColorBLACK;
   }
 
   // Loads the appropriate set of WindowResources for the frame view.
@@ -312,7 +313,7 @@ int ConstrainedWindowFrameView::NonClientHitTest(const gfx::Point& point) {
   // See if we're in the sysmenu region.  (We check the ClientView first to be
   // consistent with OpaqueBrowserFrameView; it's not really necessary here.)
   gfx::Rect sysmenu_rect(IconBounds());
-  sysmenu_rect.set_x(MirroredLeftPointForRect(sysmenu_rect));
+  sysmenu_rect.set_x(GetMirroredXForRect(sysmenu_rect));
   if (sysmenu_rect.Contains(point))
     return (frame_component == HTCLIENT) ? HTCLIENT : HTSYSMENU;
 
@@ -320,7 +321,7 @@ int ConstrainedWindowFrameView::NonClientHitTest(const gfx::Point& point) {
     return frame_component;
 
   // Then see if the point is within any of the window controls.
-  if (close_button_->GetBounds(APPLY_MIRRORING_TRANSFORMATION).Contains(point))
+  if (close_button_->GetMirroredBounds().Contains(point))
     return HTCLOSE;
 
   int window_component = GetHTComponentForFrame(point, kFrameBorderThickness,
@@ -480,7 +481,7 @@ void ConstrainedWindowFrameView::PaintFrameBorder(gfx::Canvas* canvas) {
 
 void ConstrainedWindowFrameView::PaintTitleBar(gfx::Canvas* canvas) {
   canvas->DrawStringInt(container_->GetWindowTitle(), *title_font_,
-      GetTitleColor(), MirroredLeftPointForRect(title_bounds_),
+      GetTitleColor(), GetMirroredXForRect(title_bounds_),
       title_bounds_.y(), title_bounds_.width(), title_bounds_.height());
 }
 
@@ -535,7 +536,7 @@ gfx::Rect ConstrainedWindowFrameView::CalculateClientAreaBounds(
 }
 
 void ConstrainedWindowFrameView::InitWindowResources() {
-  resources_.reset(app::win::ShouldUseVistaFrame() ?
+  resources_.reset(views::WidgetWin::IsAeroGlassEnabled() ?
     static_cast<views::WindowResources*>(new VistaWindowResources) :
     new XPWindowResources);
 }
@@ -544,7 +545,7 @@ void ConstrainedWindowFrameView::InitWindowResources() {
 void ConstrainedWindowFrameView::InitClass() {
   static bool initialized = false;
   if (!initialized) {
-    title_font_ = new gfx::Font(app::win::GetWindowTitleFont());
+    title_font_ = new gfx::Font(views::WindowWin::GetWindowTitleFont());
     initialized = true;
   }
 }
@@ -571,6 +572,9 @@ void ConstrainedWindowWin::FocusConstrainedWindow() {
 }
 
 void ConstrainedWindowWin::ShowConstrainedWindow() {
+  // We marked the view as hidden during construction.  Mark it as
+  // visible now so FocusManager will let us receive focus.
+  GetNonClientView()->SetVisible(true);
   if (owner_->delegate())
     owner_->delegate()->WillShowConstrainedWindow(owner_);
   ActivateConstrainedWindow();
@@ -614,6 +618,10 @@ ConstrainedWindowWin::ConstrainedWindowWin(
   set_window_style(WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_CAPTION |
                    WS_THICKFRAME | WS_SYSMENU);
   set_focus_on_creation(false);
+  // Views default to visible.  Since we are creating a window that is
+  // not visible (no WS_VISIBLE), mark our View as hidden so that
+  // FocusManager can deal with it properly.
+  GetNonClientView()->SetVisible(false);
 
   WindowWin::Init(owner_->GetNativeView(), gfx::Rect());
 }

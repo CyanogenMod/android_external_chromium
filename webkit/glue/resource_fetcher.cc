@@ -5,13 +5,13 @@
 #include "webkit/glue/resource_fetcher.h"
 
 #include "base/logging.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebFrame.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebKit.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebKitClient.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLError.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLLoader.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLRequest.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURL.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebFrame.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebKit.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebKitClient.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLError.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLLoader.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLRequest.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURL.h"
 
 using base::TimeDelta;
 using WebKit::WebFrame;
@@ -25,8 +25,8 @@ namespace webkit_glue {
 ResourceFetcher::ResourceFetcher(const GURL& url, WebFrame* frame,
                                  Callback* c)
     : url_(url),
-      callback_(c),
-      completed_(false) {
+      completed_(false),
+      callback_(c) {
   // Can't do anything without a frame.  However, delegate can be NULL (so we
   // can do a http request and ignore the results).
   DCHECK(frame);
@@ -51,6 +51,18 @@ void ResourceFetcher::Start(WebFrame* frame) {
 
   loader_.reset(WebKit::webKitClient()->createURLLoader());
   loader_->loadAsynchronously(request, this);
+}
+
+void ResourceFetcher::RunCallback(const WebURLResponse& response,
+                                  const std::string& data) {
+  if (!callback_.get())
+    return;
+
+  // Take care to clear callback_ before running the callback as it may lead to
+  // our destruction.
+  scoped_ptr<Callback> callback;
+  callback.swap(callback_);
+  callback->Run(response, data);
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -93,10 +105,7 @@ void ResourceFetcher::didFinishLoading(
   DCHECK(!completed_);
   completed_ = true;
 
-  if (callback_.get()) {
-    callback_->Run(response_, data_);
-    callback_.reset();
-  }
+  RunCallback(response_, data_);
 }
 
 void ResourceFetcher::didFail(WebURLLoader* loader, const WebURLError& error) {
@@ -104,10 +113,7 @@ void ResourceFetcher::didFail(WebURLLoader* loader, const WebURLError& error) {
   completed_ = true;
 
   // Go ahead and tell our delegate that we're done.
-  if (callback_.get()) {
-    callback_->Run(WebURLResponse(), std::string());
-    callback_.reset();
-  }
+  RunCallback(WebURLResponse(), std::string());
 }
 
 /////////////////////////////////////////////////////////////////////////////

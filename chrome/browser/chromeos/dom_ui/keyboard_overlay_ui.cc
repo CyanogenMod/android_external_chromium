@@ -1,11 +1,9 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/chromeos/dom_ui/keyboard_overlay_ui.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/callback.h"
 #include "base/values.h"
 #include "base/weak_ptr.h"
@@ -14,11 +12,15 @@
 #include "chrome/browser/chromeos/cros/input_method_library.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/url_constants.h"
 #include "grit/browser_resources.h"
 #include "grit/generated_resources.h"
 #include "third_party/cros/chromeos_input_method.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 
 class KeyboardOverlayUIHTMLSource : public ChromeURLDataManager::DataSource {
@@ -43,14 +45,14 @@ class KeyboardOverlayUIHTMLSource : public ChromeURLDataManager::DataSource {
 
 // The handler for Javascript messages related to the "keyboardoverlay" view.
 class KeyboardOverlayHandler
-    : public DOMMessageHandler,
+    : public WebUIMessageHandler,
       public base::SupportsWeakPtr<KeyboardOverlayHandler> {
  public:
   KeyboardOverlayHandler();
   virtual ~KeyboardOverlayHandler();
 
-  // DOMMessageHandler implementation.
-  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+  // WebUIMessageHandler implementation.
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
   virtual void RegisterMessages();
 
  private:
@@ -80,6 +82,8 @@ void KeyboardOverlayUIHTMLSource::StartDataRequest(const std::string& path,
       l10n_util::GetStringUTF16(IDS_KEYBOARD_OVERLAY_TITLE));
   localized_strings.SetString("keyboardOverlayInstructions",
       l10n_util::GetStringUTF16(IDS_KEYBOARD_OVERLAY_INSTRUCTIONS));
+  localized_strings.SetString("keyboardOverlayInstructionsHide",
+      l10n_util::GetStringUTF16(IDS_KEYBOARD_OVERLAY_INSTRUCTIONS_HIDE));
   localized_strings.SetString("keyboardOverlayActivateLastTab",
       l10n_util::GetStringUTF16(IDS_KEYBOARD_OVERLAY_ACTIVATE_LAST_TAB));
   localized_strings.SetString("keyboardOverlayActivateNextTab",
@@ -258,25 +262,25 @@ KeyboardOverlayHandler::KeyboardOverlayHandler() {
 KeyboardOverlayHandler::~KeyboardOverlayHandler() {
 }
 
-DOMMessageHandler* KeyboardOverlayHandler::Attach(DOMUI* dom_ui) {
-  return DOMMessageHandler::Attach(dom_ui);
+WebUIMessageHandler* KeyboardOverlayHandler::Attach(WebUI* web_ui) {
+  return WebUIMessageHandler::Attach(web_ui);
 }
 
 void KeyboardOverlayHandler::RegisterMessages() {
-  DCHECK(dom_ui_);
-  dom_ui_->RegisterMessageCallback("getKeyboardOverlayId",
+  DCHECK(web_ui_);
+  web_ui_->RegisterMessageCallback("getKeyboardOverlayId",
       NewCallback(this, &KeyboardOverlayHandler::GetKeyboardOverlayId));
 }
 
 void KeyboardOverlayHandler::GetKeyboardOverlayId(const ListValue* args) {
-  const chromeos::InputMethodLibrary* library =
+  chromeos::InputMethodLibrary* library =
       chromeos::CrosLibrary::Get()->GetInputMethodLibrary();
   const chromeos::InputMethodDescriptor& descriptor =
       library->current_input_method();
   const std::string keyboard_overlay_id =
-      chromeos::input_method::GetKeyboardOverlayId(descriptor.id);
+      library->GetKeyboardOverlayId(descriptor.id);
   StringValue param(keyboard_overlay_id);
-  dom_ui_->CallJavascriptFunction(L"initKeyboardOverlayId", param);
+  web_ui_->CallJavascriptFunction(L"initKeyboardOverlayId", param);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -292,10 +296,5 @@ KeyboardOverlayUI::KeyboardOverlayUI(TabContents* contents)
   KeyboardOverlayUIHTMLSource* html_source = new KeyboardOverlayUIHTMLSource();
 
   // Set up the chrome://keyboardoverlay/ source.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(
-          ChromeURLDataManager::GetInstance(),
-          &ChromeURLDataManager::AddDataSource,
-          make_scoped_refptr(html_source)));
+  contents->profile()->GetChromeURLDataManager()->AddDataSource(html_source);
 }

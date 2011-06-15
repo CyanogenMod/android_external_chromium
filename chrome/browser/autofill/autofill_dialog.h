@@ -16,7 +16,7 @@ namespace gfx {
 typedef void* NativeView;
 }
 #else
-#include "gfx/native_widget_types.h"
+#include "ui/gfx/native_widget_types.h"
 #endif
 
 class Profile;

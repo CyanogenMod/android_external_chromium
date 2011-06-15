@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
+#include <string>
+
 #include "base/base_paths.h"
 #include "base/command_line.h"
 #include "base/logging.h"
@@ -14,7 +14,6 @@
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/status_icons/status_icon.h"
 #include "chrome/browser/status_icons/status_tray.h"
@@ -26,6 +25,8 @@
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 void BackgroundModeManager::OnApplicationDataChanged(
     const Extension* extension) {
@@ -67,15 +68,9 @@ BackgroundModeManager::BackgroundModeManager(Profile* profile,
   if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kKeepAliveForTest))
     OnBackgroundAppLoaded();
 
-  // When an extension is installed, make sure launch on startup is properly
-  // set if appropriate. Likewise, turn off launch on startup when the last
-  // background app is uninstalled.
-  registrar_.Add(this, NotificationType::EXTENSION_INSTALLED,
-                 Source<Profile>(profile));
-  registrar_.Add(this, NotificationType::EXTENSION_UNINSTALLED,
-                 Source<Profile>(profile));
   // Listen for when extensions are loaded/unloaded so we can track the
-  // number of background apps.
+  // number of background apps and modify our keep-alive and launch-on-startup
+  // state appropriately.
   registrar_.Add(this, NotificationType::EXTENSION_LOADED,
                  Source<Profile>(profile));
   registrar_.Add(this, NotificationType::EXTENSION_UNLOADED,
@@ -116,7 +111,10 @@ void BackgroundModeManager::Observe(NotificationType type,
 
       // On a Mac, we use 'login items' mechanism which has user-facing UI so we
       // don't want to stomp on user choice every time we start and load
-      // registered extensions.
+      // registered extensions. This means that if a background app is removed
+      // or added while Chrome is not running, we could leave Chrome in the
+      // wrong state, but this is better than constantly forcing Chrome to
+      // launch on startup even after the user removes the LoginItem manually.
 #if !defined(OS_MACOSX)
       EnableLaunchOnStartup(background_app_count_ > 0);
 #endif
@@ -124,26 +122,25 @@ void BackgroundModeManager::Observe(NotificationType type,
     case NotificationType::EXTENSION_LOADED:
       if (BackgroundApplicationListModel::IsBackgroundApp(
               *Details<Extension>(details).ptr())) {
+        // Extensions loaded after the ExtensionsService is ready should be
+        // treated as new installs.
+        if (profile_->GetExtensionService()->is_ready())
+          OnBackgroundAppInstalled();
         OnBackgroundAppLoaded();
       }
       break;
     case NotificationType::EXTENSION_UNLOADED:
       if (BackgroundApplicationListModel::IsBackgroundApp(
               *Details<UnloadedExtensionInfo>(details)->extension)) {
+        Details<UnloadedExtensionInfo> info =
+            Details<UnloadedExtensionInfo>(details);
+        // If we already got an unload notification when it was disabled, ignore
+        // this one.
+        // TODO(atwilson): Change BackgroundModeManager to use
+        // BackgroundApplicationListModel instead of tracking the count here.
+        if (info->already_disabled)
+          return;
         OnBackgroundAppUnloaded();
-      }
-      break;
-    case NotificationType::EXTENSION_INSTALLED:
-      if (BackgroundApplicationListModel::IsBackgroundApp(
-              *Details<Extension>(details).ptr())) {
-        OnBackgroundAppInstalled();
-      }
-      break;
-    case NotificationType::EXTENSION_UNINSTALLED:
-      if (Extension::HasApiPermission(
-            Details<UninstalledExtensionInfo>(details).ptr()->
-                extension_api_permissions,
-            Extension::kBackgroundPermission)) {
         OnBackgroundAppUninstalled();
       }
       break;
@@ -270,7 +267,7 @@ void BackgroundModeManager::UpdateStatusTrayIconContextMenu() {
     return;
 
   // Create a context menu item for Chrome.
-  menus::SimpleMenuModel* menu = new menus::SimpleMenuModel(this);
+  ui::SimpleMenuModel* menu = new ui::SimpleMenuModel(this);
   // Add About item
   menu->AddItem(IDC_ABOUT, l10n_util::GetStringFUTF16(IDS_ABOUT,
       l10n_util::GetStringUTF16(IDS_PRODUCT_NAME)));
@@ -307,7 +304,7 @@ bool BackgroundModeManager::IsCommandIdEnabled(int command_id) const {
 
 bool BackgroundModeManager::GetAcceleratorForCommandId(
     int command_id,
-    menus::Accelerator* accelerator) {
+    ui::Accelerator* accelerator) {
   // No accelerators for status icon context menus.
   return false;
 }
@@ -316,6 +313,7 @@ void BackgroundModeManager::RemoveStatusTrayIcon() {
   if (status_icon_)
     status_tray_->RemoveStatusIcon(status_icon_);
   status_icon_ = NULL;
+  context_menu_ = NULL;  // Do not delete, points within status_icon_
 }
 
 void BackgroundModeManager::ExecuteApplication(int item) {
@@ -342,7 +340,7 @@ void BackgroundModeManager::ExecuteCommand(int item) {
       GetBrowserWindow()->OpenOptionsDialog();
       break;
     case IDC_TASK_MANAGER:
-      GetBrowserWindow()->OpenTaskManager();
+      GetBrowserWindow()->OpenTaskManager(true);
       break;
     default:
       ExecuteApplication(item);

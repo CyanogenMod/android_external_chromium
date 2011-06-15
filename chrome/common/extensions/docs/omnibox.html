@@ -81,6 +81,16 @@
             </dl>
           </dd>
 
+          <!-- OBJECT METHODS -->
+          <dd>
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd>
+            <div></div>
+          </dd>
+
           <!-- FUNCTION PARAMETERS -->
           <dd>
             <div></div>
@@ -274,7 +284,7 @@
                     </ol>
                   </li>
                   <li>
-                    <a href="#methods">Methods</a>
+                    <a href="#global-methods">Methods</a>
                     <ol>
                       <li style="display: none; ">
                         <a href="#method-anchor">methodName</a>
@@ -284,7 +294,7 @@
                     </ol>
                   </li>
                   <li>
-                    <a href="#events">Events</a>
+                    <a href="#global-events">Events</a>
                     <ol>
                       <li>
                         <a href="#event-onInputCancelled">onInputCancelled</a>
@@ -418,8 +428,8 @@ You can find samples of this API on the
           </div> <!-- /apiGroup -->
 
           <!-- METHODS -->
-          <div class="apiGroup" id="methods">
-            <a name="methods"></a>
+          <div id="methodsTemplate" class="apiGroup">
+            <a name="global-methods"></a>
             <h3>Methods</h3>
 
             <!-- iterates over all functions -->
@@ -602,6 +612,16 @@ You can find samples of this API on the
             </dl>
           </dd>
 
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
           <!-- FUNCTION PARAMETERS -->
           <dd style="display: none; ">
             <div></div>
@@ -610,6 +630,16 @@ You can find samples of this API on the
         </div>
               </div>
             </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
           </dd>
 
           <!-- FUNCTION PARAMETERS -->
@@ -668,10 +698,9 @@ You can find samples of this API on the
           </div>  <!-- /apiGroup -->
 
           <!-- EVENTS -->
-          <div class="apiGroup">
-            <a name="events"></a>
-            <h3 id="events">Events</h3>
-
+          <div id="eventsTemplate" class="apiGroup">
+            <a name="global-events"></a>
+            <h3>Events</h3>
             <!-- iterates over all events -->
             <div class="apiItem">
               <a name="event-onInputCancelled"></a>
@@ -687,14 +716,15 @@ You can find samples of this API on the
                 <p>User has ended the keyword input session without accepting the input.</p>
 
                 <!-- PARAMETERS -->
-                <h4>Parameters</h4>
-                <dl>
-                  <div style="display: none; ">
+                <div style="display: none; ">
+                  <h4>Parameters</h4>
+                  <dl>
                     <div>
+                      <div>
+                      </div>
                     </div>
-                  </div>
-                </dl>
-
+                  </dl>
+                </div>
               </div> <!-- /decription -->
 
             </div><div class="apiItem">
@@ -711,10 +741,11 @@ You can find samples of this API on the
                 <p>User has changed what is typed into the omnibox.</p>
 
                 <!-- PARAMETERS -->
-                <h4>Parameters</h4>
-                <dl>
-                  <div>
+                <div>
+                  <h4>Parameters</h4>
+                  <dl>
                     <div>
+                      <div>
           <dt>
             <var>text</var>
               <em>
@@ -767,14 +798,24 @@ You can find samples of this API on the
             </dl>
           </dd>
 
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
           <!-- FUNCTION PARAMETERS -->
           <dd style="display: none; ">
             <div></div>
           </dd>
 
         </div>
-                  </div><div>
-                    <div>
+                    </div><div>
+                      <div>
           <dt>
             <var>suggest</var>
               <em>
@@ -823,6 +864,16 @@ You can find samples of this API on the
                 </div>
               </div>
             </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
           </dd>
 
           <!-- FUNCTION PARAMETERS -->
@@ -893,6 +944,16 @@ You can find samples of this API on the
             </dl>
           </dd>
 
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
           <!-- FUNCTION PARAMETERS -->
           <dd style="display: none; ">
             <div></div>
@@ -905,9 +966,9 @@ You can find samples of this API on the
           </dd>
 
         </div>
-                  </div>
-                </dl>
-
+                    </div>
+                  </dl>
+                </div>
               </div> <!-- /decription -->
 
             </div><div class="apiItem">
@@ -924,10 +985,11 @@ You can find samples of this API on the
                 <p>User has accepted what is typed into the omnibox.</p>
 
                 <!-- PARAMETERS -->
-                <h4>Parameters</h4>
-                <dl>
-                  <div>
+                <div>
+                  <h4>Parameters</h4>
+                  <dl>
                     <div>
+                      <div>
           <dt>
             <var>text</var>
               <em>
@@ -980,15 +1042,25 @@ You can find samples of this API on the
             </dl>
           </dd>
 
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
           <!-- FUNCTION PARAMETERS -->
           <dd style="display: none; ">
             <div></div>
           </dd>
 
         </div>
-                  </div>
-                </dl>
-
+                    </div>
+                  </dl>
+                </div>
               </div> <!-- /decription -->
 
             </div><div class="apiItem">
@@ -1005,14 +1077,15 @@ You can find samples of this API on the
                 <p>User has started a keyword input session by typing the extension's keyword. This is guaranteed to be sent exactly once per input session, and before any onInputChanged events.</p>
 
                 <!-- PARAMETERS -->
-                <h4>Parameters</h4>
-                <dl>
-                  <div style="display: none; ">
+                <div style="display: none; ">
+                  <h4>Parameters</h4>
+                  <dl>
                     <div>
+                      <div>
+                      </div>
                     </div>
-                  </div>
-                </dl>
-
+                  </dl>
+                </div>
               </div> <!-- /decription -->
 
             </div> <!-- /apiItem -->
@@ -1125,6 +1198,16 @@ You can find samples of this API on the
             </dl>
           </dd>
 
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
           <!-- FUNCTION PARAMETERS -->
           <dd style="display: none; ">
             <div></div>
@@ -1183,6 +1266,16 @@ You can find samples of this API on the
             </dl>
           </dd>
 
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
           <!-- FUNCTION PARAMETERS -->
           <dd style="display: none; ">
             <div></div>
@@ -1191,6 +1284,16 @@ You can find samples of this API on the
         </div>
               </div>
             </dl>
+          </dd>
+
+          <!-- OBJECT METHODS -->
+          <dd style="display: none; ">
+            <div></div>
+          </dd>
+
+          <!-- OBJECT EVENT FIELDS -->
+          <dd style="display: none; ">
+            <div></div>
           </dd>
 
           <!-- FUNCTION PARAMETERS -->

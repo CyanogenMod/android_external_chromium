@@ -1,24 +1,25 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <vsstyle.h>
 #include <vssym32.h>
 
-#include "chrome/browser/views/options/options_group_view.h"
+#include "chrome/browser/ui/views/options/options_group_view.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/string_number_conversions.h"
-#include "gfx/canvas.h"
-#include "gfx/font.h"
-#include "gfx/native_theme_win.h"
+#include "base/utf_string_conversions.h"
 #include "grit/locale_settings.h"
 #include "grit/generated_resources.h"
-#include "views/grid_layout.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/font.h"
+#include "ui/gfx/native_theme_win.h"
 #include "views/controls/label.h"
 #include "views/controls/separator.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 
 static const int kLeftColumnWidthChars = 20;
 static const int kOptionsGroupViewColumnSpacing = 30;
@@ -50,8 +51,8 @@ OptionsGroupView::OptionsGroupView(views::View* contents,
   description_label_->SetMultiLine(true);
   description_label_->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
 
-  SetAccessibleName(title);
-  contents->SetAccessibleName(title);
+  SetAccessibleName(WideToUTF16Hack(title));
+  contents->SetAccessibleName(WideToUTF16Hack(title));
 }
 
 OptionsGroupView::~OptionsGroupView() {
@@ -79,7 +80,7 @@ void OptionsGroupView::Paint(gfx::Canvas* canvas) {
     SkColor background_color = SkColorSetRGB(GetRValue(infocolor),
                                              GetGValue(infocolor),
                                              GetBValue(infocolor));
-    int y_offset = kUnrelatedControlVerticalSpacing / 2;
+    int y_offset = views::kUnrelatedControlVerticalSpacing / 2;
     canvas->FillRectInt(background_color, 0, 0, width(),
                         height() - y_offset);
   }
@@ -112,23 +113,23 @@ void OptionsGroupView::Init() {
 
   const int two_column_layout_id = 0;
   ColumnSet* column_set = layout->AddColumnSet(two_column_layout_id);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::LEADING, GridLayout::LEADING, 0,
                         GridLayout::FIXED, left_column_width, 0);
   column_set->AddPaddingColumn(0, kOptionsGroupViewColumnSpacing);
   column_set->AddColumn(GridLayout::LEADING, GridLayout::LEADING, 1,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
 
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   layout->StartRow(0, two_column_layout_id);
   layout->AddView(title_label_, 1, 1, GridLayout::FILL, GridLayout::LEADING);
   layout->AddView(contents_, 1, 3, GridLayout::FILL, GridLayout::FILL);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   layout->StartRow(1, two_column_layout_id);
   layout->AddView(description_label_, 1, 1,
                   GridLayout::FILL, GridLayout::LEADING);
-  layout->AddPaddingRow(0, kUnrelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kUnrelatedControlVerticalSpacing);
 
   if (show_separator_) {
     const int single_column_layout_id = 1;

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,9 +14,9 @@
 #include "base/eintr_wrapper.h"
 #include "base/path_service.h"
 #include "base/string_util.h"
+#include "base/test/test_timeouts.h"
 #include "base/threading/thread.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -146,7 +146,7 @@ TEST_F(ProcessSingletonLinuxTest, NotifyOtherProcessSuccess) {
   int original_tab_count = GetTabCount();
 
   EXPECT_EQ(ProcessSingleton::PROCESS_NOTIFIED,
-            NotifyOtherProcess(url, action_timeout_ms()));
+            NotifyOtherProcess(url, TestTimeouts::action_timeout_ms()));
   EXPECT_EQ(original_tab_count + 1, GetTabCount());
   EXPECT_EQ(url, GetActiveTabURL().spec());
 }
@@ -167,10 +167,10 @@ TEST_F(ProcessSingletonLinuxTest, NotifyOtherProcessFailure) {
 
   std::string url("about:blank");
   EXPECT_EQ(ProcessSingleton::PROCESS_NONE,
-            NotifyOtherProcess(url, action_timeout_ms()));
+            NotifyOtherProcess(url, TestTimeouts::action_timeout_ms()));
 
   // Wait for a while to make sure the browser process is actually killed.
-  EXPECT_FALSE(CrashAwareSleep(sleep_timeout_ms()));
+  EXPECT_FALSE(CrashAwareSleep(TestTimeouts::action_timeout_ms()));
 }
 
 // Test that we don't kill ourselves by accident if a lockfile with the same pid
@@ -195,7 +195,7 @@ TEST_F(ProcessSingletonLinuxTest, NotifyOtherProcessNoSuicide) {
 
   std::string url("about:blank");
   EXPECT_EQ(ProcessSingleton::PROCESS_NONE,
-            NotifyOtherProcess(url, action_timeout_ms()));
+            NotifyOtherProcess(url, TestTimeouts::action_timeout_ms()));
   // If we've gotten to this point without killing ourself, the test succeeded.
 }
 
@@ -209,7 +209,7 @@ TEST_F(ProcessSingletonLinuxTest, NotifyOtherProcessHostChanged) {
 
   std::string url("about:blank");
   EXPECT_EQ(ProcessSingleton::PROCESS_NOTIFIED,
-            NotifyOtherProcess(url, action_timeout_ms()));
+            NotifyOtherProcess(url, TestTimeouts::action_timeout_ms()));
   EXPECT_EQ(original_tab_count + 1, GetTabCount());
   EXPECT_EQ(url, GetActiveTabURL().spec());
 }
@@ -224,14 +224,14 @@ TEST_F(ProcessSingletonLinuxTest, NotifyOtherProcessDifferingHost) {
   // Kill the browser process, so that it does not respond on the socket.
   kill(pid, SIGKILL);
   // Wait for a while to make sure the browser process is actually killed.
-  EXPECT_FALSE(CrashAwareSleep(sleep_timeout_ms()));
+  EXPECT_FALSE(CrashAwareSleep(TestTimeouts::action_timeout_ms()));
 
   EXPECT_EQ(0, unlink(lock_path_.value().c_str()));
   EXPECT_EQ(0, symlink("FAKEFOOHOST-1234", lock_path_.value().c_str()));
 
   std::string url("about:blank");
   EXPECT_EQ(ProcessSingleton::PROFILE_IN_USE,
-            NotifyOtherProcess(url, action_timeout_ms()));
+            NotifyOtherProcess(url, TestTimeouts::action_timeout_ms()));
 
   ASSERT_EQ(0, unlink(lock_path_.value().c_str()));
 }
@@ -246,14 +246,14 @@ TEST_F(ProcessSingletonLinuxTest, NotifyOtherProcessOrCreate_DifferingHost) {
   // Kill the browser process, so that it does not respond on the socket.
   kill(pid, SIGKILL);
   // Wait for a while to make sure the browser process is actually killed.
-  EXPECT_FALSE(CrashAwareSleep(sleep_timeout_ms()));
+  EXPECT_FALSE(CrashAwareSleep(TestTimeouts::action_timeout_ms()));
 
   EXPECT_EQ(0, unlink(lock_path_.value().c_str()));
   EXPECT_EQ(0, symlink("FAKEFOOHOST-1234", lock_path_.value().c_str()));
 
   std::string url("about:blank");
   EXPECT_EQ(ProcessSingleton::PROFILE_IN_USE,
-            NotifyOtherProcessOrCreate(url, action_timeout_ms()));
+            NotifyOtherProcessOrCreate(url, TestTimeouts::action_timeout_ms()));
 
   ASSERT_EQ(0, unlink(lock_path_.value().c_str()));
 }
@@ -295,5 +295,5 @@ TEST_F(ProcessSingletonLinuxTest, NotifyOtherProcessOrCreate_BadCookie) {
 
   std::string url("about:blank");
   EXPECT_EQ(ProcessSingleton::PROFILE_IN_USE,
-            NotifyOtherProcessOrCreate(url, action_timeout_ms()));
+            NotifyOtherProcessOrCreate(url, TestTimeouts::action_timeout_ms()));
 }

@@ -1,21 +1,22 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/chromeos/login/user_view.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/rounded_rect_painter.h"
 #include "chrome/browser/chromeos/login/rounded_view.h"
-#include "gfx/canvas.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/gtk_util.h"
-#include "gfx/rect.h"
+#include "chrome/browser/chromeos/view_ids.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/gtk_util.h"
+#include "ui/gfx/rect.h"
 #include "views/background.h"
 #include "views/controls/button/text_button.h"
 #include "views/controls/image_view.h"
@@ -33,6 +34,7 @@ const int kSignoutBackgroundCornerRadius = 4;
 // Horiz/Vert insets for Signout view.
 const int kSignoutViewHorizontalInsets = 10;
 const int kSignoutViewVerticalInsets = 5;
+const int kMinControlHeight = 16;
 
 // Padding between remove button and top right image corner.
 const int kRemoveButtonPadding = 3;
@@ -43,15 +45,8 @@ class SignoutBackgroundPainter : public views::Painter {
   virtual void Paint(int w, int h, gfx::Canvas* canvas) {
     SkRect rect = {0, 0, w, h};
     SkPath path;
-    SkScalar corners[] = {
-      0, 0,
-      0, 0,
-      kSignoutBackgroundCornerRadius,
-      kSignoutBackgroundCornerRadius,
-      kSignoutBackgroundCornerRadius,
-      kSignoutBackgroundCornerRadius,
-    };
-    path.addRoundRect(rect, corners);
+    path.addRoundRect(rect,
+        kSignoutBackgroundCornerRadius, kSignoutBackgroundCornerRadius);
     SkPaint paint;
     paint.setStyle(SkPaint::kFill_Style);
     paint.setFlags(SkPaint::kAntiAlias_Flag);
@@ -86,6 +81,10 @@ class SignoutView : public views::View {
     signout_link_->SetFont(font);
     signout_link_->SetColor(kTextColor);
     signout_link_->SetFocusable(true);
+    signout_link_->SetHighlightedColor(kTextColor);
+    signout_link_->SetDisabledColor(kTextColor);
+    signout_link_->SetNormalColor(kTextColor);
+    signout_link_->SetID(VIEW_ID_SCREEN_LOCKER_SIGNOUT_LINK);
 
     AddChildView(active_user_label_);
     AddChildView(signout_link_);
@@ -110,16 +109,17 @@ class SignoutView : public views::View {
   virtual gfx::Size GetPreferredSize() {
     gfx::Size label = active_user_label_->GetPreferredSize();
     gfx::Size button = signout_link_->GetPreferredSize();
-    return gfx::Size(label.width() + button.width(),
-                     std::max(label.height(), button.height()) +
-                     kSignoutViewVerticalInsets * 2);
+    int width =
+      label.width() + button.width() + 2 * kSignoutViewHorizontalInsets;
+    int height =
+      std::max(kMinControlHeight, std::max(label.height(), button.height())) +
+      kSignoutViewVerticalInsets * 2;
+    return gfx::Size(width, height);
   }
 
   views::Link* signout_link() { return signout_link_; }
 
  private:
-  friend class UserView;
-
   views::Label* active_user_label_;
   views::Link* signout_link_;
 
@@ -199,10 +199,10 @@ class RemoveButton : public views::TextButton {
     gfx::Size size = GetPreferredSize();
     gfx::Point origin = top_right_;
     origin.Offset(-size.width(), 0);
-    SetBounds(gfx::Rect(origin, size));
+    SetBoundsRect(gfx::Rect(origin, size));
 
-    if (GetParent())
-      GetParent()->SchedulePaint();
+    if (parent())
+      parent()->SchedulePaint();
   }
 
   SkBitmap icon_;
@@ -215,7 +215,8 @@ class RemoveButton : public views::TextButton {
 
 class PodImageView : public views::ImageView {
  public:
-  PodImageView() { }
+  explicit PodImageView(const UserView::Delegate* delegate)
+      : delegate_(delegate) { }
 
   void SetImage(const SkBitmap& image, const SkBitmap& image_hot) {
     image_ = image;
@@ -234,12 +235,14 @@ class PodImageView : public views::ImageView {
   }
 
   gfx::NativeCursor GetCursorForPoint(
-      views::Event::EventType event_type,
+      ui::EventType event_type,
       const gfx::Point& p) {
-    return gfx::GetCursor(GDK_HAND2);
+    return (delegate_->IsUserSelected()) ? NULL : gfx::GetCursor(GDK_HAND2);
   }
 
  private:
+  const UserView::Delegate* delegate_;
+
   SkBitmap image_;
   SkBitmap image_hot_;
 
@@ -256,9 +259,9 @@ UserView::UserView(Delegate* delegate, bool is_login, bool need_background)
     signout_view_ = new SignoutView(this);
 
   if (need_background)
-    image_view_ = new RoundedView<PodImageView>;
+    image_view_ = new RoundedView<PodImageView>(delegate);
   else
-    image_view_ = new PodImageView;
+    image_view_ = new PodImageView(delegate);
 
   Init(need_background);
 }
@@ -312,13 +315,16 @@ gfx::Size UserView::GetPreferredSize() {
 
 void UserView::SetSignoutEnabled(bool enabled) {
   DCHECK(signout_view_);
-  signout_view_->signout_link_->SetEnabled(enabled);
+  signout_view_->signout_link()->SetEnabled(enabled);
+
+  // Relayout because active and inactive link has different preferred size.
+  Layout();
 }
 
 void UserView::LinkActivated(views::Link* source, int event_flags) {
   DCHECK(delegate_);
   DCHECK(signout_view_);
-  if (signout_view_->signout_link_ == source)
+  if (signout_view_->signout_link() == source)
     delegate_->OnSignout();
 }
 
@@ -335,6 +341,7 @@ void UserView::ButtonPressed(views::Button* sender, const views::Event& event) {
 void UserView::OnLocaleChanged() {
   remove_button_->SetText(
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_LOGIN_REMOVE)));
+  delegate_->OnLocaleChanged();
 }
 
 }  // namespace chromeos

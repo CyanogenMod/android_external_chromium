@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,9 +29,9 @@ class CoreOptionsHandler : public OptionsPageUIHandler {
                        const NotificationSource& source,
                        const NotificationDetails& details);
 
-  // DOMMessageHandler implementation.
+  // WebUIMessageHandler implementation.
   virtual void RegisterMessages();
-  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
 
  protected:
   // Fetches a pref value of given |pref_name|.
@@ -41,10 +41,9 @@ class CoreOptionsHandler : public OptionsPageUIHandler {
   // Observes a pref of given |pref_name|.
   virtual void ObservePref(const std::string& pref_name);
 
-  // Sets a pref value |value_string| of |pref_type| to given |pref_name|.
+  // Sets a pref |value| to given |pref_name|.
   virtual void SetPref(const std::string& pref_name,
-                       Value::ValueType pref_type,
-                       const std::string& value_string,
+                       const Value* value,
                        const std::string& metric);
 
   // Clears pref value for given |pref_name|.
@@ -54,8 +53,7 @@ class CoreOptionsHandler : public OptionsPageUIHandler {
   virtual void StopObservingPref(const std::string& path);
 
   // Records a user metric action for the given value.
-  void ProcessUserMetric(Value::ValueType pref_type,
-                         const std::string& value_string,
+  void ProcessUserMetric(const Value* value,
                          const std::string& metric);
 
   typedef std::multimap<std::string, std::wstring> PreferenceCallbackMap;
@@ -83,8 +81,9 @@ class CoreOptionsHandler : public OptionsPageUIHandler {
   //  item 2 - name of the metric identifier (optional).
   void HandleSetBooleanPref(const ListValue* args);
   void HandleSetIntegerPref(const ListValue* args);
+  void HandleSetDoublePref(const ListValue* args);
   void HandleSetStringPref(const ListValue* args);
-  void HandleSetObjectPref(const ListValue* args);
+  void HandleSetListPref(const ListValue* args);
 
   void HandleSetPref(const ListValue* args, Value::ValueType type);
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,6 @@ class Browser;
 class BrowserWindow;
 class Profile;
 class RenderViewHost;
-class TabContentsWrapper;
 class Value;
 
 class DevToolsWindow
@@ -41,6 +40,7 @@ class DevToolsWindow
   virtual DevToolsWindow* AsDevToolsWindow();
   virtual void SendMessageToClient(const IPC::Message& message);
   virtual void InspectedTabClosing();
+  virtual void TabReplaced(TabContentsWrapper* new_tab);
 
   void Show(DevToolsToggleAction action);
   void Activate();
@@ -55,6 +55,7 @@ class DevToolsWindow
   void CreateDevToolsBrowser();
   bool FindInspectedBrowserAndTabIndex(Browser**, int* tab);
   BrowserWindow* GetInspectedBrowserWindow();
+  bool IsInspectedBrowserPopup();
   void SetAttachedWindow();
 
   // Overridden from NotificationObserver.
@@ -67,7 +68,7 @@ class DevToolsWindow
   GURL GetDevToolsUrl();
   void UpdateTheme();
   void AddDevToolsExtensionsToClient();
-  void CallClientFunction(const std::wstring& function_name,
+  void CallClientFunction(const string16& function_name,
                           const Value& arg);
   // Overridden from TabContentsDelegate.
   virtual void OpenURLFromTab(TabContents* source,
@@ -81,19 +82,20 @@ class DevToolsWindow
                               TabContents* new_contents,
                               WindowOpenDisposition disposition,
                               const gfx::Rect& initial_pos,
-                              bool user_gesture) {}
+                              bool user_gesture);
   virtual void ActivateContents(TabContents* contents) {}
   virtual void DeactivateContents(TabContents* contents) {}
   virtual void LoadingStateChanged(TabContents* source) {}
   virtual void CloseContents(TabContents* source) {}
   virtual void MoveContents(TabContents* source, const gfx::Rect& pos) {}
   virtual bool CanReloadContents(TabContents* source) const;
-  virtual void URLStarredChanged(TabContents* source, bool starred) {}
   virtual void UpdateTargetURL(TabContents* source, const GURL& url) {}
   virtual void ToolbarSizeChanged(TabContents* source, bool is_animating) {}
   virtual bool PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
                                       bool* is_keyboard_shortcut);
   virtual void HandleKeyboardEvent(const NativeWebKeyboardEvent& event);
+
+  virtual void FrameNavigating(const std::string& url) {}
 
   Profile* profile_;
   TabContents* inspected_tab_;

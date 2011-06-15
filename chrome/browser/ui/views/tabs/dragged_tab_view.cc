@@ -1,12 +1,12 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/tabs/dragged_tab_view.h"
+#include "chrome/browser/ui/views/tabs/dragged_tab_view.h"
 
-#include "chrome/browser/views/tabs/native_view_photobooth.h"
-#include "gfx/canvas_skia.h"
+#include "chrome/browser/ui/views/tabs/native_view_photobooth.h"
 #include "third_party/skia/include/core/SkShader.h"
+#include "ui/gfx/canvas_skia.h"
 #include "views/widget/widget.h"
 
 #if defined(OS_WIN)
@@ -62,7 +62,7 @@ DraggedTabView::DraggedTabView(views::View* renderer,
 }
 
 DraggedTabView::~DraggedTabView() {
-  GetParent()->RemoveChildView(this);
+  parent()->RemoveChildView(this);
   container_->CloseNow();
 }
 
@@ -74,8 +74,7 @@ void DraggedTabView::MoveTo(const gfx::Point& screen_point) {
     // window position differently.
     gfx::Size ps = GetPreferredSize();
     x = screen_point.x() - ScaleValue(ps.width()) + mouse_tab_offset_.x() +
-        ScaleValue(
-            renderer_->MirroredXCoordinateInsideView(mouse_tab_offset_.x()));
+        ScaleValue(renderer_->GetMirroredXInView(mouse_tab_offset_.x()));
   } else {
     x = screen_point.x() + mouse_tab_offset_.x() -
         ScaleValue(mouse_tab_offset_.x());

@@ -6,6 +6,7 @@
 #include <string>
 
 #include "base/shared_memory.h"
+#include "chrome/common/gpu_info.h"
 #include "chrome/common/gpu_video_common.h"
 #include "ipc/ipc_message_macros.h"
 
@@ -53,9 +54,18 @@ IPC_MESSAGE_CONTROL1(GpuMsg_CloseChannel,
 // asynchronously.) Results in a GpuHostMsg_SynchronizeReply.
 IPC_MESSAGE_CONTROL0(GpuMsg_Synchronize)
 
+// Tells the GPU process to create a new command buffer that renders directly
+// to a native view. A corresponding GpuCommandBufferStub is created.
+IPC_MESSAGE_CONTROL4(GpuMsg_CreateViewCommandBuffer,
+                     gfx::PluginWindowHandle, /* view */
+                     int32, /* render_view_id */
+                     int32, /* renderer_id */
+                     GPUCreateCommandBufferConfig /* init_params */)
+
 // Tells the GPU process to create a context for collecting graphics card
 // information.
-IPC_MESSAGE_CONTROL0(GpuMsg_CollectGraphicsInfo)
+IPC_MESSAGE_CONTROL1(GpuMsg_CollectGraphicsInfo,
+                     GPUInfo::Level /* level */)
 
 #if defined(OS_MACOSX)
 // Tells the GPU process that the browser process handled the swap
@@ -84,35 +94,61 @@ IPC_MESSAGE_CONTROL0(GpuMsg_Hang)
 
 //------------------------------------------------------------------------------
 // GPU Host Messages
-// These are messages from the GPU process to the browser.
-// Response to a GpuHostMsg_EstablishChannel message.
+// These are messages to the browser.
+
+// A renderer sends this when it wants to create a connection to the GPU
+// process. The browser will create the GPU process if necessary, and will
+// return a handle to the channel via a GpuChannelEstablished message.
+IPC_MESSAGE_CONTROL0(GpuHostMsg_EstablishGpuChannel)
+
+// A renderer sends this to the browser process to provide a synchronization
+// point for GPU operations, in particular to make sure the GPU channel has
+// been established.
+IPC_SYNC_MESSAGE_CONTROL0_0(GpuHostMsg_SynchronizeGpu)
+
+// A renderer sends this to the browser process when it wants to
+// create a GL context associated with the given view_id.
+IPC_SYNC_MESSAGE_CONTROL2_1(GpuHostMsg_CreateViewCommandBuffer,
+                            int32, /* render_view_id */
+                            GPUCreateCommandBufferConfig, /* init_params */
+                            int32 /* route_id */)
+
+// Response from GPU to a GpuHostMsg_EstablishChannel message.
 IPC_MESSAGE_CONTROL2(GpuHostMsg_ChannelEstablished,
                      IPC::ChannelHandle, /* channel_handle */
                      GPUInfo /* GPU logging stats */)
 
-// Response to a GpuMsg_Synchronize message.
-IPC_MESSAGE_CONTROL0(GpuHostMsg_SynchronizeReply)
+// Respond from GPU to a GpuMsg_CreateViewCommandBuffer message.
+IPC_MESSAGE_CONTROL1(GpuHostMsg_CommandBufferCreated,
+                     int32 /* route_id */)
 
-// Response to a GpuMsg_CollectGraphicsInfo.
+// Request from GPU to free the browser resources associated with the
+// command buffer.
+IPC_MESSAGE_CONTROL3(GpuHostMsg_DestroyCommandBuffer,
+                     gfx::PluginWindowHandle, /* view */
+                     int32, /* render_view_id */
+                     int32 /* renderer_id */)
+
+// Response from GPU to a GpuMsg_CollectGraphicsInfo.
 IPC_MESSAGE_CONTROL1(GpuHostMsg_GraphicsInfoCollected,
                      GPUInfo /* GPU logging stats */)
 
+// Message from GPU to add a GPU log message to the about:gpu page.
+IPC_MESSAGE_CONTROL3(GpuHostMsg_OnLogMessage,
+                     int /*severity*/,
+                     std::string /* header */,
+                     std::string /* message */)
+
+// Response from GPU to a GpuMsg_Synchronize message.
+IPC_MESSAGE_CONTROL0(GpuHostMsg_SynchronizeReply)
+
 #if defined(OS_LINUX)
-// Get the XID for a view ID.
-IPC_SYNC_MESSAGE_CONTROL1_1(GpuHostMsg_GetViewXID,
-                            gfx::NativeViewId, /* view */
-                            unsigned long /* xid */)
-
-// Release the lock on the window.
-// If the associated view has been destroyed, destroy the window.
-IPC_MESSAGE_CONTROL1(GpuHostMsg_ReleaseXID,
-                     unsigned long /* xid */)
-
+// Resize the window that is being drawn into. It's important that this
+// resize be synchronized with the swapping of the front and back buffers.
 IPC_SYNC_MESSAGE_CONTROL2_1(GpuHostMsg_ResizeXID,
                             unsigned long, /* xid */
                             gfx::Size, /* size */
                             bool /* success */)
-
 #elif defined(OS_MACOSX)
 // This message, used on Mac OS X 10.6 and later (where IOSurface is
 // supported), is sent from the GPU process to the browser to indicate that a
@@ -128,12 +164,6 @@ IPC_MESSAGE_CONTROL1(GpuHostMsg_AcceleratedSurfaceSetIOSurface,
 IPC_MESSAGE_CONTROL1(GpuHostMsg_AcceleratedSurfaceBuffersSwapped,
                      GpuHostMsg_AcceleratedSurfaceBuffersSwapped_Params)
 #elif defined(OS_WIN)
-// Get the HWND for the compositor window and if necessary, create it
-IPC_SYNC_MESSAGE_CONTROL2_1(GpuHostMsg_GetCompositorHostWindow,
-                            int32, /* renderer_id */
-                            int32, /* render_view_id */
-                            gfx::PluginWindowHandle /* compositor_host_id */)
-
 IPC_MESSAGE_CONTROL2(GpuHostMsg_ScheduleComposite,
                      int32, /* renderer_id */
                      int32 /* render_view_id */)
@@ -142,15 +172,6 @@ IPC_MESSAGE_CONTROL2(GpuHostMsg_ScheduleComposite,
 //------------------------------------------------------------------------------
 // GPU Channel Messages
 // These are messages from a renderer process to the GPU process.
-// Tells the GPU process to create a new command buffer that renders directly
-// to a native view. The |render_view_id| is currently needed only on Mac OS
-// X in order to identify the window on the browser side into which the
-// rendering results go. A corresponding GpuCommandBufferStub is created.
-IPC_SYNC_MESSAGE_CONTROL3_1(GpuChannelMsg_CreateViewCommandBuffer,
-                            gfx::NativeViewId, /* view */
-                            int32, /* render_view_id */
-                            GPUCreateCommandBufferConfig, /* init_params */
-                            int32 /* route_id */)
 
 // Tells the GPU process to create a new command buffer that renders to an
 // offscreen frame buffer. If parent_route_id is not zero, the texture backing

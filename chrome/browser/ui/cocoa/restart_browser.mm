@@ -4,8 +4,6 @@
 
 #import "chrome/browser/ui/cocoa/restart_browser.h"
 
-#include "app/l10n_util.h"
-#include "app/l10n_util_mac.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -13,6 +11,8 @@
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/app_strings.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/l10n/l10n_util_mac.h"
 
 // Helper to clean up after the notification that the alert was dismissed.
 @interface RestartHelper : NSObject {
@@ -59,14 +59,14 @@ namespace restart_browser {
 
 void RequestRestart(NSWindow* parent) {
   NSString* title =
-      l10n_util::GetNSStringFWithFixup(IDS_PLEASE_RESTART_BROWSER,
+      l10n_util::GetNSStringFWithFixup(IDS_PLEASE_RELAUNCH_BROWSER,
           l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
   NSString* text =
       l10n_util::GetNSStringFWithFixup(IDS_UPDATE_RECOMMENDED,
           l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
   NSString* notNowButtin = l10n_util::GetNSStringWithFixup(IDS_NOT_NOW);
   NSString* restartButton =
-      l10n_util::GetNSStringWithFixup(IDS_RESTART_AND_UPDATE);
+      l10n_util::GetNSStringWithFixup(IDS_RELAUNCH_AND_UPDATE);
 
   RestartHelper* helper = [[RestartHelper alloc] init];
 
@@ -77,10 +77,19 @@ void RequestRestart(NSWindow* parent) {
   [alert addButtonWithTitle:notNowButtin];
   [alert addButtonWithTitle:restartButton];
 
-  [alert beginSheetModalForWindow:parent
-                    modalDelegate:helper
-                   didEndSelector:@selector(alertDidEnd:returnCode:contextInfo:)
-                      contextInfo:nil];
+  if (parent) {
+    [alert beginSheetModalForWindow:parent
+                      modalDelegate:helper
+                     didEndSelector:@selector(alertDidEnd:
+                                               returnCode:
+                                              contextInfo:)
+                        contextInfo:nil];
+  } else {
+    NSInteger returnCode = [alert runModal];
+    [helper alertDidEnd:alert
+             returnCode:returnCode
+            contextInfo:NULL];
+  }
 }
 
 }  // namespace restart_browser

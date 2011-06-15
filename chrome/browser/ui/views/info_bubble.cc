@@ -1,20 +1,20 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/info_bubble.h"
+#include "chrome/browser/ui/views/info_bubble.h"
 
 #include <vector>
 
-#include "app/keyboard_codes.h"
 #include "chrome/browser/ui/window_sizer.h"
 #include "chrome/common/notification_service.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/color_utils.h"
-#include "gfx/path.h"
 #include "third_party/skia/include/core/SkPaint.h"
 #include "ui/base/animation/slide_animation.h"
-#include "views/fill_layout.h"
+#include "ui/base/keycodes/keyboard_codes.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/color_utils.h"
+#include "ui/gfx/path.h"
+#include "views/layout/fill_layout.h"
 #include "views/widget/root_view.h"
 #include "views/widget/widget.h"
 #include "views/window/client_view.h"
@@ -113,7 +113,7 @@ void BorderContents::Paint(gfx::Canvas* canvas) {
   paint.setStyle(SkPaint::kFill_Style);
   paint.setColor(InfoBubble::kBackgroundColor);
   gfx::Path path;
-  gfx::Rect bounds(GetLocalBounds(false));
+  gfx::Rect bounds(GetContentsBounds());
   SkRect rect;
   rect.set(SkIntToScalar(bounds.x()), SkIntToScalar(bounds.y()),
            SkIntToScalar(bounds.right()), SkIntToScalar(bounds.bottom()));
@@ -438,18 +438,19 @@ void InfoBubble::Init(views::Widget* parent,
       arrow_location, false, contents->GetPreferredSize(),
       &contents_bounds, &window_bounds);
   // This new view must be added before |contents| so it will paint under it.
-  contents_view->AddChildView(0, border_contents_);
+  contents_view->AddChildViewAt(border_contents_, 0);
 
   // |contents_view| has no layout manager, so we have to explicitly position
   // its children.
-  border_contents_->SetBounds(gfx::Rect(gfx::Point(), window_bounds.size()));
-  contents->SetBounds(contents_bounds);
+  border_contents_->SetBoundsRect(
+      gfx::Rect(gfx::Point(), window_bounds.size()));
+  contents->SetBoundsRect(contents_bounds);
 #endif
   SetBounds(window_bounds);
 
   // Register the Escape accelerator for closing.
   GetFocusManager()->RegisterAccelerator(
-      views::Accelerator(app::VKEY_ESCAPE, false, false, false), this);
+      views::Accelerator(ui::VKEY_ESCAPE, false, false, false), this);
 
   // Done creating the bubble.
   NotificationService::current()->Notify(NotificationType::INFO_BUBBLE_CREATED,
@@ -486,8 +487,9 @@ void InfoBubble::SizeToContents() {
       &contents_bounds, &window_bounds);
   // |contents_view| has no layout manager, so we have to explicitly position
   // its children.
-  border_contents_->SetBounds(gfx::Rect(gfx::Point(), window_bounds.size()));
-  contents_->SetBounds(contents_bounds);
+  border_contents_->SetBoundsRect(
+      gfx::Rect(gfx::Point(), window_bounds.size()));
+  contents_->SetBoundsRect(contents_bounds);
 #endif
   SetBounds(window_bounds);
 }
@@ -498,7 +500,7 @@ void InfoBubble::OnActivate(UINT action, BOOL minimized, HWND window) {
   if (action == WA_INACTIVE) {
     Close();
   } else if (action == WA_ACTIVE) {
-    DCHECK_GT(GetRootView()->GetChildViewCount(), 0);
+    DCHECK(GetRootView()->has_children());
     GetRootView()->GetChildViewAt(0)->RequestFocus();
   }
 }
@@ -514,7 +516,7 @@ void InfoBubble::DoClose(bool closed_by_escape) {
     return;
 
   GetFocusManager()->UnregisterAccelerator(
-      views::Accelerator(app::VKEY_ESCAPE, false, false, false), this);
+      views::Accelerator(ui::VKEY_ESCAPE, false, false, false), this);
   if (delegate_)
     delegate_->InfoBubbleClosing(this, closed_by_escape);
   show_status_ = kClosed;

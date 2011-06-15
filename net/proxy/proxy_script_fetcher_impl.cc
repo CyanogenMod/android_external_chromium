@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -73,7 +73,7 @@ ProxyScriptFetcherImpl::ProxyScriptFetcherImpl(
     URLRequestContext* url_request_context)
     : ALLOW_THIS_IN_INITIALIZER_LIST(task_factory_(this)),
       url_request_context_(url_request_context),
-      buf_(new net::IOBuffer(kBufSize)),
+      buf_(new IOBuffer(kBufSize)),
       next_id_(0),
       cur_request_(NULL),
       cur_request_id_(0),
@@ -86,8 +86,32 @@ ProxyScriptFetcherImpl::ProxyScriptFetcherImpl(
 }
 
 ProxyScriptFetcherImpl::~ProxyScriptFetcherImpl() {
-  // The net::URLRequest's destructor will cancel the outstanding request, and
+  // The URLRequest's destructor will cancel the outstanding request, and
   // ensure that the delegate (this) is not called again.
+}
+
+base::TimeDelta ProxyScriptFetcherImpl::SetTimeoutConstraint(
+    base::TimeDelta timeout) {
+  base::TimeDelta prev = max_duration_;
+  max_duration_ = timeout;
+  return prev;
+}
+
+size_t ProxyScriptFetcherImpl::SetSizeConstraint(size_t size_bytes) {
+  size_t prev = max_response_bytes_;
+  max_response_bytes_ = size_bytes;
+  return prev;
+}
+
+void ProxyScriptFetcherImpl::OnResponseCompleted(URLRequest* request) {
+  DCHECK_EQ(request, cur_request_.get());
+
+  // Use |result_code_| as the request's error if we have already set it to
+  // something specific.
+  if (result_code_ == OK && !request->status().is_success())
+    result_code_ = request->status().os_error();
+
+  FetchCompleted();
 }
 
 int ProxyScriptFetcherImpl::Fetch(const GURL& url,
@@ -99,7 +123,7 @@ int ProxyScriptFetcherImpl::Fetch(const GURL& url,
   DCHECK(callback);
   DCHECK(text);
 
-  cur_request_.reset(new net::URLRequest(url, this));
+  cur_request_.reset(new URLRequest(url, this));
   cur_request_->set_context(url_request_context_);
   cur_request_->set_method("GET");
 
@@ -129,7 +153,7 @@ int ProxyScriptFetcherImpl::Fetch(const GURL& url,
 }
 
 void ProxyScriptFetcherImpl::Cancel() {
-  // ResetCurRequestState will free the net::URLRequest, which will cause
+  // ResetCurRequestState will free the URLRequest, which will cause
   // cancellation.
   ResetCurRequestState();
 }
@@ -138,7 +162,7 @@ URLRequestContext* ProxyScriptFetcherImpl::GetRequestContext() {
   return url_request_context_;
 }
 
-void ProxyScriptFetcherImpl::OnAuthRequired(net::URLRequest* request,
+void ProxyScriptFetcherImpl::OnAuthRequired(URLRequest* request,
                                             AuthChallengeInfo* auth_info) {
   DCHECK_EQ(request, cur_request_.get());
   // TODO(eroman):
@@ -147,7 +171,7 @@ void ProxyScriptFetcherImpl::OnAuthRequired(net::URLRequest* request,
   request->CancelAuth();
 }
 
-void ProxyScriptFetcherImpl::OnSSLCertificateError(net::URLRequest* request,
+void ProxyScriptFetcherImpl::OnSSLCertificateError(URLRequest* request,
                                                    int cert_error,
                                                    X509Certificate* cert) {
   DCHECK_EQ(request, cur_request_.get());
@@ -157,7 +181,7 @@ void ProxyScriptFetcherImpl::OnSSLCertificateError(net::URLRequest* request,
   request->Cancel();
 }
 
-void ProxyScriptFetcherImpl::OnResponseStarted(net::URLRequest* request) {
+void ProxyScriptFetcherImpl::OnResponseStarted(URLRequest* request) {
   DCHECK_EQ(request, cur_request_.get());
 
   if (!request->status().is_success()) {
@@ -191,7 +215,7 @@ void ProxyScriptFetcherImpl::OnResponseStarted(net::URLRequest* request) {
   ReadBody(request);
 }
 
-void ProxyScriptFetcherImpl::OnReadCompleted(net::URLRequest* request,
+void ProxyScriptFetcherImpl::OnReadCompleted(URLRequest* request,
                                              int num_bytes) {
   DCHECK_EQ(request, cur_request_.get());
   if (ConsumeBytesRead(request, num_bytes)) {
@@ -200,18 +224,7 @@ void ProxyScriptFetcherImpl::OnReadCompleted(net::URLRequest* request,
   }
 }
 
-void ProxyScriptFetcherImpl::OnResponseCompleted(net::URLRequest* request) {
-  DCHECK_EQ(request, cur_request_.get());
-
-  // Use |result_code_| as the request's error if we have already set it to
-  // something specific.
-  if (result_code_ == OK && !request->status().is_success())
-    result_code_ = request->status().os_error();
-
-  FetchCompleted();
-}
-
-void ProxyScriptFetcherImpl::ReadBody(net::URLRequest* request) {
+void ProxyScriptFetcherImpl::ReadBody(URLRequest* request) {
   // Read as many bytes as are available synchronously.
   while (true) {
     int num_bytes;
@@ -226,7 +239,7 @@ void ProxyScriptFetcherImpl::ReadBody(net::URLRequest* request) {
   }
 }
 
-bool ProxyScriptFetcherImpl::ConsumeBytesRead(net::URLRequest* request,
+bool ProxyScriptFetcherImpl::ConsumeBytesRead(URLRequest* request,
                                               int num_bytes) {
   if (num_bytes <= 0) {
     // Error while reading, or EOF.
@@ -277,7 +290,7 @@ void ProxyScriptFetcherImpl::ResetCurRequestState() {
 }
 
 void ProxyScriptFetcherImpl::OnTimeout(int id) {
-  // Timeout tasks may outlive the net::URLRequest they reference. Make sure it
+  // Timeout tasks may outlive the URLRequest they reference. Make sure it
   // is still applicable.
   if (cur_request_id_ != id)
     return;
@@ -285,19 +298,6 @@ void ProxyScriptFetcherImpl::OnTimeout(int id) {
   DCHECK(cur_request_.get());
   result_code_ = ERR_TIMED_OUT;
   cur_request_->Cancel();
-}
-
-base::TimeDelta ProxyScriptFetcherImpl::SetTimeoutConstraint(
-    base::TimeDelta timeout) {
-  base::TimeDelta prev = max_duration_;
-  max_duration_ = timeout;
-  return prev;
-}
-
-size_t ProxyScriptFetcherImpl::SetSizeConstraint(size_t size_bytes) {
-  size_t prev = max_response_bytes_;
-  max_response_bytes_ = size_bytes;
-  return prev;
 }
 
 }  // namespace net

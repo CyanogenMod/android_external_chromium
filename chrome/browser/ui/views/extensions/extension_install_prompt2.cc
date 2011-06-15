@@ -1,19 +1,19 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "app/l10n_util.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/extension_install_ui.h"
+#include "chrome/browser/ui/views/window.h"
 #include "chrome/common/extensions/extension.h"
-#include "chrome/browser/views/window.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
-#include "views/standard_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/view.h"
 #include "views/window/dialog_delegate.h"
 #include "views/window/window.h"
@@ -223,16 +223,16 @@ gfx::Size InstallDialogContent2::GetPreferredSize() {
   height += heading_->GetHeightForWidth(right_column_width_);
 
   if (permission_box_) {
-    height += kRelatedControlVerticalSpacing;
+    height += views::kRelatedControlVerticalSpacing;
     height += will_have_access_to_->GetHeightForWidth(right_column_width_);
 
-    height += kRelatedControlVerticalSpacing;
+    height += views::kRelatedControlVerticalSpacing;
     height += kPermissionBoxBorderWidth * 2;
     height += kPermissionBoxVerticalPadding * 2;
 
     for (size_t i = 0; i < permissions_.size(); ++i) {
       if (i > 0)
-        height += kRelatedControlVerticalSpacing;
+        height += views::kRelatedControlVerticalSpacing;
       height += permissions_[0]->GetHeightForWidth(kPermissionLabelWidth);
     }
   }
@@ -262,13 +262,13 @@ void InstallDialogContent2::Layout() {
   heading_->SetY(y);
   y += heading_->height();
 
-  y += kRelatedControlVerticalSpacing;
+  y += views::kRelatedControlVerticalSpacing;
   will_have_access_to_->SizeToFit(right_column_width_);
   will_have_access_to_->SetX(x);
   will_have_access_to_->SetY(y);
   y += will_have_access_to_->height();
 
-  y += kRelatedControlVerticalSpacing;
+  y += views::kRelatedControlVerticalSpacing;
   permission_box_->SetX(x);
   permission_box_->SetY(y);
 
@@ -281,7 +281,7 @@ void InstallDialogContent2::Layout() {
 
   for (size_t i = 0; i < permissions_.size(); ++i) {
     if (i > 0) {
-      label_y += kRelatedControlVerticalSpacing;
+      label_y += views::kRelatedControlVerticalSpacing;
       permission_box_height += kPanelVertMargin;
     }
 

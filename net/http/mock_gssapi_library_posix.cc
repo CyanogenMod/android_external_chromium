@@ -188,10 +188,68 @@ void GssContextMockImpl::Assign(
   open = other.open;
 }
 
+MockGSSAPILibrary::SecurityContextQuery::SecurityContextQuery()
+    : expected_package(),
+      response_code(0),
+      minor_response_code(0),
+      context_info() {
+  expected_input_token.length = 0;
+  expected_input_token.value = NULL;
+  output_token.length = 0;
+  output_token.value = NULL;
+}
+
+MockGSSAPILibrary::SecurityContextQuery::SecurityContextQuery(
+    const std::string& in_expected_package,
+    OM_uint32 in_response_code,
+    OM_uint32 in_minor_response_code,
+    const test::GssContextMockImpl& in_context_info,
+    const char* in_expected_input_token,
+    const char* in_output_token)
+    : expected_package(in_expected_package),
+      response_code(in_response_code),
+      minor_response_code(in_minor_response_code),
+      context_info(in_context_info) {
+  if (in_expected_input_token) {
+    expected_input_token.length = strlen(in_expected_input_token);
+    expected_input_token.value = const_cast<char*>(in_expected_input_token);
+  } else {
+    expected_input_token.length = 0;
+    expected_input_token.value = NULL;
+  }
+
+  if (in_output_token) {
+    output_token.length = strlen(in_output_token);
+    output_token.value = const_cast<char*>(in_output_token);
+  } else {
+    output_token.length = 0;
+    output_token.value = NULL;
+  }
+}
+
+MockGSSAPILibrary::SecurityContextQuery::~SecurityContextQuery() {}
+
 MockGSSAPILibrary::MockGSSAPILibrary() {
 }
 
 MockGSSAPILibrary::~MockGSSAPILibrary() {
+}
+
+void MockGSSAPILibrary::ExpectSecurityContext(
+    const std::string& expected_package,
+    OM_uint32 response_code,
+    OM_uint32 minor_response_code,
+    const GssContextMockImpl& context_info,
+    const gss_buffer_desc& expected_input_token,
+    const gss_buffer_desc& output_token) {
+  SecurityContextQuery security_query;
+  security_query.expected_package = expected_package;
+  security_query.response_code = response_code;
+  security_query.minor_response_code = minor_response_code;
+  security_query.context_info.Assign(context_info);
+  security_query.expected_input_token = expected_input_token;
+  security_query.output_token = output_token;
+  expected_security_queries_.push_back(security_query);
 }
 
 bool MockGSSAPILibrary::Init() {
@@ -415,23 +473,6 @@ OM_uint32 MockGSSAPILibrary::inquire_context(
   if (open)
     *open = context.open;
   return GSS_S_COMPLETE;
-}
-
-void MockGSSAPILibrary::ExpectSecurityContext(
-    const std::string& expected_package,
-    OM_uint32 response_code,
-    OM_uint32 minor_response_code,
-    const GssContextMockImpl& context_info,
-    const gss_buffer_desc& expected_input_token,
-    const gss_buffer_desc& output_token) {
-  SecurityContextQuery security_query;
-  security_query.expected_package = expected_package;
-  security_query.response_code = response_code;
-  security_query.minor_response_code = minor_response_code;
-  security_query.context_info.Assign(context_info);
-  security_query.expected_input_token = expected_input_token;
-  security_query.output_token = output_token;
-  expected_security_queries_.push_back(security_query);
 }
 
 }  // namespace test

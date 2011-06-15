@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "app/l10n_util.h"
 #include "base/command_line.h"
 #include "base/file_util.h"
+#include "base/format_macros.h"
 #include "base/path_service.h"
 #include "base/scoped_temp_dir.h"
 #include "base/string_util.h"
@@ -25,13 +25,14 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/testing_profile.h"
 #include "chrome/tools/profiles/thumbnail-inl.h"
-#include "gfx/codec/jpeg_codec.h"
 #include "googleurl/src/gurl.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/codec/jpeg_codec.h"
 
 namespace history {
 
@@ -132,7 +133,6 @@ class TopSitesTest : public testing::Test {
   }
 
   virtual void SetUp() {
-    CommandLine::ForCurrentProcess()->AppendSwitch(switches::kEnableTopSites);
     profile_.reset(new TestingProfile);
     if (CreateHistoryAndTopSites()) {
       profile_->CreateHistoryService(false, false);
@@ -382,6 +382,16 @@ class TopSitesMigrationTest : public TopSitesTest {
                   const FilePath& db_path) {
     std::string sql;
     ASSERT_TRUE(file_util::ReadFileToString(sql_path, &sql));
+
+    // Replace the 'last_visit_time', 'visit_time', 'time_slot' values in this
+    // SQL with the current time.
+    int64 now = base::Time::Now().ToInternalValue();
+    std::vector<std::string> sql_time;
+    sql_time.push_back(StringPrintf("%" PRId64, now));  // last_visit_time
+    sql_time.push_back(StringPrintf("%" PRId64, now));  // visit_time
+    sql_time.push_back(StringPrintf("%" PRId64, now));  // time_slot
+    sql = ReplaceStringPlaceholders(sql, sql_time, NULL);
+
     sql::Connection connection;
     ASSERT_TRUE(connection.Open(db_path));
     ASSERT_TRUE(connection.Execute(sql.c_str()));

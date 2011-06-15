@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@ cr.define('options', function() {
   function AutoFillOptions() {
     OptionsPage.call(this,
                      'autoFillOptions',
-                     templateData.autoFillOptionsTitle,
+                     templateData.autoFillOptionsPageTabTitle,
                      'autofill-options');
   }
 
@@ -88,7 +88,7 @@ cr.define('options', function() {
       var title = localStrings.getString('addAddressTitle');
       AutoFillEditAddressOverlay.setTitle(title);
       AutoFillEditAddressOverlay.clearInputFields();
-      OptionsPage.showOverlay('autoFillEditAddressOverlay');
+      OptionsPage.navigateToPage('autoFillEditAddressOverlay');
     },
 
     /**
@@ -101,7 +101,7 @@ cr.define('options', function() {
       var title = localStrings.getString('addCreditCardTitle');
       AutoFillEditCreditCardOverlay.setTitle(title);
       AutoFillEditCreditCardOverlay.clearInputFields();
-      OptionsPage.showOverlay('autoFillEditCreditCardOverlay');
+      OptionsPage.navigateToPage('autoFillEditCreditCardOverlay');
     },
 
     /**
@@ -171,8 +171,8 @@ cr.define('options', function() {
     showEditAddressOverlay_: function(address) {
       var title = localStrings.getString('editAddressTitle');
       AutoFillEditAddressOverlay.setTitle(title);
-      AutoFillEditAddressOverlay.loadAddress(address[0]);
-      OptionsPage.showOverlay('autoFillEditAddressOverlay');
+      AutoFillEditAddressOverlay.loadAddress(address);
+      OptionsPage.navigateToPage('autoFillEditAddressOverlay');
     },
 
     /**
@@ -184,8 +184,8 @@ cr.define('options', function() {
     showEditCreditCardOverlay_: function(creditCard) {
       var title = localStrings.getString('editCreditCardTitle');
       AutoFillEditCreditCardOverlay.setTitle(title);
-      AutoFillEditCreditCardOverlay.loadCreditCard(creditCard[0]);
-      OptionsPage.showOverlay('autoFillEditCreditCardOverlay');
+      AutoFillEditCreditCardOverlay.loadCreditCard(creditCard);
+      OptionsPage.navigateToPage('autoFillEditCreditCardOverlay');
     },
   };
 

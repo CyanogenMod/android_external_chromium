@@ -2,15 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CHROME_BROWSER_VIEWS_TAB_CONTENTS_TAB_CONTENTS_VIEW_VIEWS_H_
-#define CHROME_BROWSER_VIEWS_TAB_CONTENTS_TAB_CONTENTS_VIEW_VIEWS_H_
+#ifndef CHROME_BROWSER_UI_VIEWS_TAB_CONTENTS_TAB_CONTENTS_VIEW_VIEWS_H_
+#define CHROME_BROWSER_UI_VIEWS_TAB_CONTENTS_TAB_CONTENTS_VIEW_VIEWS_H_
 #pragma once
 
 #include <vector>
 
 #include "base/scoped_ptr.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
-#include "gfx/size.h"
+#include "ui/gfx/size.h"
 #include "views/view.h"
 
 class ConstrainedWindowGtk;
@@ -52,16 +52,17 @@ class TabContentsViewViews : public TabContentsView, public views::View {
   virtual gfx::NativeWindow GetTopLevelNativeWindow() const;
   virtual void GetContainerBounds(gfx::Rect* out) const;
   virtual void SetPageTitle(const std::wstring& title);
-  virtual void OnTabCrashed();
+  virtual void OnTabCrashed(base::TerminationStatus status,
+                            int error_code);
   virtual void SizeContents(const gfx::Size& size);
   virtual void Focus();
   virtual void SetInitialFocus();
   virtual void StoreFocus();
   virtual void RestoreFocus();
+  virtual void GetViewBounds(gfx::Rect* out) const;
 
   // views::View implementation
-  virtual void DidChangeBounds(const gfx::Rect& previous,
-                               const gfx::Rect& current);
+  virtual void OnBoundsChanged();
 
   virtual void Paint(gfx::Canvas* canvas);
 
@@ -128,4 +129,4 @@ class TabContentsViewViews : public TabContentsView, public views::View {
   DISALLOW_COPY_AND_ASSIGN(TabContentsViewViews);
 };
 
-#endif  // CHROME_BROWSER_VIEWS_TAB_CONTENTS_TAB_CONTENTS_VIEW_VIEWS_H_
+#endif  // CHROME_BROWSER_UI_VIEWS_TAB_CONTENTS_TAB_CONTENTS_VIEW_VIEWS_H_

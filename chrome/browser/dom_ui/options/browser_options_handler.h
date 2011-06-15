@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,20 +6,22 @@
 #define CHROME_BROWSER_DOM_UI_OPTIONS_BROWSER_OPTIONS_HANDLER_H_
 #pragma once
 
-#include "app/table_model_observer.h"
 #include "chrome/browser/dom_ui/options/options_ui.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/search_engines/template_url_model_observer.h"
 #include "chrome/browser/shell_integration.h"
+#include "ui/base/models/table_model_observer.h"
 
 class CustomHomePagesTableModel;
 class OptionsManagedBannerHandler;
+class StringPrefMember;
 class TemplateURLModel;
 
 // Chrome browser options page UI handler.
 class BrowserOptionsHandler : public OptionsPageUIHandler,
                               public ShellIntegration::DefaultBrowserObserver,
                               public TemplateURLModelObserver,
-                              public TableModelObserver {
+                              public ui::TableModelObserver {
  public:
   BrowserOptionsHandler();
   virtual ~BrowserOptionsHandler();
@@ -37,49 +39,64 @@ class BrowserOptionsHandler : public OptionsPageUIHandler,
   // TemplateURLModelObserver implementation.
   virtual void OnTemplateURLModelChanged();
 
-  // TableModelObserver implementation.
+  // ui::TableModelObserver implementation.
   virtual void OnModelChanged();
   virtual void OnItemsChanged(int start, int length);
   virtual void OnItemsAdded(int start, int length);
   virtual void OnItemsRemoved(int start, int length);
 
  private:
-  // Makes this the default browser. Called from DOMUI.
+  // NotificationObserver implementation.
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
+
+  // Sets the home page to the given string. Called from WebUI.
+  void SetHomePage(const ListValue* args);
+
+  // Makes this the default browser. Called from WebUI.
   void BecomeDefaultBrowser(const ListValue* args);
 
-  // Sets the search engine at the given index to be default. Called from DOMUI.
+  // Sets the search engine at the given index to be default. Called from WebUI.
   void SetDefaultSearchEngine(const ListValue* args);
 
-  // Removes the startup page at the given indexes. Called from DOMUI.
+  // Removes the startup page at the given indexes. Called from WebUI.
   void RemoveStartupPages(const ListValue* args);
 
   // Adds a startup page with the given URL after the given index.
-  // Called from DOMUI.
+  // Called from WebUI.
   void AddStartupPage(const ListValue* args);
 
-  // Sets the startup page set to the current pages. Called from DOMUI.
+  // Changes the startup page at the given index to the given URL.
+  // Called from WebUI.
+  void EditStartupPage(const ListValue* args);
+
+  // Sets the startup page set to the current pages. Called from WebUI.
   void SetStartupPagesToCurrentPages(const ListValue* args);
 
   // Returns the string ID for the given default browser state.
   int StatusStringIdForState(ShellIntegration::DefaultBrowserState state);
 
   // Gets the current default browser state, and asynchronously reports it to
-  // the DOMUI page.
+  // the WebUI page.
   void UpdateDefaultBrowserState();
 
   // Updates the UI with the given state for the default browser.
   void SetDefaultBrowserUIString(int status_string_id);
 
-  // Loads the current set of custom startup pages and reports it to the DOMUI.
+  // Loads the current set of custom startup pages and reports it to the WebUI.
   void UpdateStartupPages();
 
-  // Loads the possible default search engine list and reports it to the DOMUI.
+  // Loads the possible default search engine list and reports it to the WebUI.
   void UpdateSearchEngines();
 
   // Writes the current set of startup pages to prefs.
   void SaveStartupPagesPref();
 
   scoped_refptr<ShellIntegration::DefaultBrowserWorker> default_browser_worker_;
+
+  StringPrefMember homepage_;
+  BooleanPrefMember default_browser_policy_;
 
   TemplateURLModel* template_url_model_;  // Weak.
 

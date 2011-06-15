@@ -6,6 +6,7 @@
 
 #include "chrome/common/navigation_gesture.h"
 #include "chrome/common/common_param_traits.h"
+#include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/render_messages.h"
 #include "net/base/upload_data.h"
 
@@ -60,7 +61,7 @@ ViewMsg_ClosePage_Params::~ViewMsg_ClosePage_Params() {
 
 ViewHostMsg_Resource_Request::ViewHostMsg_Resource_Request()
     : load_flags(0),
-      origin_child_id(0),
+      origin_pid(0),
       resource_type(ResourceType::MAIN_FRAME),
       request_context(0),
       appcache_host_id(0),
@@ -81,7 +82,8 @@ ViewMsg_Print_Params::ViewMsg_Print_Params()
       max_shrink(0),
       desired_dpi(0),
       document_cookie(0),
-      selection_only(false) {
+      selection_only(false),
+      supports_alpha_blend(true) {
 }
 
 ViewMsg_Print_Params::~ViewMsg_Print_Params() {
@@ -96,13 +98,15 @@ bool ViewMsg_Print_Params::Equals(const ViewMsg_Print_Params& rhs) const {
          min_shrink == rhs.min_shrink &&
          max_shrink == rhs.max_shrink &&
          desired_dpi == rhs.desired_dpi &&
-         selection_only == rhs.selection_only;
+         selection_only == rhs.selection_only &&
+         supports_alpha_blend == rhs.supports_alpha_blend;
 }
 
 bool ViewMsg_Print_Params::IsEmpty() const {
   return !document_cookie && !desired_dpi && !max_shrink && !min_shrink &&
          !dpi && printable_size.IsEmpty() && !selection_only &&
-         page_size.IsEmpty() && !margin_top && !margin_left;
+         page_size.IsEmpty() && !margin_top && !margin_left &&
+         !supports_alpha_blend;
 }
 
 ViewMsg_PrintPage_Params::ViewMsg_PrintPage_Params()
@@ -231,7 +235,8 @@ ViewHostMsg_CreateWindow_Params::ViewHostMsg_CreateWindow_Params()
     : opener_id(0),
       user_gesture(false),
       window_container_type(WINDOW_CONTAINER_TYPE_NORMAL),
-      session_storage_namespace_id(0) {
+      session_storage_namespace_id(0),
+      opener_frame_id(0) {
 }
 
 ViewHostMsg_CreateWindow_Params::~ViewHostMsg_CreateWindow_Params() {
@@ -242,20 +247,6 @@ ViewHostMsg_RunFileChooser_Params::ViewHostMsg_RunFileChooser_Params()
 }
 
 ViewHostMsg_RunFileChooser_Params::~ViewHostMsg_RunFileChooser_Params() {
-}
-
-ViewMsg_ExtensionRendererInfo::ViewMsg_ExtensionRendererInfo()
-    : location(Extension::INVALID),
-      allowed_to_execute_script_everywhere(false) {
-}
-
-ViewMsg_ExtensionRendererInfo::~ViewMsg_ExtensionRendererInfo() {
-}
-
-ViewMsg_ExtensionsUpdated_Params::ViewMsg_ExtensionsUpdated_Params() {
-}
-
-ViewMsg_ExtensionsUpdated_Params::~ViewMsg_ExtensionsUpdated_Params() {
 }
 
 ViewMsg_DeviceOrientationUpdated_Params::
@@ -279,6 +270,59 @@ ViewHostMsg_DomMessage_Params::ViewHostMsg_DomMessage_Params()
 }
 
 ViewHostMsg_DomMessage_Params::~ViewHostMsg_DomMessage_Params() {
+}
+
+ViewMsg_ExtensionLoaded_Params::ViewMsg_ExtensionLoaded_Params() {
+}
+
+ViewMsg_ExtensionLoaded_Params::~ViewMsg_ExtensionLoaded_Params() {
+}
+
+ViewMsg_ExtensionLoaded_Params::ViewMsg_ExtensionLoaded_Params(
+    const ViewMsg_ExtensionLoaded_Params& other)
+    : manifest(other.manifest->DeepCopy()),
+      location(other.location),
+      path(other.path),
+      id(other.id) {
+}
+
+ViewMsg_ExtensionLoaded_Params::ViewMsg_ExtensionLoaded_Params(
+    const Extension* extension)
+    : manifest(new DictionaryValue()),
+      location(extension->location()),
+      path(extension->path()),
+      id(extension->id()) {
+  // As we need more bits of extension data in the renderer, add more keys to
+  // this list.
+  const char* kRendererExtensionKeys[] = {
+    extension_manifest_keys::kPublicKey,
+    extension_manifest_keys::kName,
+    extension_manifest_keys::kVersion,
+    extension_manifest_keys::kIcons,
+    extension_manifest_keys::kPermissions,
+    extension_manifest_keys::kApp
+  };
+
+  // Copy only the data we need.
+  for (size_t i = 0; i < ARRAYSIZE_UNSAFE(kRendererExtensionKeys); ++i) {
+    Value* temp = NULL;
+    if (extension->manifest_value()->Get(kRendererExtensionKeys[i], &temp))
+      manifest->Set(kRendererExtensionKeys[i], temp->DeepCopy());
+  }
+}
+
+scoped_refptr<Extension>
+    ViewMsg_ExtensionLoaded_Params::ConvertToExtension() const {
+  // Extensions that are loaded unpacked won't have a key.
+  const bool kRequireKey = false;
+  std::string error;
+
+  scoped_refptr<Extension> extension(
+      Extension::Create(path, location, *manifest, kRequireKey, &error));
+  if (!extension.get())
+    LOG(ERROR) << "Error deserializing extension: " << error;
+
+  return extension;
 }
 
 namespace IPC {
@@ -311,6 +355,10 @@ struct ParamTraits<ViewMsg_Navigate_Params::NavigationType> {
 
       case ViewMsg_Navigate_Params::RESTORE:
         event = "NavigationType_RESTORE";
+        break;
+
+      case ViewMsg_Navigate_Params::PRERENDER:
+        event = "NavigationType_PRERENDER";
         break;
 
       case ViewMsg_Navigate_Params::NORMAL:
@@ -783,6 +831,7 @@ void ParamTraits<ViewHostMsg_UpdateRect_Params>::Write(
   WriteParam(m, p.dx);
   WriteParam(m, p.dy);
   WriteParam(m, p.scroll_rect);
+  WriteParam(m, p.scroll_offset);
   WriteParam(m, p.copy_rects);
   WriteParam(m, p.view_size);
   WriteParam(m, p.resizer_rect);
@@ -798,6 +847,7 @@ bool ParamTraits<ViewHostMsg_UpdateRect_Params>::Read(
       ReadParam(m, iter, &p->dx) &&
       ReadParam(m, iter, &p->dy) &&
       ReadParam(m, iter, &p->scroll_rect) &&
+      ReadParam(m, iter, &p->scroll_offset) &&
       ReadParam(m, iter, &p->copy_rects) &&
       ReadParam(m, iter, &p->view_size) &&
       ReadParam(m, iter, &p->resizer_rect) &&
@@ -874,7 +924,7 @@ void ParamTraits<ViewHostMsg_Resource_Request>::Write(Message* m,
   WriteParam(m, p.main_frame_origin);
   WriteParam(m, p.headers);
   WriteParam(m, p.load_flags);
-  WriteParam(m, p.origin_child_id);
+  WriteParam(m, p.origin_pid);
   WriteParam(m, p.resource_type);
   WriteParam(m, p.request_context);
   WriteParam(m, p.appcache_host_id);
@@ -897,7 +947,7 @@ bool ParamTraits<ViewHostMsg_Resource_Request>::Read(const Message* m,
       ReadParam(m, iter, &r->main_frame_origin) &&
       ReadParam(m, iter, &r->headers) &&
       ReadParam(m, iter, &r->load_flags) &&
-      ReadParam(m, iter, &r->origin_child_id) &&
+      ReadParam(m, iter, &r->origin_pid) &&
       ReadParam(m, iter, &r->resource_type) &&
       ReadParam(m, iter, &r->request_context) &&
       ReadParam(m, iter, &r->appcache_host_id) &&
@@ -923,7 +973,7 @@ void ParamTraits<ViewHostMsg_Resource_Request>::Log(const param_type& p,
   l->append(", ");
   LogParam(p.load_flags, l);
   l->append(", ");
-  LogParam(p.origin_child_id, l);
+  LogParam(p.origin_pid, l);
   l->append(", ");
   LogParam(p.resource_type, l);
   l->append(", ");
@@ -952,6 +1002,7 @@ void ParamTraits<ViewMsg_Print_Params>::Write(Message* m, const param_type& p) {
   WriteParam(m, p.desired_dpi);
   WriteParam(m, p.document_cookie);
   WriteParam(m, p.selection_only);
+  WriteParam(m, p.supports_alpha_blend);
 }
 
 bool ParamTraits<ViewMsg_Print_Params>::Read(const Message* m,
@@ -966,7 +1017,8 @@ bool ParamTraits<ViewMsg_Print_Params>::Read(const Message* m,
       ReadParam(m, iter, &p->max_shrink) &&
       ReadParam(m, iter, &p->desired_dpi) &&
       ReadParam(m, iter, &p->document_cookie) &&
-      ReadParam(m, iter, &p->selection_only);
+      ReadParam(m, iter, &p->selection_only) &&
+      ReadParam(m, iter, &p->supports_alpha_blend);
 }
 
 void ParamTraits<ViewMsg_Print_Params>::Log(const param_type& p,
@@ -1345,6 +1397,10 @@ void ParamTraits<ViewHostMsg_CreateWindow_Params>::Write(Message* m,
   WriteParam(m, p.window_container_type);
   WriteParam(m, p.session_storage_namespace_id);
   WriteParam(m, p.frame_name);
+  WriteParam(m, p.opener_frame_id);
+  WriteParam(m, p.opener_url);
+  WriteParam(m, p.opener_security_origin);
+  WriteParam(m, p.target_url);
 }
 
 bool ParamTraits<ViewHostMsg_CreateWindow_Params>::Read(const Message* m,
@@ -1355,7 +1411,11 @@ bool ParamTraits<ViewHostMsg_CreateWindow_Params>::Read(const Message* m,
       ReadParam(m, iter, &p->user_gesture) &&
       ReadParam(m, iter, &p->window_container_type) &&
       ReadParam(m, iter, &p->session_storage_namespace_id) &&
-      ReadParam(m, iter, &p->frame_name);
+      ReadParam(m, iter, &p->frame_name) &&
+      ReadParam(m, iter, &p->opener_frame_id) &&
+      ReadParam(m, iter, &p->opener_url) &&
+      ReadParam(m, iter, &p->opener_security_origin) &&
+      ReadParam(m, iter, &p->target_url);
 }
 
 void ParamTraits<ViewHostMsg_CreateWindow_Params>::Log(const param_type& p,
@@ -1370,6 +1430,14 @@ void ParamTraits<ViewHostMsg_CreateWindow_Params>::Log(const param_type& p,
   LogParam(p.session_storage_namespace_id, l);
   l->append(", ");
   LogParam(p.frame_name, l);
+  l->append(", ");
+  LogParam(p.opener_frame_id, l);
+  l->append(", ");
+  LogParam(p.opener_url, l);
+  l->append(", ");
+  LogParam(p.opener_security_origin, l);
+  l->append(", ");
+  LogParam(p.target_url, l);
   l->append(")");
 }
 
@@ -1427,51 +1495,25 @@ void ParamTraits<ViewHostMsg_RunFileChooser_Params>::Log(
   LogParam(p.accept_types, l);
 }
 
-void ParamTraits<ViewMsg_ExtensionRendererInfo>::Write(Message* m,
-                                                       const param_type& p) {
-  WriteParam(m, p.id);
-  WriteParam(m, p.web_extent);
-  WriteParam(m, p.name);
-  WriteParam(m, p.icon_url);
+void ParamTraits<ViewMsg_ExtensionLoaded_Params>::Write(Message* m,
+                                                        const param_type& p) {
   WriteParam(m, p.location);
-  WriteParam(m, p.allowed_to_execute_script_everywhere);
-  WriteParam(m, p.host_permissions);
+  WriteParam(m, p.path);
+  WriteParam(m, *(p.manifest));
 }
 
-bool ParamTraits<ViewMsg_ExtensionRendererInfo>::Read(const Message* m,
-                                                      void** iter,
-                                                      param_type* p) {
-  return ReadParam(m, iter, &p->id) &&
-      ReadParam(m, iter, &p->web_extent) &&
-      ReadParam(m, iter, &p->name) &&
-      ReadParam(m, iter, &p->icon_url) &&
-      ReadParam(m, iter, &p->location) &&
-      ReadParam(m, iter, &p->allowed_to_execute_script_everywhere) &&
-      ReadParam(m, iter, &p->host_permissions);
+bool ParamTraits<ViewMsg_ExtensionLoaded_Params>::Read(const Message* m,
+                                                       void** iter,
+                                                       param_type* p) {
+  p->manifest.reset(new DictionaryValue());
+  return ReadParam(m, iter, &p->location) &&
+         ReadParam(m, iter, &p->path) &&
+         ReadParam(m, iter, p->manifest.get());
 }
 
-void ParamTraits<ViewMsg_ExtensionRendererInfo>::Log(const param_type& p,
-                                                     std::string* l) {
-  LogParam(p.id, l);
-}
-
-void ParamTraits<ViewMsg_ExtensionsUpdated_Params>::Write(
-    Message* m,
-    const param_type& p) {
-  WriteParam(m, p.extensions);
-}
-
-bool ParamTraits<ViewMsg_ExtensionsUpdated_Params>::Read(
-    const Message* m,
-    void** iter,
-    param_type* p) {
-  return ReadParam(m, iter, &p->extensions);
-}
-
-void ParamTraits<ViewMsg_ExtensionsUpdated_Params>::Log(
-    const param_type& p,
-    std::string* l) {
-  LogParam(p.extensions, l);
+void ParamTraits<ViewMsg_ExtensionLoaded_Params>::Log(const param_type& p,
+                                                      std::string* l) {
+  l->append(p.id);
 }
 
 void ParamTraits<ViewMsg_DeviceOrientationUpdated_Params>::Write(

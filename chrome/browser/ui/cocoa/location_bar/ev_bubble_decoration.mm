@@ -4,12 +4,12 @@
 
 #import "chrome/browser/ui/cocoa/location_bar/ev_bubble_decoration.h"
 
-#include "app/text_elider.h"
 #import "base/logging.h"
 #include "base/sys_string_conversions.h"
 #import "chrome/browser/ui/cocoa/image_utils.h"
 #import "chrome/browser/ui/cocoa/location_bar/location_icon_decoration.h"
-#include "gfx/font.h"
+#include "ui/base/text/text_elider.h"
+#include "ui/gfx/font.h"
 
 namespace {
 
@@ -89,10 +89,11 @@ CGFloat EVBubbleDecoration::GetWidthForSpace(CGFloat width) {
 
   // Middle-elide the label to fit |width_left|.  This leaves the
   // prefix and the trailing country code in place.
-  gfx::Font font(base::SysNSStringToWide([font_ fontName]),
+  gfx::Font font(base::SysNSStringToUTF16([font_ fontName]),
                  [font_ pointSize]);
   NSString* elided_label = base::SysUTF16ToNSString(
-      ElideText(base::SysNSStringToUTF16(full_label_), font, width_left, true));
+      ui::ElideText(base::SysNSStringToUTF16(full_label_), font, width_left,
+                    true));
 
   // Use the elided label.
   SetLabel(elided_label);

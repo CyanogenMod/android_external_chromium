@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 
 #include <set>
 
-#include "app/l10n_util.h"
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
@@ -19,7 +18,6 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/app_launcher_handler.h"
-#include "chrome/browser/dom_ui/dom_ui_theme_source.h"
 #include "chrome/browser/dom_ui/foreign_session_handler.h"
 #include "chrome/browser/dom_ui/most_visited_handler.h"
 #include "chrome/browser/dom_ui/new_tab_page_sync_handler.h"
@@ -28,6 +26,7 @@
 #include "chrome/browser/dom_ui/shown_sections_handler.h"
 #include "chrome/browser/dom_ui/tips_handler.h"
 #include "chrome/browser/dom_ui/value_helper.h"
+#include "chrome/browser/dom_ui/web_ui_theme_source.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -46,6 +45,7 @@
 #include "chrome/common/url_constants.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
@@ -55,84 +55,25 @@ const int kRecentBookmarks = 9;
 // The number of search URLs to show.
 const int kSearchURLs = 3;
 
+// The amount of time there must be no painting for us to consider painting
+// finished.  Observed times are in the ~1200ms range on Windows.
+const int kTimeoutMs = 2000;
+
 // Strings sent to the page via jstemplates used to set the direction of the
 // HTML document based on locale.
 const char kRTLHtmlTextDirection[] = "rtl";
 const char kDefaultHtmlTextDirection[] = "ltr";
 
-////////////////////////////////////////////////////////////////////////////////
-// PaintTimer
-
-// To measure end-to-end performance of the new tab page, we observe paint
-// messages and wait for the page to stop repainting.
-class PaintTimer : public RenderWidgetHost::PaintObserver {
- public:
-  PaintTimer() {
-    Start();
-  }
-
-  // Start the benchmarking and the timer.
-  void Start() {
-    start_ = base::TimeTicks::Now();
-    last_paint_ = start_;
-
-    timer_.Start(base::TimeDelta::FromMilliseconds(kTimeoutMs), this,
-                 &PaintTimer::Timeout);
-  }
-
-  // A callback that is invoked whenever our RenderWidgetHost paints.
-  virtual void RenderWidgetHostWillPaint(RenderWidgetHost* rhw) {}
-
-  virtual void RenderWidgetHostDidPaint(RenderWidgetHost* rwh) {
-    last_paint_ = base::TimeTicks::Now();
-  }
-
-  // The timer callback.  If enough time has elapsed since the last paint
-  // message, we say we're done painting; otherwise, we keep waiting.
-  void Timeout() {
-    base::TimeTicks now = base::TimeTicks::Now();
-    if ((now - last_paint_) >= base::TimeDelta::FromMilliseconds(kTimeoutMs)) {
-      // Painting has quieted down.  Log this as the full time to run.
-      base::TimeDelta load_time = last_paint_ - start_;
-      int load_time_ms = static_cast<int>(load_time.InMilliseconds());
-      NotificationService::current()->Notify(
-          NotificationType::INITIAL_NEW_TAB_UI_LOAD,
-          NotificationService::AllSources(),
-          Details<int>(&load_time_ms));
-      UMA_HISTOGRAM_TIMES("NewTabUI load", load_time);
-    } else {
-      // Not enough quiet time has elapsed.
-      // Some more paints must've occurred since we set the timeout.
-      // Wait some more.
-      timer_.Start(base::TimeDelta::FromMilliseconds(kTimeoutMs), this,
-                   &PaintTimer::Timeout);
-    }
-  }
-
- private:
-  // The amount of time there must be no painting for us to consider painting
-  // finished.  Observed times are in the ~1200ms range on Windows.
-  static const int kTimeoutMs = 2000;
-  // The time when we started benchmarking.
-  base::TimeTicks start_;
-  // The last time we got a paint notification.
-  base::TimeTicks last_paint_;
-  // Scoping so we can be sure our timeouts don't outlive us.
-  base::OneShotTimer<PaintTimer> timer_;
-
-  DISALLOW_COPY_AND_ASSIGN(PaintTimer);
-};
-
 ///////////////////////////////////////////////////////////////////////////////
 // RecentlyClosedTabsHandler
 
-class RecentlyClosedTabsHandler : public DOMMessageHandler,
+class RecentlyClosedTabsHandler : public WebUIMessageHandler,
                                   public TabRestoreServiceObserver {
  public:
   RecentlyClosedTabsHandler() : tab_restore_service_(NULL) {}
   virtual ~RecentlyClosedTabsHandler();
 
-  // DOMMessageHandler implementation.
+  // WebUIMessageHandler implementation.
   virtual void RegisterMessages();
 
   // Callback for the "reopenTab" message. Rewrites the history of the
@@ -160,10 +101,10 @@ class RecentlyClosedTabsHandler : public DOMMessageHandler,
 };
 
 void RecentlyClosedTabsHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("getRecentlyClosedTabs",
+  web_ui_->RegisterMessageCallback("getRecentlyClosedTabs",
       NewCallback(this,
                   &RecentlyClosedTabsHandler::HandleGetRecentlyClosedTabs));
-  dom_ui_->RegisterMessageCallback("reopenTab",
+  web_ui_->RegisterMessageCallback("reopenTab",
       NewCallback(this, &RecentlyClosedTabsHandler::HandleReopenTab));
 }
 
@@ -174,7 +115,7 @@ RecentlyClosedTabsHandler::~RecentlyClosedTabsHandler() {
 
 void RecentlyClosedTabsHandler::HandleReopenTab(const ListValue* args) {
   Browser* browser = Browser::GetBrowserForController(
-      &dom_ui_->tab_contents()->controller(), NULL);
+      &web_ui_->tab_contents()->controller(), NULL);
   if (!browser)
     return;
 
@@ -188,7 +129,7 @@ void RecentlyClosedTabsHandler::HandleReopenTab(const ListValue* args) {
 void RecentlyClosedTabsHandler::HandleGetRecentlyClosedTabs(
     const ListValue* args) {
   if (!tab_restore_service_) {
-    tab_restore_service_ = dom_ui_->GetProfile()->GetTabRestoreService();
+    tab_restore_service_ = web_ui_->GetProfile()->GetTabRestoreService();
 
     // GetTabRestoreService() can return NULL (i.e., when in Off the
     // Record mode)
@@ -210,14 +151,13 @@ void RecentlyClosedTabsHandler::TabRestoreServiceChanged(
   ListValue list_value;
   NewTabUI::AddRecentlyClosedEntries(service->entries(), &list_value);
 
-  dom_ui_->CallJavascriptFunction(L"recentlyClosedTabs", list_value);
+  web_ui_->CallJavascriptFunction(L"recentlyClosedTabs", list_value);
 }
 
 void RecentlyClosedTabsHandler::TabRestoreServiceDestroyed(
     TabRestoreService* service) {
   tab_restore_service_ = NULL;
 }
-
 
 ///////////////////////////////////////////////////////////////////////////////
 // MetricsHandler
@@ -228,12 +168,12 @@ void RecentlyClosedTabsHandler::TabRestoreServiceDestroyed(
 // information through RequestOpenURL. You will need to update the metrics
 // dashboard with the action names you use, as our processor won't catch that
 // information (treat it as RecordComputedMetrics)
-class MetricsHandler : public DOMMessageHandler {
+class MetricsHandler : public WebUIMessageHandler {
  public:
   MetricsHandler() {}
   virtual ~MetricsHandler() {}
 
-  // DOMMessageHandler implementation.
+  // WebUIMessageHandler implementation.
   virtual void RegisterMessages();
 
   // Callback which records a user action.
@@ -248,21 +188,21 @@ class MetricsHandler : public DOMMessageHandler {
 };
 
 void MetricsHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("metrics",
+  web_ui_->RegisterMessageCallback("metrics",
       NewCallback(this, &MetricsHandler::HandleMetrics));
 
-  dom_ui_->RegisterMessageCallback("logEventTime",
+  web_ui_->RegisterMessageCallback("logEventTime",
       NewCallback(this, &MetricsHandler::HandleLogEventTime));
 }
 
 void MetricsHandler::HandleMetrics(const ListValue* args) {
   std::string string_action = WideToUTF8(ExtractStringValue(args));
-  UserMetrics::RecordComputedAction(string_action, dom_ui_->GetProfile());
+  UserMetrics::RecordComputedAction(string_action, web_ui_->GetProfile());
 }
 
 void MetricsHandler::HandleLogEventTime(const ListValue* args) {
   std::string event_name = WideToUTF8(ExtractStringValue(args));
-  dom_ui_->tab_contents()->LogNewTabTime(event_name);
+  web_ui_->tab_contents()->LogNewTabTime(event_name);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -270,12 +210,12 @@ void MetricsHandler::HandleLogEventTime(const ListValue* args) {
 
 // Sets the new tab page as home page when user clicks on "make this my home
 // page" link.
-class NewTabPageSetHomePageHandler : public DOMMessageHandler {
+class NewTabPageSetHomePageHandler : public WebUIMessageHandler {
  public:
   NewTabPageSetHomePageHandler() {}
   virtual ~NewTabPageSetHomePageHandler() {}
 
-  // DOMMessageHandler implementation.
+  // WebUIMessageHandler implementation.
   virtual void RegisterMessages();
 
   // Callback for "setHomePage".
@@ -287,20 +227,20 @@ class NewTabPageSetHomePageHandler : public DOMMessageHandler {
 };
 
 void NewTabPageSetHomePageHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("setHomePage", NewCallback(
+  web_ui_->RegisterMessageCallback("setHomePage", NewCallback(
       this, &NewTabPageSetHomePageHandler::HandleSetHomePage));
 }
 
 void NewTabPageSetHomePageHandler::HandleSetHomePage(
     const ListValue* args) {
-  dom_ui_->GetProfile()->GetPrefs()->SetBoolean(prefs::kHomePageIsNewTabPage,
+  web_ui_->GetProfile()->GetPrefs()->SetBoolean(prefs::kHomePageIsNewTabPage,
                                                 true);
   ListValue list_value;
   list_value.Append(new StringValue(
       l10n_util::GetStringUTF16(IDS_NEW_TAB_HOME_PAGE_SET_NOTIFICATION)));
   list_value.Append(new StringValue(
       l10n_util::GetStringUTF16(IDS_NEW_TAB_HOME_PAGE_HIDE_NOTIFICATION)));
-  dom_ui_->CallJavascriptFunction(L"onHomePageSet", list_value);
+  web_ui_->CallJavascriptFunction(L"onHomePageSet", list_value);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -308,12 +248,12 @@ void NewTabPageSetHomePageHandler::HandleSetHomePage(
 
 // Turns off the promo line permanently when it has been explicitly closed by
 // the user.
-class NewTabPageClosePromoHandler : public DOMMessageHandler {
+class NewTabPageClosePromoHandler : public WebUIMessageHandler {
  public:
   NewTabPageClosePromoHandler() {}
   virtual ~NewTabPageClosePromoHandler() {}
 
-  // DOMMessageHandler implementation.
+  // WebUIMessageHandler implementation.
   virtual void RegisterMessages();
 
   // Callback for "closePromo".
@@ -325,13 +265,13 @@ class NewTabPageClosePromoHandler : public DOMMessageHandler {
 };
 
 void NewTabPageClosePromoHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("closePromo", NewCallback(
+  web_ui_->RegisterMessageCallback("closePromo", NewCallback(
       this, &NewTabPageClosePromoHandler::HandleClosePromo));
 }
 
 void NewTabPageClosePromoHandler::HandleClosePromo(
     const ListValue* args) {
-  dom_ui_->GetProfile()->GetPrefs()->SetBoolean(prefs::kNTPPromoClosed, true);
+  web_ui_->GetProfile()->GetPrefs()->SetBoolean(prefs::kNTPPromoClosed, true);
   NotificationService* service = NotificationService::current();
   service->Notify(NotificationType::WEB_RESOURCE_STATE_CHANGED,
                   Source<NewTabPageClosePromoHandler>(this),
@@ -344,8 +284,8 @@ void NewTabPageClosePromoHandler::HandleClosePromo(
 // NewTabUI
 
 NewTabUI::NewTabUI(TabContents* contents)
-    : DOMUI(contents) {
-  // Override some options on the DOM UI.
+    : WebUI(contents) {
+  // Override some options on the Web UI.
   hide_favicon_ = true;
   force_bookmark_bar_visible_ = true;
   focus_location_bar_by_default_ = true;
@@ -392,12 +332,7 @@ NewTabUI::NewTabUI(TabContents* contents)
   InitializeCSSCaches();
   NewTabHTMLSource* html_source =
       new NewTabHTMLSource(GetProfile()->GetOriginalProfile());
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(
-          ChromeURLDataManager::GetInstance(),
-          &ChromeURLDataManager::AddDataSource,
-          make_scoped_refptr(html_source)));
+  contents->profile()->GetChromeURLDataManager()->AddDataSource(html_source);
 
   // Listen for theme installation.
   registrar_.Add(this, NotificationType::BROWSER_THEME_CHANGED,
@@ -410,41 +345,81 @@ NewTabUI::NewTabUI(TabContents* contents)
 NewTabUI::~NewTabUI() {
 }
 
+// The timer callback.  If enough time has elapsed since the last paint
+// message, we say we're done painting; otherwise, we keep waiting.
+void NewTabUI::PaintTimeout() {
+  // The amount of time there must be no painting for us to consider painting
+  // finished.  Observed times are in the ~1200ms range on Windows.
+  base::TimeTicks now = base::TimeTicks::Now();
+  if ((now - last_paint_) >= base::TimeDelta::FromMilliseconds(kTimeoutMs)) {
+    // Painting has quieted down.  Log this as the full time to run.
+    base::TimeDelta load_time = last_paint_ - start_;
+    int load_time_ms = static_cast<int>(load_time.InMilliseconds());
+    NotificationService::current()->Notify(
+        NotificationType::INITIAL_NEW_TAB_UI_LOAD,
+        NotificationService::AllSources(),
+        Details<int>(&load_time_ms));
+    UMA_HISTOGRAM_TIMES("NewTabUI load", load_time);
+  } else {
+    // Not enough quiet time has elapsed.
+    // Some more paints must've occurred since we set the timeout.
+    // Wait some more.
+    timer_.Start(base::TimeDelta::FromMilliseconds(kTimeoutMs), this,
+                 &NewTabUI::PaintTimeout);
+  }
+}
+
+void NewTabUI::StartTimingPaint(RenderViewHost* render_view_host) {
+  start_ = base::TimeTicks::Now();
+  last_paint_ = start_;
+  registrar_.Add(this, NotificationType::RENDER_WIDGET_HOST_DID_PAINT,
+      Source<RenderWidgetHost>(render_view_host));
+  timer_.Start(base::TimeDelta::FromMilliseconds(kTimeoutMs), this,
+               &NewTabUI::PaintTimeout);
+
+}
 void NewTabUI::RenderViewCreated(RenderViewHost* render_view_host) {
-  render_view_host->set_paint_observer(new PaintTimer);
+  StartTimingPaint(render_view_host);
 }
 
 void NewTabUI::RenderViewReused(RenderViewHost* render_view_host) {
-  render_view_host->set_paint_observer(new PaintTimer);
+  StartTimingPaint(render_view_host);
 }
 
 void NewTabUI::Observe(NotificationType type,
                        const NotificationSource& source,
                        const NotificationDetails& details) {
-  if (NotificationType::BROWSER_THEME_CHANGED == type) {
-    InitializeCSSCaches();
-    ListValue args;
-    args.Append(Value::CreateStringValue(
-        GetProfile()->GetThemeProvider()->HasCustomImage(
-            IDR_THEME_NTP_ATTRIBUTION) ?
-        "true" : "false"));
-    CallJavascriptFunction(L"themeChanged", args);
-  } else if (NotificationType::BOOKMARK_BAR_VISIBILITY_PREF_CHANGED) {
-    if (GetProfile()->GetPrefs()->GetBoolean(prefs::kShowBookmarkBar))
-      CallJavascriptFunction(L"bookmarkBarAttached");
-    else
-      CallJavascriptFunction(L"bookmarkBarDetached");
+  switch (type.value) {
+    case NotificationType::BROWSER_THEME_CHANGED: {
+      InitializeCSSCaches();
+      ListValue args;
+      args.Append(Value::CreateStringValue(
+          GetProfile()->GetThemeProvider()->HasCustomImage(
+              IDR_THEME_NTP_ATTRIBUTION) ?
+          "true" : "false"));
+      CallJavascriptFunction(L"themeChanged", args);
+      break;
+    }
+    case NotificationType::BOOKMARK_BAR_VISIBILITY_PREF_CHANGED: {
+      if (GetProfile()->GetPrefs()->GetBoolean(prefs::kShowBookmarkBar))
+        CallJavascriptFunction(L"bookmarkBarAttached");
+      else
+        CallJavascriptFunction(L"bookmarkBarDetached");
+      break;
+    }
+    case NotificationType::RENDER_WIDGET_HOST_DID_PAINT: {
+      last_paint_ = base::TimeTicks::Now();
+      break;
+    }
+    default:
+      CHECK(false) << "Unexpected notification: " << type.value;
   }
 }
 
 void NewTabUI::InitializeCSSCaches() {
-  DOMUIThemeSource* theme = new DOMUIThemeSource(GetProfile());
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(
-          ChromeURLDataManager::GetInstance(),
-          &ChromeURLDataManager::AddDataSource,
-          make_scoped_refptr(theme)));
+  Profile* profile = GetProfile();
+  WebUIThemeSource* theme = new WebUIThemeSource(profile);
+  profile->GetChromeURLDataManager()->AddDataSource(theme);
 }
 
 // static
@@ -605,7 +580,7 @@ void NewTabUI::NewTabHTMLSource::StartDataRequest(const std::string& path,
                                                   int request_id) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
-  if (AppLauncherHandler::HandlePing(path)) {
+  if (AppLauncherHandler::HandlePing(profile_, path)) {
     return;
   } else if (!path.empty() && path[0] != '#') {
     // A path under new-tab was requested; it's likely a bad relative

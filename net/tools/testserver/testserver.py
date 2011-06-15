@@ -1,5 +1,5 @@
 #!/usr/bin/python2.4
-# Copyright (c) 2006-2010 The Chromium Authors. All rights reserved.
+# Copyright (c) 2011 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -593,6 +593,26 @@ class TestPageHandler(BasePageHandler):
 
     return True
 
+  def ReadRequestBody(self):
+    """This function reads the body of the current HTTP request, handling
+    both plain and chunked transfer encoded requests."""
+
+    if self.headers.getheader('transfer-encoding') != 'chunked':
+      length = int(self.headers.getheader('content-length'))
+      return self.rfile.read(length)
+
+    # Read the request body as chunks.
+    body = ""
+    while True:
+      line = self.rfile.readline()
+      length = int(line, 16)
+      if length == 0:
+        self.rfile.readline()
+        break
+      body += self.rfile.read(length)
+      self.rfile.read(2)
+    return body
+
   def EchoHandler(self):
     """This handler just echoes back the payload of the request, for testing
     form submission."""
@@ -603,9 +623,7 @@ class TestPageHandler(BasePageHandler):
     self.send_response(200)
     self.send_header('Content-type', 'text/html')
     self.end_headers()
-    length = int(self.headers.getheader('content-length'))
-    request = self.rfile.read(length)
-    self.wfile.write(request)
+    self.wfile.write(self.ReadRequestBody())
     return True
 
   def EchoTitleHandler(self):
@@ -617,8 +635,7 @@ class TestPageHandler(BasePageHandler):
     self.send_response(200)
     self.send_header('Content-type', 'text/html')
     self.end_headers()
-    length = int(self.headers.getheader('content-length'))
-    request = self.rfile.read(length)
+    request = self.ReadRequestBody()
     self.wfile.write('<html><head><title>')
     self.wfile.write(request)
     self.wfile.write('</title></head></html>')
@@ -642,8 +659,7 @@ class TestPageHandler(BasePageHandler):
       '<h1>Request Body:</h1><pre>')
 
     if self.command == 'POST' or self.command == 'PUT':
-      length = int(self.headers.getheader('content-length'))
-      qs = self.rfile.read(length)
+      qs = self.ReadRequestBody()
       params = cgi.parse_qs(qs, keep_blank_values=1)
 
       for param in params:
@@ -745,7 +761,7 @@ class TestPageHandler(BasePageHandler):
 
     # Consume a request body if present.
     if self.command == 'POST' or self.command == 'PUT' :
-      self.rfile.read(int(self.headers.getheader('content-length')))
+      self.ReadRequestBody()
 
     _, _, url_path, _, query, _ = urlparse.urlparse(self.path)
     sub_path = url_path[len(prefix):]
@@ -1262,14 +1278,14 @@ class TestPageHandler(BasePageHandler):
     if not self._ShouldHandleRequest("/device_management"):
       return False
 
-    length = int(self.headers.getheader('content-length'))
-    raw_request = self.rfile.read(length)
+    raw_request = self.ReadRequestBody()
 
     if not self.server._device_management_handler:
       import device_management
       policy_path = os.path.join(self.server.data_dir, 'device_management')
       self.server._device_management_handler = (
-          device_management.TestServer(policy_path))
+          device_management.TestServer(policy_path,
+                                       self.server.policy_cert_chain))
 
     http_response, raw_reply = (
         self.server._device_management_handler.HandleRequest(self.path,
@@ -1373,8 +1389,11 @@ class FileMultiplexer:
 
 def main(options, args):
   logfile = open('testserver.log', 'w')
-  sys.stdout = FileMultiplexer(sys.stdout, logfile)
   sys.stderr = FileMultiplexer(sys.stderr, logfile)
+  if options.log_to_console:
+    sys.stdout = FileMultiplexer(sys.stdout, logfile)
+  else:
+    sys.stdout = logfile
 
   port = options.port
 
@@ -1404,6 +1423,7 @@ def main(options, args):
     server.file_root_url = options.file_root_url
     server_data['port'] = server.server_port
     server._device_management_handler = None
+    server.policy_cert_chain = options.policy_cert_chain
   elif options.server_type == SERVER_SYNC:
     server = SyncHTTPServer(('127.0.0.1', port), SyncPageHandler)
     print 'Sync HTTP server started on port %d...' % server.server_port
@@ -1472,6 +1492,11 @@ if __name__ == '__main__':
                            const=SERVER_SYNC, default=SERVER_HTTP,
                            dest='server_type',
                            help='start up a sync server.')
+  option_parser.add_option('', '--log-to-console', action='store_const',
+                           const=True, default=False,
+                           dest='log_to_console',
+                           help='Enables or disables sys.stdout logging to '
+                           'the console.')
   option_parser.add_option('', '--port', default='0', type='int',
                            help='Port used by the server. If unspecified, the '
                            'server will listen on an ephemeral port.')
@@ -1502,6 +1527,13 @@ if __name__ == '__main__':
   option_parser.add_option('', '--startup-pipe', type='int',
                            dest='startup_pipe',
                            help='File handle of pipe to parent process')
+  option_parser.add_option('', '--policy-cert-chain', action='append',
+                           help='Specify a path to a certificate file to sign '
+                                'policy responses. This option may be used '
+                                'multiple times to define a certificate chain. '
+                                'The first element will be used for signing, '
+                                'the last element should be the root '
+                                'certificate.')
   options, args = option_parser.parse_args()
 
   sys.exit(main(options, args))

@@ -1,18 +1,18 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/autofill/autofill_cc_infobar.h"
 
-#include "app/resource_bundle.h"
-#include "chrome/browser/views/event_utils.h"
-#include "chrome/browser/views/infobars/infobars.h"
-#include "chrome/browser/views/infobars/infobar_text_button.h"
-#include "chrome/common/pref_names.h"
+#include "chrome/browser/tab_contents/infobar_delegate.h"
+#include "chrome/browser/ui/views/event_utils.h"
+#include "chrome/browser/ui/views/infobars/confirm_infobar.h"
+#include "chrome/browser/ui/views/infobars/infobar_text_button.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "views/controls/button/text_button.h"
 #include "views/controls/link.h"
 
@@ -85,7 +85,7 @@ SaveCCInfoConfirmInfoBar::~SaveCCInfoConfirmInfoBar() {
 
 void SaveCCInfoConfirmInfoBar::Layout() {
   // Layout the close button.
-  InfoBar::Layout();
+  InfoBarView::Layout();
 
   int available_width = AlertInfoBar::GetAvailableWidth();
 
@@ -130,7 +130,7 @@ void SaveCCInfoConfirmInfoBar::LinkActivated(views::Link* source,
 void SaveCCInfoConfirmInfoBar::ViewHierarchyChanged(bool is_add,
                                                     views::View* parent,
                                                     views::View* child) {
-  InfoBar::ViewHierarchyChanged(is_add, parent, child);
+  InfoBarView::ViewHierarchyChanged(is_add, parent, child);
   if (is_add && child == this && !initialized_) {
     Init();
     initialized_ = true;
@@ -139,7 +139,7 @@ void SaveCCInfoConfirmInfoBar::ViewHierarchyChanged(bool is_add,
 
 void SaveCCInfoConfirmInfoBar::ButtonPressed(views::Button* sender,
                                              const views::Event& event) {
-  InfoBar::ButtonPressed(sender, event);
+  InfoBarView::ButtonPressed(sender, event);
   if (sender == save_button_) {
     if (GetDelegate()->Accept())
       RemoveInfoBar();

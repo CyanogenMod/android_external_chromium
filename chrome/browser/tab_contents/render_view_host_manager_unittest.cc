@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "chrome/browser/tab_contents/test_tab_contents.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_source.h"
+#include "chrome/common/page_transition_types.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/render_messages_params.h"
 #include "chrome/common/url_constants.h"
@@ -26,7 +27,7 @@ class RenderViewHostManagerTest : public RenderViewHostTestHarness {
     // Note: we navigate the active RenderViewHost because previous navigations
     // won't have committed yet, so NavigateAndCommit does the wrong thing
     // for us.
-    controller().LoadURL(url, GURL(), 0);
+    controller().LoadURL(url, GURL(), PageTransition::LINK);
     active_rvh()->SendNavigate(
         static_cast<MockRenderProcessHost*>(active_rvh()->process())->
             max_page_id() + 1,
@@ -234,8 +235,8 @@ TEST_F(RenderViewHostManagerTest, Navigate) {
       NotificationType::RENDER_VIEW_HOST_CHANGED));
 }
 
-// Tests DOMUI creation.
-TEST_F(RenderViewHostManagerTest, DOMUI) {
+// Tests WebUI creation.
+TEST_F(RenderViewHostManagerTest, WebUI) {
   BrowserThread ui_thread(BrowserThread::UI, MessageLoop::current());
   SiteInstance* instance = SiteInstance::CreateSiteInstance(profile_.get());
 
@@ -254,39 +255,40 @@ TEST_F(RenderViewHostManagerTest, DOMUI) {
   EXPECT_TRUE(host == manager.current_host());
   EXPECT_FALSE(manager.pending_render_view_host());
 
-  // It's important that the site instance get set on the DOM UI page as soon
+  // It's important that the site instance get set on the Web UI page as soon
   // as the navigation starts, rather than lazily after it commits, so we don't
   // try to re-use the SiteInstance/process for non DOM-UI things that may
   // get loaded in between.
   EXPECT_TRUE(host->site_instance()->has_site());
   EXPECT_EQ(url, host->site_instance()->site());
 
-  // The DOM UI is committed immediately because the RenderViewHost has not been
+  // The Web UI is committed immediately because the RenderViewHost has not been
   // used yet. UpdateRendererStateForNavigate() took the short cut path.
-  EXPECT_FALSE(manager.pending_dom_ui());
-  EXPECT_TRUE(manager.dom_ui());
+  EXPECT_FALSE(manager.pending_web_ui());
+  EXPECT_TRUE(manager.web_ui());
 
   // Commit.
   manager.DidNavigateMainFrame(host);
 }
 
-// Tests that chrome: URLs that are not DOM UI pages do not get grouped into
-// DOM UI renderers, even if --process-per-tab is enabled.  In that mode, we
+// Tests that chrome: URLs that are not Web UI pages do not get grouped into
+// Web UI renderers, even if --process-per-tab is enabled.  In that mode, we
 // still swap processes if ShouldSwapProcessesForNavigation is true.
 // Regression test for bug 46290.
-TEST_F(RenderViewHostManagerTest, NonDOMUIChromeURLs) {
+TEST_F(RenderViewHostManagerTest, NonWebUIChromeURLs) {
+  BrowserThread thread(BrowserThread::UI, &message_loop_);
   SiteInstance* instance = SiteInstance::CreateSiteInstance(profile_.get());
   TestTabContents tab_contents(profile_.get(), instance);
   RenderViewHostManager manager(&tab_contents, &tab_contents);
   manager.Init(profile_.get(), instance, MSG_ROUTING_NONE);
 
-  // NTP is a DOM UI page.
+  // NTP is a Web UI page.
   GURL ntp_url(chrome::kChromeUINewTabURL);
   NavigationEntry ntp_entry(NULL /* instance */, -1 /* page_id */, ntp_url,
                             GURL() /* referrer */, string16() /* title */,
                             PageTransition::TYPED);
 
-  // about: URLs are not DOM UI pages.
+  // about: URLs are not Web UI pages.
   GURL about_url(chrome::kAboutMemoryURL);
   // Rewrite so it looks like chrome://about/memory
   bool reverse_on_redirect = false;
@@ -313,13 +315,8 @@ TEST_F(RenderViewHostManagerTest, PageDoesBackAndReload) {
   contents()->NavigateAndCommit(url2);
   RenderViewHost* evil_rvh = contents()->render_view_host();
 
-  // Casts the TabContents to a RenderViewHostDelegate::BrowserIntegration so we
-  // can call GoToEntryAtOffset which is private.
-  RenderViewHostDelegate::BrowserIntegration* rvh_delegate =
-      static_cast<RenderViewHostDelegate::BrowserIntegration*>(contents());
-
   // Now let's simulate the evil page calling history.back().
-  rvh_delegate->GoToEntryAtOffset(-1);
+  contents()->OnGoToEntryAtOffset(-1);
   // We should have a new pending RVH.
   // Note that in this case, the navigation has not committed, so evil_rvh will
   // not be deleted yet.

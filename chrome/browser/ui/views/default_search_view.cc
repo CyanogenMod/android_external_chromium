@@ -1,29 +1,29 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/default_search_view.h"
+#include "chrome/browser/ui/views/default_search_view.h"
 
 #include <string>
 
-#include "app/l10n_util.h"
-#include "app/message_box_flags.h"
-#include "app/resource_bundle.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/search_engines/template_url_prepopulate_data.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "gfx/canvas.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
+#include "ui/base/message_box_flags.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
 #include "views/controls/button/native_button.h"
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/window/dialog_client_view.h"
 #include "views/window/window.h"
 
@@ -156,7 +156,7 @@ views::View* DefaultSearchView::GetContentsView() {
 }
 
 int DefaultSearchView::GetDialogButtons() const {
-  return MessageBoxFlags::DIALOGBUTTON_NONE;
+  return ui::MessageBoxFlags::DIALOGBUTTON_NONE;
 }
 
 bool DefaultSearchView::Accept() {
@@ -244,7 +244,8 @@ void DefaultSearchView::SetupControls(PrefService* prefs) {
   choices_column_set->AddPaddingColumn(1, kPanelVertMargin);
   choices_column_set->AddColumn(GridLayout::CENTER, GridLayout::CENTER,
                                 1, GridLayout::USE_PREF, 0, 0);
-  choices_column_set->AddPaddingColumn(1, kRelatedControlHorizontalSpacing);
+  choices_column_set->AddPaddingColumn(
+      1, views::kRelatedControlHorizontalSpacing);
   choices_column_set->AddColumn(GridLayout::CENTER, GridLayout::CENTER,
                                 1, GridLayout::USE_PREF, 0, 0);
   choices_column_set->LinkColumnSizes(0, 2, -1);
@@ -275,19 +276,19 @@ void DefaultSearchView::SetupControls(PrefService* prefs) {
 
   // Add the labels for the tops of the choices.
   layout->StartRowWithPadding(0, kChoicesViewSetId,
-                              0, kRelatedControlVerticalSpacing);
+                              0, views::kRelatedControlVerticalSpacing);
   layout->AddView(CreateProviderLabel(IDS_DEFAULT_SEARCH_LABEL_CURRENT));
   layout->AddView(CreateProviderLabel(IDS_DEFAULT_SEARCH_LABEL_PROPOSED));
 
   // Add the logos.
   layout->StartRowWithPadding(0, kChoicesViewSetId,
-                              0, kRelatedControlVerticalSpacing);
+                              0, views::kRelatedControlVerticalSpacing);
   layout->AddView(CreateProviderLogo(default_logo_id, default_short_name));
   layout->AddView(CreateProviderLogo(proposed_logo_id, proposed_short_name));
 
   // Add the buttons.
   layout->StartRowWithPadding(0, kChoicesViewSetId,
-                              0, kRelatedControlVerticalSpacing);
+                              0, views::kRelatedControlVerticalSpacing);
   default_provider_button_ = CreateProviderChoiceButton(
       this,
       IDS_DEFAULT_SEARCH_PROMPT_CURRENT,

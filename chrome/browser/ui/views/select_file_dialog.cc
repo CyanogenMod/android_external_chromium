@@ -1,28 +1,28 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/shell_dialogs.h"
+#include "chrome/browser/ui/shell_dialogs.h"
 
-#include "app/l10n_util.h"
 #include "base/callback.h"
 #include "base/file_path.h"
 #include "base/json/json_reader.h"
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
+#include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/html_dialog_ui.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/shell_dialogs.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/views/browser_dialogs.h"
-#include "chrome/browser/views/html_dialog_view.h"
+#include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/views/html_dialog_view.h"
 #include "chrome/common/url_constants.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "views/window/non_client_view.h"
 #include "views/window/window.h"
 
@@ -108,8 +108,8 @@ class SelectFileDialogImpl : public SelectFileDialog {
     virtual bool IsDialogModal() const;
     virtual std::wstring GetDialogTitle() const;
     virtual GURL GetDialogContentURL() const;
-    virtual void GetDOMMessageHandlers(
-        std::vector<DOMMessageHandler*>* handlers) const;
+    virtual void GetWebUIMessageHandlers(
+        std::vector<WebUIMessageHandler*>* handlers) const;
     virtual void GetDialogSize(gfx::Size* size) const;
     virtual std::string GetDialogArgs() const;
     virtual void OnDialogClosed(const std::string& json_retval);
@@ -123,11 +123,11 @@ class SelectFileDialogImpl : public SelectFileDialog {
     DISALLOW_COPY_AND_ASSIGN(FileBrowseDelegate);
   };
 
-  class FileBrowseDelegateHandler : public DOMMessageHandler {
+  class FileBrowseDelegateHandler : public WebUIMessageHandler {
    public:
     explicit FileBrowseDelegateHandler(FileBrowseDelegate* delegate);
 
-    // DOMMessageHandler implementation.
+    // WebUIMessageHandler implementation.
     virtual void RegisterMessages();
 
     // Callback for the "setDialogTitle" message.
@@ -263,8 +263,12 @@ void SelectFileDialogImpl::OnDialogClosed(FileBrowseDelegate* delegate,
         std::string path_string;
         if (dict->HasKey(kKeyNamePath) &&
             dict->GetString(kKeyNamePath, &path_string)) {
-          FilePath path = FilePath::FromWStringHack(UTF8ToWide(path_string));
-
+#if defined(OS_WIN)
+          FilePath path(base::SysUTF8ToWide(path_string));
+#else
+          FilePath path(
+              base::SysWideToNativeMB(base::SysUTF8ToWide(path_string)));
+#endif
           listener_->FileSelected(path, kSaveCompletePageIndex,
                                   delegate->params_);
           notification_fired = true;
@@ -280,8 +284,13 @@ void SelectFileDialogImpl::OnDialogClosed(FileBrowseDelegate* delegate,
             std::string path_string;
             if (paths_value->GetString(i, &path_string) &&
                 !path_string.empty()) {
-              paths.push_back(FilePath::FromWStringHack(
-                  UTF8ToWide(path_string)));
+#if defined(OS_WIN)
+              FilePath path(base::SysUTF8ToWide(path_string));
+#else
+              FilePath path(
+                  base::SysWideToNativeMB(base::SysUTF8ToWide(path_string)));
+#endif
+              paths.push_back(path);
             }
           }
 
@@ -305,9 +314,9 @@ void SelectFileDialogImpl::OnDialogClosed(FileBrowseDelegate* delegate,
 void SelectFileDialogImpl::OpenHtmlDialog(
     gfx::NativeWindow owning_window,
     FileBrowseDelegate* file_browse_delegate) {
-  browser::ShowHtmlDialogView(owning_window,
-                              ProfileManager::GetDefaultProfile(),
-                              file_browse_delegate);
+  browser::ShowHtmlDialog(owning_window,
+                          ProfileManager::GetDefaultProfile(),
+                          file_browse_delegate);
 }
 
 SelectFileDialogImpl::FileBrowseDelegate::FileBrowseDelegate(
@@ -351,8 +360,8 @@ GURL SelectFileDialogImpl::FileBrowseDelegate::GetDialogContentURL() const {
   return GURL(url_string);
 }
 
-void SelectFileDialogImpl::FileBrowseDelegate::GetDOMMessageHandlers(
-    std::vector<DOMMessageHandler*>* handlers) const {
+void SelectFileDialogImpl::FileBrowseDelegate::GetWebUIMessageHandlers(
+    std::vector<WebUIMessageHandler*>* handlers) const {
   handlers->push_back(new FileBrowseDelegateHandler(
       const_cast<FileBrowseDelegate*>(this)));
   return;
@@ -365,16 +374,16 @@ void SelectFileDialogImpl::FileBrowseDelegate::GetDialogSize(
 
 std::string SelectFileDialogImpl::FileBrowseDelegate::GetDialogArgs() const {
   // SelectFile inputs as json.
-  //  {
-  //    "type"            : "open",   // (or "open_multiple", "save", "folder"
-  //    "all_files"       : true,
-  //    "file_types"      : {
-  //                          "exts" : [ ["htm", "html"], ["txt"] ],
-  //                          "desc" : [ "HTML files", "Text files" ],
-  //                        },
-  //    "file_type_index" : 1,    // 1-based file type index.
-  //  }
-  //  See browser/shell_dialogs.h for more details.
+  //   {
+  //     "type"            : "open",   // (or "open_multiple", "save", "folder"
+  //     "all_files"       : true,
+  //     "file_types"      : {
+  //                           "exts" : [ ["htm", "html"], ["txt"] ],
+  //                           "desc" : [ "HTML files", "Text files" ],
+  //                         },
+  //     "file_type_index" : 1,    // 1-based file type index.
+  //   }
+  // See browser/ui/shell_dialogs.h for more details.
 
   std::string type_string;
   switch (type_) {
@@ -460,7 +469,7 @@ SelectFileDialogImpl::FileBrowseDelegateHandler::FileBrowseDelegateHandler(
 }
 
 void SelectFileDialogImpl::FileBrowseDelegateHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("setDialogTitle",
+  web_ui_->RegisterMessageCallback("setDialogTitle",
       NewCallback(this, &FileBrowseDelegateHandler::HandleSetDialogTitle));
 }
 
@@ -477,7 +486,7 @@ void SelectFileDialogImpl::FileBrowseDelegateHandler::HandleSetDialogTitle(
     // its title.
     // TODO(xiyuan): Change this when the infrastructure is improved.
     HtmlDialogUIDelegate** delegate = HtmlDialogUI::GetPropertyAccessor().
-        GetProperty(dom_ui_->tab_contents()->property_bag());
+        GetProperty(web_ui_->tab_contents()->property_bag());
     HtmlDialogView* containing_view = static_cast<HtmlDialogView*>(*delegate);
     DCHECK(containing_view);
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,8 @@
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/prefs/pref_set_observer.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_setup_flow.h"
-#include "chrome/browser/shell_dialogs.h"
+#include "chrome/browser/remoting/remoting_options_handler.h"
+#include "chrome/browser/ui/shell_dialogs.h"
 
 class OptionsManagedBannerHandler;
 
@@ -27,8 +28,8 @@ class AdvancedOptionsHandler
   virtual void GetLocalizedValues(DictionaryValue* localized_strings);
   virtual void Initialize();
 
-  // DOMMessageHandler implementation.
-  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+  // WebUIMessageHandler implementation.
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
   virtual void RegisterMessages();
 
   // NotificationObserver implementation.
@@ -54,11 +55,6 @@ class AdvancedOptionsHandler
   // Callback for the "metricsReportingCheckboxAction" message.  This is called
   // if the user toggles the metrics reporting checkbox.
   void HandleMetricsReportingCheckbox(const ListValue* args);
-
-  // Callback for the "defaultZoomLevelAction" message.  This is called if the
-  // user changes the default zoom level.  |args| is an array that contains
-  // one item, the zoom level as a numeric value.
-  void HandleDefaultZoomLevel(const ListValue* args);
 
   // Callback for the "defaultFontSizeAction" message.  This is called if the
   // user changes the default font size.  |args| is an array that contains
@@ -120,12 +116,15 @@ class AdvancedOptionsHandler
 
 #endif
 
-#if defined(ENABLE_REMOTING)
+#if defined(ENABLE_REMOTING) && !defined(OS_CHROMEOS)
   // Removes remoting section. Called if remoting is not enabled.
   void RemoveRemotingSection();
 
   // Callback for Setup Remoting button.
   void ShowRemotingSetupDialog(const ListValue* args);
+
+  // Disable Remoting.
+  void DisableRemoting(const ListValue* args);
 #endif
 
   // Setup the checked state for the metrics reporting checkbox.
@@ -134,7 +133,6 @@ class AdvancedOptionsHandler
   // Setup the visibility for the metrics reporting setting.
   void SetupMetricsReportingSettingVisibility();
 
-  void SetupDefaultZoomLevel();
   void SetupFontSizeLabel();
 
   // Setup the download path based on user preferences.
@@ -156,12 +154,16 @@ class AdvancedOptionsHandler
 #if !defined(OS_CHROMEOS)
   BooleanPrefMember enable_metrics_recording_;
   StringPrefMember cloud_print_proxy_email_;
+  BooleanPrefMember cloud_print_proxy_enabled_;
   bool cloud_print_proxy_ui_enabled_;
+#endif
+
+#if defined(ENABLE_REMOTING) && !defined(OS_CHROMEOS)
+  remoting::RemotingOptionsHandler remoting_options_handler_;
 #endif
 
   FilePathPrefMember default_download_location_;
   StringPrefMember auto_open_files_;
-  RealPrefMember default_zoom_level_;
   IntegerPrefMember default_font_size_;
   IntegerPrefMember default_fixed_font_size_;
   scoped_ptr<PrefSetObserver> proxy_prefs_;

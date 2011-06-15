@@ -18,16 +18,11 @@
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
+#include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/io_buffer.h"
-
-#if defined(OS_WIN)
-#include "chrome/common/win_safe_util.h"
-#elif defined(OS_MACOSX)
-#include "chrome/browser/ui/cocoa/file_metadata.h"
-#endif
 
 namespace {
 
@@ -74,14 +69,15 @@ void DownloadFileManager::OnShutdown() {
   STLDeleteValues(&downloads_);
 }
 
-void DownloadFileManager::CreateDownloadFile(
-    DownloadCreateInfo* info, DownloadManager* download_manager) {
+void DownloadFileManager::CreateDownloadFile(DownloadCreateInfo* info,
+                                             DownloadManager* download_manager,
+                                             bool get_hash) {
   VLOG(20) << __FUNCTION__ << "()" << " info = " << info->DebugString();
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
-  scoped_ptr<DownloadFile> download_file(
-      new DownloadFile(info, download_manager));
-  if (!download_file->Initialize()) {
+  scoped_ptr<DownloadFile>
+      download_file(new DownloadFile(info, download_manager));
+  if (!download_file->Initialize(get_hash)) {
     BrowserThread::PostTask(
         BrowserThread::IO, FROM_HERE,
         NewRunnableFunction(&download_util::CancelDownloadRequest,
@@ -177,9 +173,12 @@ void DownloadFileManager::StartDownload(DownloadCreateInfo* info) {
 
   manager->CreateDownloadItem(info);
 
+  bool hash_needed = resource_dispatcher_host_->safe_browsing_service()->
+      DownloadBinHashNeeded();
+
   BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(this, &DownloadFileManager::CreateDownloadFile,
-                        info, make_scoped_refptr(manager)));
+                        info, make_scoped_refptr(manager), hash_needed));
 }
 
 // We don't forward an update to the UI thread here, since we want to throttle
@@ -191,7 +190,7 @@ void DownloadFileManager::UpdateDownload(int id, DownloadBuffer* buffer) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
   std::vector<DownloadBuffer::Contents> contents;
   {
-    AutoLock auto_lock(buffer->lock);
+    base::AutoLock auto_lock(buffer->lock);
     contents.swap(buffer->contents);
   }
 
@@ -312,7 +311,7 @@ void DownloadFileManager::OnIntermediateDownloadName(
 // There are 3 possible rename cases where this method can be called:
 // 1. tmp -> foo            (need_delete_crdownload=T)
 // 2. foo.crdownload -> foo (need_delete_crdownload=F)
-// 3. tmp-> unconfirmed.xxx.crdownload (need_delete_crdownload=F)
+// 3. tmp-> Unconfirmed.xxx.crdownload (need_delete_crdownload=F)
 void DownloadFileManager::OnFinalDownloadName(
     int id, const FilePath& full_path, bool need_delete_crdownload,
     DownloadManager* download_manager) {

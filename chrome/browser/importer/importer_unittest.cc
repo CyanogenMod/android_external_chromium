@@ -114,7 +114,7 @@ class ImporterTest : public testing::Test {
     profile_info.browser_type = FIREFOX3;
     profile_info.app_path = app_path_;
     profile_info.source_path = profile_path_;
-    scoped_refptr<ImporterHost> host(new ImporterHost());
+    scoped_refptr<ImporterHost> host(new ImporterHost);
     host->SetObserver(observer);
     int items = HISTORY | PASSWORDS | FAVORITES;
     if (import_search_plugins)
@@ -416,7 +416,7 @@ TEST_F(ImporterTest, IEImporter) {
 
   // Starts to import the above settings.
   MessageLoop* loop = MessageLoop::current();
-  scoped_refptr<ImporterHost> host = new ImporterHost();
+  scoped_refptr<ImporterHost> host(new ImporterHost);
 
   TestObserver* observer = new TestObserver();
   host->SetObserver(observer);
@@ -637,9 +637,10 @@ class FirefoxObserver : public ProfileWriter,
       // The order might not be deterministic, look in the expected list for
       // that template URL.
       bool found = false;
-      std::wstring keyword = template_urls[i]->keyword();
+      string16 keyword = template_urls[i]->keyword();
       for (size_t j = 0; j < arraysize(kFirefox2Keywords); ++j) {
-        if (template_urls[i]->keyword() == kFirefox2Keywords[j].keyword) {
+        if (template_urls[i]->keyword() ==
+            WideToUTF16Hack(kFirefox2Keywords[j].keyword)) {
           EXPECT_EQ(kFirefox2Keywords[j].url, template_urls[i]->url()->url());
           found = true;
           break;
@@ -652,7 +653,7 @@ class FirefoxObserver : public ProfileWriter,
     if (default_keyword_index != -1) {
       EXPECT_LT(default_keyword_index, static_cast<int>(template_urls.size()));
       TemplateURL* default_turl = template_urls[default_keyword_index];
-      default_keyword_ = default_turl->keyword();
+      default_keyword_ = UTF16ToWideHack(default_turl->keyword());
       default_keyword_url_ = default_turl->url()->url();
     }
 
@@ -695,7 +696,7 @@ TEST_F(ImporterTest, MAYBE(Firefox2Importer)) {
   ASSERT_TRUE(file_util::CopyDirectory(data_path, search_engine_path, false));
 
   MessageLoop* loop = MessageLoop::current();
-  scoped_refptr<ImporterHost> host(new ImporterHost());
+  scoped_refptr<ImporterHost> host(new ImporterHost);
   FirefoxObserver* observer = new FirefoxObserver();
   host->SetObserver(observer);
   ProfileInfo profile_info;
@@ -844,9 +845,10 @@ class Firefox3Observer : public ProfileWriter,
       // The order might not be deterministic, look in the expected list for
       // that template URL.
       bool found = false;
-      std::wstring keyword = template_urls[i]->keyword();
+      string16 keyword = template_urls[i]->keyword();
       for (size_t j = 0; j < arraysize(kFirefox3Keywords); ++j) {
-        if (template_urls[i]->keyword() == kFirefox3Keywords[j].keyword) {
+        if (template_urls[i]->keyword() ==
+            WideToUTF16Hack(kFirefox3Keywords[j].keyword)) {
           EXPECT_EQ(kFirefox3Keywords[j].url, template_urls[i]->url()->url());
           found = true;
           break;
@@ -859,7 +861,7 @@ class Firefox3Observer : public ProfileWriter,
     if (default_keyword_index != -1) {
       EXPECT_LT(default_keyword_index, static_cast<int>(template_urls.size()));
       TemplateURL* default_turl = template_urls[default_keyword_index];
-      default_keyword_ = default_turl->keyword();
+      default_keyword_ = UTF16ToWideHack(default_turl->keyword());
       default_keyword_url_ = default_turl->url()->url();
     }
 

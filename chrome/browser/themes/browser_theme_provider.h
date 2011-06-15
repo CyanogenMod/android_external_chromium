@@ -10,20 +10,24 @@
 #include <set>
 #include <string>
 
-#include "app/theme_provider.h"
 #include "base/ref_counted.h"
 #include "base/threading/non_thread_safe.h"
-
-namespace color_utils {
-  struct HSL;
-}
+#include "ui/base/theme_provider.h"
 
 class BrowserThemePack;
 class BrowserThemeProviderTest;
 class Extension;
 class FilePath;
 class Profile;
+
+namespace color_utils {
+struct HSL;
+}
+
+namespace ui {
 class ResourceBundle;
+}
+using ui::ResourceBundle;
 
 #ifdef __OBJC__
 @class NSString;
@@ -33,7 +37,7 @@ extern "C" NSString* const kBrowserThemeDidChangeNotification;
 #endif  // __OBJC__
 
 class BrowserThemeProvider : public base::NonThreadSafe,
-                             public ThemeProvider {
+                             public ui::ThemeProvider {
  public:
   // Public constants used in BrowserThemeProvider and its subclasses:
 
@@ -130,7 +134,7 @@ class BrowserThemeProvider : public base::NonThreadSafe,
     REPEAT = 3
   } Tiling;
 
-  // ThemeProvider implementation.
+  // ui::ThemeProvider implementation.
   virtual void Init(Profile* profile);
   virtual SkBitmap* GetBitmapNamed(int id) const;
   virtual SkColor GetColor(int id) const;

@@ -6,6 +6,7 @@
 #include <functional>
 
 #include "base/logging.h"
+#include "base/message_loop.h"
 #include "base/task.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/sync/glue/data_type_controller.h"
@@ -160,6 +161,7 @@ void DataTypeManagerImpl::Restart() {
   // The task will be invoked when updates are downloaded.
   state_ = DOWNLOAD_PENDING;
   backend_->ConfigureDataTypes(
+      controllers_,
       last_requested_types_,
       method_factory_.NewRunnableMethod(&DataTypeManagerImpl::DownloadReady));
 
@@ -197,8 +199,11 @@ void DataTypeManagerImpl::DownloadReady() {
   DCHECK(state_ == DOWNLOAD_PENDING || state_ == RESTARTING);
 
   // If we had a restart while waiting for downloads, just restart.
+  // Note: Restart() can cause DownloadReady to be directly invoked, so we post
+  // a task to avoid re-entrancy issues.
   if (state_ == RESTARTING) {
-    Restart();
+    MessageLoop::current()->PostTask(FROM_HERE,
+        method_factory_.NewRunnableMethod(&DataTypeManagerImpl::Restart));
     return;
   }
 
@@ -357,7 +362,8 @@ void DataTypeManagerImpl::FinishStop() {
   for (DataTypeController::TypeMap::const_iterator it = controllers_.begin();
        it != controllers_.end(); ++it) {
     DataTypeController* dtc = (*it).second;
-    if (dtc->state() == DataTypeController::RUNNING) {
+    if (dtc->state() != DataTypeController::NOT_RUNNING &&
+        dtc->state() != DataTypeController::STOPPING) {
       dtc->Stop();
       VLOG(1) << "Stopped " << dtc->name();
     }

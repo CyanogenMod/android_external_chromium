@@ -16,7 +16,7 @@
 
 #include "base/string16.h"
 #include "chrome/common/page_transition_types.h"
-#include "gfx/native_widget_types.h"
+#include "ui/gfx/native_widget_types.h"
 #include "webkit/glue/window_open_disposition.h"
 
 class AutocompleteEditModel;
@@ -60,12 +60,12 @@ class AutocompleteEditView {
                        PageTransition::Type transition,
                        const GURL& alternate_nav_url,
                        size_t selected_line,
-                       const std::wstring& keyword) = 0;
+                       const string16& keyword) = 0;
 
   // Returns the current text of the edit control, which could be the
   // "temporary" text set by the popup, the "permanent" text set by the
   // browser, or just whatever the user has currently typed.
-  virtual std::wstring GetText() const = 0;
+  virtual string16 GetText() const = 0;
 
   // |true| if the user is in the process of editing the field, or if
   // the field is empty.
@@ -77,13 +77,13 @@ class AutocompleteEditView {
   // The user text is the text the user has manually keyed in.  When present,
   // this is shown in preference to the permanent text; hitting escape will
   // revert to the permanent text.
-  virtual void SetUserText(const std::wstring& text) = 0;
-  virtual void SetUserText(const std::wstring& text,
-                           const std::wstring& display_text,
+  virtual void SetUserText(const string16& text) = 0;
+  virtual void SetUserText(const string16& text,
+                           const string16& display_text,
                            bool update_popup) = 0;
 
   // Sets the window text and the caret position.
-  virtual void SetWindowTextAndCaretPos(const std::wstring& text,
+  virtual void SetWindowTextAndCaretPos(const string16& text,
                                         size_t caret_pos) = 0;
 
   // Sets the edit to forced query mode.  Practically speaking, this means that
@@ -105,8 +105,8 @@ class AutocompleteEditView {
   // It is not guaranteed that |*start < *end|, as the selection can be
   // directed.  If there is no selection, |start| and |end| will both be equal
   // to the current cursor position.
-  virtual void GetSelectionBounds(std::wstring::size_type* start,
-                                  std::wstring::size_type* end) = 0;
+  virtual void GetSelectionBounds(string16::size_type* start,
+                                  string16::size_type* end) = 0;
 
   // Selects all the text in the edit.  Use this in place of SetSelAll() to
   // avoid selecting the "phantom newline" at the end of the edit.
@@ -130,7 +130,7 @@ class AutocompleteEditView {
   // |display_text| is the new text to show; |save_original_selection| is true
   // when there wasn't previously a temporary text and thus we need to save off
   // the user's existing selection.
-  virtual void OnTemporaryTextMaybeChanged(const std::wstring& display_text,
+  virtual void OnTemporaryTextMaybeChanged(const string16& display_text,
                                            bool save_original_selection) = 0;
 
   // Called when the inline autocomplete text in the model may have changed.
@@ -138,7 +138,7 @@ class AutocompleteEditView {
   // the user input portion of that (so, up to but not including the inline
   // autocompletion).  Returns whether the display text actually changed.
   virtual bool OnInlineAutocompleteTextMaybeChanged(
-      const std::wstring& display_text, size_t user_text_length) = 0;
+      const string16& display_text, size_t user_text_length) = 0;
 
   // Called when the temporary text has been reverted by the user.  This will
   // reset the user's original selection.
@@ -158,21 +158,23 @@ class AutocompleteEditView {
   // Returns the command updater for this view.
   virtual CommandUpdater* GetCommandUpdater() = 0;
 
-#if defined(TOOLKIT_VIEWS)
-  // Adds the autocomplete edit view to view hierarchy and
-  // returns the views::View of the edit view.
-  virtual views::View* AddToView(views::View* parent) = 0;
-
-  // Commits the suggested text.
-  virtual bool CommitInstantSuggestion(const std::wstring& typed_text,
-                                       const std::wstring& suggested_text) = 0;
-
   // Shows the instant suggestion text.
   virtual void SetInstantSuggestion(const string16& input) = 0;
+
+  // Returns the current instant suggestion text.
+  virtual string16 GetInstantSuggestion() const = 0;
 
   // Returns the width in pixels needed to display the current text. The
   // returned value includes margins.
   virtual int TextWidth() const = 0;
+
+  // Returns true if the user is composing something in an IME.
+  virtual bool IsImeComposing() const = 0;
+
+#if defined(TOOLKIT_VIEWS)
+  // Adds the autocomplete edit view to view hierarchy and
+  // returns the views::View of the edit view.
+  virtual views::View* AddToView(views::View* parent) = 0;
 #endif
 
   virtual ~AutocompleteEditView() {}

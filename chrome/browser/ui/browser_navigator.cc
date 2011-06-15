@@ -105,7 +105,8 @@ int GetIndexOfSingletonTab(browser::NavigateParams* params) {
 
 // Change some of the navigation parameters based on the particular URL.
 // Currently this applies to chrome://settings and the bookmark manager,
-// which we always want to open in a normal (not incognito) window.
+// which we always want to open in a normal (not incognito) window. Guest
+// session is an exception.
 void AdjustNavigateParamsForURL(browser::NavigateParams* params) {
   if (!params->target_contents &&
       params->url.scheme() == chrome::kChromeUIScheme &&
@@ -114,7 +115,7 @@ void AdjustNavigateParamsForURL(browser::NavigateParams* params) {
     Profile* profile =
         params->browser ? params->browser->profile() : params->profile;
 
-    if (profile->IsOffTheRecord()) {
+    if (profile->IsOffTheRecord() && !Profile::IsGuestSession()) {
       profile = profile->GetOriginalProfile();
 
       params->disposition = SINGLETON_TAB;
@@ -161,9 +162,8 @@ Browser* GetBrowserForDisposition(browser::NavigateParams* params) {
       // Make a new popup window. Coerce app-style if |params->browser| or the
       // |source| represents an app.
       Browser::Type type = Browser::TYPE_POPUP;
-      if ((params->browser && params->browser->type() == Browser::TYPE_APP) ||
-          (params->source_contents &&
-              params->source_contents->is_app())) {
+      if ((params->browser && (params->browser->type() & Browser::TYPE_APP)) ||
+          (params->source_contents && params->source_contents->is_app())) {
         type = Browser::TYPE_APP_POPUP;
       }
       if (profile) {
@@ -420,9 +420,8 @@ void Navigate(NavigateParams* params) {
     }
 
     if (user_initiated) {
-      RenderViewHostDelegate::BrowserIntegration* integration =
-          params->target_contents->tab_contents();
-      integration->OnUserGesture();
+      static_cast<RenderViewHostDelegate*>(params->target_contents->
+          tab_contents())->OnUserGesture();
     }
 
     // Perform the actual navigation.
@@ -442,35 +441,36 @@ void Navigate(NavigateParams* params) {
         params->target_contents,
         params->transition,
         user_initiated);
-  } else {
-    if (params->disposition == SINGLETON_TAB && singleton_index >= 0) {
-      TabContents* target = params->browser->GetTabContentsAt(singleton_index);
+  } else if (singleton_index == -1) {
+    // If some non-default value is set for the index, we should tell the
+    // TabStripModel to respect it.
+    if (params->tabstrip_index != -1)
+      params->tabstrip_add_types |= TabStripModel::ADD_FORCE_INDEX;
 
-      // Load the URL if the target contents URL doesn't match. This can happen
-      // if the URL path is ignored when locating the singleton tab.
-      if (target->GetURL() != params->url) {
-        target->controller().LoadURL(
-            params->url, params->referrer, params->transition);
-      }
+    // The navigation should insert a new tab into the target Browser.
+    params->browser->tabstrip_model()->AddTabContents(
+        params->target_contents,
+        params->tabstrip_index,
+        params->transition,
+        params->tabstrip_add_types);
+    // Now that the |params->target_contents| is safely owned by the target
+    // Browser's TabStripModel, we can release ownership.
+    target_contents_owner.ReleaseOwnership();
+  }
 
-      // The navigation should re-select an existing tab in the target Browser.
-      params->browser->SelectTabContentsAt(singleton_index, user_initiated);
-    } else {
-      // If some non-default value is set for the index, we should tell the
-      // TabStripModel to respect it.
-      if (params->tabstrip_index != -1)
-        params->tabstrip_add_types |= TabStripModel::ADD_FORCE_INDEX;
+  if (singleton_index >= 0) {
+    TabContents* target = params->browser->GetTabContentsAt(singleton_index);
 
-      // The navigation should insert a new tab into the target Browser.
-      params->browser->tabstrip_model()->AddTabContents(
-          params->target_contents,
-          params->tabstrip_index,
-          params->transition,
-          params->tabstrip_add_types);
-      // Now that the |params->target_contents| is safely owned by the target
-      // Browser's TabStripModel, we can release ownership.
-      target_contents_owner.ReleaseOwnership();
+    // Load the URL if the target contents URL doesn't match. This can happen
+    // if the URL path is ignored when locating the singleton tab.
+    if (target->GetURL() != params->url) {
+      target->controller().LoadURL(
+          params->url, params->referrer, params->transition);
     }
+
+    // If the singleton tab isn't already selected, select it.
+    if (params->source_contents != params->target_contents)
+      params->browser->SelectTabContentsAt(singleton_index, user_initiated);
   }
 }
 

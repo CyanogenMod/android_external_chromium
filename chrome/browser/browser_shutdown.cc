@@ -4,9 +4,9 @@
 
 #include "chrome/browser/browser_shutdown.h"
 
+#include <map>
 #include <string>
 
-#include "app/resource_bundle.h"
 #include "base/command_line.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
@@ -33,12 +33,14 @@
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host.h"
 #include "chrome/browser/service/service_process_control_manager.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/chrome_plugin_lib.h"
 #include "chrome/common/switch_utils.h"
 #include "net/predictor_api.h"
+#include "ui/base/resource/resource_bundle.h"
 
 #if defined(OS_WIN)
 #include "chrome/browser/rlz/rlz.h"
@@ -48,7 +50,7 @@
 #include "chrome/browser/chromeos/boot_times_loader.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/login_library.h"
-#include "chrome/browser/chromeos/wm_ipc.h"
+#include "chrome/browser/chromeos/system_key_event_listener.h"
 #endif
 
 using base::Time;
@@ -126,6 +128,12 @@ void Shutdown() {
 
   // Shutdown all IPC channels to service processes.
   ServiceProcessControlManager::GetInstance()->Shutdown();
+
+#if defined(OS_CHROMEOS)
+  // The system key event listener needs to be shut down earlier than when
+  // Singletons are finally destroyed in AtExitManager.
+  chromeos::SystemKeyEventListener::GetInstance()->Stop();
+#endif
 
   // WARNING: During logoff/shutdown (WM_ENDSESSION) we may not have enough
   // time to get here. If you have something that *must* happen on end session,
@@ -249,14 +257,11 @@ void Shutdown() {
     file_util::WriteFile(shutdown_ms_file, shutdown_ms.c_str(), len);
   }
 
-  UnregisterURLRequestChromeJob();
-
 #if defined(OS_CHROMEOS)
-  chromeos::WmIpc::instance()->NotifyAboutSignout();
-  if (chromeos::CrosLibrary::Get()->EnsureLoaded()) {
-    chromeos::CrosLibrary::Get()->GetLoginLibrary()->StopSession("");
-  }
+  BrowserList::NotifyAndTerminate(false);
 #endif
+
+  ChromeURLDataManager::DeleteDataSources();
 }
 
 void ReadLastShutdownFile(

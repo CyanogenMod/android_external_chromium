@@ -85,8 +85,10 @@ bool ExtensionTtsPlatformImplWin::Speak(
     speech_synthesizer_->SetVolume(static_cast<uint16>(volume * 100));
   }
 
-  if (paused_)
+  if (paused_) {
     speech_synthesizer_->Resume();
+    paused_ = false;
+  }
   speech_synthesizer_->Speak(
       utterance.c_str(), SPF_ASYNC | SPF_PURGEBEFORESPEAK, NULL);
 
@@ -94,7 +96,7 @@ bool ExtensionTtsPlatformImplWin::Speak(
 }
 
 bool ExtensionTtsPlatformImplWin::StopSpeaking() {
-  if (!speech_synthesizer_ && !paused_) {
+  if (speech_synthesizer_ && !paused_) {
     speech_synthesizer_->Pause();
     paused_ = true;
   }
@@ -102,6 +104,16 @@ bool ExtensionTtsPlatformImplWin::StopSpeaking() {
 }
 
 bool ExtensionTtsPlatformImplWin::IsSpeaking() {
+  if (speech_synthesizer_ && !paused_) {
+    SPVOICESTATUS status;
+    HRESULT result = speech_synthesizer_->GetStatus(&status, NULL);
+    if (result == S_OK) {
+      if (status.dwRunningState == 0 ||  // 0 == waiting to speak
+          status.dwRunningState == SPRS_IS_SPEAKING) {
+        return true;
+      }
+    }
+  }
   return false;
 }
 

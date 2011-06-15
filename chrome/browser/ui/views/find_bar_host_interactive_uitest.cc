@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "app/keyboard_codes.h"
 #include "base/process_util.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -16,6 +15,7 @@
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
 #include "net/test/test_server.h"
+#include "ui/base/keycodes/keyboard_codes.h"
 #include "views/focus/focus_manager.h"
 #include "views/view.h"
 
@@ -73,7 +73,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageTest, CrashEscHandlers) {
 
   // This used to crash until bug 1303709 was fixed.
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(
-      browser(), app::VKEY_ESCAPE, false, false, false, false));
+      browser(), ui::VKEY_ESCAPE, false, false, false, false));
 }
 
 IN_PROC_BROWSER_TEST_F(FindInPageTest, FocusRestore) {
@@ -100,7 +100,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageTest, FocusRestore) {
   browser()->Find();
   EXPECT_TRUE(ui_test_utils::IsViewFocused(browser(),
                                            VIEW_ID_FIND_IN_PAGE_TEXT_FIELD));
-  ui_test_utils::FindInPage(browser()->GetSelectedTabContents(),
+  ui_test_utils::FindInPage(browser()->GetSelectedTabContentsWrapper(),
                             ASCIIToUTF16("a"), true, false, NULL);
   browser()->GetFindBarController()->EndFindSession(
       FindBarController::kKeepSelection);
@@ -135,7 +135,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageTest, FocusRestoreOnTabSwitch) {
       browser()->GetFindBarController()->find_bar()->GetFindBarTesting();
 
   // Search for 'a'.
-  ui_test_utils::FindInPage(browser()->GetSelectedTabContents(),
+  ui_test_utils::FindInPage(browser()->GetSelectedTabContentsWrapper(),
                             ASCIIToUTF16("a"), true, false, NULL);
   EXPECT_TRUE(ASCIIToUTF16("a") == find_bar->GetFindSelectedText());
 
@@ -149,7 +149,7 @@ IN_PROC_BROWSER_TEST_F(FindInPageTest, FocusRestoreOnTabSwitch) {
                                            VIEW_ID_FIND_IN_PAGE_TEXT_FIELD));
 
   // Search for 'b'.
-  ui_test_utils::FindInPage(browser()->GetSelectedTabContents(),
+  ui_test_utils::FindInPage(browser()->GetSelectedTabContentsWrapper(),
                             ASCIIToUTF16("b"), true, false, NULL);
   EXPECT_TRUE(ASCIIToUTF16("b") == find_bar->GetFindSelectedText());
 
@@ -171,7 +171,8 @@ IN_PROC_BROWSER_TEST_F(FindInPageTest, FocusRestoreOnTabSwitch) {
 // This tests that whenever you clear values from the Find box and close it that
 // it respects that and doesn't show you the last search, as reported in bug:
 // http://crbug.com/40121.
-IN_PROC_BROWSER_TEST_F(FindInPageTest, PrepopulateRespectBlank) {
+// Crashy, http://crbug.com/69882.
+IN_PROC_BROWSER_TEST_F(FindInPageTest, DISABLED_PrepopulateRespectBlank) {
 #if defined(OS_MACOSX)
   // FindInPage on Mac doesn't use prepopulated values. Search there is global.
   return;
@@ -192,21 +193,21 @@ IN_PROC_BROWSER_TEST_F(FindInPageTest, PrepopulateRespectBlank) {
 
   // Search for "a".
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(
-      browser(), app::VKEY_A, false, false, false, false));
+      browser(), ui::VKEY_A, false, false, false, false));
 
   // We should find "a" here.
   EXPECT_EQ(ASCIIToUTF16("a"), GetFindBarText());
 
   // Delete "a".
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(
-      browser(), app::VKEY_BACK, false, false, false, false));
+      browser(), ui::VKEY_BACK, false, false, false, false));
 
   // Validate we have cleared the text.
   EXPECT_EQ(string16(), GetFindBarText());
 
   // Close the Find box.
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(
-      browser(), app::VKEY_ESCAPE, false, false, false, false));
+      browser(), ui::VKEY_ESCAPE, false, false, false, false));
 
   // Show the Find bar.
   browser()->GetFindBarController()->Show();
@@ -217,11 +218,11 @@ IN_PROC_BROWSER_TEST_F(FindInPageTest, PrepopulateRespectBlank) {
 
   // Close the Find box.
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(
-      browser(), app::VKEY_ESCAPE, false, false, false, false));
+      browser(), ui::VKEY_ESCAPE, false, false, false, false));
 
   // Press F3 to trigger FindNext.
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(
-      browser(), app::VKEY_F3, false, false, false, false));
+      browser(), ui::VKEY_F3, false, false, false, false));
 
   // After the Find box has been reopened, it should still have no prepopulate
   // value.

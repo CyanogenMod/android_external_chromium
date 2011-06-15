@@ -1,16 +1,16 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/reload_button.h"
+#include "chrome/browser/ui/views/reload_button.h"
 
-#include "app/l10n_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/views/event_utils.h"
-#include "chrome/browser/views/location_bar/location_bar_view.h"
+#include "chrome/browser/ui/views/event_utils.h"
+#include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 // ReloadButton, public:
@@ -83,7 +83,7 @@ void ReloadButton::ButtonPressed(views::Button* /* button */,
     if (event.IsShiftDown() || event.IsControlDown()) {
       command = IDC_RELOAD_IGNORING_CACHE;
       // Mask off Shift and Control so they don't affect the disposition below.
-      flags &= ~(views::Event::EF_SHIFT_DOWN | views::Event::EF_CONTROL_DOWN);
+      flags &= ~(ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN);
     } else {
       command = IDC_RELOAD;
     }

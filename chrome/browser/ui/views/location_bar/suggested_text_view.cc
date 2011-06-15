@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include "chrome/browser/instant/instant_controller.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
-#include "gfx/canvas.h"
-#include "gfx/color_utils.h"
 #include "ui/base/animation/multi_animation.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/color_utils.h"
 
 SuggestedTextView::SuggestedTextView(LocationBarView* location_bar)
     : location_bar_(location_bar),
@@ -19,10 +19,6 @@ SuggestedTextView::~SuggestedTextView() {
 }
 
 void SuggestedTextView::StartAnimation() {
-  if (!InstantController::IsEnabled(location_bar_->profile(),
-                                    InstantController::PREDICTIVE_TYPE)) {
-    return;
-  }
   StopAnimation();
 
   animation_.reset(CreateAnimation());
@@ -50,7 +46,7 @@ void SuggestedTextView::PaintBackground(gfx::Canvas* canvas) {
 }
 
 void SuggestedTextView::AnimationEnded(const ui::Animation* animation) {
-  location_bar_->OnCommitSuggestedText();
+  location_bar_->OnCommitSuggestedText(false);
 }
 
 void SuggestedTextView::AnimationProgressed(const ui::Animation* animation) {

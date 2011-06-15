@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,6 @@
 
 #include <string>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/singleton.h"
 #include "base/values.h"
 #include "chrome/browser/about_flags.h"
@@ -17,6 +15,7 @@
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -24,6 +23,8 @@
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 namespace {
 
@@ -69,10 +70,10 @@ void FlagsUIHTMLSource::StartDataRequest(const std::string& path,
   localized_strings.SetString("flagsBlurb", l10n_util::GetStringUTF16(
       IDS_FLAGS_WARNING_TEXT));
   localized_strings.SetString("flagsRestartNotice", l10n_util::GetStringFUTF16(
-      IDS_FLAGS_RESTART_NOTICE,
+      IDS_FLAGS_RELAUNCH_NOTICE,
       l10n_util::GetStringUTF16(IDS_PRODUCT_NAME)));
   localized_strings.SetString("flagsRestartButton",
-      l10n_util::GetStringUTF16(IDS_FLAGS_RESTART_BUTTON));
+      l10n_util::GetStringUTF16(IDS_FLAGS_RELAUNCH_BUTTON));
   localized_strings.SetString("disable",
       l10n_util::GetStringUTF16(IDS_FLAGS_DISABLE));
   localized_strings.SetString("enable",
@@ -102,12 +103,12 @@ void FlagsUIHTMLSource::StartDataRequest(const std::string& path,
 ////////////////////////////////////////////////////////////////////////////////
 
 // The handler for Javascript messages for the about:flags page.
-class FlagsDOMHandler : public DOMMessageHandler {
+class FlagsDOMHandler : public WebUIMessageHandler {
  public:
   FlagsDOMHandler() {}
   virtual ~FlagsDOMHandler() {}
 
-  // DOMMessageHandler implementation.
+  // WebUIMessageHandler implementation.
   virtual void RegisterMessages();
 
   // Callback for the "requestFlagsExperiments" message.
@@ -124,11 +125,11 @@ class FlagsDOMHandler : public DOMMessageHandler {
 };
 
 void FlagsDOMHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("requestFlagsExperiments",
+  web_ui_->RegisterMessageCallback("requestFlagsExperiments",
       NewCallback(this, &FlagsDOMHandler::HandleRequestFlagsExperiments));
-  dom_ui_->RegisterMessageCallback("enableFlagsExperiment",
+  web_ui_->RegisterMessageCallback("enableFlagsExperiment",
       NewCallback(this, &FlagsDOMHandler::HandleEnableFlagsExperimentMessage));
-  dom_ui_->RegisterMessageCallback("restartBrowser",
+  web_ui_->RegisterMessageCallback("restartBrowser",
       NewCallback(this, &FlagsDOMHandler::HandleRestartBrowser));
 }
 
@@ -136,10 +137,10 @@ void FlagsDOMHandler::HandleRequestFlagsExperiments(const ListValue* args) {
   DictionaryValue results;
   results.Set("flagsExperiments",
               about_flags::GetFlagsExperimentsData(
-                  dom_ui_->GetProfile()->GetPrefs()));
+                  g_browser_process->local_state()));
   results.SetBoolean("needsRestart",
                      about_flags::IsRestartNeededToCommitChanges());
-  dom_ui_->CallJavascriptFunction(L"returnFlagsExperiments", results);
+  web_ui_->CallJavascriptFunction(L"returnFlagsExperiments", results);
 }
 
 void FlagsDOMHandler::HandleEnableFlagsExperimentMessage(
@@ -155,7 +156,7 @@ void FlagsDOMHandler::HandleEnableFlagsExperimentMessage(
     return;
 
   about_flags::SetExperimentEnabled(
-      dom_ui_->GetProfile()->GetPrefs(),
+      g_browser_process->local_state(),
       experiment_internal_name,
       enable_str == "true");
 }
@@ -175,17 +176,13 @@ void FlagsDOMHandler::HandleRestartBrowser(const ListValue* args) {
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-FlagsUI::FlagsUI(TabContents* contents) : DOMUI(contents) {
+FlagsUI::FlagsUI(TabContents* contents) : WebUI(contents) {
   AddMessageHandler((new FlagsDOMHandler())->Attach(this));
 
   FlagsUIHTMLSource* html_source = new FlagsUIHTMLSource();
 
   // Set up the about:flags source.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(ChromeURLDataManager::GetInstance(),
-                        &ChromeURLDataManager::AddDataSource,
-                        make_scoped_refptr(html_source)));
+  contents->profile()->GetChromeURLDataManager()->AddDataSource(html_source);
 }
 
 // static
@@ -195,6 +192,6 @@ RefCountedMemory* FlagsUI::GetFaviconResourceBytes() {
 }
 
 // static
-void FlagsUI::RegisterUserPrefs(PrefService* prefs) {
+void FlagsUI::RegisterPrefs(PrefService* prefs) {
   prefs->RegisterListPref(prefs::kEnabledLabsExperiments);
 }

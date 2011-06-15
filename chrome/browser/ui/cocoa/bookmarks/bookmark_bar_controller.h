@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_state.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_toolbar_view.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_button.h"
-#include "chrome/browser/ui/cocoa/tab_strip_model_observer_bridge.h"
+#include "chrome/browser/ui/cocoa/tabs/tab_strip_model_observer_bridge.h"
 #import "chrome/common/chrome_application_mac.h"
 #include "webkit/glue/window_open_disposition.h"
 
@@ -54,19 +54,6 @@ const CGFloat kBookmarkVerticalPadding = 2.0;
 const CGFloat kBookmarkMenuButtonMinimumWidth = 100.0;
 const CGFloat kBookmarkMenuButtonMaximumWidth = 485.0;
 
-// Horizontal separation between a menu button and both edges of its menu.
-const CGFloat kBookmarkSubMenuHorizontalPadding = 5.0;
-
-// TODO(mrossetti): Add constant (kBookmarkVerticalSeparation) for the gap
-// between buttons in a folder menu. Right now we're using
-// kBookmarkVerticalPadding, which is dual purpose and wrong.
-// http://crbug.com/59057
-
-// Convenience constant giving the vertical distance from the top extent of one
-// folder button to the next button.
-const CGFloat kBookmarkButtonVerticalSpan =
-    kBookmarkButtonHeight + kBookmarkVerticalPadding;
-
 // The minimum separation between a folder menu and the edge of the screen.
 // If the menu gets closer to the edge of the screen (either right or left)
 // then it is pops up in the opposite direction.
@@ -82,7 +69,23 @@ const CGFloat kScrollViewContentWidthMargin = 2;
 
 // Make subfolder menus overlap their parent menu a bit to give a better
 // perception of a menuing system.
-const CGFloat kBookmarkMenuOverlap = 5.0;
+const CGFloat kBookmarkMenuOverlap = 2.0;
+
+// When constraining a scrolling bookmark bar folder window to the
+// screen, shrink the "constrain" by this much vertically.  Currently
+// this is 0.0 to avoid a problem with tracking areas leaving the
+// window, but should probably be 8.0 or something.
+const CGFloat kScrollWindowVerticalMargin = 6.0;
+
+// How far to offset a folder menu from the top of the bookmark bar. This
+// is set just above the bar so that it become distinctive when drawn.
+const CGFloat kBookmarkBarMenuOffset = 2.0;
+
+// How far to offset a folder menu's left edge horizontally in relation to
+// the left edge of the button from which it springs. Because of drawing
+// differences, simply aligning the |frame| of each does not render the
+// pproper result, so we have to offset.
+const CGFloat kBookmarkBarButtonOffset = 2.0;
 
 // Delay before opening a subfolder (and closing the previous one)
 // when hovering over a folder button.
@@ -383,7 +386,7 @@ willAnimateFromState:(bookmarks::VisualState)oldState
 - (int64)nodeIdFromMenuTag:(int32)tag;
 - (int32)menuTagFromNodeId:(int64)menuid;
 - (const BookmarkNode*)nodeFromMenuItem:(id)sender;
-- (void)updateTheme:(ThemeProvider*)themeProvider;
+- (void)updateTheme:(ui::ThemeProvider*)themeProvider;
 - (BookmarkButton*)buttonForDroppingOnAtPoint:(NSPoint)point;
 - (BOOL)isEventAnExitEvent:(NSEvent*)event;
 - (BOOL)shrinkOrHideView:(NSView*)view forMaxX:(CGFloat)maxViewX;

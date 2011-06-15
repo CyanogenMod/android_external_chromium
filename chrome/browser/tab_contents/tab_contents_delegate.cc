@@ -6,7 +6,7 @@
 
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/common/url_constants.h"
-#include "gfx/rect.h"
+#include "ui/gfx/rect.h"
 
 std::string TabContentsDelegate::GetNavigationHeaders(const GURL& url) {
   return std::string();
@@ -165,6 +165,9 @@ void TabContentsDelegate::HandleMouseUp() {
 void TabContentsDelegate::HandleMouseActivate() {
 }
 
+void TabContentsDelegate::DragEnded() {
+}
+
 void TabContentsDelegate::ShowRepostFormWarningDialog(
     TabContents* tab_contents) {
 }
@@ -225,6 +228,10 @@ void TabContentsDelegate::OnInstantSupportDetermined(int32 page_id,
 }
 
 void TabContentsDelegate::ContentRestrictionsChanged(TabContents* source) {
+}
+
+bool TabContentsDelegate::ShouldShowHungRendererDialog() {
+  return true;
 }
 
 TabContentsDelegate::~TabContentsDelegate() {

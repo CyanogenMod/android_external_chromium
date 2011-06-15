@@ -4,7 +4,6 @@
 
 #import "chrome/browser/ui/cocoa/extensions/extension_action_context_menu.h"
 
-#include "app/l10n_util_mac.h"
 #include "base/sys_string_conversions.h"
 #include "base/task.h"
 #include "chrome/browser/browser_list.h"
@@ -20,16 +19,18 @@
 #include "chrome/browser/ui/cocoa/extensions/extension_popup_controller.h"
 #include "chrome/browser/ui/cocoa/info_bubble_view.h"
 #import "chrome/browser/ui/cocoa/location_bar/location_bar_view_mac.h"
-#include "chrome/browser/ui/cocoa/toolbar_controller.h"
+#include "chrome/browser/ui/cocoa/toolbar/toolbar_controller.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_action.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_observer.h"
+#include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util_mac.h"
 
 // A class that loads the extension icon on the I/O thread before showing the
 // confirmation dialog to uninstall the given extension.
@@ -90,6 +91,34 @@ class DevmodeObserver : public NotificationObserver {
   ExtensionActionContextMenu* menu_;
   PrefService* pref_service_;
   PrefChangeRegistrar registrar_;
+};
+
+class ProfileObserverBridge : public NotificationObserver {
+ public:
+  ProfileObserverBridge(ExtensionActionContextMenu* owner,
+                        const Profile* profile)
+      : owner_(owner),
+        profile_(profile) {
+    registrar_.Add(this, NotificationType::PROFILE_DESTROYED,
+                   Source<Profile>(profile));
+  }
+
+  ~ProfileObserverBridge() {}
+
+  // Overridden from NotificationObserver
+  void Observe(NotificationType type,
+               const NotificationSource& source,
+               const NotificationDetails& details) {
+    if (type == NotificationType::PROFILE_DESTROYED &&
+        source == Source<Profile>(profile_)) {
+      [owner_ invalidateProfile];
+    }
+  }
+
+ private:
+  ExtensionActionContextMenu* owner_;
+  const Profile* profile_;
+  NotificationRegistrar registrar_;
 };
 
 }  // namespace extension_action_context_menu
@@ -177,6 +206,9 @@ int CurrentTabId() {
     PrefService* service = profile_->GetPrefs();
     observer_.reset(
         new extension_action_context_menu::DevmodeObserver(self, service));
+    profile_observer_.reset(
+        new extension_action_context_menu::ProfileObserverBridge(self,
+                                                                 profile));
 
     [self updateInspectorItem];
     return self;
@@ -273,6 +305,11 @@ int CurrentTabId() {
     return action_ && action_->HasPopup(CurrentTabId());
   }
   return YES;
+}
+
+- (void)invalidateProfile {
+  observer_.reset();
+  profile_ = NULL;
 }
 
 @end

@@ -40,6 +40,10 @@ class UserManager : public UserImageLoader::Delegate,
     // Returns the name to display for this user.
     std::string GetDisplayName() const;
 
+    // Tooltip contains user's display name and his email domain to distinguish
+    // this user from the other one with the same display name.
+    std::string GetNameTooltip() const;
+
     // The image for this user.
     void set_image(const SkBitmap& image) { image_ = image; }
     const SkBitmap& image() const { return image_; }
@@ -74,7 +78,7 @@ class UserManager : public UserImageLoader::Delegate,
   virtual bool IsKnownUser(const std::string& email);
 
   // Returns the logged-in user.
-  virtual const User& logged_in_user() {
+  virtual const User& logged_in_user() const {
     return logged_in_user_;
   }
 
@@ -109,6 +113,9 @@ class UserManager : public UserImageLoader::Delegate,
   }
 
   bool user_is_logged_in() const { return user_is_logged_in_; }
+
+  // Returns true if we're logged in as a Guest.
+  bool IsLoggedInAsGuest() const;
 
  protected:
   UserManager();
@@ -149,6 +156,8 @@ class UserManager : public UserImageLoader::Delegate,
 
   DISALLOW_COPY_AND_ASSIGN(UserManager);
 };
+
+typedef std::vector<UserManager::User> UserVector;
 
 }  // namespace chromeos
 

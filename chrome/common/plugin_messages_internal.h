@@ -4,8 +4,8 @@
 
 #include "base/shared_memory.h"
 #include "build/build_config.h"
-#include "gfx/native_widget_types.h"
 #include "ipc/ipc_message_macros.h"
+#include "ui/gfx/native_widget_types.h"
 #include "webkit/glue/webcursor.h"
 
 #if defined(OS_POSIX)
@@ -234,7 +234,7 @@ IPC_MESSAGE_ROUTED2(PluginMsg_WindowFrameChanged,
                     gfx::Rect /* window_frame */,
                     gfx::Rect /* view_frame */)
 
-IPC_MESSAGE_ROUTED1(PluginMsg_ImeCompositionConfirmed,
+IPC_MESSAGE_ROUTED1(PluginMsg_ImeCompositionCompleted,
                     string16 /* text */)
 #endif
 
@@ -305,8 +305,8 @@ IPC_MESSAGE_ROUTED1(PluginMsg_SetFakeAcceleratedSurfaceWindowHandle,
 #endif
 
 IPC_MESSAGE_CONTROL3(PluginMsg_ClearSiteData,
+                     std::string, /* site */
                      uint64, /* flags */
-                     std::string, /* domain */
                      base::Time /* begin_time */)
 
 
@@ -403,8 +403,10 @@ IPC_MESSAGE_CONTROL0(PluginHostMsg_PluginShuttingDown)
 IPC_MESSAGE_ROUTED1(PluginHostMsg_UpdateGeometry_ACK,
                     int /* ack_key */)
 
-IPC_MESSAGE_ROUTED1(PluginHostMsg_SetImeEnabled,
-                    bool /* enabled */)
+IPC_MESSAGE_ROUTED1(PluginHostMsg_FocusChanged,
+                    bool /* focused */)
+
+IPC_MESSAGE_ROUTED0(PluginHostMsg_StartIme)
 
 // This message, used in Mac OS X 10.5 and earlier, is sent from the plug-in
 // process to the renderer process to indicate that the plug-in allocated a

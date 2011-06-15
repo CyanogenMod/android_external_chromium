@@ -8,6 +8,7 @@
 
 #include <map>
 #include <set>
+#include <string>
 
 #include "base/string16.h"
 #include "chrome/browser/autofill/field_types.h"
@@ -57,6 +58,15 @@ class AutoFillType {
   AutoFillFieldType field_type() const;
   FieldTypeGroup group() const;
   FieldTypeSubGroup subgroup() const;
+
+  // Maps |field_type| to a field type that can be directly stored in a profile
+  // (in the sense that it makes sense to call |AutoFillProfile::SetInfo()| with
+  // the returned field type as the first parameter).
+  static AutoFillFieldType GetEquivalentFieldType(AutoFillFieldType field_type);
+
+  // Utilities for serializing and deserializing an |AutoFillFieldType|.
+  static std::string FieldTypeToString(AutoFillFieldType field_type);
+  static AutoFillFieldType StringToFieldType(const std::string& str);
 
  private:
   AutoFillFieldType field_type_;

@@ -1,23 +1,23 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/fullscreen_exit_bubble.h"
+#include "chrome/browser/ui/views/fullscreen_exit_bubble.h"
 
-#include "app/keyboard_codes.h"
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "gfx/canvas_skia.h"
 #include "grit/generated_resources.h"
 #include "ui/base/animation/slide_animation.h"
+#include "ui/base/keycodes/keyboard_codes.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas_skia.h"
 #include "views/screen.h"
 #include "views/widget/root_view.h"
 #include "views/window/window.h"
 
 #if defined(OS_WIN)
-#include "app/l10n_util_win.h"
+#include "ui/base/l10n/l10n_util_win.h"
 #include "views/widget/widget_win.h"
 #elif defined(OS_LINUX)
 #include "views/widget/widget_gtk.h"
@@ -147,10 +147,11 @@ FullscreenExitBubble::FullscreenExitBubble(
   size_animation_->Reset(1);
 
   // Create the contents view.
-  views::Accelerator accelerator(app::VKEY_UNKNOWN, false, false, false);
+  views::Accelerator accelerator(ui::VKEY_UNKNOWN, false, false, false);
   bool got_accelerator = frame->GetAccelerator(IDC_FULLSCREEN, &accelerator);
   DCHECK(got_accelerator);
-  view_ = new FullscreenExitView(this, accelerator.GetShortcutText());
+  view_ = new FullscreenExitView(
+      this, UTF16ToWideHack(accelerator.GetShortcutText()));
 
   // Initialize the popup.
 #if defined(OS_WIN)

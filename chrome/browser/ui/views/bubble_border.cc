@@ -1,15 +1,15 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/bubble_border.h"
+#include "chrome/browser/ui/views/bubble_border.h"
 
-#include "app/resource_bundle.h"
 #include "base/logging.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/path.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/path.h"
 
 // static
 SkBitmap* BubbleBorder::left_ = NULL;
@@ -433,7 +433,7 @@ void BubbleBackground::Paint(gfx::Canvas* canvas, views::View* view) const {
   paint.setStyle(SkPaint::kFill_Style);
   paint.setColor(border_->background_color());
   gfx::Path path;
-  gfx::Rect bounds(view->GetLocalBounds(false));
+  gfx::Rect bounds(view->GetContentsBounds());
   SkRect rect;
   rect.set(SkIntToScalar(bounds.x()), SkIntToScalar(bounds.y()),
            SkIntToScalar(bounds.right()), SkIntToScalar(bounds.bottom()));

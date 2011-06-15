@@ -6,12 +6,12 @@
 
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebRuntimeFeatures.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebKit.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebSettings.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebString.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURL.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebView.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebRuntimeFeatures.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebKit.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebSettings.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebString.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURL.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebView.h"
 #include "webkit/glue/webkit_glue.h"
 
 using WebKit::WebRuntimeFeatures;
@@ -60,13 +60,17 @@ WebPreferences::WebPreferences()
       frame_flattening_enabled(false),
       allow_universal_access_from_file_urls(false),
       allow_file_access_from_file_urls(false),
+      webaudio_enabled(false),
       experimental_webgl_enabled(false),
+      gl_multisampling_enabled(true),
       show_composited_layer_borders(false),
       accelerated_compositing_enabled(false),
       accelerated_layers_enabled(false),
       accelerated_video_enabled(false),
       accelerated_2d_canvas_enabled(false),
-      memory_info_enabled(false) {
+      accelerated_plugins_enabled(false),
+      memory_info_enabled(false),
+      interactive_form_validation_enabled(true) {
 }
 
 WebPreferences::~WebPreferences() {
@@ -140,11 +144,17 @@ void WebPreferences::Apply(WebView* web_view) const {
   // but also because it cause a possible crash in Editor::hasBidiSelection().
   settings->setTextDirectionSubmenuInclusionBehaviorNeverIncluded();
 
+  // Enable the web audio API if requested on the command line.
+  settings->setWebAudioEnabled(webaudio_enabled);
+
   // Enable experimental WebGL support if requested on command line
   // and support is compiled in.
   bool enable_webgl =
       WebRuntimeFeatures::isWebGLEnabled() && experimental_webgl_enabled;
   settings->setExperimentalWebGLEnabled(enable_webgl);
+
+  // Disable GL multisampling if requested on command line.
+  settings->setOpenGLMultisamplingEnabled(gl_multisampling_enabled);
 
   // Display colored borders around composited render layers if requested
   // on command line.
@@ -157,15 +167,17 @@ void WebPreferences::Apply(WebView* web_view) const {
   settings->setAccelerated2dCanvasEnabled(accelerated_2d_canvas_enabled);
 
   // Enabling accelerated layers from the command line enabled accelerated
-  // 3D CSS, Video, Plugins, and Animations.
+  // 3D CSS, Video, and Animations.
   settings->setAcceleratedCompositingFor3DTransformsEnabled(
       accelerated_layers_enabled);
   settings->setAcceleratedCompositingForVideoEnabled(
       accelerated_video_enabled);
-  settings->setAcceleratedCompositingForPluginsEnabled(
-      accelerated_layers_enabled);
   settings->setAcceleratedCompositingForAnimationEnabled(
       accelerated_layers_enabled);
+
+  // Enabling accelerated plugins if specified from the command line.
+  settings->setAcceleratedCompositingForPluginsEnabled(
+      accelerated_plugins_enabled);
 
   // WebGL and accelerated 2D canvas are always gpu composited.
   settings->setAcceleratedCompositingForCanvasEnabled(
@@ -182,4 +194,7 @@ void WebPreferences::Apply(WebView* web_view) const {
   // Tabs to link is not part of the settings. WebCore calls
   // ChromeClient::tabsToLinks which is part of the glue code.
   web_view->setTabsToLinks(tabs_to_links);
+
+  settings->setInteractiveFormValidationEnabled(
+      interactive_form_validation_enabled);
 }

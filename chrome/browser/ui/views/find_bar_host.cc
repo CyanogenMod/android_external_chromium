@@ -1,18 +1,21 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/find_bar_host.h"
+#include "chrome/browser/ui/views/find_bar_host.h"
 
-#include "app/keyboard_codes.h"
+#include <algorithm>
+
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
-#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
+#include "chrome/browser/ui/find_bar/find_manager.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/find_bar_view.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "ui/base/keycodes/keyboard_codes.h"
 #include "views/focus/external_focus_tracker.h"
 #include "views/focus/view_storage.h"
 #include "views/widget/root_view.h"
@@ -46,14 +49,14 @@ bool FindBarHost::MaybeForwardKeyEventToWebpage(
     return false;
   }
 
-  switch (key_event.GetKeyCode()) {
-    case app::VKEY_DOWN:
-    case app::VKEY_UP:
-    case app::VKEY_PRIOR:
-    case app::VKEY_NEXT:
+  switch (key_event.key_code()) {
+    case ui::VKEY_DOWN:
+    case ui::VKEY_UP:
+    case ui::VKEY_PRIOR:
+    case ui::VKEY_NEXT:
       break;
-    case app::VKEY_HOME:
-    case app::VKEY_END:
+    case ui::VKEY_HOME:
+    case ui::VKEY_END:
       if (key_event.IsControlDown())
         break;
     // Fall through.
@@ -61,7 +64,7 @@ bool FindBarHost::MaybeForwardKeyEventToWebpage(
       return false;
   }
 
-  TabContents* contents = find_bar_controller_->tab_contents();
+  TabContentsWrapper* contents = find_bar_controller_->tab_contents();
   if (!contents)
     return false;
 
@@ -70,7 +73,8 @@ bool FindBarHost::MaybeForwardKeyEventToWebpage(
   // Make sure we don't have a text field element interfering with keyboard
   // input. Otherwise Up and Down arrow key strokes get eaten. "Nom Nom Nom".
   render_view_host->ClearFocusedNode();
-  NativeWebKeyboardEvent event = GetKeyboardEvent(contents, key_event);
+  NativeWebKeyboardEvent event = GetKeyboardEvent(contents->tab_contents(),
+                                                  key_event);
   render_view_host->ForwardKeyboardEvent(event);
   return true;
 }
@@ -109,7 +113,8 @@ void FindBarHost::MoveWindowIfNecessary(const gfx::Rect& selection_rect,
   // don't check this, then SetWidgetPosition below will end up making the Find
   // Bar visible.
   if (!find_bar_controller_->tab_contents() ||
-      !find_bar_controller_->tab_contents()->find_ui_active()) {
+      !find_bar_controller_->
+          tab_contents()->GetFindManager()->find_ui_active()) {
     return;
   }
 
@@ -150,7 +155,7 @@ bool FindBarHost::IsFindBarVisible() {
 void FindBarHost::RestoreSavedFocus() {
   if (focus_tracker() == NULL) {
     // TODO(brettw) Focus() should be on TabContentsView.
-    find_bar_controller_->tab_contents()->Focus();
+    find_bar_controller_->tab_contents()->tab_contents()->Focus();
   } else {
     focus_tracker()->FocusLastFocusedExternalView();
   }
@@ -164,11 +169,11 @@ FindBarTesting* FindBarHost::GetFindBarTesting() {
 // FindBarWin, views::AcceleratorTarget implementation:
 
 bool FindBarHost::AcceleratorPressed(const views::Accelerator& accelerator) {
-  app::KeyboardCode key = accelerator.GetKeyCode();
-  if (key == app::VKEY_RETURN && accelerator.IsCtrlDown()) {
+  ui::KeyboardCode key = accelerator.GetKeyCode();
+  if (key == ui::VKEY_RETURN && accelerator.IsCtrlDown()) {
     // Ctrl+Enter closes the Find session and navigates any link that is active.
     find_bar_controller_->EndFindSession(FindBarController::kActivateSelection);
-  } else if (key == app::VKEY_ESCAPE) {
+  } else if (key == ui::VKEY_ESCAPE) {
     // This will end the Find session and hide the window, causing it to loose
     // focus and in the process unregister us as the handler for the Escape
     // accelerator through the FocusWillChange event.
@@ -288,13 +293,13 @@ void FindBarHost::RegisterAccelerators() {
   DropdownBarHost::RegisterAccelerators();
 
   // Register for Ctrl+Return.
-  views::Accelerator escape(app::VKEY_RETURN, false, true, false);
+  views::Accelerator escape(ui::VKEY_RETURN, false, true, false);
   focus_manager()->RegisterAccelerator(escape, this);
 }
 
 void FindBarHost::UnregisterAccelerators() {
   // Unregister Ctrl+Return.
-  views::Accelerator escape(app::VKEY_RETURN, false, true, false);
+  views::Accelerator escape(ui::VKEY_RETURN, false, true, false);
   focus_manager()->UnregisterAccelerator(escape, this);
 
   DropdownBarHost::UnregisterAccelerators();

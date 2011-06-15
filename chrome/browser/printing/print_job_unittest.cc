@@ -1,4 +1,4 @@
-// Copyright (c) 2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -107,7 +107,7 @@ TEST(PrintJobTest, MAYBE_SimplePrint) {
   EXPECT_EQ(MessageLoop::current(), job->message_loop());
   scoped_refptr<TestOwner> owner(new TestOwner);
   TestSource source;
-  job->Initialize(owner, &source);
+  job->Initialize(owner, &source, 1);
   job->Stop();
   job = NULL;
   EXPECT_TRUE(check);
@@ -135,7 +135,6 @@ TEST(PrintJobTest, SimplePrintLateInit) {
   job->FlushJob(timeout_ms);
   job->DisconnectSource();
   job->is_job_pending();
-  job->is_print_dialog_box_shown();
   job->document();
   // Private
   job->UpdatePrintedDocument(NULL);

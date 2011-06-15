@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,8 @@
 #include <vsstyle.h>
 #include <vssym32.h>
 
-#include "chrome/browser/views/options/languages_page_view.h"
+#include "chrome/browser/ui/views/options/languages_page_view.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/string_util.h"
@@ -20,24 +18,26 @@
 #include "chrome/browser/language_order_table_model.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/shell_dialogs.h"
-#include "chrome/browser/views/restart_message_box.h"
+#include "chrome/browser/ui/shell_dialogs.h"
+#include "chrome/browser/ui/views/restart_message_box.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/spellcheck_common.h"
-#include "gfx/canvas.h"
-#include "gfx/font.h"
-#include "gfx/native_theme_win.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/font.h"
+#include "ui/gfx/native_theme_win.h"
 #include "unicode/uloc.h"
 #include "views/controls/button/radio_button.h"
 #include "views/controls/tabbed_pane/tabbed_pane.h"
 #include "views/controls/table/table_view.h"
-#include "views/grid_layout.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/widget.h"
 #include "views/window/window.h"
 
@@ -265,7 +265,7 @@ void LanguagesPageView::InitControlLayout() {
   using views::GridLayout;
   using views::ColumnSet;
 
-  GridLayout* layout = CreatePanelGridLayout(this);
+  GridLayout* layout = GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
 
   const int single_column_view_set_id = 0;
@@ -282,7 +282,7 @@ void LanguagesPageView::InitControlLayout() {
       views::Label::ALIGN_LEFT);
   layout->StartRow(0, single_column_view_set_id);
   layout->AddView(languages_instructions_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   // Add two columns - for table, and for button stack.
   std::vector<TableColumn> columns;
@@ -297,7 +297,7 @@ void LanguagesPageView::InitControlLayout() {
   column_set = layout->AddColumnSet(double_column_view_set_id);
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 1,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 0,
                         GridLayout::USE_PREF, 0, 0);
 
@@ -317,22 +317,22 @@ void LanguagesPageView::InitControlLayout() {
   button_stack_layout->StartRow(0, single_column_view_set_id);
   button_stack_layout->AddView(add_button_, 1, 1, GridLayout::FILL,
                                GridLayout::CENTER);
-  button_stack_layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  button_stack_layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   button_stack_layout->StartRow(0, single_column_view_set_id);
   button_stack_layout->AddView(remove_button_, 1, 1, GridLayout::FILL,
                                GridLayout::CENTER);
-  button_stack_layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  button_stack_layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   button_stack_layout->StartRow(0, single_column_view_set_id);
   button_stack_layout->AddView(move_up_button_, 1, 1, GridLayout::FILL,
                                GridLayout::CENTER);
-  button_stack_layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  button_stack_layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   button_stack_layout->StartRow(0, single_column_view_set_id);
   button_stack_layout->AddView(move_down_button_, 1, 1, GridLayout::FILL,
                                GridLayout::CENTER);
 
   layout->AddView(button_stack_);
 
-  layout->AddPaddingRow(0, kUnrelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kUnrelatedControlVerticalSpacing);
 
   language_info_label_ = new views::Label(
       UTF16ToWide(l10n_util::GetStringUTF16(IDS_OPTIONS_CHROME_LANGUAGE_INFO)));
@@ -371,17 +371,17 @@ void LanguagesPageView::InitControlLayout() {
   // SpellCheck language settings.
   layout->StartRow(0, single_column_view_set_id);
   layout->AddView(enable_spellchecking_checkbox_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   if (command_line.HasSwitch(switches::kExperimentalSpellcheckerFeatures)) {
     layout->StartRow(0, single_column_view_set_id);
     layout->AddView(enable_autospellcorrect_checkbox_);
-    layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+    layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
   }
   const int double_column_view_set_2_id = 2;
   column_set = layout->AddColumnSet(double_column_view_set_2_id);
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 1,
                         GridLayout::USE_PREF, 0, 0);
 
@@ -390,15 +390,15 @@ void LanguagesPageView::InitControlLayout() {
   layout->AddView(change_dictionary_language_combobox_);
 
   // UI language settings.
-  layout->AddPaddingRow(0, kUnrelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kUnrelatedControlVerticalSpacing);
   layout->StartRow(0, single_column_view_set_id);
   layout->AddView(language_info_label_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   layout->StartRow(0, double_column_view_set_2_id);
   layout->AddView(ui_language_label_);
   layout->AddView(change_ui_language_combobox_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   // Init member prefs so we can update the controls if prefs change.
   app_locale_.Init(prefs::kApplicationLocale,

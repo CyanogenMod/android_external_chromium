@@ -4,13 +4,13 @@
 
 #include "chrome/browser/chromeos/login/user_manager.h"
 
-#include "app/resource_bundle.h"
 #include "base/compiler_specific.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/logging.h"
 #include "base/nss_util.h"
 #include "base/path_service.h"
+#include "base/stringprintf.h"
 #include "base/string_util.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
@@ -27,8 +27,9 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
-#include "gfx/codec/png_codec.h"
 #include "grit/theme_resources.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/codec/png_codec.h"
 
 namespace chromeos {
 
@@ -41,7 +42,7 @@ const char kUserImages[] = "UserImages";
 
 // Incognito user is represented by an empty string (since some code already
 // depends on that and it's hard to figure out what).
-const char kIncognitoUser[] = "";
+const char kGuestUser[] = "";
 
 // Special pathes to default user images.
 const char* kDefaultImageNames[] = {
@@ -167,6 +168,21 @@ std::string UserManager::User::GetDisplayName() const {
   return email_.substr(0, i);
 }
 
+std::string UserManager::User::GetNameTooltip() const {
+  const std::string& user_email = email();
+  size_t at_pos = user_email.rfind('@');
+  if (at_pos == std::string::npos) {
+    NOTREACHED();
+    return std::string();
+  }
+  size_t domain_start = at_pos + 1;
+  std::string domain = user_email.substr(domain_start,
+                                         user_email.length() - domain_start);
+  return base::StringPrintf("%s (%s)",
+                            GetDisplayName().c_str(),
+                            domain.c_str());
+}
+
 // static
 UserManager* UserManager::Get() {
   if (!user_manager_)
@@ -231,12 +247,12 @@ std::vector<UserManager::User> UserManager::GetUsers() const {
 void UserManager::OffTheRecordUserLoggedIn() {
   user_is_logged_in_ = true;
   logged_in_user_ = User();
-  logged_in_user_.set_email(kIncognitoUser);
+  logged_in_user_.set_email(kGuestUser);
   NotifyOnLogin();
 }
 
 void UserManager::UserLoggedIn(const std::string& email) {
-  if (email == kIncognitoUser) {
+  if (email == kGuestUser) {
     OffTheRecordUserLoggedIn();
     return;
   }
@@ -403,6 +419,10 @@ void UserManager::OnImageLoaded(const std::string& username,
       Details<const User>(&user));
 }
 
+bool UserManager::IsLoggedInAsGuest() const {
+  return logged_in_user().email() == kGuestUser;
+}
+
 // Private constructor and destructor. Do nothing.
 UserManager::UserManager()
     : ALLOW_THIS_IN_INITIALIZER_LIST(image_loader_(new UserImageLoader(this))),
@@ -434,7 +454,7 @@ void UserManager::NotifyOnLogin() {
       SetDeferImeStartup(false);
   // Shut down the IME so that it will reload the user's settings.
   chromeos::CrosLibrary::Get()->GetInputMethodLibrary()->
-      StopInputMethodProcesses();
+      StopInputMethodDaemon();
   // Let the window manager know that we're logged in now.
   WmIpc::instance()->SetLoggedInProperty(true);
   // Ensure we've opened the real user's key/certificate database.

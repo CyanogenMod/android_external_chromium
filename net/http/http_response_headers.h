@@ -100,9 +100,6 @@ class HttpResponseHeaders
   //
   void GetNormalizedHeaders(std::string* output) const;
 
-  // Gets the raw stored headers, in human-readable form.
-  void GetRawHeaders(std::string* output) const;
-
   // Fetch the "normalized" value of a single header, where all values for the
   // header name are separated by commas.  See the GetNormalizedHeaders for
   // format details.  Returns false if this header wasn't found.
@@ -254,16 +251,7 @@ class HttpResponseHeaders
   typedef base::hash_set<std::string> HeaderSet;
 
   // The members of this structure point into raw_headers_.
-  struct ParsedHeader {
-    std::string::const_iterator name_begin;
-    std::string::const_iterator name_end;
-    std::string::const_iterator value_begin;
-    std::string::const_iterator value_end;
-
-    // A header "continuation" contains only a subsequent value for the
-    // preceding header.  (Header values are comma separated.)
-    bool is_continuation() const { return name_begin == name_end; }
-  };
+  struct ParsedHeader;
   typedef std::vector<ParsedHeader> HeaderList;
 
   HttpResponseHeaders();

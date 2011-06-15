@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/uninstall_view.h"
+#include "chrome/browser/ui/views/uninstall_view.h"
 
-#include "app/l10n_util.h"
 #include "base/message_loop.h"
 #include "base/process_util.h"
 #include "base/string16.h"
@@ -13,11 +12,12 @@
 #include "chrome/common/result_codes.h"
 #include "chrome/installer/util/browser_distribution.h"
 #include "chrome/installer/util/shell_util.h"
+#include "grit/chromium_strings.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "views/controls/button/checkbox.h"
 #include "views/controls/label.h"
-#include "views/standard_layout.h"
-
-#include "grit/chromium_strings.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 
 UninstallView::UninstallView(int& user_selection)
     : confirm_label_(NULL),
@@ -38,7 +38,7 @@ void UninstallView::SetupControls() {
   using views::ColumnSet;
   using views::GridLayout;
 
-  GridLayout* layout = CreatePanelGridLayout(this);
+  GridLayout* layout = GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
 
   // Message to confirm uninstallation.
@@ -52,12 +52,12 @@ void UninstallView::SetupControls() {
   confirm_label_->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
   layout->AddView(confirm_label_);
 
-  layout->AddPaddingRow(0, kUnrelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kUnrelatedControlVerticalSpacing);
 
   // The "delete profile" check box.
   ++column_set_id;
   column_set = layout->AddColumnSet(column_set_id);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
   layout->StartRow(0, column_set_id);
@@ -72,14 +72,14 @@ void UninstallView::SetupControls() {
     browsers_.reset(new BrowsersMap());
     ShellUtil::GetRegisteredBrowsers(dist, browsers_.get());
     if (!browsers_->empty()) {
-      layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+      layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
       ++column_set_id;
       column_set = layout->AddColumnSet(column_set_id);
-      column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+      column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
       column_set->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                             GridLayout::USE_PREF, 0, 0);
-      column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+      column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
       column_set->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                             GridLayout::USE_PREF, 0, 0);
       layout->StartRow(0, column_set_id);
@@ -93,7 +93,7 @@ void UninstallView::SetupControls() {
     }
   }
 
-  layout->AddPaddingRow(0, kRelatedControlSmallVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlSmallVerticalSpacing);
 }
 
 bool UninstallView::Accept() {

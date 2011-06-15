@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -136,7 +136,14 @@ class StatsTable::Private {
 
  private:
   // Constructor is private because you should use New() instead.
-  Private() {}
+  Private()
+      : table_header_(NULL),
+        thread_names_table_(NULL),
+        thread_tid_table_(NULL),
+        thread_pid_table_(NULL),
+        counter_names_table_(NULL),
+        data_table_(NULL) {
+  }
 
   // Initializes the table on first access.  Sets header values
   // appropriately and zeroes all counters.
@@ -282,6 +289,13 @@ StatsTable::~StatsTable() {
     global_table_ = NULL;
 }
 
+int StatsTable::GetSlot() const {
+  TLSData* data = GetTLSData();
+  if (!data)
+    return 0;
+  return data->slot;
+}
+
 int StatsTable::RegisterThread(const std::string& name) {
 #ifdef ANDROID
   return 0;
@@ -319,15 +333,121 @@ int StatsTable::RegisterThread(const std::string& name) {
 #endif
 }
 
-StatsTable::TLSData* StatsTable::GetTLSData() const {
-  TLSData* data =
-    static_cast<TLSData*>(tls_index_.Get());
-  if (!data)
+int StatsTable::CountThreadsRegistered() const {
+  if (!impl_)
+    return 0;
+
+  // Loop through the shared memory and count the threads that are active.
+  // We intentionally do not lock the table during the operation.
+  int count = 0;
+  for (int index = 1; index <= impl_->max_threads(); index++) {
+    char* name = impl_->thread_name(index);
+    if (*name != '\0')
+      count++;
+  }
+  return count;
+}
+
+int StatsTable::FindCounter(const std::string& name) {
+  // Note: the API returns counters numbered from 1..N, although
+  // internally, the array is 0..N-1.  This is so that we can return
+  // zero as "not found".
+  if (!impl_)
+    return 0;
+
+  // Create a scope for our auto-lock.
+  {
+    AutoLock scoped_lock(counters_lock_);
+
+    // Attempt to find the counter.
+    CountersMap::const_iterator iter;
+    iter = counters_.find(name);
+    if (iter != counters_.end())
+      return iter->second;
+  }
+
+  // Counter does not exist, so add it.
+  return AddCounter(name);
+}
+
+int* StatsTable::GetLocation(int counter_id, int slot_id) const {
+  if (!impl_)
+    return NULL;
+  if (slot_id > impl_->max_threads())
     return NULL;
 
-  DCHECK(data->slot);
-  DCHECK_EQ(data->table, this);
-  return data;
+  int* row = impl_->row(counter_id);
+  return &(row[slot_id-1]);
+}
+
+const char* StatsTable::GetRowName(int index) const {
+  if (!impl_)
+    return NULL;
+
+  return impl_->counter_name(index);
+}
+
+int StatsTable::GetRowValue(int index) const {
+  return GetRowValue(index, 0);
+}
+
+int StatsTable::GetRowValue(int index, int pid) const {
+  if (!impl_)
+    return 0;
+
+  int rv = 0;
+  int* row = impl_->row(index);
+  for (int slot_id = 0; slot_id < impl_->max_threads(); slot_id++) {
+    if (pid == 0 || *impl_->thread_pid(slot_id) == pid)
+      rv += row[slot_id];
+  }
+  return rv;
+}
+
+int StatsTable::GetCounterValue(const std::string& name) {
+  return GetCounterValue(name, 0);
+}
+
+int StatsTable::GetCounterValue(const std::string& name, int pid) {
+  if (!impl_)
+    return 0;
+
+  int row = FindCounter(name);
+  if (!row)
+    return 0;
+  return GetRowValue(row, pid);
+}
+
+int StatsTable::GetMaxCounters() const {
+  if (!impl_)
+    return 0;
+  return impl_->max_counters();
+}
+
+int StatsTable::GetMaxThreads() const {
+  if (!impl_)
+    return 0;
+  return impl_->max_threads();
+}
+
+int* StatsTable::FindLocation(const char* name) {
+  // Get the static StatsTable
+  StatsTable *table = StatsTable::current();
+  if (!table)
+    return NULL;
+
+  // Get the slot for this thread.  Try to register
+  // it if none exists.
+  int slot = table->GetSlot();
+  if (!slot && !(slot = table->RegisterThread("")))
+      return NULL;
+
+  // Find the counter id for the counter.
+  std::string str_name(name);
+  int counter = table->FindCounter(str_name);
+
+  // Now we can find the location in the table.
+  return table->GetLocation(counter, slot);
 }
 
 void StatsTable::UnregisterThread() {
@@ -357,28 +477,6 @@ void StatsTable::SlotReturnFunction(void* data) {
     DCHECK(tls_data->table);
     tls_data->table->UnregisterThread(tls_data);
   }
-}
-
-int StatsTable::CountThreadsRegistered() const {
-  if (!impl_)
-    return 0;
-
-  // Loop through the shared memory and count the threads that are active.
-  // We intentionally do not lock the table during the operation.
-  int count = 0;
-  for (int index = 1; index <= impl_->max_threads(); index++) {
-    char* name = impl_->thread_name(index);
-    if (*name != '\0')
-      count++;
-  }
-  return count;
-}
-
-int StatsTable::GetSlot() const {
-  TLSData* data = GetTLSData();
-  if (!data)
-    return 0;
-  return data->slot;
 }
 
 int StatsTable::FindEmptyThread() const {
@@ -426,28 +524,6 @@ int StatsTable::FindCounterOrEmptyRow(const std::string& name) const {
   return free_slot;
 }
 
-int StatsTable::FindCounter(const std::string& name) {
-  // Note: the API returns counters numbered from 1..N, although
-  // internally, the array is 0..N-1.  This is so that we can return
-  // zero as "not found".
-  if (!impl_)
-    return 0;
-
-  // Create a scope for our auto-lock.
-  {
-    AutoLock scoped_lock(counters_lock_);
-
-    // Attempt to find the counter.
-    CountersMap::const_iterator iter;
-    iter = counters_.find(name);
-    if (iter != counters_.end())
-      return iter->second;
-  }
-
-  // Counter does not exist, so add it.
-  return AddCounter(name);
-}
-
 int StatsTable::AddCounter(const std::string& name) {
 #ifdef ANDROID
   return 0;
@@ -483,84 +559,15 @@ int StatsTable::AddCounter(const std::string& name) {
 #endif
 }
 
-int* StatsTable::GetLocation(int counter_id, int slot_id) const {
-  if (!impl_)
-    return NULL;
-  if (slot_id > impl_->max_threads())
-    return NULL;
-
-  int* row = impl_->row(counter_id);
-  return &(row[slot_id-1]);
-}
-
-const char* StatsTable::GetRowName(int index) const {
-  if (!impl_)
+StatsTable::TLSData* StatsTable::GetTLSData() const {
+  TLSData* data =
+    static_cast<TLSData*>(tls_index_.Get());
+  if (!data)
     return NULL;
 
-  return impl_->counter_name(index);
-}
-
-int StatsTable::GetRowValue(int index, int pid) const {
-  if (!impl_)
-    return 0;
-
-  int rv = 0;
-  int* row = impl_->row(index);
-  for (int slot_id = 0; slot_id < impl_->max_threads(); slot_id++) {
-    if (pid == 0 || *impl_->thread_pid(slot_id) == pid)
-      rv += row[slot_id];
-  }
-  return rv;
-}
-
-int StatsTable::GetRowValue(int index) const {
-  return GetRowValue(index, 0);
-}
-
-int StatsTable::GetCounterValue(const std::string& name, int pid) {
-  if (!impl_)
-    return 0;
-
-  int row = FindCounter(name);
-  if (!row)
-    return 0;
-  return GetRowValue(row, pid);
-}
-
-int StatsTable::GetCounterValue(const std::string& name) {
-  return GetCounterValue(name, 0);
-}
-
-int StatsTable::GetMaxCounters() const {
-  if (!impl_)
-    return 0;
-  return impl_->max_counters();
-}
-
-int StatsTable::GetMaxThreads() const {
-  if (!impl_)
-    return 0;
-  return impl_->max_threads();
-}
-
-int* StatsTable::FindLocation(const char* name) {
-  // Get the static StatsTable
-  StatsTable *table = StatsTable::current();
-  if (!table)
-    return NULL;
-
-  // Get the slot for this thread.  Try to register
-  // it if none exists.
-  int slot = table->GetSlot();
-  if (!slot && !(slot = table->RegisterThread("")))
-      return NULL;
-
-  // Find the counter id for the counter.
-  std::string str_name(name);
-  int counter = table->FindCounter(str_name);
-
-  // Now we can find the location in the table.
-  return table->GetLocation(counter, slot);
+  DCHECK(data->slot);
+  DCHECK_EQ(data->table, this);
+  return data;
 }
 
 }  // namespace base

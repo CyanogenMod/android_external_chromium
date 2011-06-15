@@ -1,10 +1,10 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/browser_bubble.h"
+#include "chrome/browser/ui/views/browser_bubble.h"
 
-#include "chrome/browser/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
 #include "views/widget/root_view.h"
 #include "views/widget/widget_win.h"
 #include "views/window/window.h"
@@ -97,10 +97,6 @@ void BrowserBubble::InitPopup() {
   // popup_ is a Widget, but we need to do some WidgetWin stuff first, then
   // we'll assign it into popup_.
   views::WidgetWin* pop = new BubbleWidget(this);
-
-  // Enable the drop-shadow through the native windows drop-shadow support.
-  if (drop_shadow_enabled_)
-    pop->set_initial_class_style(CS_DROPSHADOW | pop->initial_class_style());
 
   pop->Init(frame_->GetNativeView(), bounds_);
   pop->SetContentsView(view_);

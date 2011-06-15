@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <string>
 
-#include "app/resource_bundle.h"
 #include "base/callback.h"
 #include "base/logging.h"
 #include "base/string_piece.h"
@@ -22,10 +21,12 @@
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/version_loader.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/url_constants.h"
 #include "googleurl/src/gurl.h"
 #include "grit/browser_resources.h"
+#include "ui/base/resource/resource_bundle.h"
 
 namespace {
 
@@ -107,7 +108,7 @@ class RegisterPageUIHTMLSource : public ChromeURLDataManager::DataSource {
 };
 
 // The handler for Javascript messages related to the "register" view.
-class RegisterPageHandler : public DOMMessageHandler,
+class RegisterPageHandler : public WebUIMessageHandler,
                             public base::SupportsWeakPtr<RegisterPageHandler> {
  public:
   RegisterPageHandler();
@@ -116,12 +117,12 @@ class RegisterPageHandler : public DOMMessageHandler,
   // Init work after Attach.
   void Init();
 
-  // DOMMessageHandler implementation.
-  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+  // WebUIMessageHandler implementation.
+  virtual WebUIMessageHandler* Attach(WebUI* web_ui);
   virtual void RegisterMessages();
 
  private:
-  // Handlers for JS DOMUI messages.
+  // Handlers for JS WebUI messages.
   void HandleGetRegistrationUrl(const ListValue* args);
   void HandleGetUserInfo(const ListValue* args);
 
@@ -200,8 +201,8 @@ RegisterPageHandler::RegisterPageHandler() {
 RegisterPageHandler::~RegisterPageHandler() {
 }
 
-DOMMessageHandler* RegisterPageHandler::Attach(DOMUI* dom_ui) {
-  return DOMMessageHandler::Attach(dom_ui);
+WebUIMessageHandler* RegisterPageHandler::Attach(WebUI* web_ui) {
+  return WebUIMessageHandler::Attach(web_ui);
 }
 
 void RegisterPageHandler::Init() {
@@ -209,9 +210,9 @@ void RegisterPageHandler::Init() {
 
 void RegisterPageHandler::RegisterMessages() {
 #if defined(OS_CHROMEOS)
-  dom_ui_->RegisterMessageCallback(kJsCallbackGetRegistrationUrl,
+  web_ui_->RegisterMessageCallback(kJsCallbackGetRegistrationUrl,
       NewCallback(this, &RegisterPageHandler::HandleGetRegistrationUrl));
-  dom_ui_->RegisterMessageCallback(kJsCallbackUserInfo,
+  web_ui_->RegisterMessageCallback(kJsCallbackUserInfo,
       NewCallback(this, &RegisterPageHandler::HandleGetUserInfo));
 #endif
 }
@@ -229,7 +230,7 @@ void RegisterPageHandler::HandleGetRegistrationUrl(const ListValue* args) {
       return;
     }
     StringValue url_value(url);
-    dom_ui_->CallJavascriptFunction(kJsApiSetRegistrationUrl, url_value);
+    web_ui_->CallJavascriptFunction(kJsApiSetRegistrationUrl, url_value);
   } else {
     SkipRegistration("Startup manifest not defined.");
   }
@@ -264,7 +265,7 @@ void RegisterPageHandler::SkipRegistration(const std::string& error_msg) {
   if (WizardController::default_controller())
     WizardController::default_controller()->SkipRegistration();
   else
-    dom_ui_->CallJavascriptFunction(kJsApiSkipRegistration);
+    web_ui_->CallJavascriptFunction(kJsApiSkipRegistration);
 #endif
 }
 
@@ -306,7 +307,7 @@ void RegisterPageHandler::SendUserInfo() {
   value.SetString("user_first_name", "");
   value.SetString("user_last_name", "");
 
-  dom_ui_->CallJavascriptFunction(kJsApiSetUserInfo, value);
+  web_ui_->CallJavascriptFunction(kJsApiSetUserInfo, value);
 #endif
 }
 
@@ -316,17 +317,12 @@ void RegisterPageHandler::SendUserInfo() {
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-RegisterPageUI::RegisterPageUI(TabContents* contents) : DOMUI(contents){
+RegisterPageUI::RegisterPageUI(TabContents* contents) : WebUI(contents){
   RegisterPageHandler* handler = new RegisterPageHandler();
   AddMessageHandler((handler)->Attach(this));
   handler->Init();
   RegisterPageUIHTMLSource* html_source = new RegisterPageUIHTMLSource();
 
   // Set up the chrome://register/ source.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(
-          ChromeURLDataManager::GetInstance(),
-          &ChromeURLDataManager::AddDataSource,
-          make_scoped_refptr(html_source)));
+  contents->profile()->GetChromeURLDataManager()->AddDataSource(html_source);
 }

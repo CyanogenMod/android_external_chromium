@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_observer_mock.h"
-#include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
@@ -65,7 +64,7 @@ TEST_F(HostZoomMapTest, LoadNoPrefs) {
 TEST_F(HostZoomMapTest, Load) {
   DictionaryValue* dict =
       prefs_->GetMutableDictionary(prefs::kPerHostZoomLevels);
-  dict->SetWithoutPathExpansion(host_, Value::CreateRealValue(kZoomLevel));
+  dict->SetWithoutPathExpansion(host_, Value::CreateDoubleValue(kZoomLevel));
   scoped_refptr<HostZoomMap> map(new HostZoomMap(&profile_));
   EXPECT_EQ(kZoomLevel, map->GetZoomLevel(url_));
 }
@@ -81,7 +80,7 @@ TEST_F(HostZoomMapTest, SetZoomLevel) {
   const DictionaryValue* dict =
       prefs_->GetDictionary(prefs::kPerHostZoomLevels);
   double zoom_level = 0;
-  EXPECT_TRUE(dict->GetRealWithoutPathExpansion(host_, &zoom_level));
+  EXPECT_TRUE(dict->GetDoubleWithoutPathExpansion(host_, &zoom_level));
   EXPECT_EQ(kZoomLevel, zoom_level);
 
   SetPrefObserverExpectation();
@@ -100,7 +99,9 @@ TEST_F(HostZoomMapTest, ResetToDefaults) {
   SetPrefObserverExpectation();
   map->ResetToDefaults();
   EXPECT_EQ(0, map->GetZoomLevel(url_));
-  EXPECT_EQ(NULL, prefs_->GetDictionary(prefs::kPerHostZoomLevels));
+  DictionaryValue empty;
+  EXPECT_TRUE(
+      Value::Equals(&empty, prefs_->GetDictionary(prefs::kPerHostZoomLevels)));
 }
 
 TEST_F(HostZoomMapTest, ReloadOnPrefChange) {
@@ -108,7 +109,7 @@ TEST_F(HostZoomMapTest, ReloadOnPrefChange) {
   map->SetZoomLevel(url_, kZoomLevel);
 
   DictionaryValue dict;
-  dict.SetWithoutPathExpansion(host_, Value::CreateRealValue(0));
+  dict.SetWithoutPathExpansion(host_, Value::CreateDoubleValue(0));
   prefs_->Set(prefs::kPerHostZoomLevels, dict);
   EXPECT_EQ(0, map->GetZoomLevel(url_));
 }

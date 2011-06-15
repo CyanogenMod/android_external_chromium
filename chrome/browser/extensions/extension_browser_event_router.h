@@ -10,7 +10,6 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/singleton.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
 #include "chrome/browser/tabs/tab_strip_model_observer.h"
@@ -19,7 +18,7 @@
 #include "views/view.h"
 #include "views/focus/focus_manager.h"
 #elif defined(TOOLKIT_GTK)
-#include "app/active_window_watcher_x.h"
+#include "ui/base/x/active_window_watcher_x.h"
 #endif
 
 // The ExtensionBrowserEventRouter listens to Browser window & tab events
@@ -31,16 +30,16 @@ class ExtensionBrowserEventRouter : public TabStripModelObserver,
 #if defined(TOOLKIT_VIEWS)
                                     public views::WidgetFocusChangeListener,
 #elif defined(TOOLKIT_GTK)
-                                    public ActiveWindowWatcherX::Observer,
+                                    public ui::ActiveWindowWatcherX::Observer,
 #endif
                                     public BrowserList::Observer,
                                     public NotificationObserver {
  public:
-  // Get Browser-Global instance.
-  static ExtensionBrowserEventRouter* GetInstance();
+  explicit ExtensionBrowserEventRouter(Profile* profile);
+  ~ExtensionBrowserEventRouter();
 
   // Must be called once. Subsequent calls have no effect.
-  void Init(Profile* profile);
+  void Init();
 
   // BrowserList::Observer
   virtual void OnBrowserAdded(const Browser* browser);
@@ -73,7 +72,8 @@ class ExtensionBrowserEventRouter : public TabStripModelObserver,
                         int to_index);
   virtual void TabChangedAt(TabContentsWrapper* contents, int index,
                             TabChangeType change_type);
-  virtual void TabReplacedAt(TabContentsWrapper* old_contents,
+  virtual void TabReplacedAt(TabStripModel* tab_strip_model,
+                             TabContentsWrapper* old_contents,
                              TabContentsWrapper* new_contents,
                              int index);
   virtual void TabPinnedStateChanged(TabContentsWrapper* contents, int index);
@@ -128,10 +128,6 @@ class ExtensionBrowserEventRouter : public TabStripModelObserver,
 
   // Removes notifications added in RegisterForTabNotifications.
   void UnregisterForTabNotifications(TabContents* contents);
-
-  ExtensionBrowserEventRouter();
-  ~ExtensionBrowserEventRouter();
-  friend struct DefaultSingletonTraits<ExtensionBrowserEventRouter>;
 
   NotificationRegistrar registrar_;
 

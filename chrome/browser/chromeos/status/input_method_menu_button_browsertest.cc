@@ -38,8 +38,8 @@ IN_PROC_BROWSER_TEST_F(InputMethodMenuButtonTest, InitialIndicatorTest) {
   InputMethodMenuButton* input_method = GetInputMethodMenuButton();
   ASSERT_TRUE(input_method != NULL);
 
-  // Since the default input method is "xkb:us::eng", "US" should be set for the
-  // indicator.
+  // By default, show the indicator of the hardware keyboard, which is set
+  // to US for tests.
   std::wstring indicator = input_method->text();
   EXPECT_EQ(L"US", indicator);
 }

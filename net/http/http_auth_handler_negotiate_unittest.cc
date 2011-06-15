@@ -10,6 +10,7 @@
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
 #include "net/http/http_request_info.h"
+#include "net/http/mock_allow_url_security_manager.h"
 #if defined(OS_WIN)
 #include "net/http/mock_sspi_library_win.h"
 #elif defined(OS_POSIX)
@@ -36,7 +37,7 @@ class HttpAuthHandlerNegotiateTest : public PlatformTest {
     resolver_->rules()->AddIPLiteralRule("alias", "10.0.0.2",
                                            "canonical.example.com");
 
-    url_security_manager_.reset(new URLSecurityManagerAllow());
+    url_security_manager_.reset(new MockAllowURLSecurityManager());
     factory_.reset(new HttpAuthHandlerNegotiate::Factory());
     factory_->set_url_security_manager(url_security_manager_.get());
     factory_->set_library(auth_library_);
@@ -115,23 +116,20 @@ class HttpAuthHandlerNegotiateTest : public PlatformTest {
         1,                              // Locally initiated
         1);                             // Open
     test::MockGSSAPILibrary::SecurityContextQuery queries[] = {
-      { "Negotiate",                    // Package name
+    test::MockGSSAPILibrary::SecurityContextQuery(
+        "Negotiate",                    // Package name
         GSS_S_CONTINUE_NEEDED,          // Major response code
         0,                              // Minor response code
         context1,                       // Context
-        { 0, NULL },                           // Expected input token
-        { arraysize(kAuthResponse),
-          const_cast<char*>(kAuthResponse) }   // Output token
-      },
-      { "Negotiate",                    // Package name
+        NULL,                           // Expected input token
+        kAuthResponse),                 // Output token
+    test::MockGSSAPILibrary::SecurityContextQuery(
+        "Negotiate",                    // Package name
         GSS_S_COMPLETE,                 // Major response code
         0,                              // Minor response code
         context2,                       // Context
-        { arraysize(kAuthResponse),
-          const_cast<char*>(kAuthResponse) },  // Expected input token
-        { arraysize(kAuthResponse),
-          const_cast<char*>(kAuthResponse) }   // Output token
-      },
+        kAuthResponse,                  // Expected input token
+        kAuthResponse)                  // Output token
     };
 
     for (size_t i = 0; i < arraysize(queries); ++i) {
@@ -158,14 +156,13 @@ class HttpAuthHandlerNegotiateTest : public PlatformTest {
         0,                              // Context flags
         1,                              // Locally initiated
         0);                             // Open
-    test::MockGSSAPILibrary::SecurityContextQuery query = {
-      "Negotiate",                    // Package name
-      major_status,                   // Major response code
-      minor_status,                   // Minor response code
-      context,                        // Context
-      { 0, NULL },                    // Expected input token
-      { 0, NULL }                     // Output token
-    };
+    test::MockGSSAPILibrary::SecurityContextQuery query(
+        "Negotiate",                    // Package name
+        major_status,                   // Major response code
+        minor_status,                   // Minor response code
+        context,                        // Context
+        NULL,                           // Expected input token
+        NULL);                          // Output token
 
     mock_library->ExpectSecurityContext(query.expected_package,
                                         query.response_code,

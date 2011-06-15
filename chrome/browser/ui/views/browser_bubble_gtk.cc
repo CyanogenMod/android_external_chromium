@@ -1,12 +1,12 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/browser_bubble.h"
+#include "chrome/browser/ui/views/browser_bubble.h"
 
 #include <vector>
 
-#include "chrome/browser/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
 #include "views/widget/widget_gtk.h"
 #include "views/window/window.h"
 
@@ -84,9 +84,6 @@ class BubbleWidget : public views::WidgetGtk {
 
 void BrowserBubble::InitPopup() {
   // TODO(port)
-  DCHECK(!drop_shadow_enabled_) <<
-    "Drop shadows not supported on GTK browser bubbles.";
-
   views::WidgetGtk* pop = new BubbleWidget(this);
   pop->SetOpacity(0xFF);
   pop->make_transient_to_parent();

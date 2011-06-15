@@ -12,8 +12,8 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/lock.h"
 #include "base/ref_counted.h"
+#include "base/synchronization/lock.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/glue/model_associator.h"
@@ -92,9 +92,6 @@ class AutofillProfileModelAssociator
   // |sync_id| with that node's id. No current use. To Implement
   // only for completeness.
   virtual bool GetSyncIdForTaggedNode(const std::string& tag, int64* sync_id);
-
-  // Returns sync service instance.
-  ProfileSyncService* sync_service() { return sync_service_; }
 
   static bool OverwriteProfileWithServerData(
       AutoFillProfile* merge_into,
@@ -175,7 +172,7 @@ class AutofillProfileModelAssociator
   // Abort association pending flag and lock.  If this is set to true
   // (via the AbortAssociation method), return from the
   // AssociateModels method as soon as possible.
-  Lock abort_association_pending_lock_;
+  base::Lock abort_association_pending_lock_;
   bool abort_association_pending_;
 
   int number_of_profiles_created_;
@@ -184,11 +181,13 @@ class AutofillProfileModelAssociator
 };
 
 struct AutofillProfileModelAssociator::DataBundle {
+  DataBundle();
+  ~DataBundle();
+
   std::set<std::string> current_profiles;
   std::vector<std::string> profiles_to_delete;
   std::vector<AutoFillProfile*> updated_profiles;
   std::vector<AutoFillProfile*> new_profiles;  // We own these pointers.
-  ~DataBundle() { STLDeleteElements(&new_profiles); }
 };
 
 }  // namespace browser_sync

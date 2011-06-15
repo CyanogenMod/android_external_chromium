@@ -12,7 +12,7 @@
 #include "chrome/browser/userfeedback/proto/common.pb.h"
 #include "chrome/browser/userfeedback/proto/extension.pb.h"
 #include "chrome/browser/userfeedback/proto/math.pb.h"
-#include "gfx/rect.h"
+#include "ui/gfx/rect.h"
 
 #if defined(OS_MACOSX)
 #include "base/sys_info.h"
@@ -64,7 +64,6 @@ class BugReportUtil {
 
   // Generates bug report data.
   static void SendReport(Profile* profile,
-      const std::string& page_title_text,
       int problem_type,
       const std::string& page_url_text,
       const std::string& description,

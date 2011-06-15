@@ -45,6 +45,9 @@ class PrefMemberBase : public NotificationObserver {
             NotificationObserver* observer);
 
   // See PrefMember<> for description.
+  void Destroy();
+
+  // See PrefMember<> for description.
   bool IsManaged() const;
 
   // NotificationObserver
@@ -90,6 +93,12 @@ class PrefMember : public subtle::PrefMemberBase {
   void Init(const char* pref_name, PrefService* prefs,
             NotificationObserver* observer) {
     subtle::PrefMemberBase::Init(pref_name, prefs, observer);
+  }
+
+  // Unsubscribes the PrefMember from the PrefService. After calling this
+  // function, the PrefMember may not be used any more.
+  void Destroy() {
+    subtle::PrefMemberBase::Destroy();
   }
 
   // Check whether the pref is managed, i.e. controlled externally through
@@ -169,17 +178,17 @@ class IntegerPrefMember : public PrefMember<int> {
   DISALLOW_COPY_AND_ASSIGN(IntegerPrefMember);
 };
 
-class RealPrefMember : public PrefMember<double> {
+class DoublePrefMember : public PrefMember<double> {
  public:
-  RealPrefMember();
-  virtual ~RealPrefMember();
+  DoublePrefMember();
+  virtual ~DoublePrefMember();
 
  protected:
   virtual void UpdateValueFromPref() const;
   virtual void UpdatePref(const double& value);
 
  private:
-  DISALLOW_COPY_AND_ASSIGN(RealPrefMember);
+  DISALLOW_COPY_AND_ASSIGN(DoublePrefMember);
 };
 
 class StringPrefMember : public PrefMember<std::string> {

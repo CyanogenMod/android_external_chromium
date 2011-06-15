@@ -5,8 +5,8 @@
 #include "webkit/glue/image_resource_fetcher.h"
 
 #include "base/callback.h"
-#include "gfx/size.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebFrame.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebFrame.h"
+#include "ui/gfx/size.h"
 #include "webkit/glue/image_decoder.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
@@ -47,8 +47,12 @@ void ImageResourceFetcher::OnURLFetchComplete(
     // If we get here, it means no image from server or couldn't decode the
     // response as an image. The delegate will see a null image, indicating
     // that an error occurred.
-  callback_->Run(this, bitmap);
-  callback_.reset();
+
+  // Take care to clear callback_ before running the callback as it may lead to
+  // our destruction.
+  scoped_ptr<Callback> callback;
+  callback.swap(callback_);
+  callback->Run(this, bitmap);
 }
 
 }  // namespace webkit_glue

@@ -1,20 +1,20 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/login_view.h"
+#include "chrome/browser/ui/views/login_view.h"
 
 #include <string>
 
-#include "app/l10n_util.h"
 #include "base/compiler_specific.h"
 #include "base/message_loop.h"
 #include "base/utf_string_conversions.h"
 #include "grit/generated_resources.h"
-#include "views/grid_layout.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "views/controls/label.h"
 #include "views/controls/textfield/textfield.h"
-#include "views/standard_layout.h"
+#include "views/layout/grid_layout.h"
+#include "views/layout/layout_constants.h"
 #include "views/widget/root_view.h"
 
 static const int kMessageWidth = 320;
@@ -43,7 +43,7 @@ LoginView::LoginView(const std::wstring& explanation,
   message_label_->SetAllowCharacterBreak(true);
 
   // Initialize the Grid Layout Manager used for this dialog box.
-  GridLayout* layout = CreatePanelGridLayout(this);
+  GridLayout* layout = GridLayout::CreatePanel(this);
   SetLayoutManager(layout);
 
   // Add the column set for the information message at the top of the dialog
@@ -60,7 +60,7 @@ LoginView::LoginView(const std::wstring& explanation,
   column_set->AddPaddingColumn(0, kTextfieldStackHorizontalSpacing);
   column_set->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 1,
                         GridLayout::USE_PREF, 0, 0);
   column_set->AddPaddingColumn(0, kTextfieldStackHorizontalSpacing);
@@ -68,19 +68,19 @@ LoginView::LoginView(const std::wstring& explanation,
   layout->StartRow(0, single_column_view_set_id);
   layout->AddView(message_label_);
 
-  layout->AddPaddingRow(0, kUnrelatedControlLargeVerticalSpacing);
+  layout->AddPaddingRow(0, views::kUnrelatedControlLargeVerticalSpacing);
 
   layout->StartRow(0, labels_column_set_id);
   layout->AddView(username_label_);
   layout->AddView(username_field_);
 
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
 
   layout->StartRow(0, labels_column_set_id);
   layout->AddView(password_label_);
   layout->AddView(password_field_);
 
-  layout->AddPaddingRow(0, kUnrelatedControlVerticalSpacing);
+  layout->AddPaddingRow(0, views::kUnrelatedControlVerticalSpacing);
 }
 
 LoginView::~LoginView() {

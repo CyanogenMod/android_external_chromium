@@ -1,9 +1,10 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/chromeos/login/screen_locker.h"
 
+#include <gdk/gdkkeysyms.h>
 #include <gdk/gdkx.h>
 #include <string>
 #include <vector>
@@ -12,9 +13,6 @@
 // Evil hack to undo X11 evil #define. See crosbug.com/
 #undef Status
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
-#include "app/x11_util.h"
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
 #include "base/metrics/histogram.h"
@@ -29,6 +27,7 @@
 #include "chrome/browser/chromeos/cros/keyboard_library.h"
 #include "chrome/browser/chromeos/cros/login_library.h"
 #include "chrome/browser/chromeos/cros/screen_lock_library.h"
+#include "chrome/browser/chromeos/input_method/input_method_util.h"
 #include "chrome/browser/chromeos/language_preferences.h"
 #include "chrome/browser/chromeos/login/authenticator.h"
 #include "chrome/browser/chromeos/login/background_view.h"
@@ -39,6 +38,7 @@
 #include "chrome/browser/chromeos/login/shutdown_button.h"
 #include "chrome/browser/chromeos/system_key_event_listener.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
+#include "chrome/browser/chromeos/view_ids.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/sync/profile_sync_service.h"
@@ -49,6 +49,9 @@
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "third_party/cros/chromeos_wm_ipc_enums.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/x/x11_util.h"
 #include "views/screen.h"
 #include "views/widget/root_view.h"
 #include "views/widget/widget_gtk.h"
@@ -57,7 +60,11 @@ namespace {
 
 // The maximum duration for which locker should try to grab the keyboard and
 // mouse and its interval for regrabbing on failure.
-const int kMaxGrabFailureSec = 30;
+// This was originally 30 seconds, but is temporarily increaed to 10 min
+// so that a user can report the situation when locker does not kick in.
+// This should be revereted before we moved out from pilot program and it's
+// tracked in crosbug.com/9938.
+const int kMaxGrabFailureSec = 600;
 const int64 kRetryGrabIntervalMs = 500;
 
 // Maximum number of times we'll try to grab the keyboard and mouse before
@@ -116,18 +123,16 @@ class ScreenLockObserver : public chromeos::ScreenLockLibrary::Observer,
         // The LockScreen function is also called when the OS is suspended, and
         // in that case |saved_active_input_method_list_| might be non-empty.
         saved_active_input_method_list_.empty()) {
-      chromeos::InputMethodLibrary* language =
+      chromeos::InputMethodLibrary* library =
           chromeos::CrosLibrary::Get()->GetInputMethodLibrary();
-      chromeos::KeyboardLibrary* keyboard =
-          chromeos::CrosLibrary::Get()->GetKeyboardLibrary();
 
-      saved_previous_input_method_id_ = language->previous_input_method().id;
-      saved_current_input_method_id_ = language->current_input_method().id;
+      saved_previous_input_method_id_ = library->previous_input_method().id;
+      saved_current_input_method_id_ = library->current_input_method().id;
       scoped_ptr<chromeos::InputMethodDescriptors> active_input_method_list(
-          language->GetActiveInputMethods());
+          library->GetActiveInputMethods());
 
-      const std::string hardware_keyboard =
-          keyboard->GetHardwareKeyboardLayoutName();  // e.g. "xkb:us::eng"
+      const std::string hardware_keyboard_id =
+          chromeos::input_method::GetHardwareInputMethodId();
       // We'll add the hardware keyboard if it's not included in
       // |active_input_method_list| so that the user can always use the hardware
       // keyboard on the screen locker.
@@ -143,17 +148,17 @@ class ScreenLockObserver : public chromeos::ScreenLockLibrary::Observer,
         if (!StartsWithASCII(input_method_id, kValidInputMethodPrefix, true))
           continue;
         value.string_list_value.push_back(input_method_id);
-        if (input_method_id == hardware_keyboard) {
+        if (input_method_id == hardware_keyboard_id) {
           should_add_hardware_keyboard = false;
         }
       }
       if (should_add_hardware_keyboard) {
-        value.string_list_value.push_back(hardware_keyboard);
+        value.string_list_value.push_back(hardware_keyboard_id);
       }
       // We don't want to shut down the IME, even if the hardware layout is the
       // only IME left.
-      language->SetEnableAutoImeShutdown(false);
-      language->SetImeConfig(
+      library->SetEnableAutoImeShutdown(false);
+      library->SetImeConfig(
           chromeos::language_prefs::kGeneralSectionName,
           chromeos::language_prefs::kPreloadEnginesConfigName,
           value);
@@ -163,22 +168,22 @@ class ScreenLockObserver : public chromeos::ScreenLockLibrary::Observer,
   void RestoreInputMethods() {
     if (chromeos::CrosLibrary::Get()->EnsureLoaded() &&
         !saved_active_input_method_list_.empty()) {
-      chromeos::InputMethodLibrary* language =
+      chromeos::InputMethodLibrary* library =
           chromeos::CrosLibrary::Get()->GetInputMethodLibrary();
 
       chromeos::ImeConfigValue value;
       value.type = chromeos::ImeConfigValue::kValueTypeStringList;
       value.string_list_value = saved_active_input_method_list_;
-      language->SetEnableAutoImeShutdown(true);
-      language->SetImeConfig(
+      library->SetEnableAutoImeShutdown(true);
+      library->SetImeConfig(
           chromeos::language_prefs::kGeneralSectionName,
           chromeos::language_prefs::kPreloadEnginesConfigName,
           value);
       // Send previous input method id first so Ctrl+space would work fine.
       if (!saved_previous_input_method_id_.empty())
-        language->ChangeInputMethod(saved_previous_input_method_id_);
+        library->ChangeInputMethod(saved_previous_input_method_id_);
       if (!saved_current_input_method_id_.empty())
-        language->ChangeInputMethod(saved_current_input_method_id_);
+        library->ChangeInputMethod(saved_current_input_method_id_);
 
       saved_previous_input_method_id_.clear();
       saved_current_input_method_id_.clear();
@@ -209,12 +214,7 @@ class LockWindow : public views::WidgetGtk {
 
   // GTK propagates key events from parents to children.
   // Make sure LockWindow will never handle key events.
-  virtual gboolean OnKeyPress(GtkWidget* widget, GdkEventKey* event) {
-    // Don't handle key event in the lock window.
-    return false;
-  }
-
-  virtual gboolean OnKeyRelease(GtkWidget* widget, GdkEventKey* event) {
+  virtual gboolean OnKeyEvent(GtkWidget* widget, GdkEventKey* event) {
     // Don't handle key event in the lock window.
     return false;
   }
@@ -275,7 +275,7 @@ class GrabWidgetRootView
     }
     screen_lock_view_ =  screen_lock_view;
     if (screen_lock_view_) {
-      AddChildView(0, screen_lock_view_);
+      AddChildViewAt(screen_lock_view_, 0);
     }
     Layout();
   }
@@ -297,11 +297,17 @@ class GrabWidget : public views::WidgetGtk {
         ALLOW_THIS_IN_INITIALIZER_LIST(task_factory_(this)),
         grab_failure_count_(0),
         kbd_grab_status_(GDK_GRAB_INVALID_TIME),
-        mouse_grab_status_(GDK_GRAB_INVALID_TIME) {
+        mouse_grab_status_(GDK_GRAB_INVALID_TIME),
+        signout_link_(NULL),
+        shutdown_(NULL) {
   }
 
   virtual void Show() {
     views::WidgetGtk::Show();
+    signout_link_ =
+        screen_locker_->GetViewByID(VIEW_ID_SCREEN_LOCKER_SIGNOUT_LINK);
+    shutdown_ = screen_locker_->GetViewByID(VIEW_ID_SCREEN_LOCKER_SHUTDOWN);
+    // These can be null in guest mode.
   }
 
   void ClearGtkGrab() {
@@ -317,6 +323,30 @@ class GrabWidget : public views::WidgetGtk {
     // until it's empty.
     while ((current_grab_window = gtk_grab_get_current()) != NULL)
       gtk_grab_remove(current_grab_window);
+  }
+
+  virtual gboolean OnKeyEvent(GtkWidget* widget, GdkEventKey* event) {
+    views::KeyEvent key_event(reinterpret_cast<GdkEvent*>(event));
+    // This is a hack to workaround the issue crosbug.com/10655 due to
+    // the limitation that a focus manager cannot handle views in
+    // TYPE_CHILD WidgetGtk correctly.
+    if (signout_link_ &&
+        event->type == GDK_KEY_PRESS &&
+        (event->keyval == GDK_Tab ||
+         event->keyval == GDK_ISO_Left_Tab ||
+         event->keyval == GDK_KP_Tab)) {
+      DCHECK(shutdown_);
+      bool reverse = event->state & GDK_SHIFT_MASK;
+      if (reverse && signout_link_->HasFocus()) {
+        shutdown_->RequestFocus();
+        return true;
+      }
+      if (!reverse && shutdown_->HasFocus()) {
+        signout_link_->RequestFocus();
+        return true;
+      }
+    }
+    return views::WidgetGtk::OnKeyEvent(widget, event);
   }
 
   virtual gboolean OnButtonPress(GtkWidget* widget, GdkEventButton* event) {
@@ -353,6 +383,9 @@ class GrabWidget : public views::WidgetGtk {
   // Status of keyboard and mouse grab.
   GdkGrabStatus kbd_grab_status_;
   GdkGrabStatus mouse_grab_status_;
+
+  views::View* signout_link_;
+  views::View* shutdown_;
 
   DISALLOW_COPY_AND_ASSIGN(GrabWidget);
 };
@@ -405,7 +438,7 @@ void GrabWidget::TryUngrabOtherClients() {
     int event_base, error_base;
     int major, minor;
     // Make sure we have XTest extension.
-    DCHECK(XTestQueryExtension(x11_util::GetXDisplay(),
+    DCHECK(XTestQueryExtension(ui::GetXDisplay(),
                                &event_base, &error_base,
                                &major, &minor));
   }
@@ -419,12 +452,12 @@ void GrabWidget::TryUngrabOtherClients() {
     // Successfully grabbed the keyboard, but pointer is still
     // grabbed by other client. Another attempt to close supposedly
     // opened menu by emulating keypress at the left top corner.
-    Display* display = x11_util::GetXDisplay();
+    Display* display = ui::GetXDisplay();
     Window root, child;
     int root_x, root_y, win_x, winy;
     unsigned int mask;
     XQueryPointer(display,
-                  x11_util::GetX11WindowFromGtkWidget(window_contents()),
+                  ui::GetX11WindowFromGtkWidget(window_contents()),
                   &root, &child, &root_x, &root_y,
                   &win_x, &winy, &mask);
     XTestFakeMotionEvent(display, -1, -10000, -10000, CurrentTime);
@@ -439,7 +472,7 @@ void GrabWidget::TryUngrabOtherClients() {
     // by other client. Another attempt to close supposedly opened
     // menu by emulating escape key.  Such situation must be very
     // rare, but handling this just in case
-    Display* display = x11_util::GetXDisplay();
+    Display* display = ui::GetXDisplay();
     KeyCode escape = XKeysymToKeycode(display, XK_Escape);
     XTestFakeKeyEvent(display, escape, True, CurrentTime);
     XTestFakeKeyEvent(display, escape, False, CurrentTime);
@@ -459,8 +492,8 @@ class ScreenLockerBackgroundView
         screen_lock_view_(screen_lock_view) {
   }
 
-  virtual bool IsScreenLockerMode() const {
-    return true;
+  virtual ScreenMode GetScreenMode() const {
+    return kScreenLockerMode;
   }
 
   virtual void Layout() {
@@ -792,7 +825,7 @@ void ScreenLocker::OnLoginSuccess(
     ProfileSyncService* service = profile->GetProfileSyncService(username);
     if (service && !service->HasSyncSetupCompleted()) {
       // If sync has failed somehow, try setting the sync passphrase here.
-      service->SetPassphrase(password, false);
+      service->SetPassphrase(password, false, true);
     }
   }
 
@@ -924,6 +957,10 @@ void ScreenLocker::OnGrabInputs() {
     ScreenLockReady();
 }
 
+views::View* ScreenLocker::GetViewByID(int id) {
+  return lock_widget_->GetRootView()->GetViewByID(id);
+}
+
 // static
 void ScreenLocker::Show() {
   VLOG(1) << "In ScreenLocker::Show";
@@ -994,7 +1031,7 @@ ScreenLocker::~ScreenLocker() {
     MessageLoopForUI::current()->RemoveObserver(input_event_observer_.get());
   if (locker_input_event_observer_.get()) {
     lock_widget_->GetFocusManager()->UnregisterAccelerator(
-        views::Accelerator(app::VKEY_ESCAPE, false, false, false), this);
+        views::Accelerator(ui::VKEY_ESCAPE, false, false, false), this);
     MessageLoopForUI::current()->RemoveObserver(
         locker_input_event_observer_.get());
   }
@@ -1029,7 +1066,7 @@ void ScreenLocker::ScreenLockReady() {
 
   if (background_view_->ScreenSaverEnabled()) {
     lock_widget_->GetFocusManager()->RegisterAccelerator(
-        views::Accelerator(app::VKEY_ESCAPE, false, false, false), this);
+        views::Accelerator(ui::VKEY_ESCAPE, false, false, false), this);
     locker_input_event_observer_.reset(new LockerInputEventObserver(this));
     MessageLoopForUI::current()->AddObserver(
         locker_input_event_observer_.get());

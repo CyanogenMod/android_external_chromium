@@ -1,14 +1,14 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/chromeos/dom_ui/language_pinyin_options_handler.h"
 
-#include "app/l10n_util.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/dom_ui/language_options_util.h"
 #include "chrome/browser/chromeos/language_preferences.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 const char kI18nPrefix[] = "Pinyin";
@@ -25,7 +25,10 @@ LanguagePinyinOptionsHandler::~LanguagePinyinOptionsHandler() {
 void LanguagePinyinOptionsHandler::GetLocalizedValues(
     DictionaryValue* localized_strings) {
   DCHECK(localized_strings);
-  // Language Pinyin page - ChromeOS
+
+  RegisterTitle(localized_strings, "languagePinyinPage",
+                IDS_OPTIONS_SETTINGS_LANGUAGES_PINYIN_SETTINGS_TITLE);
+
   for (size_t i = 0; i < language_prefs::kNumPinyinBooleanPrefs; ++i) {
     localized_strings->SetString(
         GetI18nContentValue(language_prefs::kPinyinBooleanPrefs[i],

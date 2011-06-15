@@ -4,7 +4,6 @@
 
 #include "chrome/browser/download/download_item.h"
 
-#include "app/l10n_util.h"
 #include "base/basictypes.h"
 #include "base/file_util.h"
 #include "base/format_macros.h"
@@ -26,6 +25,24 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/pref_names.h"
+#include "ui/base/l10n/l10n_util.h"
+
+// A DownloadItem normally goes through the following states:
+//      * Created (when download starts)
+//      * Made visible to consumers (e.g. Javascript) after the
+//        destination file has been determined.
+//      * Entered into the history database.
+//      * Made visible in the download shelf.
+//      * All data is received.  Note that the actual data download occurs
+//        in parallel with the above steps, but until those steps are
+//        complete, completion of the data download will be ignored.
+//      * Download file is renamed to its final name, and possibly
+//        auto-opened.
+// TODO(rdsmith): This progress should be reflected in
+// DownloadItem::DownloadState and a state transition table/state diagram.
+//
+// TODO(rdsmith): This description should be updated to reflect the cancel
+// pathways.
 
 namespace {
 
@@ -79,6 +96,7 @@ DownloadItem::DownloadItem(DownloadManager* download_manager,
       full_path_(info.path),
       path_uniquifier_(0),
       url_(info.url),
+      original_url_(info.original_url),
       referrer_url_(info.referrer_url),
       mime_type_(info.mime_type),
       original_mime_type_(info.original_mime_type),
@@ -101,9 +119,12 @@ DownloadItem::DownloadItem(DownloadManager* download_manager,
       is_extension_install_(info.is_extension_install),
       name_finalized_(false),
       is_temporary_(false),
+      all_data_saved_(false),
       opened_(false) {
   if (state_ == IN_PROGRESS)
     state_ = CANCELLED;
+  if (state_ == COMPLETE)
+    all_data_saved_ = true;
   Init(false /* don't start progress timer */);
 }
 
@@ -115,6 +136,7 @@ DownloadItem::DownloadItem(DownloadManager* download_manager,
       full_path_(info.path),
       path_uniquifier_(info.path_uniquifier),
       url_(info.url),
+      original_url_(info.original_url),
       referrer_url_(info.referrer_url),
       mime_type_(info.mime_type),
       original_mime_type_(info.original_mime_type),
@@ -137,6 +159,7 @@ DownloadItem::DownloadItem(DownloadManager* download_manager,
       is_extension_install_(info.is_extension_install),
       name_finalized_(false),
       is_temporary_(!info.save_info.file_path.empty()),
+      all_data_saved_(false),
       opened_(false) {
   Init(true /* start progress timer */);
 }
@@ -150,6 +173,7 @@ DownloadItem::DownloadItem(DownloadManager* download_manager,
       full_path_(path),
       path_uniquifier_(0),
       url_(url),
+      original_url_(url),
       referrer_url_(GURL()),
       mime_type_(std::string()),
       original_mime_type_(std::string()),
@@ -171,6 +195,7 @@ DownloadItem::DownloadItem(DownloadManager* download_manager,
       is_extension_install_(false),
       name_finalized_(false),
       is_temporary_(false),
+      all_data_saved_(false),
       opened_(false) {
   Init(true /* start progress timer */);
 }
@@ -296,8 +321,14 @@ void DownloadItem::Cancel(bool update_history) {
     download_manager_->DownloadCancelled(id_);
 }
 
-void DownloadItem::OnAllDataSaved(int64 size) {
+void DownloadItem::MarkAsComplete() {
+  DCHECK(all_data_saved_);
   state_ = COMPLETE;
+}
+
+void DownloadItem::OnAllDataSaved(int64 size) {
+  DCHECK(!all_data_saved_);
+  all_data_saved_ = true;
   UpdateSize(size);
   StopProgressTimer();
 }
@@ -321,7 +352,7 @@ void DownloadItem::Finished() {
     auto_opened_ = true;
   }
 
-  // Notify our observers that we are complete (the call to OnAllDataSaved()
+  // Notify our observers that we are complete (the call to MarkAsComplete()
   // set the state to complete but did not notify).
   UpdateObservers();
 
@@ -329,8 +360,10 @@ void DownloadItem::Finished() {
   // finalized and the file data is downloaded. The ordering of these two
   // actions is indeterministic. Thus, if the filename is not finalized yet,
   // delay the notification.
-  if (name_finalized())
+  if (name_finalized()) {
     NotifyObserversDownloadFileCompleted();
+    download_manager_->RemoveFromActiveList(id());
+  }
 }
 
 void DownloadItem::Remove(bool delete_on_disk) {
@@ -395,8 +428,10 @@ void DownloadItem::OnNameFinalized() {
   // finalized and the file data is downloaded. The ordering of these two
   // actions is indeterministic. Thus, if we are still in downloading the
   // file, delay the notification.
-  if (state() == DownloadItem::COMPLETE)
+  if (state() == DownloadItem::COMPLETE) {
     NotifyObserversDownloadFileCompleted();
+    download_manager_->RemoveFromActiveList(id());
+  }
 }
 
 void DownloadItem::OnSafeDownloadFinished(DownloadFileManager* file_manager) {
@@ -451,8 +486,12 @@ bool DownloadItem::MatchesQuery(const string16& query) const {
   if (url_formatted.find(query) != string16::npos)
     return true;
 
-  string16 path(l10n_util::ToLower(WideToUTF16(full_path().ToWStringHack())));
-  if (path.find(query) != std::wstring::npos)
+  string16 path(l10n_util::ToLower(full_path().LossyDisplayName()));
+  // This shouldn't just do a substring match; it is wrong for Unicode
+  // due to normalization and we have a fancier search-query system
+  // used elsewhere.
+  // http://code.google.com/p/chromium/issues/detail?id=71982
+  if (path.find(query) != string16::npos)
     return true;
 
   return false;

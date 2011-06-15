@@ -7,10 +7,10 @@
 #include "base/format_macros.h"
 #include "base/string_util.h"
 #include "net/base/net_errors.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebKit.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebKitClient.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebString.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebURLError.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebKit.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebKitClient.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebString.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebURLError.h"
 #include "webkit/glue/multipart_response_delegate.h"
 #include "webkit/glue/webkit_glue.h"
 
@@ -61,6 +61,7 @@ BufferedResourceLoader::BufferedResourceLoader(
       url_(url),
       first_byte_position_(first_byte_position),
       last_byte_position_(last_byte_position),
+      single_origin_(true),
       start_callback_(NULL),
       offset_(0),
       content_length_(kPositionNotSpecified),
@@ -255,6 +256,10 @@ void BufferedResourceLoader::willSendRequest(
     return;
   }
 
+  // Only allow |single_origin_| if we haven't seen a different origin yet.
+  if (single_origin_)
+    single_origin_ = url_.GetOrigin() == GURL(newRequest.url()).GetOrigin();
+
   url_ = newRequest.url();
 }
 
@@ -423,6 +428,10 @@ void BufferedResourceLoader::didFail(
 
   url_loader_.reset();
   Release();
+}
+
+bool BufferedResourceLoader::HasSingleOrigin() const {
+  return single_origin_;
 }
 
 /////////////////////////////////////////////////////////////////////////////

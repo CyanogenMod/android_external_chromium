@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <set>
 
-#include "app/message_box_flags.h"
 #include "base/callback.h"
 #include "base/debug/trace_event.h"
 #include "base/file_path.h"
@@ -72,18 +71,18 @@
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/ssl/ssl_manager.h"
 #include "chrome/browser/ssl/ssl_blocking_page.h"
-#include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
-#include "chrome/browser/translate/translate_infobar_delegate.h"
 #include "chrome/browser/ui/app_modal_dialogs/app_modal_dialog.h"
 #include "chrome/browser/ui/app_modal_dialogs/app_modal_dialog_queue.h"
 #include "chrome/browser/ui/find_bar/find_bar.h"
 #include "chrome/browser/ui/find_bar/find_bar_controller.h"
+#include "chrome/browser/ui/find_bar/find_manager.h"
 #include "chrome/browser/ui/find_bar/find_notification_details.h"
 #include "chrome/browser/ui/login/login_prompt.h"
 #include "chrome/browser/ui/omnibox/location_bar.h"
+#include "chrome/browser/ui/tab_contents/tab_contents_wrapper.h"
 #include "chrome/common/automation_constants.h"
 #include "chrome/common/automation_messages.h"
 #include "chrome/common/chrome_constants.h"
@@ -100,7 +99,6 @@
 #include "net/proxy/proxy_config_service_fixed.h"
 #include "net/url_request/url_request_context.h"
 #include "chrome/browser/automation/ui_controls.h"
-#include "views/event.h"
 #include "webkit/glue/password_form.h"
 
 #if defined(OS_WIN)
@@ -115,6 +113,8 @@ AutomationProvider::AutomationProvider(Profile* profile)
       is_connected_(false),
       initial_loads_complete_(false) {
   TRACE_EVENT_BEGIN("AutomationProvider::AutomationProvider", 0, "");
+
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   browser_tracker_.reset(new AutomationBrowserTracker(this));
   extension_tracker_.reset(new AutomationExtensionTracker(this));
@@ -137,15 +137,9 @@ AutomationProvider::~AutomationProvider() {
                                        port_containers_.end());
   port_containers_.clear();
 
-  // Make sure that any outstanding NotificationObservers also get destroyed.
-  ObserverList<NotificationObserver>::Iterator it(notification_observer_list_);
-  NotificationObserver* observer;
-  while ((observer = it.GetNext()) != NULL)
-    delete observer;
-
-  if (channel_.get()) {
+  if (channel_.get())
     channel_->Close();
-  }
+
   g_browser_process->ReleaseModule();
 }
 
@@ -199,37 +193,6 @@ void AutomationProvider::OnInitialLoadsComplete() {
   initial_loads_complete_ = true;
   if (is_connected_)
     Send(new AutomationMsg_InitialLoadsComplete());
-}
-
-NotificationObserver* AutomationProvider::AddNavigationStatusListener(
-    NavigationController* tab, IPC::Message* reply_message,
-    int number_of_navigations, bool include_current_navigation) {
-  NotificationObserver* observer =
-      new NavigationNotificationObserver(tab, this, reply_message,
-                                         number_of_navigations,
-                                         include_current_navigation);
-
-  notification_observer_list_.AddObserver(observer);
-  return observer;
-}
-
-void AutomationProvider::RemoveNavigationStatusListener(
-    NotificationObserver* obs) {
-  notification_observer_list_.RemoveObserver(obs);
-}
-
-NotificationObserver* AutomationProvider::AddTabStripObserver(
-    Browser* parent,
-    IPC::Message* reply_message) {
-  NotificationObserver* observer =
-      new TabAppendedNotificationObserver(parent, this, reply_message);
-  notification_observer_list_.AddObserver(observer);
-
-  return observer;
-}
-
-void AutomationProvider::RemoveTabStripObserver(NotificationObserver* obs) {
-  notification_observer_list_.RemoveObserver(obs);
 }
 
 void AutomationProvider::AddLoginHandler(NavigationController* tab,
@@ -352,8 +315,7 @@ void AutomationProvider::OnChannelConnected(int pid) {
   LOG(INFO) << "Testing channel connected, sending hello message";
 
   // Send a hello message with our current automation protocol version.
-  chrome::VersionInfo version_info;
-  channel_->Send(new AutomationMsg_Hello(version_info.Version()));
+  channel_->Send(new AutomationMsg_Hello(GetProtocolVersion()));
   if (initial_loads_complete_)
     Send(new AutomationMsg_InitialLoadsComplete());
 }
@@ -403,6 +365,8 @@ bool AutomationProvider::OnMessageReceived(const IPC::Message& message) {
                         GetExtensionProperty)
     IPC_MESSAGE_HANDLER(AutomationMsg_SaveAsAsync, SaveAsAsync)
     IPC_MESSAGE_HANDLER(AutomationMsg_RemoveBrowsingData, RemoveBrowsingData)
+    IPC_MESSAGE_HANDLER(AutomationMsg_JavaScriptStressTestControl,
+                        JavaScriptStressTestControl)
 #if defined(OS_WIN)
     // These are for use with external tabs.
     IPC_MESSAGE_HANDLER(AutomationMsg_CreateExternalTab, CreateExternalTab)
@@ -426,10 +390,6 @@ bool AutomationProvider::OnMessageReceived(const IPC::Message& message) {
                                     OnRunUnloadHandlers)
     IPC_MESSAGE_HANDLER(AutomationMsg_SetZoomLevel, OnSetZoomLevel)
 #endif  // defined(OS_WIN)
-#if defined(OS_CHROMEOS)
-    IPC_MESSAGE_HANDLER_DELAY_REPLY(AutomationMsg_LoginWithUserAndPass,
-                                    LoginWithUserAndPass)
-#endif  // defined(OS_CHROMEOS)
     IPC_MESSAGE_UNHANDLED(handled = false;OnUnhandledMessage())
   IPC_END_MESSAGE_MAP()
   return handled;
@@ -531,7 +491,11 @@ void AutomationProvider::SendFindRequest(
   if (!with_json) {
     find_in_page_observer_.reset(observer);
   }
-  tab_contents->set_current_find_request_id(request_id);
+  TabContentsWrapper* wrapper =
+      TabContentsWrapper::GetCurrentWrapperForContents(tab_contents);
+  if (wrapper)
+    wrapper->GetFindManager()->set_current_find_request_id(request_id);
+
   tab_contents->render_view_host()->StartFinding(
       FindInPageNotificationObserver::kFindInPageRequestId,
       search_string,
@@ -764,6 +728,18 @@ void AutomationProvider::RemoveBrowsingData(int remove_mask) {
   // BrowsingDataRemover deletes itself.
 }
 
+void AutomationProvider::JavaScriptStressTestControl(int tab_handle,
+                                                     int cmd,
+                                                     int param) {
+  RenderViewHost* view = GetViewForTab(tab_handle);
+  if (!view) {
+    NOTREACHED();
+    return;
+  }
+
+  view->JavaScriptStressTestControl(cmd, param);
+}
+
 RenderViewHost* AutomationProvider::GetViewForTab(int tab_handle) {
   if (tab_tracker_->ContainsHandle(tab_handle)) {
     NavigationController* tab = tab_tracker_->GetResource(tab_handle);
@@ -934,11 +910,11 @@ void AutomationProvider::ExecuteExtensionActionInActiveTabAsync(
   if (extension && service && message_service && browser) {
     int tab_id = ExtensionTabUtil::GetTabId(browser->GetSelectedTabContents());
     if (extension->page_action()) {
-      ExtensionBrowserEventRouter::GetInstance()->PageActionExecuted(
+      service->browser_event_router()->PageActionExecuted(
           browser->profile(), extension->id(), "action", tab_id, "", 1);
       success = true;
     } else if (extension->browser_action()) {
-      ExtensionBrowserEventRouter::GetInstance()->BrowserActionExecuted(
+      service->browser_event_router()->BrowserActionExecuted(
           browser->profile(), extension->id(), browser);
       success = true;
     }

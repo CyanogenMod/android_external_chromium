@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,6 @@
 
 #include <vector>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/command_line.h"
@@ -27,6 +25,8 @@
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "webkit/glue/webkit_glue.h"
 
 #if defined(CHROME_V8)
@@ -37,6 +37,7 @@
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/power_library.h"
 #include "chrome/browser/chromeos/cros/update_library.h"
+#include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #endif
 
@@ -60,45 +61,6 @@ std::string StringSubRange(const std::string& text, size_t start,
                            size_t end) {
   DCHECK(end > start);
   return text.substr(start, end - start);
-}
-
-struct LocalizeEntry {
-  const char* identifier;
-  int resource;
-};
-
-const LocalizeEntry localize_table[] = {
-#if defined (OS_CHROMEOS)
-    { "product", IDS_PRODUCT_OS_NAME },
-    { "os", IDS_PRODUCT_OS_NAME },
-    { "loading", IDS_ABOUT_PAGE_LOADING },
-    { "check_now", IDS_ABOUT_PAGE_CHECK_NOW },
-    { "update_status", IDS_UPGRADE_CHECK_STARTED },
-    { "restart_now", IDS_RESTART_AND_UPDATE },
-#else
-    { "product", IDS_PRODUCT_NAME },
-    { "check_now", IDS_ABOUT_CHROME_UPDATE_CHECK },
-#endif
-    { "browser", IDS_PRODUCT_NAME },
-    { "more_info", IDS_ABOUT_PAGE_MORE_INFO },
-    { "copyright", IDS_ABOUT_VERSION_COPYRIGHT },
-    { "channel", IDS_ABOUT_PAGE_CHANNEL },
-    { "release", IDS_ABOUT_PAGE_CHANNEL_RELEASE },
-    { "beta", IDS_ABOUT_PAGE_CHANNEL_BETA },
-    { "development", IDS_ABOUT_PAGE_CHANNEL_DEVELOPMENT },
-    { "canary", IDS_ABOUT_PAGE_CHANNEL_CANARY },
-    { "channel_warning_header", IDS_ABOUT_PAGE_CHANNEL_WARNING_HEADER },
-    { "channel_warning_text", IDS_ABOUT_PAGE_CHANNEL_WARNING_TEXT },
-    { "user_agent", IDS_ABOUT_VERSION_USER_AGENT },
-    { "command_line", IDS_ABOUT_VERSION_COMMAND_LINE },
-    { "aboutPage", IDS_ABOUT }
-};
-
-void LocalizedStrings(DictionaryValue* localized_strings) {
-  for (size_t n = 0; n != arraysize(localize_table); ++n) {
-    localized_strings->SetString(localize_table[n].identifier,
-        l10n_util::GetStringUTF16(localize_table[n].resource));
-  }
 }
 
 }  // namespace
@@ -143,7 +105,34 @@ AboutPageHandler::~AboutPageHandler() {
 void AboutPageHandler::GetLocalizedValues(DictionaryValue* localized_strings) {
   DCHECK(localized_strings);
 
-  LocalizedStrings(localized_strings);
+  static OptionsStringResource resources[] = {
+#if defined (OS_CHROMEOS)
+    { "product", IDS_PRODUCT_OS_NAME },
+    { "os", IDS_PRODUCT_OS_NAME },
+    { "loading", IDS_ABOUT_PAGE_LOADING },
+    { "check_now", IDS_ABOUT_PAGE_CHECK_NOW },
+    { "update_status", IDS_UPGRADE_CHECK_STARTED },
+    { "restart_now", IDS_RELAUNCH_AND_UPDATE },
+#else
+    { "product", IDS_PRODUCT_NAME },
+    { "check_now", IDS_ABOUT_CHROME_UPDATE_CHECK },
+#endif
+    { "browser", IDS_PRODUCT_NAME },
+    { "more_info", IDS_ABOUT_PAGE_MORE_INFO },
+    { "copyright", IDS_ABOUT_VERSION_COPYRIGHT },
+    { "channel", IDS_ABOUT_PAGE_CHANNEL },
+    { "release", IDS_ABOUT_PAGE_CHANNEL_RELEASE },
+    { "beta", IDS_ABOUT_PAGE_CHANNEL_BETA },
+    { "development", IDS_ABOUT_PAGE_CHANNEL_DEVELOPMENT },
+    { "canary", IDS_ABOUT_PAGE_CHANNEL_CANARY },
+    { "channel_warning_header", IDS_ABOUT_PAGE_CHANNEL_WARNING_HEADER },
+    { "channel_warning_text", IDS_ABOUT_PAGE_CHANNEL_WARNING_TEXT },
+    { "user_agent", IDS_ABOUT_VERSION_USER_AGENT },
+    { "command_line", IDS_ABOUT_VERSION_COMMAND_LINE },
+  };
+
+  RegisterStrings(localized_strings, resources, arraysize(resources));
+  RegisterTitle(localized_strings, "aboutPage", IDS_ABOUT_TAB_TITLE);
 
   // browser version
 
@@ -266,15 +255,15 @@ void AboutPageHandler::GetLocalizedValues(DictionaryValue* localized_strings) {
 }
 
 void AboutPageHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("PageReady",
+  web_ui_->RegisterMessageCallback("PageReady",
       NewCallback(this, &AboutPageHandler::PageReady));
-  dom_ui_->RegisterMessageCallback("SetReleaseTrack",
+  web_ui_->RegisterMessageCallback("SetReleaseTrack",
       NewCallback(this, &AboutPageHandler::SetReleaseTrack));
 
 #if defined(OS_CHROMEOS)
-  dom_ui_->RegisterMessageCallback("CheckNow",
+  web_ui_->RegisterMessageCallback("CheckNow",
       NewCallback(this, &AboutPageHandler::CheckNow));
-  dom_ui_->RegisterMessageCallback("RestartNow",
+  web_ui_->RegisterMessageCallback("RestartNow",
       NewCallback(this, &AboutPageHandler::RestartNow));
 #endif
 }
@@ -292,25 +281,29 @@ void AboutPageHandler::PageReady(const ListValue* args) {
   // Update the channel information.
   std::string channel = update_library->GetReleaseTrack();
   scoped_ptr<Value> channel_string(Value::CreateStringValue(channel));
-  dom_ui_->CallJavascriptFunction(L"AboutPage.updateSelectedOptionCallback",
+  web_ui_->CallJavascriptFunction(L"AboutPage.updateSelectedOptionCallback",
                                   *channel_string);
 
   update_observer_.reset(new UpdateObserver(this));
   update_library->AddObserver(update_observer_.get());
 
-  // Update the DOMUI page with the current status. See comments below.
+  // Update the WebUI page with the current status. See comments below.
   UpdateStatus(update_library->status());
 
   // Initiate update check. UpdateStatus() below will be called when we
   // get update status via update_observer_. If the update has been
   // already complete, update_observer_ won't receive a notification.
-  // This is why we manually update the DOMUI page above.
+  // This is why we manually update the WebUI page above.
   CheckNow(NULL);
 #endif
 }
 
 void AboutPageHandler::SetReleaseTrack(const ListValue* args) {
 #if defined(OS_CHROMEOS)
+  if (!chromeos::UserManager::Get()->current_user_is_owner()) {
+    LOG(WARNING) << "Non-owner tried to change release track.";
+    return;
+  }
   const std::string channel = WideToUTF8(ExtractStringValue(args));
   chromeos::CrosLibrary::Get()->GetUpdateLibrary()->SetReleaseTrack(channel);
 #endif
@@ -398,20 +391,20 @@ void AboutPageHandler::UpdateStatus(
     // can read it, hence insert delay for this.
     scoped_ptr<Value> insert_delay(Value::CreateBooleanValue(
         status.status == chromeos::UPDATE_STATUS_CHECKING_FOR_UPDATE));
-    dom_ui_->CallJavascriptFunction(L"AboutPage.updateStatusCallback",
+    web_ui_->CallJavascriptFunction(L"AboutPage.updateStatusCallback",
                                     *update_message, *insert_delay);
 
     scoped_ptr<Value> enabled_value(Value::CreateBooleanValue(enabled));
-    dom_ui_->CallJavascriptFunction(L"AboutPage.updateEnableCallback",
+    web_ui_->CallJavascriptFunction(L"AboutPage.updateEnableCallback",
                                     *enabled_value);
 
     scoped_ptr<Value> image_string(Value::CreateStringValue(image));
-    dom_ui_->CallJavascriptFunction(L"AboutPage.setUpdateImage",
+    web_ui_->CallJavascriptFunction(L"AboutPage.setUpdateImage",
                                     *image_string);
   }
   // We'll change the "Check For Update" button to "Restart" button.
   if (status.status == chromeos::UPDATE_STATUS_UPDATED_NEED_REBOOT) {
-    dom_ui_->CallJavascriptFunction(L"AboutPage.changeToRestartButton");
+    web_ui_->CallJavascriptFunction(L"AboutPage.changeToRestartButton");
   }
 }
 
@@ -419,7 +412,7 @@ void AboutPageHandler::OnOSVersion(chromeos::VersionLoader::Handle handle,
                                    std::string version) {
   if (version.size()) {
     scoped_ptr<Value> version_string(Value::CreateStringValue(version));
-    dom_ui_->CallJavascriptFunction(L"AboutPage.updateOSVersionCallback",
+    web_ui_->CallJavascriptFunction(L"AboutPage.updateOSVersionCallback",
                                     *version_string);
   }
 }

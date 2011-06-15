@@ -1,8 +1,8 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/tab_contents/tab_contents_view_gtk.h"
+#include "chrome/browser/ui/views/tab_contents/tab_contents_view_gtk.h"
 
 #include <gdk/gdk.h>
 #include <gtk/gtk.h>
@@ -11,8 +11,6 @@
 #include "base/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/download/download_shelf.h"
-#include "chrome/browser/gtk/constrained_window_gtk.h"
-#include "chrome/browser/gtk/tab_contents_drag_source.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_view_host_factory.h"
 #include "chrome/browser/renderer_host/render_widget_host_view_gtk.h"
@@ -20,12 +18,14 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
 #include "chrome/browser/tab_contents/web_drag_dest_gtk.h"
-#include "chrome/browser/views/sad_tab_view.h"
-#include "chrome/browser/views/tab_contents/render_view_context_menu_views.h"
-#include "gfx/canvas_skia_paint.h"
-#include "gfx/point.h"
-#include "gfx/rect.h"
-#include "gfx/size.h"
+#include "chrome/browser/ui/gtk/constrained_window_gtk.h"
+#include "chrome/browser/ui/gtk/tab_contents_drag_source.h"
+#include "chrome/browser/ui/views/sad_tab_view.h"
+#include "chrome/browser/ui/views/tab_contents/render_view_context_menu_views.h"
+#include "ui/gfx/canvas_skia_paint.h"
+#include "ui/gfx/point.h"
+#include "ui/gfx/rect.h"
+#include "ui/gfx/size.h"
 #include "views/controls/native/native_view_host.h"
 #include "views/focus/view_storage.h"
 #include "views/screen.h"
@@ -239,7 +239,8 @@ void TabContentsViewGtk::SetPageTitle(const std::wstring& title) {
     gdk_window_set_title(content_view->window, WideToUTF8(title).c_str());
 }
 
-void TabContentsViewGtk::OnTabCrashed() {
+void TabContentsViewGtk::OnTabCrashed(base::TerminationStatus /* status */,
+                                      int /* error_code */) {
 }
 
 void TabContentsViewGtk::SizeContents(const gfx::Size& size) {
@@ -322,6 +323,10 @@ void TabContentsViewGtk::RestoreFocus() {
   }
 }
 
+void TabContentsViewGtk::GetViewBounds(gfx::Rect* out) const {
+  GetBounds(out, true);
+}
+
 void TabContentsViewGtk::UpdateDragCursor(WebDragOperation operation) {
   if (drag_dest_.get())
     drag_dest_->UpdateDragStatus(operation);
@@ -393,13 +398,16 @@ void TabContentsViewGtk::OnSizeAllocate(GtkWidget* widget,
 gboolean TabContentsViewGtk::OnPaint(GtkWidget* widget, GdkEventExpose* event) {
   if (tab_contents()->render_view_host() &&
       !tab_contents()->render_view_host()->IsRenderViewLive()) {
-    if (sad_tab_ == NULL) {
-      sad_tab_ = new SadTabView(tab_contents());
-      SetContentsView(sad_tab_);
-    }
+    base::TerminationStatus status =
+        tab_contents()->render_view_host()->render_view_termination_status();
+    SadTabView::Kind kind =
+        status == base::TERMINATION_STATUS_PROCESS_WAS_KILLED ?
+        SadTabView::KILLED : SadTabView::CRASHED;
+    sad_tab_ = new SadTabView(tab_contents(), kind);
+    SetContentsView(sad_tab_);
     gfx::Rect bounds;
     GetBounds(&bounds, true);
-    sad_tab_->SetBounds(gfx::Rect(0, 0, bounds.width(), bounds.height()));
+    sad_tab_->SetBoundsRect(gfx::Rect(0, 0, bounds.width(), bounds.height()));
     gfx::CanvasSkiaPaint canvas(event);
     sad_tab_->ProcessPaint(&canvas);
   }

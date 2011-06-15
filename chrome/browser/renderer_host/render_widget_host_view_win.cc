@@ -6,11 +6,6 @@
 
 #include <algorithm>
 
-#include "app/l10n_util.h"
-#include "app/l10n_util_win.h"
-#include "app/resource_bundle.h"
-#include "app/win/hwnd_util.h"
-#include "app/view_prop.h"
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
 #include "base/metrics/histogram.h"
@@ -34,14 +29,19 @@
 #include "chrome/common/notification_service.h"
 #include "chrome/common/plugin_messages.h"
 #include "chrome/common/render_messages.h"
-#include "gfx/canvas.h"
-#include "gfx/canvas_skia.h"
-#include "gfx/gdi_util.h"
-#include "gfx/rect.h"
 #include "grit/webkit_resources.h"
 #include "skia/ext/skia_utils_win.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebInputEvent.h"
-#include "third_party/WebKit/WebKit/chromium/public/win/WebInputEventFactory.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/WebInputEvent.h"
+#include "third_party/WebKit/Source/WebKit/chromium/public/win/WebInputEventFactory.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/l10n/l10n_util_win.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/view_prop.h"
+#include "ui/base/win/hwnd_util.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/canvas_skia.h"
+#include "ui/gfx/gdi_util.h"
+#include "ui/gfx/rect.h"
 #include "views/accessibility/view_accessibility.h"
 #include "views/focus/focus_manager.h"
 #include "views/focus/focus_util_win.h"
@@ -53,9 +53,9 @@
 #include "webkit/plugins/npapi/webplugin_delegate_impl.h"
 #include "webkit/plugins/npapi/webplugin.h"
 
-using app::ViewProp;
 using base::TimeDelta;
 using base::TimeTicks;
+using ui::ViewProp;
 using WebKit::WebInputEvent;
 using WebKit::WebInputEventFactory;
 using WebKit::WebMouseEvent;
@@ -325,8 +325,7 @@ void RenderWidgetHostViewWin::InitAsPopup(
   ShowWindow(IsActivatable() ? SW_SHOW : SW_SHOWNA);
 }
 
-void RenderWidgetHostViewWin::InitAsFullscreen(
-    RenderWidgetHostView* parent_host_view) {
+void RenderWidgetHostViewWin::InitAsFullscreen() {
   NOTIMPLEMENTED() << "Fullscreen not implemented on Win";
 }
 
@@ -565,6 +564,12 @@ void RenderWidgetHostViewWin::Show() {
   SetParent(parent_hwnd_);
   ShowWindow(SW_SHOW);
 
+  // Save away our HWND in the parent window as a property so that the
+  // accessibility code can find it.
+  accessibility_prop_.reset(new ViewProp(GetParent(),
+                                         kViewsNativeHostPropForAccessibility,
+                                         m_hWnd));
+
   DidBecomeSelected();
 }
 
@@ -574,6 +579,8 @@ void RenderWidgetHostViewWin::Hide() {
         parent_hwnd_ << ":" << GetParent();
     return;
   }
+
+  accessibility_prop_.reset();
 
   if (::GetFocus() == m_hWnd)
     ::SetFocus(NULL);
@@ -832,11 +839,6 @@ LRESULT RenderWidgetHostViewWin::OnCreate(CREATESTRUCT* create_struct) {
   // Marks that window as supporting mouse-wheel messages rerouting so it is
   // scrolled when under the mouse pointer even if inactive.
   props_.push_back(views::SetWindowSupportsRerouteMouseWheel(m_hWnd));
-  // Save away our HWND in the parent window as a property so that the
-  // accessibility code can find it.
-  props_.push_back(new ViewProp(GetParent(),
-                                kViewsNativeHostPropForAccessibility,
-                                m_hWnd));
   props_.push_back(new ViewProp(m_hWnd, kRenderWidgetHostViewKey,
                                 static_cast<RenderWidgetHostView*>(this)));
   return 0;
@@ -1448,7 +1450,7 @@ LRESULT RenderWidgetHostViewWin::OnMouseActivate(UINT message,
     ::ScreenToClient(m_hWnd, &cursor_pos);
     HWND child_window = ::RealChildWindowFromPoint(m_hWnd, cursor_pos);
     if (::IsWindow(child_window) && child_window != m_hWnd) {
-      if (app::win::GetClassName(child_window) ==
+      if (ui::GetClassName(child_window) ==
               webkit::npapi::kWrapperNativeWindowClassName)
         child_window = ::GetWindow(child_window, GW_CHILD);
 

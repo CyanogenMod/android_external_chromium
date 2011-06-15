@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
 #include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
 #include "base/values.h"
 #ifndef ANDROID
 #include "chrome/browser/browser_thread.h"
@@ -23,7 +22,6 @@
 class FilePath;
 class PrefNotifier;
 class PrefStore;
-class Profile;
 
 // The PrefValueStore manages various sources of values for Preferences
 // (e.g., configuration policies, extensions, and user settings). It returns
@@ -32,65 +30,62 @@ class Profile;
 //
 // Unless otherwise explicitly noted, all of the methods of this class must
 // be called on the UI thread.
-class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
+class PrefValueStore {
  public:
   // In decreasing order of precedence:
   //   |managed_platform_prefs| contains all managed platform (non-cloud policy)
   //        preference values.
-  //   |device_management_prefs| contains all device management (cloud policy)
-  //        preference values.
+  //   |managed_cloud_prefs| contains all managed cloud policy preference
+  //        values.
   //   |extension_prefs| contains preference values set by extensions.
   //   |command_line_prefs| contains preference values set by command-line
   //        switches.
   //   |user_prefs| contains all user-set preference values.
-  //   |recommended_prefs| contains all recommended (policy) preference values.
+  //   |recommended_platform_prefs| contains all recommended platform policy
+  //        preference values.
+  //   |recommended_cloud_prefs| contains all recommended cloud policy
+  //        preference values.
   //   |default_prefs| contains application-default preference values. It must
   //        be non-null if any preferences are to be registered.
   //
   // |pref_notifier| facilitates broadcasting preference change notifications
   // to the world.
-  //
-  // The |profile| parameter is used to construct a replacement device
-  // management pref store. This is done after policy refresh when we swap out
-  // the policy pref stores for new ones, so the |profile| pointer needs to be
-  // kept around for then. It is safe to pass a NULL pointer for local state
-  // preferences.
   PrefValueStore(PrefStore* managed_platform_prefs,
-                 PrefStore* device_management_prefs,
+                 PrefStore* managed_cloud_prefs,
                  PrefStore* extension_prefs,
                  PrefStore* command_line_prefs,
                  PrefStore* user_prefs,
-                 PrefStore* recommended_prefs,
+                 PrefStore* recommended_platform_prefs,
+                 PrefStore* recommended_cloud_prefs,
                  PrefStore* default_prefs,
                  PrefNotifier* pref_notifier);
   virtual ~PrefValueStore();
 
-  // Gets the value for the given preference name that has a valid value type;
-  // that is, the same type the preference was registered with, or NULL for
-  // default values of Dictionaries and Lists. Returns true if a valid value
+  // Creates a clone of this PrefValueStore with PrefStores overwritten
+  // by the parameters passed, if unequal NULL.
+  PrefValueStore* CloneAndSpecialize(PrefStore* managed_platform_prefs,
+                                     PrefStore* managed_cloud_prefs,
+                                     PrefStore* extension_prefs,
+                                     PrefStore* command_line_prefs,
+                                     PrefStore* user_prefs,
+                                     PrefStore* recommended_platform_prefs,
+                                     PrefStore* recommended_cloud_prefs,
+                                     PrefStore* default_prefs,
+                                     PrefNotifier* pref_notifier);
+
+  // Gets the value for the given preference name that has the specified value
+  // type. Values stored in a PrefStore that have the matching |name| but
+  // a non-matching |type| are silently skipped. Returns true if a valid value
   // was found in any of the available PrefStores. Most callers should use
   // Preference::GetValue() instead of calling this method directly.
-  bool GetValue(const std::string& name, Value** out_value) const;
-
-  // Adds a preference to the mapping of names to types.
-  void RegisterPreferenceType(const std::string& name, Value::ValueType type);
-
-  // Gets the registered value type for the given preference name. Returns
-  // Value::TYPE_NULL if the preference has never been registered.
-  Value::ValueType GetRegisteredType(const std::string& name) const;
-
-  // Returns true if the PrefValueStore contains the given preference (i.e.,
-  // it's been registered), and a value with the correct type has been actively
-  // set in some pref store. The application default specified when the pref was
-  // registered does not count as an "actively set" value, but another pref
-  // store setting a value that happens to be equal to the default does.
-  bool HasPrefPath(const char* name) const;
+  bool GetValue(const std::string& name,
+                Value::ValueType type,
+                Value** out_value) const;
 
   // These methods return true if a preference with the given name is in the
   // indicated pref store, even if that value is currently being overridden by
   // a higher-priority source.
-  bool PrefValueInManagedPlatformStore(const char* name) const;
-  bool PrefValueInDeviceManagementStore(const char* name) const;
+  bool PrefValueInManagedStore(const char* name) const;
   bool PrefValueInExtensionStore(const char* name) const;
   bool PrefValueInUserStore(const char* name) const;
 
@@ -122,11 +117,12 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
     // an invalid marker, e.g. as a return value.
     INVALID_STORE = -1,
     MANAGED_PLATFORM_STORE = 0,
-    DEVICE_MANAGEMENT_STORE,
+    MANAGED_CLOUD_STORE,
     EXTENSION_STORE,
     COMMAND_LINE_STORE,
     USER_STORE,
-    RECOMMENDED_STORE,
+    RECOMMENDED_PLATFORM_STORE,
+    RECOMMENDED_CLOUD_STORE,
     DEFAULT_STORE,
     PREF_STORE_TYPE_MAX = DEFAULT_STORE
   };
@@ -157,7 +153,7 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
     PrefValueStore* pref_value_store_;
 
     // The PrefStore managed by this keeper.
-    scoped_ptr<PrefStore> pref_store_;
+    scoped_refptr<PrefStore> pref_store_;
 
     // Type of the pref store.
     PrefStoreType type_;
@@ -173,12 +169,6 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
                            TestRefreshPolicyPrefsCompletion);
   FRIEND_TEST_ALL_PREFIXES(PrefValueStorePolicyRefreshTest,
                            TestConcurrentPolicyRefresh);
-
-  // Returns true if the actual type is a valid type for the expected type when
-  // found in the given store.
-  static bool IsValidType(Value::ValueType expected,
-                          Value::ValueType actual,
-                          PrefStoreType store);
 
   // Returns true if the preference with the given name has a value in the
   // given PrefStoreType, of the same value type as the preference was

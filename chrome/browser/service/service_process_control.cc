@@ -19,6 +19,7 @@
 #include "chrome/common/notification_service.h"
 #include "chrome/common/service_messages.h"
 #include "chrome/common/service_process_util.h"
+#include "ui/base/ui_base_switches.h"
 
 // ServiceProcessControl::Launcher implementation.
 // This class is responsible for launching the service process on the
@@ -121,20 +122,9 @@ void ServiceProcessControl::ConnectInternal() {
   // TODO(hclam): Handle error connecting to channel.
   const std::string channel_id = GetServiceProcessChannelName();
   channel_.reset(
-      new IPC::SyncChannel(channel_id, IPC::Channel::MODE_CLIENT, this,
+      new IPC::SyncChannel(channel_id, IPC::Channel::MODE_NAMED_CLIENT, this,
                            io_thread->message_loop(), true,
                            g_browser_process->shutdown_event()));
-  channel_->set_sync_messages_with_no_timeout_allowed(false);
-
-  // We just established a channel with the service process. Notify it if an
-  // upgrade is available.
-  if (UpgradeDetector::GetInstance()->notify_upgrade()) {
-    Send(new ServiceMsg_UpdateAvailable);
-  } else {
-    if (registrar_.IsEmpty())
-      registrar_.Add(this, NotificationType::UPGRADE_RECOMMENDED,
-                     NotificationService::AllSources());
-  }
 }
 
 void ServiceProcessControl::RunConnectDoneTasks() {
@@ -178,14 +168,14 @@ void ServiceProcessControl::Launch(Task* success_task, Task* failure_task) {
   if (failure_task)
     connect_failure_tasks_.push_back(failure_task);
 
-  // If the service process is already running then connects to it.
-  if (CheckServiceProcessReady()) {
-    ConnectInternal();
+  // If we already in the process of launching, then we are done.
+  if (launcher_) {
     return;
   }
 
-  // If we already in the process of launching, then we are done.
-  if (launcher_) {
+  // If the service process is already running then connects to it.
+  if (CheckServiceProcessReady()) {
+    ConnectInternal();
     return;
   }
 
@@ -214,6 +204,9 @@ void ServiceProcessControl::Launch(Task* success_task, Task* failure_task) {
   if (browser_command_line.HasSwitch(switches::kWaitForDebuggerChildren)) {
     cmd_line->AppendSwitch(switches::kWaitForDebugger);
   }
+
+  std::string locale = g_browser_process->GetApplicationLocale();
+  cmd_line->AppendSwitchASCII(switches::kLang, locale);
 
   // And then start the process asynchronously.
   launcher_ = new Launcher(this, cmd_line);
@@ -251,6 +244,17 @@ bool ServiceProcessControl::OnMessageReceived(const IPC::Message& message) {
 
 void ServiceProcessControl::OnChannelConnected(int32 peer_pid) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  channel_->set_sync_messages_with_no_timeout_allowed(false);
+
+  // We just established a channel with the service process. Notify it if an
+  // upgrade is available.
+  if (UpgradeDetector::GetInstance()->notify_upgrade()) {
+    Send(new ServiceMsg_UpdateAvailable);
+  } else {
+    if (registrar_.IsEmpty())
+      registrar_.Add(this, NotificationType::UPGRADE_RECOMMENDED,
+                     NotificationService::AllSources());
+  }
   RunConnectDoneTasks();
 }
 

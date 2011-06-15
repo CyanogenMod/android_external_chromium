@@ -4,7 +4,6 @@
 
 #import "chrome/browser/ui/cocoa/html_dialog_window_controller.h"
 
-#include "app/keyboard_codes.h"
 #include "base/logging.h"
 #include "base/scoped_nsobject.h"
 #include "base/sys_string_conversions.h"
@@ -12,11 +11,13 @@
 #include "chrome/browser/dom_ui/html_dialog_tab_contents_delegate.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#import "chrome/browser/ui/browser_dialogs.h"
 #import "chrome/browser/ui/cocoa/browser_command_executor.h"
 #import "chrome/browser/ui/cocoa/chrome_event_processing_window.h"
 #include "chrome/common/native_web_keyboard_event.h"
-#include "gfx/size.h"
 #include "ipc/ipc_message.h"
+#include "ui/base/keycodes/keyboard_codes.h"
+#include "ui/gfx/size.h"
 
 // Thin bridge that routes notifications to
 // HtmlDialogWindowController's member variables.
@@ -38,8 +39,8 @@ public:
   virtual bool IsDialogModal() const;
   virtual std::wstring GetDialogTitle() const;
   virtual GURL GetDialogContentURL() const;
-  virtual void GetDOMMessageHandlers(
-      std::vector<DOMMessageHandler*>* handlers) const;
+  virtual void GetWebUIMessageHandlers(
+      std::vector<WebUIMessageHandler*>* handlers) const;
   virtual void GetDialogSize(gfx::Size* size) const;
   virtual std::string GetDialogArgs() const;
   virtual void OnDialogClosed(const std::string& json_retval);
@@ -73,10 +74,11 @@ private:
 
 @end
 
-namespace html_dialog_window_controller {
+namespace browser {
 
-gfx::NativeWindow ShowHtmlDialog(
-    HtmlDialogUIDelegate* delegate, Profile* profile) {
+gfx::NativeWindow ShowHtmlDialog(gfx::NativeWindow parent, Profile* profile,
+                                 HtmlDialogUIDelegate* delegate) {
+  // NOTE: Use the parent parameter once we implement modal dialogs.
   return [HtmlDialogWindowController showHtmlDialog:delegate profile:profile];
 }
 
@@ -131,10 +133,10 @@ GURL HtmlDialogWindowDelegateBridge::GetDialogContentURL() const {
   return delegate_ ? delegate_->GetDialogContentURL() : GURL();
 }
 
-void HtmlDialogWindowDelegateBridge::GetDOMMessageHandlers(
-    std::vector<DOMMessageHandler*>* handlers) const {
+void HtmlDialogWindowDelegateBridge::GetWebUIMessageHandlers(
+    std::vector<WebUIMessageHandler*>* handlers) const {
   if (delegate_) {
-    delegate_->GetDOMMessageHandlers(handlers);
+    delegate_->GetWebUIMessageHandlers(handlers);
   } else {
     // TODO(akalin): Add this clause in the windows version.  Also
     // make sure that everything expects handlers to be non-NULL and
@@ -195,8 +197,8 @@ void HtmlDialogWindowDelegateBridge::HandleKeyboardEvent(
   // TODO(thakis): It would be nice to get cancel: to work somehow.
   // Bug: http://code.google.com/p/chromium/issues/detail?id=32828 .
   if (event.type == NativeWebKeyboardEvent::RawKeyDown &&
-      ((event.windowsKeyCode == app::VKEY_ESCAPE) ||
-       (event.windowsKeyCode == app::VKEY_OEM_PERIOD &&
+      ((event.windowsKeyCode == ui::VKEY_ESCAPE) ||
+       (event.windowsKeyCode == ui::VKEY_OEM_PERIOD &&
         event.modifiers == NativeWebKeyboardEvent::MetaKey))) {
     [controller_ close];
     return;

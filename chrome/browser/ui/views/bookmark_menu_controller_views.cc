@@ -1,11 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/views/bookmark_menu_controller_views.h"
+#include "chrome/browser/ui/views/bookmark_menu_controller_views.h"
 
-#include "app/os_exchange_data.h"
-#include "app/resource_bundle.h"
 #include "base/stl_util-inl.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_node_data.h"
@@ -14,12 +12,14 @@
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/page_navigator.h"
-#include "chrome/browser/views/bookmark_bar_view.h"
-#include "chrome/browser/views/event_utils.h"
+#include "chrome/browser/ui/views/bookmark_bar_view.h"
+#include "chrome/browser/ui/views/event_utils.h"
 #include "chrome/common/page_transition_types.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "ui/base/dragdrop/os_exchange_data.h"
+#include "ui/base/resource/resource_bundle.h"
 #include "views/controls/button/menu_button.h"
 
 using views::MenuItemView;
@@ -85,6 +85,15 @@ void BookmarkMenuController::Cancel() {
   menu_->Cancel();
 }
 
+std::wstring BookmarkMenuController::GetTooltipText(
+    int id, const gfx::Point& screen_loc) {
+  DCHECK(menu_id_to_node_map_.find(id) != menu_id_to_node_map_.end());
+
+  const BookmarkNode* node = menu_id_to_node_map_[id];
+  return BookmarkBarView::CreateToolTipForURLAndTitle(
+      screen_loc, node->GetURL(), UTF16ToWide(node->GetTitle()), profile_);
+}
+
 bool BookmarkMenuController::IsTriggerableEvent(const views::MouseEvent& e) {
   return event_utils::IsPossibleDispositionEvent(e);
 }
@@ -107,8 +116,8 @@ void BookmarkMenuController::ExecuteCommand(int id, int mouse_event_flags) {
 bool BookmarkMenuController::GetDropFormats(
       MenuItemView* menu,
       int* formats,
-      std::set<OSExchangeData::CustomFormat>* custom_formats) {
-  *formats = OSExchangeData::URL;
+      std::set<ui::OSExchangeData::CustomFormat>* custom_formats) {
+  *formats = ui::OSExchangeData::URL;
   custom_formats->insert(BookmarkNodeData::GetBookmarkCustomFormat());
   return true;
 }
@@ -118,7 +127,7 @@ bool BookmarkMenuController::AreDropTypesRequired(MenuItemView* menu) {
 }
 
 bool BookmarkMenuController::CanDrop(MenuItemView* menu,
-                                     const OSExchangeData& data) {
+                                     const ui::OSExchangeData& data) {
   // Only accept drops of 1 node, which is the case for all data dragged from
   // bookmark bar and menus.
 
@@ -218,7 +227,7 @@ bool BookmarkMenuController::CanDrag(MenuItemView* menu) {
 }
 
 void BookmarkMenuController::WriteDragData(MenuItemView* sender,
-                                           OSExchangeData* data) {
+                                           ui::OSExchangeData* data) {
   DCHECK(sender && data);
 
   UserMetrics::RecordAction(UserMetricsAction("BookmarkBar_DragFromFolder"),
@@ -379,7 +388,7 @@ void BookmarkMenuController::WillRemoveBookmarksImpl(
                      // be a menu.
       removed_menus->insert(menu);
       changed_parent_menus.insert(menu->GetParentMenuItem());
-      menu->GetParent()->RemoveChildView(menu);
+      menu->parent()->RemoveChildView(menu);
       node_to_menu_id_map_.erase(node_to_menu);
     }
   }

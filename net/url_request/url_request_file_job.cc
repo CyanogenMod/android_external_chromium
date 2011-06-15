@@ -23,6 +23,7 @@
 #include "base/message_loop.h"
 #include "base/platform_file.h"
 #include "base/string_util.h"
+#include "base/synchronization/lock.h"
 #include "base/threading/worker_pool.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
@@ -50,7 +51,7 @@ class URLRequestFileJob::AsyncResolver
   void Resolve(const FilePath& file_path) {
     base::PlatformFileInfo file_info;
     bool exists = file_util::GetFileInfo(file_path, &file_info);
-    AutoLock locked(lock_);
+    base::AutoLock locked(lock_);
     if (owner_loop_) {
       owner_loop_->PostTask(FROM_HERE, NewRunnableMethod(
           this, &AsyncResolver::ReturnResults, exists, file_info));
@@ -60,7 +61,7 @@ class URLRequestFileJob::AsyncResolver
   void Cancel() {
     owner_ = NULL;
 
-    AutoLock locked(lock_);
+    base::AutoLock locked(lock_);
     owner_loop_ = NULL;
   }
 
@@ -76,10 +77,21 @@ class URLRequestFileJob::AsyncResolver
 
   URLRequestFileJob* owner_;
 
-  Lock lock_;
+  base::Lock lock_;
   MessageLoop* owner_loop_;
 };
 #endif
+
+URLRequestFileJob::URLRequestFileJob(URLRequest* request,
+                                     const FilePath& file_path)
+    : URLRequestJob(request),
+      file_path_(file_path),
+      ALLOW_THIS_IN_INITIALIZER_LIST(
+          io_callback_(this, &URLRequestFileJob::DidRead)),
+      is_directory_(false),
+      remaining_bytes_(0),
+      ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
+}
 
 // static
 URLRequestJob* URLRequestFileJob::Factory(URLRequest* request,
@@ -110,22 +122,33 @@ URLRequestJob* URLRequestFileJob::Factory(URLRequest* request,
   return new URLRequestFileJob(request, file_path);
 }
 
-URLRequestFileJob::URLRequestFileJob(URLRequest* request,
-                                     const FilePath& file_path)
-    : URLRequestJob(request),
-      file_path_(file_path),
-      ALLOW_THIS_IN_INITIALIZER_LIST(
-          io_callback_(this, &URLRequestFileJob::DidRead)),
-      is_directory_(false),
-      remaining_bytes_(0),
-      ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
-}
+#if defined(OS_CHROMEOS)
+static const char* const kLocalAccessWhiteList[] = {
+  "/home/chronos/user/Downloads",
+  "/media",
+  "/mnt/partner_partition",
+  "/usr/share/chromeos-assets",
+  "/tmp",
+  "/var/log",
+};
 
-URLRequestFileJob::~URLRequestFileJob() {
-#if defined(OS_WIN)
-  DCHECK(!async_resolver_);
-#endif
+// static
+bool URLRequestFileJob::AccessDisabled(const FilePath& file_path) {
+  if (URLRequest::IsFileAccessAllowed()) {  // for tests.
+    return false;
+  }
+
+  for (size_t i = 0; i < arraysize(kLocalAccessWhiteList); ++i) {
+    const FilePath white_listed_path(kLocalAccessWhiteList[i]);
+    // FilePath::operator== should probably handle trailing seperators.
+    if (white_listed_path == file_path.StripTrailingSeparators() ||
+        white_listed_path.IsParent(file_path)) {
+      return false;
+    }
+  }
+  return true;
 }
+#endif
 
 void URLRequestFileJob::Start() {
 #if defined(OS_WIN)
@@ -203,6 +226,43 @@ bool URLRequestFileJob::ReadRawData(IOBuffer* dest, int dest_size,
   return false;
 }
 
+bool URLRequestFileJob::IsRedirectResponse(GURL* location,
+                                           int* http_status_code) {
+  if (is_directory_) {
+    // This happens when we discovered the file is a directory, so needs a
+    // slash at the end of the path.
+    std::string new_path = request_->url().path();
+    new_path.push_back('/');
+    GURL::Replacements replacements;
+    replacements.SetPathStr(new_path);
+
+    *location = request_->url().ReplaceComponents(replacements);
+    *http_status_code = 301;  // simulate a permanent redirect
+    return true;
+  }
+
+#if defined(OS_WIN)
+  // Follow a Windows shortcut.
+  // We just resolve .lnk file, ignore others.
+  if (!LowerCaseEqualsASCII(file_path_.Extension(), ".lnk"))
+    return false;
+
+  FilePath new_path = file_path_;
+  bool resolved;
+  resolved = file_util::ResolveShortcut(&new_path);
+
+  // If shortcut is not resolved succesfully, do not redirect.
+  if (!resolved)
+    return false;
+
+  *location = FilePathToFileURL(new_path);
+  *http_status_code = 301;
+  return true;
+#else
+  return false;
+#endif
+}
+
 bool URLRequestFileJob::GetContentEncodings(
     std::vector<Filter::FilterType>* encoding_types) {
   DCHECK(encoding_types->empty());
@@ -242,6 +302,12 @@ void URLRequestFileJob::SetExtraRequestHeaders(
       }
     }
   }
+}
+
+URLRequestFileJob::~URLRequestFileJob() {
+#if defined(OS_WIN)
+  DCHECK(!async_resolver_);
+#endif
 }
 
 void URLRequestFileJob::DidResolve(
@@ -321,70 +387,5 @@ void URLRequestFileJob::DidRead(int result) {
 
   NotifyReadComplete(result);
 }
-
-bool URLRequestFileJob::IsRedirectResponse(GURL* location,
-                                           int* http_status_code) {
-  if (is_directory_) {
-    // This happens when we discovered the file is a directory, so needs a
-    // slash at the end of the path.
-    std::string new_path = request_->url().path();
-    new_path.push_back('/');
-    GURL::Replacements replacements;
-    replacements.SetPathStr(new_path);
-
-    *location = request_->url().ReplaceComponents(replacements);
-    *http_status_code = 301;  // simulate a permanent redirect
-    return true;
-  }
-
-#if defined(OS_WIN)
-  // Follow a Windows shortcut.
-  // We just resolve .lnk file, ignore others.
-  if (!LowerCaseEqualsASCII(file_path_.Extension(), ".lnk"))
-    return false;
-
-  FilePath new_path = file_path_;
-  bool resolved;
-  resolved = file_util::ResolveShortcut(&new_path);
-
-  // If shortcut is not resolved succesfully, do not redirect.
-  if (!resolved)
-    return false;
-
-  *location = FilePathToFileURL(new_path);
-  *http_status_code = 301;
-  return true;
-#else
-  return false;
-#endif
-}
-
-#if defined(OS_CHROMEOS)
-static const char* const kLocalAccessWhiteList[] = {
-  "/home/chronos/user/Downloads",
-  "/media",
-  "/mnt/partner_partition",
-  "/usr/share/chromeos-assets",
-  "/tmp",
-  "/var/log",
-};
-
-// static
-bool URLRequestFileJob::AccessDisabled(const FilePath& file_path) {
-  if (URLRequest::IsFileAccessAllowed()) {  // for tests.
-    return false;
-  }
-
-  for (size_t i = 0; i < arraysize(kLocalAccessWhiteList); ++i) {
-    const FilePath white_listed_path(kLocalAccessWhiteList[i]);
-    // FilePath::operator== should probably handle trailing seperators.
-    if (white_listed_path == file_path.StripTrailingSeparators() ||
-        white_listed_path.IsParent(file_path)) {
-      return false;
-    }
-  }
-  return true;
-}
-#endif
 
 }  // namespace net

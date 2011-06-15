@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,6 +22,7 @@
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_util.h"
 #include "chrome/browser/metrics/user_metrics.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/url_constants.h"
@@ -51,12 +52,8 @@ DownloadsDOMHandler::DownloadsDOMHandler(DownloadManager* dlm)
       download_manager_(dlm),
       callback_factory_(ALLOW_THIS_IN_INITIALIZER_LIST(this)) {
   // Create our fileicon data source.
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(
-          ChromeURLDataManager::GetInstance(),
-          &ChromeURLDataManager::AddDataSource,
-          make_scoped_refptr(new FileIconSource())));
+  dlm->profile()->GetChromeURLDataManager()->AddDataSource(
+      new FileIconSource());
 }
 
 DownloadsDOMHandler::~DownloadsDOMHandler() {
@@ -71,29 +68,29 @@ void DownloadsDOMHandler::Init() {
 }
 
 void DownloadsDOMHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("getDownloads",
+  web_ui_->RegisterMessageCallback("getDownloads",
       NewCallback(this, &DownloadsDOMHandler::HandleGetDownloads));
-  dom_ui_->RegisterMessageCallback("openFile",
+  web_ui_->RegisterMessageCallback("openFile",
       NewCallback(this, &DownloadsDOMHandler::HandleOpenFile));
 
-  dom_ui_->RegisterMessageCallback("drag",
+  web_ui_->RegisterMessageCallback("drag",
       NewCallback(this, &DownloadsDOMHandler::HandleDrag));
 
-  dom_ui_->RegisterMessageCallback("saveDangerous",
+  web_ui_->RegisterMessageCallback("saveDangerous",
       NewCallback(this, &DownloadsDOMHandler::HandleSaveDangerous));
-  dom_ui_->RegisterMessageCallback("discardDangerous",
+  web_ui_->RegisterMessageCallback("discardDangerous",
       NewCallback(this, &DownloadsDOMHandler::HandleDiscardDangerous));
-  dom_ui_->RegisterMessageCallback("show",
+  web_ui_->RegisterMessageCallback("show",
       NewCallback(this, &DownloadsDOMHandler::HandleShow));
-  dom_ui_->RegisterMessageCallback("togglepause",
+  web_ui_->RegisterMessageCallback("togglepause",
       NewCallback(this, &DownloadsDOMHandler::HandlePause));
-  dom_ui_->RegisterMessageCallback("resume",
+  web_ui_->RegisterMessageCallback("resume",
       NewCallback(this, &DownloadsDOMHandler::HandlePause));
-  dom_ui_->RegisterMessageCallback("remove",
+  web_ui_->RegisterMessageCallback("remove",
       NewCallback(this, &DownloadsDOMHandler::HandleRemove));
-  dom_ui_->RegisterMessageCallback("cancel",
+  web_ui_->RegisterMessageCallback("cancel",
       NewCallback(this, &DownloadsDOMHandler::HandleCancel));
-  dom_ui_->RegisterMessageCallback("clearAll",
+  web_ui_->RegisterMessageCallback("clearAll",
       NewCallback(this, &DownloadsDOMHandler::HandleClearAll));
 }
 
@@ -111,7 +108,7 @@ void DownloadsDOMHandler::OnDownloadUpdated(DownloadItem* download) {
 
   ListValue results_value;
   results_value.Append(download_util::CreateDownloadItemValue(download, id));
-  dom_ui_->CallJavascriptFunction(L"downloadUpdated", results_value);
+  web_ui_->CallJavascriptFunction(L"downloadUpdated", results_value);
 }
 
 // A download has started or been deleted. Query our DownloadManager for the
@@ -163,7 +160,7 @@ void DownloadsDOMHandler::HandleDrag(const ListValue* args) {
     IconManager* im = g_browser_process->icon_manager();
     SkBitmap* icon = im->LookupIcon(file->GetUserVerifiedFilePath(),
                                     IconLoader::NORMAL);
-    gfx::NativeView view = dom_ui_->tab_contents()->GetNativeView();
+    gfx::NativeView view = web_ui_->tab_contents()->GetNativeView();
     download_util::DragDownload(file, icon, view);
   }
 }
@@ -220,7 +217,7 @@ void DownloadsDOMHandler::SendCurrentDownloads() {
     results_value.Append(download_util::CreateDownloadItemValue(*it, index));
   }
 
-  dom_ui_->CallJavascriptFunction(L"downloadsList", results_value);
+  web_ui_->CallJavascriptFunction(L"downloadsList", results_value);
 }
 
 void DownloadsDOMHandler::ClearDownloadItems() {

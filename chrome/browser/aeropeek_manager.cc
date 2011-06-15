@@ -7,8 +7,6 @@
 #include <dwmapi.h>
 #include <shobjidl.h>
 
-#include "app/win/hwnd_util.h"
-#include "app/win/window_impl.h"
 #include "app/win/shell.h"
 #include "base/command_line.h"
 #include "base/scoped_comptr_win.h"
@@ -32,11 +30,13 @@
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/installer/util/browser_distribution.h"
-#include "gfx/gdi_util.h"
-#include "gfx/icon_util.h"
 #include "skia/ext/image_operations.h"
 #include "skia/ext/platform_canvas.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/win/window_impl.h"
+#include "ui/gfx/gdi_util.h"
+#include "ui/gfx/icon_util.h"
+#include "views/widget/widget_win.h"
 
 namespace {
 
@@ -548,7 +548,7 @@ class SendLivePreviewTask : public Task {
 // * Translating received messages for TabStrip.
 // This class is used by the AeroPeekManager class, which is a proxy
 // between TabStrip and Windows 7.
-class AeroPeekWindow : public app::win::WindowImpl {
+class AeroPeekWindow : public ui::WindowImpl {
  public:
   AeroPeekWindow(HWND frame_window,
                  AeroPeekWindowDelegate* delegate,
@@ -1016,7 +1016,7 @@ bool AeroPeekManager::Enabled() {
   // flooding users with tab thumbnails.
   const CommandLine* command_line = CommandLine::ForCurrentProcess();
   return base::win::GetVersion() >= base::win::VERSION_WIN7 &&
-      app::win::ShouldUseVistaFrame() &&
+      views::WidgetWin::IsAeroGlassEnabled() &&
       !command_line->HasSwitch(switches::kApp) &&
       command_line->HasSwitch(switches::kEnableAeroPeekTabs);
 }

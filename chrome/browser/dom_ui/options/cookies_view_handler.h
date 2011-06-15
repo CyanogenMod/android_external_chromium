@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,16 +20,16 @@ class CookiesViewHandler : public OptionsPageUIHandler,
   virtual void GetLocalizedValues(DictionaryValue* localized_strings);
   virtual void RegisterMessages();
 
-  // TreeModel::Observer implementation.
-  virtual void TreeNodesAdded(TreeModel* model,
-                              TreeModelNode* parent,
+  // ui::TreeModel::Observer implementation.
+  virtual void TreeNodesAdded(ui::TreeModel* model,
+                              ui::TreeModelNode* parent,
                               int start,
                               int count);
-  virtual void TreeNodesRemoved(TreeModel* model,
-                                TreeModelNode* parent,
+  virtual void TreeNodesRemoved(ui::TreeModel* model,
+                                ui::TreeModelNode* parent,
                                 int start,
                                 int count);
-  virtual void TreeNodeChanged(TreeModel* model, TreeModelNode* node) {}
+  virtual void TreeNodeChanged(ui::TreeModel* model, ui::TreeModelNode* node) {}
   virtual void TreeModelBeginBatch(CookiesTreeModel* model);
   virtual void TreeModelEndBatch(CookiesTreeModel* model);
 
@@ -44,14 +44,14 @@ class CookiesViewHandler : public OptionsPageUIHandler,
   void Remove(const ListValue* args);
 
   // Get the tree node using the tree path info in |args| and call
-  // SendChildren to pass back children nodes data to DOMUI.
+  // SendChildren to pass back children nodes data to WebUI.
   void LoadChildren(const ListValue* args);
 
   // Gets tree node from given path. Return NULL if path is not valid.
   CookieTreeNode* GetTreeNodeFromPath(const std::string& path);
 
   // Get children nodes data and pass it to 'CookiesView.loadChildren' to
-  // update the DOMUI.
+  // update the WebUI.
   void SendChildren(CookieTreeNode* parent);
 
   // The Cookies Tree model

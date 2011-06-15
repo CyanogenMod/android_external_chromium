@@ -1,10 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/printing/cloud_print/cloud_print_setup_flow.h"
 
-#include "app/gfx/font_util.h"
 #include "base/json/json_writer.h"
 #include "base/singleton.h"
 #include "base/string_util.h"
@@ -13,10 +12,7 @@
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
-#include "chrome/browser/dom_ui/dom_ui_util.h"
-#if defined(TOOLKIT_GTK)
-#include "chrome/browser/gtk/html_dialog_gtk.h"
-#endif  // defined(TOOLKIT_GTK)
+#include "chrome/browser/dom_ui/web_ui_util.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_proxy_service.h"
@@ -29,19 +25,17 @@
 #include "chrome/browser/service/service_process_control_manager.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_window.h"
-#if defined(TOOLKIT_VIEWS)
-#include "chrome/browser/views/browser_dialogs.h"
-#endif  // defined(TOOLKIT_GTK)
 #include "chrome/common/net/gaia/gaia_auth_fetcher.h"
 #include "chrome/common/net/gaia/gaia_constants.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/service_messages.h"
-#include "gfx/font.h"
-
 #include "grit/chromium_strings.h"
 #include "grit/locale_settings.h"
+#include "ui/base/l10n/l10n_font_util.h"
+#include "ui/gfx/font.h"
 
 static const wchar_t kGaiaLoginIFrameXPath[] = L"//iframe[@id='gaialogin']";
 static const wchar_t kDoneIframeXPath[] = L"//iframe[@id='setupdone']";
@@ -73,19 +67,13 @@ CloudPrintSetupFlow* CloudPrintSetupFlow::OpenDialog(
   // invoked in the context of a "token expired" notfication. If we don't have
   // a brower, use the underlying dialog system to show the dialog without
   // using a browser.
-  Browser* browser = BrowserList::GetLastActive();
-  if (browser) {
-    browser->BrowserShowHtmlDialog(flow, parent_window);
-  } else {
-#if defined(TOOLKIT_VIEWS)
-    browser::ShowHtmlDialogView(parent_window, profile, flow);
-#elif defined(TOOLKIT_GTK)
-    HtmlDialogGtk* html_dialog =
-        new HtmlDialogGtk(profile, flow, parent_window);
-    html_dialog->InitDialog();
-#endif  // defined(TOOLKIT_VIEWS)
-  // TODO(sanjeevr): Implement the "no browser" scenario for the Mac.
+  if (!parent_window) {
+    Browser* browser = BrowserList::GetLastActive();
+    if (browser && browser->window())
+      parent_window = browser->window()->GetNativeHandle();
   }
+  DCHECK(profile);
+  browser::ShowHtmlDialog(parent_window, profile, flow);
   return flow;
 }
 
@@ -93,18 +81,15 @@ CloudPrintSetupFlow::CloudPrintSetupFlow(const std::string& args,
                                          Profile* profile,
                                          Delegate* delegate,
                                          bool setup_done)
-    : dom_ui_(NULL),
+    : web_ui_(NULL),
       dialog_start_args_(args),
       setup_done_(setup_done),
       process_control_(NULL),
       delegate_(delegate) {
   // TODO(hclam): The data source should be added once.
   profile_ = profile;
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      NewRunnableMethod(ChromeURLDataManager::GetInstance(),
-                        &ChromeURLDataManager::AddDataSource,
-                        make_scoped_refptr(new CloudPrintSetupSource())));
+  profile->GetChromeURLDataManager()->AddDataSource(
+      new CloudPrintSetupSource());
 }
 
 CloudPrintSetupFlow::~CloudPrintSetupFlow() {
@@ -121,8 +106,8 @@ GURL CloudPrintSetupFlow::GetDialogContentURL() const {
   return GURL("chrome://cloudprintsetup/setupflow");
 }
 
-void CloudPrintSetupFlow::GetDOMMessageHandlers(
-    std::vector<DOMMessageHandler*>* handlers) const {
+void CloudPrintSetupFlow::GetWebUIMessageHandlers(
+    std::vector<WebUIMessageHandler*>* handlers) const {
   // Create the message handler only after we are asked, the caller is
   // responsible for deleting the objects.
   handlers->push_back(
@@ -133,16 +118,16 @@ void CloudPrintSetupFlow::GetDOMMessageHandlers(
 void CloudPrintSetupFlow::GetDialogSize(gfx::Size* size) const {
   PrefService* prefs = profile_->GetPrefs();
   gfx::Font approximate_web_font(
-      UTF8ToWide(prefs->GetString(prefs::kWebKitSansSerifFontFamily)),
+      UTF8ToUTF16(prefs->GetString(prefs::kWebKitSansSerifFontFamily)),
       prefs->GetInteger(prefs::kWebKitDefaultFontSize));
 
   if (setup_done_) {
-    *size = gfx::GetLocalizedContentsSizeForFont(
+    *size = ui::GetLocalizedContentsSizeForFont(
         IDS_CLOUD_PRINT_SETUP_WIZARD_DONE_WIDTH_CHARS,
         IDS_CLOUD_PRINT_SETUP_WIZARD_DONE_HEIGHT_LINES,
         approximate_web_font);
   } else {
-    *size = gfx::GetLocalizedContentsSizeForFont(
+    *size = ui::GetLocalizedContentsSizeForFont(
         IDS_CLOUD_PRINT_SETUP_WIZARD_WIDTH_CHARS,
         IDS_CLOUD_PRINT_SETUP_WIZARD_HEIGHT_LINES,
         approximate_web_font);
@@ -208,8 +193,8 @@ void CloudPrintSetupFlow::OnClientLoginSuccess(
 
 ///////////////////////////////////////////////////////////////////////////////
 // Methods called by CloudPrintSetupMessageHandler
-void CloudPrintSetupFlow::Attach(DOMUI* dom_ui) {
-  dom_ui_ = dom_ui;
+void CloudPrintSetupFlow::Attach(WebUI* web_ui) {
+  web_ui_ = web_ui;
 }
 
 void CloudPrintSetupFlow::OnUserSubmittedAuth(const std::string& user,
@@ -230,22 +215,22 @@ void CloudPrintSetupFlow::OnUserSubmittedAuth(const std::string& user,
 }
 
 void CloudPrintSetupFlow::OnUserClickedLearnMore() {
-  dom_ui_->tab_contents()->OpenURL(CloudPrintURL::GetCloudPrintLearnMoreURL(),
+  web_ui_->tab_contents()->OpenURL(CloudPrintURL::GetCloudPrintLearnMoreURL(),
                                    GURL(), NEW_FOREGROUND_TAB,
                                    PageTransition::LINK);
 }
 
 void CloudPrintSetupFlow::OnUserClickedPrintTestPage() {
-  dom_ui_->tab_contents()->OpenURL(CloudPrintURL::GetCloudPrintTestPageURL(),
+  web_ui_->tab_contents()->OpenURL(CloudPrintURL::GetCloudPrintTestPageURL(),
                                    GURL(), NEW_FOREGROUND_TAB,
                                    PageTransition::LINK);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// Helper methods for showing contents of the DOM UI
+// Helper methods for showing contents of the Web UI
 void CloudPrintSetupFlow::ShowGaiaLogin(const DictionaryValue& args) {
-  if (dom_ui_)
-    dom_ui_->CallJavascriptFunction(L"cloudprint.showSetupLogin");
+  if (web_ui_)
+    web_ui_->CallJavascriptFunction(L"cloudprint.showSetupLogin");
 
   std::string json;
   base::JSONWriter::Write(&args, false, &json);
@@ -279,19 +264,19 @@ void CloudPrintSetupFlow::ShowSetupDone() {
   std::wstring javascript = L"cloudprint.setMessage('" + message + L"');";
   ExecuteJavascriptInIFrame(kDoneIframeXPath, javascript);
 
-  if (dom_ui_) {
+  if (web_ui_) {
     PrefService* prefs = profile_->GetPrefs();
     gfx::Font approximate_web_font(
-        UTF8ToWide(prefs->GetString(prefs::kWebKitSansSerifFontFamily)),
+        UTF8ToUTF16(prefs->GetString(prefs::kWebKitSansSerifFontFamily)),
         prefs->GetInteger(prefs::kWebKitDefaultFontSize));
-    gfx::Size done_size = gfx::GetLocalizedContentsSizeForFont(
+    gfx::Size done_size = ui::GetLocalizedContentsSizeForFont(
         IDS_CLOUD_PRINT_SETUP_WIZARD_DONE_WIDTH_CHARS,
         IDS_CLOUD_PRINT_SETUP_WIZARD_DONE_HEIGHT_LINES,
         approximate_web_font);
 
     FundamentalValue new_width(done_size.width());
     FundamentalValue new_height(done_size.height());
-    dom_ui_->CallJavascriptFunction(L"cloudprint.showSetupDone",
+    web_ui_->CallJavascriptFunction(L"cloudprint.showSetupDone",
                                     new_width, new_height);
   }
 
@@ -301,8 +286,9 @@ void CloudPrintSetupFlow::ShowSetupDone() {
 void CloudPrintSetupFlow::ExecuteJavascriptInIFrame(
     const std::wstring& iframe_xpath,
     const std::wstring& js) {
-  if (dom_ui_) {
-    RenderViewHost* rvh = dom_ui_->tab_contents()->render_view_host();
-    rvh->ExecuteJavascriptInWebFrame(iframe_xpath, js);
+  if (web_ui_) {
+    RenderViewHost* rvh = web_ui_->tab_contents()->render_view_host();
+    rvh->ExecuteJavascriptInWebFrame(WideToUTF16Hack(iframe_xpath),
+                                     WideToUTF16Hack(js));
   }
 }

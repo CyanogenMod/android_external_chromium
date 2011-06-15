@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,14 +14,14 @@
 #include "base/string_util.h"
 #include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
-#include "gfx/canvas.h"
-#include "gfx/font.h"
 #include "third_party/cros/chromeos_input_method_ui.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/font.h"
 #include "views/controls/label.h"
 #include "views/controls/textfield/textfield.h"
-#include "views/event.h"
-#include "views/fill_layout.h"
-#include "views/grid_layout.h"
+#include "views/events/event.h"
+#include "views/layout/fill_layout.h"
+#include "views/layout/grid_layout.h"
 #include "views/screen.h"
 #include "views/widget/root_view.h"
 #include "views/widget/widget.h"
@@ -347,6 +347,9 @@ class CandidateWindowView : public views::View {
   // Commits the candidate currently being selected.
   void CommitCandidate();
 
+  // Hides the lookup table.
+  void HideLookupTable();
+
   // Hides the auxiliary text.
   void HideAuxiliaryText();
 
@@ -402,6 +405,13 @@ class CandidateWindowView : public views::View {
   //
   // Returns 0 if no candidate is present.
   int GetHorizontalOffset();
+
+  // A function to be called when one of the |candidate_views_| receives a mouse
+  // press event.
+  void OnMousePressed();
+  // A function to be called when one of the |candidate_views_| receives a mouse
+  // release event.
+  void OnMouseReleased();
 
   void set_cursor_location(const gfx::Rect& cursor_location) {
     cursor_location_ = cursor_location;
@@ -475,6 +485,9 @@ class CandidateWindowView : public views::View {
 
   // The last cursor location.
   gfx::Rect cursor_location_;
+
+  // true if a mouse button is pressed, and is not yet released.
+  bool mouse_is_pressed_;
 };
 
 // CandidateRow renderes a row of a candidate.
@@ -700,10 +713,11 @@ void CandidateView::SetRowEnabled(bool enabled) {
 }
 
 gfx::Point CandidateView::GetCandidateLabelPosition() const {
-  return candidate_label_->GetPosition();
+  return candidate_label_->GetMirroredPosition();
 }
 
 bool CandidateView::OnMousePressed(const views::MouseEvent& event) {
+  parent_candidate_window_->OnMousePressed();
   // Select the candidate. We'll commit the candidate when the mouse
   // button is released.
   parent_candidate_window_->SelectCandidateAt(index_in_page_);
@@ -727,6 +741,7 @@ void CandidateView::OnMouseReleased(const views::MouseEvent& event,
   if (!canceled) {
     parent_candidate_window_->CommitCandidate();
   }
+  parent_candidate_window_->OnMouseReleased();
 }
 
 CandidateWindowView::CandidateWindowView(
@@ -740,8 +755,8 @@ CandidateWindowView::CandidateWindowView(
       footer_label_(NULL),
       previous_shortcut_column_width_(0),
       previous_candidate_column_width_(0),
-      previous_annotation_column_width_(0) {
-
+      previous_annotation_column_width_(0),
+      mouse_is_pressed_(false) {
   SetNotifyWhenVisibleBoundsInRootChanges(true);
 }
 
@@ -778,6 +793,57 @@ void CandidateWindowView::Init() {
   layout->AddView(footer_area_);  // |footer_area_| is owned by |this|.
 }
 
+void CandidateWindowView::HideLookupTable() {
+  if (!mouse_is_pressed_) {
+    parent_frame_->Hide();
+    return;
+  }
+
+  // We should not hide the |frame_| when a mouse is pressed, so we don't run
+  // into issues below.
+  //
+  // First, in the following scenario, it seems that the Views popup window does
+  // not release mouse/keyboard grab even after it gets hidden.
+  //
+  // 1. create a popup window by views::Widget::CreatePopupWidget() with the
+  //    views::Widget::AcceptEvents flag.
+  // 2. press a mouse button on the window.
+  // 3. before releasing the mouse button, Hide() the window.
+  // 4. release the button.
+  //
+  // And if we embed IME candidate window into Chrome, the window sometimes
+  // receives an extra 'hide-lookup-table' event before mouse button is
+  // released:
+  //
+  // 1. the candidate window is clicked.
+  // 2. The mouse click handler in this file, OnMousePressed() in CandidateView,
+  //    is called, and the handler consumes the event by returning true.
+  // 3. HOWEVER, if the candidate window is embedded into Chrome, the event is
+  //    also sent to Chrome! (problem #1)
+  // 4. im-ibus.so in Chrome sends 'focus-out' event to ibus-daemon.
+  // 5. ibus-daemon sends 'hide-lookup-table' event to the candidate window.
+  // 6. the window is hidden, but the window does not release mouse/keyboard
+  //    grab! (problem #2)
+  // 7. mouse button is released.
+  // 8. now all mouse/keyboard events are consumed by the hidden popup, and are
+  //    not sent to Chrome.
+  //
+  // TODO(yusukes): investigate why the click event is sent to both candidate
+  // window and Chrome. http://crosbug.com/11423
+  // TODO(yusukes): investigate if we could fix Views so it always releases grab
+  // when a popup window gets hidden. http://crosbug.com/11422
+  //
+  LOG(WARNING) << "Can't hide the table since a mouse button is not released.";
+}
+
+void CandidateWindowView::OnMousePressed() {
+  mouse_is_pressed_ = true;
+}
+
+void CandidateWindowView::OnMouseReleased() {
+  mouse_is_pressed_ = false;
+}
+
 void CandidateWindowView::HideAuxiliaryText() {
   views::View* target_area = (
       lookup_table_.orientation == InputMethodLookupTable::kHorizontal ?
@@ -800,7 +866,7 @@ void CandidateWindowView::ShowAuxiliaryText() {
       header_area_contents_.get() :
       footer_area_contents_.get());
 
-  if (!target_area->HasChildView(target_contents)) {
+  if (target_contents->parent() != target_area) {
     // If contents not in display area, put it in.
     target_area->RemoveAllChildViews(false);  // Don't delete child views.
     target_area->AddChildView(target_contents);
@@ -997,7 +1063,7 @@ void CandidateWindowView::MaybeInitializeCandidateViews(
   // moves right from the correct position in MoveParentFrame().
   // TODO(nhiroki): Figure out why it returns invalid value.
   // It seems that the x-position of the candidate labels is not set.
-  layout->Layout(this);
+  layout->Layout(candidate_area_);
 }
 
 views::View* CandidateWindowView::CreateHeaderArea() {
@@ -1267,7 +1333,7 @@ void CandidateWindowController::Impl::OnHideLookupTable(
   CandidateWindowController::Impl* controller =
       static_cast<CandidateWindowController::Impl*>(input_method_library);
 
-  controller->frame_->Hide();
+  controller->candidate_window_->HideLookupTable();
 }
 
 void CandidateWindowController::Impl::OnSetCursorLocation(
@@ -1321,7 +1387,7 @@ void CandidateWindowController::Impl::OnUpdateLookupTable(
 
   // If it's not visible, hide the window and return.
   if (!lookup_table.visible) {
-    controller->frame_->Hide();
+    controller->candidate_window_->HideLookupTable();
     return;
   }
 
@@ -1331,8 +1397,8 @@ void CandidateWindowController::Impl::OnUpdateLookupTable(
 }
 
 void CandidateWindowController::Impl::OnCandidateCommitted(int index,
-                                                     int button,
-                                                     int flags) {
+                                                           int button,
+                                                           int flags) {
   NotifyCandidateClicked(ui_status_connection_, index, button, flags);
 }
 
@@ -1340,8 +1406,9 @@ void CandidateWindowController::Impl::OnConnectionChange(
     void* input_method_library,
     bool connected) {
   if (!connected) {
-    MessageLoopForUI::current()->PostTask(FROM_HERE,
-                                          new MessageLoop::QuitTask());
+    CandidateWindowController::Impl* controller =
+        static_cast<CandidateWindowController::Impl*>(input_method_library);
+    controller->candidate_window_->HideLookupTable();
   }
 }
 

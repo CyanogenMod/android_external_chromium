@@ -1,14 +1,14 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/remoting/setup_flow_register_step.h"
 
-#include "app/l10n_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/remoting/setup_flow_login_step.h"
 #include "chrome/browser/remoting/setup_flow_start_host_step.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace remoting {
 
@@ -20,11 +20,13 @@ void SetupFlowRegisterStep::HandleMessage(const std::string& message,
 }
 
 void SetupFlowRegisterStep::Cancel() {
-  // Don't need to do anything here. Ther request will canceled when
+  // Don't need to do anything here. The request will be canceled when
   // |request_| is destroyed.
 }
 
 void SetupFlowRegisterStep::DoStart() {
+  flow()->web_ui()->CallJavascriptFunction(L"showSettingUp");
+
   request_.reset(new DirectoryAddRequest(
       flow()->profile()->GetRequestContext()));
   request_->AddHost(flow()->context()->host_info,
@@ -39,12 +41,13 @@ void SetupFlowRegisterStep::OnRequestDone(DirectoryAddRequest::Result result,
       FinishStep(new SetupFlowStartHostStep());
       break;
     case DirectoryAddRequest::ERROR_EXISTS:
-      LOG(INFO) << "Chromoting host is already reagistered.";
+      LOG(INFO) << "Chromoting host is already registered.";
       FinishStep(new SetupFlowStartHostStep());
       break;
     case DirectoryAddRequest::ERROR_AUTH:
-      LOG(ERROR) << "Chromoting Directory didn't accept auth token.";
-      FinishStep(new SetupFlowLoginStep());
+      LOG(ERROR) << "Access denied by Chromoting Directory.";
+      FinishStep(new SetupFlowLoginStep(l10n_util::GetStringUTF16(
+          IDS_REMOTING_REGISTRATION_ACCESS_DENIED)));
       break;
     default:
       LOG(ERROR) << "Chromoting Host registration failed: "

@@ -1,12 +1,9 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/search_engines/template_url_table_model.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
-#include "app/table_model_observer.h"
 #include "base/callback.h"
 #include "base/i18n/rtl.h"
 #include "base/stl_util-inl.h"
@@ -15,10 +12,13 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
-#include "gfx/codec/png_codec.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/models/table_model_observer.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/codec/png_codec.h"
 
 // Group IDs used by TemplateURLTableModel.
 static const int kMainGroupID = 0;
@@ -180,7 +180,7 @@ string16 TemplateURLTableModel::GetText(int row, int col_id) {
 
   switch (col_id) {
     case IDS_SEARCH_ENGINES_EDITOR_DESCRIPTION_COLUMN: {
-      string16 url_short_name = WideToUTF16Hack(url.short_name());
+      string16 url_short_name = url.short_name();
       // TODO(xji): Consider adding a special case if the short name is a URL,
       // since those should always be displayed LTR. Please refer to
       // http://crbug.com/6726 for more information.
@@ -195,7 +195,7 @@ string16 TemplateURLTableModel::GetText(int row, int col_id) {
 
     case IDS_SEARCH_ENGINES_EDITOR_KEYWORD_COLUMN: {
       // Keyword should be domain name. Force it to have LTR directionality.
-      string16 keyword = WideToUTF16(url.keyword());
+      string16 keyword = url.keyword();
       keyword = base::i18n::GetDisplayStringInLTRDirectionality(keyword);
       return keyword;
     }
@@ -211,7 +211,7 @@ SkBitmap TemplateURLTableModel::GetIcon(int row) {
   return entries_[row]->GetIcon();
 }
 
-void TemplateURLTableModel::SetObserver(TableModelObserver* observer) {
+void TemplateURLTableModel::SetObserver(ui::TableModelObserver* observer) {
   observer_ = observer;
 }
 
@@ -279,8 +279,7 @@ void TemplateURLTableModel::ModifyTemplateURL(int index,
   DCHECK(index >= 0 && index <= RowCount());
   const TemplateURL* template_url = &GetTemplateURL(index);
   template_url_model_->RemoveObserver(this);
-  template_url_model_->ResetTemplateURL(template_url, UTF16ToWideHack(title),
-                                        UTF16ToWideHack(keyword), url);
+  template_url_model_->ResetTemplateURL(template_url, title, keyword, url);
   if (template_url_model_->GetDefaultSearchProvider() == template_url &&
       !TemplateURL::SupportsReplacement(template_url)) {
     // The entry was the default search provider, but the url has been modified

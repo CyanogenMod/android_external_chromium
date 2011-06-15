@@ -24,6 +24,10 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/multiprocess_func_list.h"
 
+#if defined(OS_MACOSX)
+#include "base/test/mock_chrome_application_mac.h"
+#endif
+
 #if defined(TOOLKIT_USES_GTK)
 #include <gtk/gtk.h>
 #endif
@@ -171,14 +175,21 @@ void TestSuite::SuppressErrorDialogs() {
 }
 
 void TestSuite::Initialize() {
+#if defined(OS_MACOSX)
+  // Some of the app unit tests spin runloops.
+  mock_cr_app::RegisterMockCrApp();
+#endif
+
   // Initialize logging.
   FilePath exe;
   PathService::Get(base::FILE_EXE, &exe);
   FilePath log_filename = exe.ReplaceExtension(FILE_PATH_LITERAL("log"));
-  logging::InitLogging(log_filename.value().c_str(),
-                       logging::LOG_TO_BOTH_FILE_AND_SYSTEM_DEBUG_LOG,
-                       logging::LOCK_LOG_FILE,
-                       logging::DELETE_OLD_LOG_FILE);
+  logging::InitLogging(
+      log_filename.value().c_str(),
+      logging::LOG_TO_BOTH_FILE_AND_SYSTEM_DEBUG_LOG,
+      logging::LOCK_LOG_FILE,
+      logging::DELETE_OLD_LOG_FILE,
+      logging::DISABLE_DCHECK_FOR_NON_OFFICIAL_RELEASE_BUILDS);
   // We want process and thread IDs because we may have multiple processes.
   // Note: temporarily enabled timestamps in an effort to catch bug 6361.
   logging::SetLogItems(true, true, true, true);

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,6 @@
 #include <algorithm>
 #include <vector>
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
-#include "app/theme_provider.h"
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/ref_counted_memory.h"
@@ -34,20 +31,23 @@
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
-#include "gfx/color_utils.h"
 #include "grit/browser_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
 #include "ui/base/animation/animation.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/base/theme_provider.h"
+#include "ui/gfx/color_utils.h"
 
 #if defined(OS_WIN) || defined(TOOLKIT_VIEWS)
-#include "chrome/browser/views/bookmark_bar_view.h"
+#include "chrome/browser/ui/views/bookmark_bar_view.h"
 #elif defined(OS_MACOSX)
 #include "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_constants.h"
 #elif defined(OS_POSIX)
-#include "chrome/browser/gtk/bookmark_bar_gtk.h"
+#include "chrome/browser/ui/gtk/bookmark_bar_gtk.h"
 #endif
 
 using base::Time;
@@ -88,7 +88,7 @@ std::string SkColorToRGBAString(SkColor color) {
 
 // Get the CSS string for the background position on the new tab page for the
 // states when the bar is attached or detached.
-std::string GetNewTabBackgroundCSS(const ThemeProvider* theme_provider,
+std::string GetNewTabBackgroundCSS(const ui::ThemeProvider* theme_provider,
                                    bool bar_attached) {
   int alignment;
   theme_provider->GetDisplayProperty(
@@ -129,7 +129,8 @@ std::string GetNewTabBackgroundCSS(const ThemeProvider* theme_provider,
 
 // How the background image on the new tab page should be tiled (see tiling
 // masks in browser_theme_provider.h).
-std::string GetNewTabBackgroundTilingCSS(const ThemeProvider* theme_provider) {
+std::string GetNewTabBackgroundTilingCSS(
+    const ui::ThemeProvider* theme_provider) {
   int repeat_mode;
   theme_provider->GetDisplayProperty(
       BrowserThemeProvider::NTP_BACKGROUND_TILING, &repeat_mode);
@@ -336,6 +337,8 @@ void NTPResourceCache::CreateNewTabHTML() {
       l10n_util::GetStringUTF16(IDS_APPS_PROMO_TEXT_1));
   localized_strings.SetString("appspromotext2",
       l10n_util::GetStringUTF16(IDS_APPS_PROMO_TEXT_2));
+  localized_strings.SetString("syncpromotext",
+      l10n_util::GetStringUTF16(IDS_SYNC_START_SYNC_BUTTON_LABEL));
 #if defined(OS_CHROMEOS)
   localized_strings.SetString("expandMenu",
       l10n_util::GetStringUTF16(IDS_NEW_TAB_CLOSE_MENU_EXPAND));
@@ -365,8 +368,8 @@ void NTPResourceCache::CreateNewTabHTML() {
   if (profile_->GetPrefs()->FindPreference(prefs::kNTPCustomLogoStart) &&
       profile_->GetPrefs()->FindPreference(prefs::kNTPCustomLogoEnd)) {
     localized_strings.SetString("customlogo",
-        InDateRange(profile_->GetPrefs()->GetReal(prefs::kNTPCustomLogoStart),
-                    profile_->GetPrefs()->GetReal(prefs::kNTPCustomLogoEnd)) ?
+        InDateRange(profile_->GetPrefs()->GetDouble(prefs::kNTPCustomLogoStart),
+                    profile_->GetPrefs()->GetDouble(prefs::kNTPCustomLogoEnd)) ?
         "true" : "false");
   } else {
     localized_strings.SetString("customlogo", "false");
@@ -379,8 +382,8 @@ void NTPResourceCache::CreateNewTabHTML() {
       profile_->GetPrefs()->FindPreference(prefs::kNTPPromoLine) &&
       WebResourceServiceUtil::CanShowPromo(profile_)) {
     localized_strings.SetString("serverpromo",
-        InDateRange(profile_->GetPrefs()->GetReal(prefs::kNTPPromoStart),
-                    profile_->GetPrefs()->GetReal(prefs::kNTPPromoEnd)) ?
+        InDateRange(profile_->GetPrefs()->GetDouble(prefs::kNTPPromoStart),
+                    profile_->GetPrefs()->GetDouble(prefs::kNTPPromoEnd)) ?
                     profile_->GetPrefs()->GetString(prefs::kNTPPromoLine) :
                                                     std::string());
   }
@@ -415,7 +418,7 @@ void NTPResourceCache::CreateNewTabHTML() {
 }
 
 void NTPResourceCache::CreateNewTabIncognitoCSS() {
-  ThemeProvider* tp = profile_->GetThemeProvider();
+  ui::ThemeProvider* tp = profile_->GetThemeProvider();
   DCHECK(tp);
 
   // Get our theme colors
@@ -451,7 +454,7 @@ void NTPResourceCache::CreateNewTabIncognitoCSS() {
 }
 
 void NTPResourceCache::CreateNewTabCSS() {
-  ThemeProvider* tp = profile_->GetThemeProvider();
+  ui::ThemeProvider* tp = profile_->GetThemeProvider();
   DCHECK(tp);
 
   // Get our theme colors

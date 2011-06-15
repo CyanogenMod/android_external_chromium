@@ -4,7 +4,6 @@
 
 #include "chrome/browser/download/download_shelf.h"
 
-#include "app/l10n_util.h"
 #include "base/file_util.h"
 #include "chrome/browser/dom_ui/downloads_ui.h"
 #include "chrome/browser/download/download_item.h"
@@ -12,9 +11,9 @@
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/download/download_util.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/ui/browser.h"
 #include "chrome/common/url_constants.h"
 #include "grit/generated_resources.h"
+#include "ui/base/l10n/l10n_util.h"
 
 // DownloadShelfContextMenu ----------------------------------------------------
 
@@ -110,7 +109,7 @@ void DownloadShelfContextMenu::ExecuteCommand(int command_id) {
 }
 
 bool DownloadShelfContextMenu::GetAcceleratorForCommandId(
-    int command_id, menus::Accelerator* accelerator) {
+    int command_id, ui::Accelerator* accelerator) {
   return false;
 }
 
@@ -119,11 +118,11 @@ bool DownloadShelfContextMenu::IsItemForCommandIdDynamic(
   return command_id == TOGGLE_PAUSE;
 }
 
-menus::SimpleMenuModel* DownloadShelfContextMenu::GetInProgressMenuModel() {
+ui::SimpleMenuModel* DownloadShelfContextMenu::GetInProgressMenuModel() {
   if (in_progress_download_menu_model_.get())
     return in_progress_download_menu_model_.get();
 
-  in_progress_download_menu_model_.reset(new menus::SimpleMenuModel(this));
+  in_progress_download_menu_model_.reset(new ui::SimpleMenuModel(this));
 
   in_progress_download_menu_model_->AddCheckItemWithStringId(
       OPEN_WHEN_COMPLETE, IDS_DOWNLOAD_MENU_OPEN_WHEN_COMPLETE);
@@ -141,11 +140,11 @@ menus::SimpleMenuModel* DownloadShelfContextMenu::GetInProgressMenuModel() {
   return in_progress_download_menu_model_.get();
 }
 
-menus::SimpleMenuModel* DownloadShelfContextMenu::GetFinishedMenuModel() {
+ui::SimpleMenuModel* DownloadShelfContextMenu::GetFinishedMenuModel() {
   if (finished_download_menu_model_.get())
     return finished_download_menu_model_.get();
 
-  finished_download_menu_model_.reset(new menus::SimpleMenuModel(this));
+  finished_download_menu_model_.reset(new ui::SimpleMenuModel(this));
 
   finished_download_menu_model_->AddItemWithStringId(
       OPEN_WHEN_COMPLETE, IDS_DOWNLOAD_MENU_OPEN);

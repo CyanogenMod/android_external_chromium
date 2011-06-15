@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include "base/scoped_ptr.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
-#include "chrome/browser/views/tabs/tab_strip_controller.h"
+#include "chrome/browser/ui/views/tabs/tab_strip_controller.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 
@@ -71,7 +71,8 @@ class BrowserTabStripController : public TabStripController,
   virtual void TabChangedAt(TabContentsWrapper* contents,
                             int model_index,
                             TabChangeType change_type);
-  virtual void TabReplacedAt(TabContentsWrapper* old_contents,
+  virtual void TabReplacedAt(TabStripModel* tab_strip_model,
+                             TabContentsWrapper* old_contents,
                              TabContentsWrapper* new_contents,
                              int model_index);
   virtual void TabPinnedStateChanged(TabContentsWrapper* contents,

@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,6 +54,8 @@ const char kWindowTypeValueApp[] = "app";
 
 const char kCanOnlyMoveTabsWithinNormalWindowsError[] = "Tabs can only be "
     "moved to and from normal windows.";
+const char kCanOnlyMoveTabsWithinSameProfileError[] = "Tabs can only be moved "
+    "between windows in the same profile.";
 const char kNoCurrentWindowError[] = "No current window";
 const char kNoLastFocusedWindowError[] = "No last-focused window";
 const char kWindowNotFoundError[] = "No window with id: *.";
@@ -61,6 +63,7 @@ const char kTabNotFoundError[] = "No tab with id: *.";
 const char kTabStripNotEditableError[] =
     "Tabs cannot be edited right now (user may be dragging a tab).";
 const char kNoSelectedTabError[] = "No selected tab";
+const char kIncognitoModeIsDisabled[] = "Incognito mode is disabled.";
 const char kInvalidUrlError[] = "Invalid url: \"*\".";
 const char kInternalVisibleTabCaptureError[] =
     "Internal error while trying to capture visible region of the current tab";

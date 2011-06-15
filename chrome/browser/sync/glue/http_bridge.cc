@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,10 +26,11 @@ HttpBridge::RequestContextGetter::RequestContextGetter(
     : baseline_context_getter_(baseline_context_getter) {
 }
 
-URLRequestContext* HttpBridge::RequestContextGetter::GetURLRequestContext() {
+net::URLRequestContext*
+HttpBridge::RequestContextGetter::GetURLRequestContext() {
   // Lazily create the context.
   if (!context_) {
-    URLRequestContext* baseline_context =
+    net::URLRequestContext* baseline_context =
         baseline_context_getter_->GetURLRequestContext();
     context_ = new RequestContext(baseline_context);
     baseline_context_getter_ = NULL;
@@ -67,7 +68,8 @@ void HttpBridgeFactory::Destroy(sync_api::HttpPostProviderInterface* http) {
   static_cast<HttpBridge*>(http)->Release();
 }
 
-HttpBridge::RequestContext::RequestContext(URLRequestContext* baseline_context)
+HttpBridge::RequestContext::RequestContext(
+    net::URLRequestContext* baseline_context)
     : baseline_context_(baseline_context) {
 
   // Create empty, in-memory cookie store.
@@ -85,7 +87,7 @@ HttpBridge::RequestContext::RequestContext(URLRequestContext* baseline_context)
   net::HttpNetworkSession* session =
       baseline_context->http_transaction_factory()->GetSession();
   DCHECK(session);
-  http_transaction_factory_ = net::HttpNetworkLayer::CreateFactory(session);
+  http_transaction_factory_ = new net::HttpNetworkLayer(session);
 
   // TODO(timsteele): We don't currently listen for pref changes of these
   // fields or CookiePolicy; I'm not sure we want to strictly follow the
@@ -219,15 +221,16 @@ const std::string HttpBridge::GetResponseHeaderValue(
   return value;
 }
 
-void HttpBridge::OnURLFetchComplete(const URLFetcher *source, const GURL &url,
-                                    const URLRequestStatus &status,
+void HttpBridge::OnURLFetchComplete(const URLFetcher *source,
+                                    const GURL &url,
+                                    const net::URLRequestStatus &status,
                                     int response_code,
                                     const ResponseCookies &cookies,
                                     const std::string &data) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   request_completed_ = true;
-  request_succeeded_ = (URLRequestStatus::SUCCESS == status.status());
+  request_succeeded_ = (net::URLRequestStatus::SUCCESS == status.status());
   http_response_code_ = response_code;
   os_error_code_ = status.os_error();
 

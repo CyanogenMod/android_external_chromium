@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,17 +6,14 @@
 
 #include <utility>
 
-#include "app/drag_drop_types.h"
-#include "app/l10n_util.h"
-#include "app/tree_node_iterator.h"
 #include "base/basictypes.h"
 #include "base/file_path.h"
-#include "base/string_number_conversions.h"
 #include "base/string16.h"
+#include "base/string_number_conversions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/bookmarks/bookmark_node_data.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
+#include "chrome/browser/bookmarks/bookmark_node_data.h"
 #if defined(OS_MACOSX)
 #include "chrome/browser/bookmarks/bookmark_pasteboard_helper_mac.h"
 #endif
@@ -35,15 +32,18 @@
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "net/base/net_util.h"
-#include "views/event.h"
+#include "ui/base/dragdrop/drag_drop_types.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "ui/base/models/tree_node_iterator.h"
 
 #if defined(TOOLKIT_VIEWS)
-#include "app/os_exchange_data.h"
+#include "ui/base/dragdrop/os_exchange_data.h"
 #include "views/drag_utils.h"
+#include "views/events/event.h"
 #include "views/widget/root_view.h"
 #include "views/widget/widget.h"
 #elif defined(TOOLKIT_GTK)
-#include "chrome/browser/gtk/custom_drag.h"
+#include "chrome/browser/ui/gtk/custom_drag.h"
 #endif
 
 using base::Time;
@@ -210,23 +210,24 @@ int PreferredDropOperation(int source_operations, int operations) {
   int common_ops = (source_operations & operations);
   if (!common_ops)
     return 0;
-  if (DragDropTypes::DRAG_COPY & common_ops)
-    return DragDropTypes::DRAG_COPY;
-  if (DragDropTypes::DRAG_LINK & common_ops)
-    return DragDropTypes::DRAG_LINK;
-  if (DragDropTypes::DRAG_MOVE & common_ops)
-    return DragDropTypes::DRAG_MOVE;
-  return DragDropTypes::DRAG_NONE;
+  if (ui::DragDropTypes::DRAG_COPY & common_ops)
+    return ui::DragDropTypes::DRAG_COPY;
+  if (ui::DragDropTypes::DRAG_LINK & common_ops)
+    return ui::DragDropTypes::DRAG_LINK;
+  if (ui::DragDropTypes::DRAG_MOVE & common_ops)
+    return ui::DragDropTypes::DRAG_MOVE;
+  return ui::DragDropTypes::DRAG_NONE;
 }
 
 int BookmarkDragOperation(const BookmarkNode* node) {
   if (node->is_url()) {
-    return DragDropTypes::DRAG_COPY | DragDropTypes::DRAG_MOVE |
-           DragDropTypes::DRAG_LINK;
+    return ui::DragDropTypes::DRAG_COPY | ui::DragDropTypes::DRAG_MOVE |
+           ui::DragDropTypes::DRAG_LINK;
   }
-  return DragDropTypes::DRAG_COPY | DragDropTypes::DRAG_MOVE;
+  return ui::DragDropTypes::DRAG_COPY | ui::DragDropTypes::DRAG_MOVE;
 }
 
+#if defined(TOOLKIT_VIEWS)
 int BookmarkDropOperation(Profile* profile,
                           const views::DropTargetEvent& event,
                           const BookmarkNodeData& data,
@@ -234,19 +235,20 @@ int BookmarkDropOperation(Profile* profile,
                           int index) {
   if (data.IsFromProfile(profile) && data.size() > 1)
     // Currently only accept one dragged node at a time.
-    return DragDropTypes::DRAG_NONE;
+    return ui::DragDropTypes::DRAG_NONE;
 
   if (!bookmark_utils::IsValidDropLocation(profile, data, parent, index))
-    return DragDropTypes::DRAG_NONE;
+    return ui::DragDropTypes::DRAG_NONE;
 
   if (data.GetFirstNode(profile)) {
     // User is dragging from this profile: move.
-    return DragDropTypes::DRAG_MOVE;
+    return ui::DragDropTypes::DRAG_MOVE;
   }
   // User is dragging from another app, copy.
-  return PreferredDropOperation(event.GetSourceOperations(),
-      DragDropTypes::DRAG_COPY | DragDropTypes::DRAG_LINK);
+  return PreferredDropOperation(event.source_operations(),
+      ui::DragDropTypes::DRAG_COPY | ui::DragDropTypes::DRAG_LINK);
 }
+#endif  // defined(TOOLKIT_VIEWS)
 
 int PerformBookmarkDrop(Profile* profile,
                         const BookmarkNodeData& data,
@@ -262,13 +264,13 @@ int PerformBookmarkDrop(Profile* profile,
         model->Move(dragged_nodes[i], parent_node, index);
         index = parent_node->IndexOfChild(dragged_nodes[i]) + 1;
       }
-      return DragDropTypes::DRAG_MOVE;
+      return ui::DragDropTypes::DRAG_MOVE;
     }
-    return DragDropTypes::DRAG_NONE;
+    return ui::DragDropTypes::DRAG_NONE;
   }
   // Dropping a group from different profile. Always accept.
   bookmark_utils::CloneBookmarkNode(model, data.elements, parent_node, index);
-  return DragDropTypes::DRAG_COPY;
+  return ui::DragDropTypes::DRAG_COPY;
 }
 
 bool IsValidDropLocation(Profile* profile,
@@ -325,7 +327,7 @@ void DragBookmarks(Profile* profile,
 
 #if defined(TOOLKIT_VIEWS)
   // Set up our OLE machinery
-  OSExchangeData data;
+  ui::OSExchangeData data;
   BookmarkNodeData drag_data(nodes);
   drag_data.Write(profile, &data);
 
@@ -337,8 +339,8 @@ void DragBookmarks(Profile* profile,
   MessageLoop::current()->SetNestableTasksAllowed(true);
 
   root_view->StartDragForViewFromMouseEvent(NULL, data,
-      DragDropTypes::DRAG_COPY | DragDropTypes::DRAG_MOVE |
-      DragDropTypes::DRAG_LINK);
+      ui::DragDropTypes::DRAG_COPY | ui::DragDropTypes::DRAG_MOVE |
+      ui::DragDropTypes::DRAG_LINK);
 
   MessageLoop::current()->SetNestableTasksAllowed(was_nested);
 #elif defined(OS_MACOSX)
@@ -428,12 +430,11 @@ bool CanPasteFromClipboard(const BookmarkNode* node) {
   return BookmarkNodeData::ClipboardContainsBookmarks();
 }
 
-std::string GetNameForURL(const GURL& url) {
+string16 GetNameForURL(const GURL& url) {
   if (url.is_valid()) {
-    return WideToUTF8(net::GetSuggestedFilename(
-        url, std::string(), std::string(), FilePath()).ToWStringHack());
+    return net::GetSuggestedFilename(url, "", "", string16());
   } else {
-    return l10n_util::GetStringUTF8(IDS_APP_UNTITLED_SHORTCUT_FILE_NAME);
+    return l10n_util::GetStringUTF16(IDS_APP_UNTITLED_SHORTCUT_FILE_NAME);
   }
 }
 
@@ -441,7 +442,7 @@ std::vector<const BookmarkNode*> GetMostRecentlyModifiedGroups(
     BookmarkModel* model,
     size_t max_count) {
   std::vector<const BookmarkNode*> nodes;
-  TreeNodeIterator<const BookmarkNode> iterator(model->root_node());
+  ui::TreeNodeIterator<const BookmarkNode> iterator(model->root_node());
   while (iterator.has_next()) {
     const BookmarkNode* parent = iterator.Next();
     if (parent->is_folder() && parent->date_group_modified() > base::Time()) {
@@ -479,7 +480,7 @@ std::vector<const BookmarkNode*> GetMostRecentlyModifiedGroups(
 void GetMostRecentlyAddedEntries(BookmarkModel* model,
                                  size_t count,
                                  std::vector<const BookmarkNode*>* nodes) {
-  TreeNodeIterator<const BookmarkNode> iterator(model->root_node());
+  ui::TreeNodeIterator<const BookmarkNode> iterator(model->root_node());
   while (iterator.has_next()) {
     const BookmarkNode* node = iterator.Next();
     if (node->is_url()) {
@@ -494,6 +495,12 @@ void GetMostRecentlyAddedEntries(BookmarkModel* model,
     }
   }
 }
+
+TitleMatch::TitleMatch()
+    : node(NULL) {
+}
+
+TitleMatch::~TitleMatch() {}
 
 bool MoreRecentlyAdded(const BookmarkNode* n1, const BookmarkNode* n2) {
   return n1->date_added() > n2->date_added();
@@ -510,7 +517,7 @@ void GetBookmarksContainingText(BookmarkModel* model,
   if (words.empty())
     return;
 
-  TreeNodeIterator<const BookmarkNode> iterator(model->root_node());
+  ui::TreeNodeIterator<const BookmarkNode> iterator(model->root_node());
   while (iterator.has_next()) {
     const BookmarkNode* node = iterator.Next();
     if (node->is_url() && DoesBookmarkContainWords(node, words, languages)) {
