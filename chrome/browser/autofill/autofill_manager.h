@@ -98,10 +98,9 @@ class AutoFillManager :
     OnFormsSeen(forms);
   }
 
-  bool OnQueryFormFieldAutoFillWrapper(int query_id,
-                                       const webkit_glue::FormData& form,
+  bool OnQueryFormFieldAutoFillWrapper(const webkit_glue::FormData& form,
                                        const webkit_glue::FormField& field) {
-    return OnQueryFormFieldAutoFill(query_id, form, field);
+    return OnQueryFormFieldAutoFill(0, form, field);
   }
 
   void OnFillAutoFillFormDataWrapper(int query_id,
