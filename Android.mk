@@ -121,7 +121,7 @@ LOCAL_SRC_FILES := \
     \
     base/threading/platform_thread_posix.cc \
     base/threading/thread.cc \
-    base/threading/thread_checker.cc \
+    base/threading/thread_checker_impl.cc \
     base/threading/thread_collision_warner.cc \
     base/threading/thread_local_posix.cc \
     base/threading/thread_local_storage_posix.cc \
@@ -169,6 +169,7 @@ LOCAL_SRC_FILES := \
     net/base/network_change_notifier.cc \
     net/base/network_change_notifier_linux.cc \
     net/base/network_change_notifier_netlink_linux.cc \
+    net/base/network_delegate.cc \
     net/base/openssl_memory_private_key_store.cc \
     net/base/pem_tokenizer.cc \
     net/base/platform_mime_util_android.cc \
@@ -247,8 +248,10 @@ LOCAL_SRC_FILES := \
     net/http/http_response_headers.cc \
     net/http/http_response_info.cc \
     net/http/http_stream_factory.cc \
+    net/http/http_stream_factory_impl.cc \
+    net/http/http_stream_factory_impl_job.cc \
+    net/http/http_stream_factory_impl_request.cc \
     net/http/http_stream_parser.cc \
-    net/http/http_stream_request.cc \
     net/http/http_util.cc \
     net/http/http_util_icu.cc \
     net/http/http_vary_data.cc \
@@ -342,6 +345,7 @@ LOCAL_SRC_FILES += \
     \
     chrome/browser/autofill/address.cc \
     chrome/browser/autofill/address_field.cc \
+    chrome/browser/autofill/autofill_country.cc \
     chrome/browser/autofill/autofill_download.cc \
     chrome/browser/autofill/autofill_field.cc \
     chrome/browser/autofill/autofill_manager.cc \
@@ -356,7 +360,6 @@ LOCAL_SRC_FILES += \
     chrome/browser/autofill/form_field.cc \
     chrome/browser/autofill/form_group.cc \
     chrome/browser/autofill/form_structure.cc \
-    chrome/browser/autofill/home_address.cc \
     chrome/browser/autofill/name_field.cc \
     chrome/browser/autofill/home_phone_number.cc \
     chrome/browser/autofill/personal_data_manager.cc \
