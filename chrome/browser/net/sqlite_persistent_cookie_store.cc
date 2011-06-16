@@ -18,11 +18,11 @@
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
 #include "base/threading/thread.h"
-<<<<<<< HEAD
-#ifndef ANDROID
-#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/diagnostics/sqlite_diagnostics.h"
+#ifndef ANDROID
+#include "content/browser/browser_thread.h"
 #endif
+#include "googleurl/src/gurl.h"
 
 #ifdef ANDROID
 base::Thread* getDbThread()
@@ -46,11 +46,6 @@ base::Thread* getDbThread()
   return dbThread;
 }
 #endif
-=======
-#include "chrome/browser/diagnostics/sqlite_diagnostics.h"
-#include "content/browser/browser_thread.h"
-#include "googleurl/src/gurl.h"
->>>>>>> chromium.org at r11.0.696.0
 
 using base::Time;
 
