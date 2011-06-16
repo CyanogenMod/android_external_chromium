@@ -361,14 +361,6 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   // (all zero) fingerprint on failure.
   static SHA1Fingerprint CalculateFingerprint(OSCertHandle cert_handle);
 
-<<<<<<< HEAD
-#if defined(USE_OPENSSL)
-  // Returns the certificate in DER-encoded form, using the application DER
-  // cache as appropriate. The returned string piece will be valid as long
-  // as the handle is.
-  static std::string GetDEREncodedBytes(OSCertHandle handle);
-#endif
-=======
   // Verifies that |hostname| matches one of the names in |cert_names|, based on
   // TLS name matching rules, specifically following http://tools.ietf.org/html/draft-saintandre-tls-server-id-check-09#section-4.4.3
   // The members of |cert_names| must have been extracted from the Subject CN or
@@ -379,7 +371,14 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   static bool VerifyHostname(const std::string& hostname,
                              const std::vector<std::string>& cert_names);
 
->>>>>>> chromium.org at r11.0.696.0
+#ifdef ANDROID
+#if defined(USE_OPENSSL)
+  // Returns the certificate in DER-encoded form, using the application DER
+  // cache as appropriate. The returned string piece will be valid as long
+  // as the handle is.
+  static std::string GetDEREncodedBytes(OSCertHandle handle);
+#endif
+#endif
 
   // The subject of the certificate.
   CertPrincipal subject_;
