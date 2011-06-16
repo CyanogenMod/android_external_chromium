@@ -414,7 +414,6 @@ LOCAL_C_INCLUDES := \
 
 THIRD_PARTY = $(INTERMEDIATES)/third_party
 SCRIPT := $(LOCAL_PATH)/android/generateAndroidForwardingHeader.pl
-CHECK_INTERNAL_HEADER_SCRIPT := $(LOCAL_PATH)/android/haveAutofillInternal.pl
 
 GEN := $(THIRD_PARTY)/expat/files/lib/expat.h
 $(GEN): $(SCRIPT)
@@ -444,12 +443,6 @@ GEN := $(THIRD_PARTY)/WebKit/Source/WebKit/chromium/public/WebString.h
 $(GEN): $(SCRIPT)
 $(GEN):
 	perl $(SCRIPT) $@ "public/WebString.h"
-LOCAL_GENERATED_SOURCES += $(GEN)
-
-GEN = $(INTERMEDIATES)/HaveAutofillInternal.h
-$(GEN): $(CHECK_INTERNAL_HEADER_SCRIPT)
-$(GEN):
-	perl $(CHECK_INTERNAL_HEADER_SCRIPT) $@
 LOCAL_GENERATED_SOURCES += $(GEN)
 
 LOCAL_CFLAGS := -DHAVE_CONFIG_H -DANDROID -fvisibility=hidden -DEXPAT_RELATIVE_PATH -DALLOW_QUOTED_COOKIE_VALUES
