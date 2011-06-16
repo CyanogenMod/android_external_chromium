@@ -4,7 +4,6 @@
 
 #include "chrome/browser/prefs/pref_value_store.h"
 
-#include "base/logging.h"
 #include "chrome/browser/prefs/pref_notifier.h"
 
 PrefValueStore::PrefStoreKeeper::PrefStoreKeeper()
@@ -126,14 +125,12 @@ void PrefValueStore::NotifyPrefChanged(
     const char* path,
     PrefValueStore::PrefStoreType new_store) {
   DCHECK(new_store != INVALID_STORE);
-#ifndef ANDROID
 
   // If the pref is controlled by a higher-priority store, its effective value
   // cannot have changed.
   PrefStoreType controller = ControllingPrefStoreForPref(path);
   if (controller == INVALID_STORE || controller >= new_store)
     pref_notifier_->OnPreferenceChanged(path);
-#endif
 }
 
 bool PrefValueStore::PrefValueInManagedStore(const char* name) const {
@@ -251,7 +248,5 @@ void PrefValueStore::CheckInitializationCompleted() {
     if (store && !store->IsInitializationComplete())
       return;
   }
-#ifndef ANDROID
   pref_notifier_->OnInitializationCompleted();
-#endif
 }

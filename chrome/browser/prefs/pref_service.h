@@ -229,10 +229,6 @@ class PrefService : public base::NonThreadSafe {
 
   bool ReadOnly() const;
 
-#ifndef ANDROID
-  PrefNotifier* pref_notifier() const { return pref_notifier_.get(); }
-#endif
-
   // TODO(mnissler): This should not be public. Change client code to call a
   // preference setter or use ScopedPrefUpdate.
   PrefNotifier* pref_notifier() const;
@@ -250,12 +246,10 @@ class PrefService : public base::NonThreadSafe {
               PrefStore* recommended_cloud_prefs,
               DefaultPrefStore* default_store);
 
-#ifndef ANDROID
   // The PrefNotifier handles registering and notifying preference observers.
   // It is created and owned by this PrefService. Subclasses may access it for
   // unit testing.
   scoped_ptr<PrefNotifierImpl> pref_notifier_;
-#endif
 
  private:
   class PreferencePathComparator {
@@ -282,14 +276,12 @@ class PrefService : public base::NonThreadSafe {
   PrefService(const PrefService& original,
               PrefStore* incognito_extension_prefs);
 
-#ifndef ANDROID
   // If the pref at the given path changes, we call the observer's Observe
   // method with PREF_CHANGED. Note that observers should not call these methods
   // directly but rather use a PrefChangeRegistrar to make sure the observer
   // gets cleaned up properly.
   virtual void AddPrefObserver(const char* path, NotificationObserver* obs);
   virtual void RemovePrefObserver(const char* path, NotificationObserver* obs);
-#endif
 
   // Registers a new preference at |path|. The |default_value| must not be
   // NULL as it determines the preference value's type.

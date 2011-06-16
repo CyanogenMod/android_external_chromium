@@ -14,9 +14,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/ref_counted.h"
 #include "base/values.h"
-#ifndef ANDROID
 #include "chrome/browser/browser_thread.h"
-#endif
 #include "chrome/common/pref_store.h"
 
 class FilePath;
