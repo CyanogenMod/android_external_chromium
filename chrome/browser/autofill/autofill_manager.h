@@ -30,7 +30,6 @@ class FormStructure;
 class PrefService;
 class RenderViewHost;
 class TabContents;
-class TabContentsObserver;
 
 #ifdef ANDROID
 class AutoFillHost;
