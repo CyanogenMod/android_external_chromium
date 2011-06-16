@@ -4,7 +4,7 @@
 
 #include "base/message_loop.h"
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX)
+#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(ANDROID)
 #include <gdk/gdk.h>
 #include <gdk/gdkx.h>
 #endif
