@@ -15,14 +15,13 @@
 #include "base/ref_counted.h"
 #include "base/synchronization/lock.h"
 #include "chrome/browser/search_engines/template_url_id.h"
-<<<<<<< HEAD
+#ifndef ANDROID
+#include "content/browser/browser_thread.h"
+#endif
 #ifdef ANDROID
 #include "third_party/skia/include/core/SkBitmap.h"
 #include <WebCoreSupport/autofill/FormFieldAndroid.h>
 #else
-=======
-#include "content/browser/browser_thread.h"
->>>>>>> chromium.org at r11.0.696.0
 #include "webkit/glue/form_field.h"
 #endif
 
@@ -170,8 +169,11 @@ template <class T> class WDObjectResult : public WDTypedResult {
 class WebDataServiceConsumer;
 
 class WebDataService
-    : public base::RefCountedThreadSafe<WebDataService,
-                                        BrowserThread::DeleteOnUIThread> {
+    : public base::RefCountedThreadSafe<WebDataService
+#ifndef ANDROID
+                                        , BrowserThread::DeleteOnUIThread
+#endif
+                                       > {
  public:
   // All requests return an opaque handle of the following type.
   typedef int Handle;
@@ -511,7 +513,9 @@ class WebDataService
   //
   //////////////////////////////////////////////////////////////////////////////
  private:
+#ifndef ANDROID
   friend struct BrowserThread::DeleteOnThread<BrowserThread::UI>;
+#endif
   friend class DeleteTask<WebDataService>;
   friend class ShutdownTask;
 
