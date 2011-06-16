@@ -16,13 +16,9 @@
 #include "chrome/browser/autofill/autofill_dialog.h"
 #include "chrome/browser/autofill/autofill_download.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
-<<<<<<< HEAD
 #ifndef ANDROID
-#include "chrome/browser/tab_contents/tab_contents_observer.h"
-#endif
-=======
 #include "content/browser/tab_contents/tab_contents_observer.h"
->>>>>>> chromium.org at r11.0.696.0
+#endif
 
 #ifndef ANDROID
 class AutoFillCCInfoBarDelegate;
@@ -46,16 +42,11 @@ class FormField;
 
 // Manages saving and restoring the user's personal information entered into web
 // forms.
-<<<<<<< HEAD
-class AutoFillManager :
+class AutofillManager :
 #ifndef ANDROID
                         public TabContentsObserver,
 #endif
-                        public AutoFillDownloadManager::Observer {
-=======
-class AutofillManager : public TabContentsObserver,
                         public AutofillDownloadManager::Observer {
->>>>>>> chromium.org at r11.0.696.0
  public:
   explicit AutofillManager(TabContents* tab_contents);
   virtual ~AutofillManager();
@@ -65,22 +56,12 @@ class AutofillManager : public TabContentsObserver,
   static void RegisterBrowserPrefs(PrefService* prefs);
 #endif
 
-<<<<<<< HEAD
 #ifndef ANDROID
-  // Registers our Enable/Disable AutoFill pref.
-=======
   // Registers our Enable/Disable Autofill pref.
->>>>>>> chromium.org at r11.0.696.0
   static void RegisterUserPrefs(PrefService* prefs);
 #endif
 
-<<<<<<< HEAD
-  // Returns the TabContents hosting this AutoFillManager.
-  TabContents* tab_contents() const { return tab_contents_; }
-
 #ifndef ANDROID
-=======
->>>>>>> chromium.org at r11.0.696.0
   // TabContentsObserver implementation.
   virtual void DidNavigateMainFramePostCommit(
       const NavigationController::LoadCommittedDetails& details,

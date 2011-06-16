@@ -24,17 +24,8 @@
 #include "chrome/browser/autofill/select_control_handler.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
-<<<<<<< HEAD
-#ifndef ANDROID
-#include "chrome/browser/renderer_host/render_view_host.h"
-#endif
-#include "chrome/browser/tab_contents/tab_contents.h"
-#ifndef ANDROID
-=======
->>>>>>> chromium.org at r11.0.696.0
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/autofill_messages.h"
-#endif
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/guid.h"
 #include "chrome/common/notification_details.h"
@@ -42,8 +33,10 @@
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#ifndef ANDROID
 #include "content/browser/renderer_host/render_view_host.h"
 #include "content/browser/tab_contents/tab_contents.h"
+#endif
 #include "grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "webkit/glue/form_data.h"
@@ -267,24 +260,16 @@ void AutofillManager::RegisterUserPrefs(PrefService* prefs) {
 }
 #endif
 
-<<<<<<< HEAD
 #ifndef ANDROID
-void AutoFillManager::DidNavigateMainFramePostCommit(
-=======
 void AutofillManager::DidNavigateMainFramePostCommit(
->>>>>>> chromium.org at r11.0.696.0
     const NavigationController::LoadCommittedDetails& details,
     const ViewHostMsg_FrameNavigate_Params& params) {
   Reset();
 }
 #endif
 
-<<<<<<< HEAD
 #ifndef ANDROID
-bool AutoFillManager::OnMessageReceived(const IPC::Message& message) {
-=======
 bool AutofillManager::OnMessageReceived(const IPC::Message& message) {
->>>>>>> chromium.org at r11.0.696.0
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(AutofillManager, message)
     IPC_MESSAGE_HANDLER(AutoFillHostMsg_FormsSeen, OnFormsSeen)
@@ -308,13 +293,9 @@ bool AutofillManager::OnMessageReceived(const IPC::Message& message) {
 
 void AutofillManager::OnFormSubmitted(const FormData& form) {
   // Let AutoComplete know as well.
-<<<<<<< HEAD
 #ifndef ANDROID
-  tab_contents_->autocomplete_history_manager()->OnFormSubmitted(form);
-#endif
-=======
   tab_contents()->autocomplete_history_manager()->OnFormSubmitted(form);
->>>>>>> chromium.org at r11.0.696.0
+#endif
 
   if (!IsAutoFillEnabled())
     return;
@@ -351,15 +332,11 @@ void AutofillManager::OnFormsSeen(const std::vector<FormData>& forms) {
   ParseForms(forms);
 }
 
-<<<<<<< HEAD
 #ifdef ANDROID
-bool AutoFillManager::OnQueryFormFieldAutoFill(
+bool AutofillManager::OnQueryFormFieldAutoFill(
 #else
-void AutoFillManager::OnQueryFormFieldAutoFill(
-#endif
-=======
 void AutofillManager::OnQueryFormFieldAutoFill(
->>>>>>> chromium.org at r11.0.696.0
+#endif
     int query_id,
     const webkit_glue::FormData& form,
     const webkit_glue::FormField& field) {
@@ -587,12 +564,8 @@ void AutofillManager::OnFillAutoFillFormData(int query_id,
 #endif
 }
 
-<<<<<<< HEAD
-void AutoFillManager::OnShowAutoFillDialog() {
-#ifndef ANDROID
-=======
 void AutofillManager::OnShowAutoFillDialog() {
->>>>>>> chromium.org at r11.0.696.0
+#ifndef ANDROID
   if (!CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisableTabbedOptions)) {
     Browser* browser = BrowserList::GetLastActive();
@@ -603,19 +576,12 @@ void AutofillManager::OnShowAutoFillDialog() {
 
   ShowAutoFillDialog(tab_contents()->GetContentNativeView(),
                      personal_data_,
-<<<<<<< HEAD
-                     tab_contents_->profile()->GetOriginalProfile());
+                     tab_contents()->profile()->GetOriginalProfile());
 #endif
 }
 
-void AutoFillManager::OnDidFillAutoFillFormData() {
-#ifndef ANDROID
-=======
-                     tab_contents()->profile()->GetOriginalProfile());
-}
-
 void AutofillManager::OnDidFillAutoFillFormData() {
->>>>>>> chromium.org at r11.0.696.0
+#ifndef ANDROID
   NotificationService::current()->Notify(
       NotificationType::AUTOFILL_DID_FILL_FORM_DATA,
       Source<RenderViewHost>(tab_contents()->render_view_host()),
@@ -623,12 +589,9 @@ void AutofillManager::OnDidFillAutoFillFormData() {
 #endif
 }
 
-<<<<<<< HEAD
-void AutoFillManager::OnDidShowAutoFillSuggestions() {
-#ifndef ANDROID
-=======
+
 void AutofillManager::OnDidShowAutoFillSuggestions() {
->>>>>>> chromium.org at r11.0.696.0
+#ifndef ANDROID
   NotificationService::current()->Notify(
       NotificationType::AUTOFILL_DID_SHOW_SUGGESTIONS,
       Source<RenderViewHost>(tab_contents()->render_view_host()),
@@ -656,18 +619,13 @@ void AutofillManager::OnHeuristicsRequestError(
     int http_error) {
 }
 
-<<<<<<< HEAD
-bool AutoFillManager::IsAutoFillEnabled() const {
+bool AutofillManager::IsAutoFillEnabled() const {
 #ifdef ANDROID
   // TODO: This should be a setting in the android UI.
   return true;
 #endif
-  PrefService* prefs = tab_contents_->profile()->GetPrefs();
-=======
-bool AutofillManager::IsAutoFillEnabled() const {
   PrefService* prefs =
       const_cast<AutofillManager*>(this)->tab_contents()->profile()->GetPrefs();
->>>>>>> chromium.org at r11.0.696.0
 
   // Migrate obsolete AutoFill pref.
   if (prefs->FindPreference(prefs::kFormAutofillEnabled)) {
@@ -854,15 +812,11 @@ bool AutofillManager::GetHost(const std::vector<AutoFillProfile*>& profiles,
   if (profiles.empty() && credit_cards.empty())
     return false;
 
-<<<<<<< HEAD
 #ifdef ANDROID
-  *host = tab_contents_->autofill_host();
+  *host = tab_contents()->autofill_host();
 #else
-  *host = tab_contents_->render_view_host();
-#endif
-=======
   *host = tab_contents()->render_view_host();
->>>>>>> chromium.org at r11.0.696.0
+#endif
   if (!*host)
     return false;
 

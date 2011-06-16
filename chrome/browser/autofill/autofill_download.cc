@@ -32,17 +32,13 @@ struct AutofillDownloadManager::FormRequestData {
   AutofillRequestType request_type;
 };
 
-<<<<<<< HEAD
 #ifdef ANDROID
 // Taken from autofill_manager.cc
 const double kAutoFillPositiveUploadRateDefaultValue = 0.01;
 const double kAutoFillNegativeUploadRateDefaultValue = 0.01;
 #endif
 
-AutoFillDownloadManager::AutoFillDownloadManager(Profile* profile)
-=======
 AutofillDownloadManager::AutofillDownloadManager(Profile* profile)
->>>>>>> chromium.org at r11.0.696.0
     : profile_(profile),
       observer_(NULL),
       max_form_cache_size_(kMaxFormCacheSize),
@@ -193,7 +189,13 @@ bool AutofillDownloadManager::StartRequest(
     const std::string& form_xml,
     const FormRequestData& request_data) {
   URLRequestContextGetter* request_context =
+#ifdef ANDROID
+      // On Android, use the webview request context getter which was passed
+      // through in the WebAutoFill::init() method in WebKit.
+      profile_->GetRequestContext();
+#else
       Profile::GetDefaultRequestContext();
+#endif
   // Check if default request context is NULL: this very rarely happens,
   // I think, this could happen only if user opens chrome with some pages
   // loading the forms immediately; I cannot reproduce this even in that
@@ -215,17 +217,7 @@ bool AutofillDownloadManager::StartRequest(
                                            this);
   url_fetchers_[fetcher] = request_data;
   fetcher->set_automatically_retry_on_5xx(false);
-<<<<<<< HEAD
-#ifdef ANDROID
-  // On Android, use the webview request context getter which was passed
-  // through in the WebAutoFill::init() method in WebKit.
-  fetcher->set_request_context(profile_->GetRequestContext());
-#else
-  fetcher->set_request_context(Profile::GetDefaultRequestContext());
-#endif
-=======
   fetcher->set_request_context(request_context);
->>>>>>> chromium.org at r11.0.696.0
   fetcher->set_upload_data("text/plain", form_xml);
   fetcher->Start();
   return true;
