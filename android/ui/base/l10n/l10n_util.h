@@ -71,9 +71,28 @@
 #define IDS_AUTOFILL_EXPIRATION_DATE_RE 38
 #define IDS_AUTOFILL_CARD_IGNORED_RE 39
 #define IDS_AUTOFILL_FAX_RE 40
+#define IDS_AUTOFILL_COUNTRY_CODE_RE 41
+#define IDS_AUTOFILL_AREA_CODE_NOTEXT_RE 42
+#define IDS_AUTOFILL_PHONE_PREFIX_SEPARATOR_RE 43
+#define IDS_AUTOFILL_PHONE_SUFFIX_SEPARATOR_RE 44
+// The following strings that contain 'DIALOG' are not used on Android, but are
+// listed here to avoid extra ifdefs. They have not been added to the framework
+// strings.xml.
+#define IDS_AUTOFILL_DIALOG_PROVINCE 45
+#define IDS_AUTOFILL_DIALOG_POSTAL_CODE 46
+#define IDS_AUTOFILL_DIALOG_STATE 47
+#define IDS_AUTOFILL_DIALOG_ZIP_CODE 48
+#define IDS_AUTOFILL_DIALOG_COUNTY 49
+#define IDS_AUTOFILL_DIALOG_ISLAND 50
+#define IDS_AUTOFILL_DIALOG_DISTRICT 51
+#define IDS_AUTOFILL_DIALOG_DEPARTMENT 52
+#define IDS_AUTOFILL_DIALOG_PREFECTURE 53
+#define IDS_AUTOFILL_DIALOG_PARISH 54
+#define IDS_AUTOFILL_DIALOG_AREA 55
+#define IDS_AUTOFILL_DIALOG_EMIRATE 56
 // Don't forget to update the count if you add a new message ID!
 // (And also update frameworks/base/core/java/android/webkit/L10nUtils.java)
-#define ANDROID_L10N_IDS_MESSAGE_COUNT 41
+#define ANDROID_L10N_IDS_MESSAGE_COUNT 57
 
 namespace l10n_util {
 string16 GetStringUTF16(int message_id);
