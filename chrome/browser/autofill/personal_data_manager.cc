@@ -590,14 +590,10 @@ bool PersonalDataManager::IsDataLoaded() const {
 }
 
 const std::vector<AutoFillProfile*>& PersonalDataManager::profiles() {
-<<<<<<< HEAD
-  // |profile_| is NULL in AutoFillManagerTest.
+  // |profile_| is NULL in AutofillManagerTest.
 #ifdef ANDROID
   bool auxiliary_profiles_enabled = false;
 #else
-=======
-  // |profile_| is NULL in AutofillManagerTest.
->>>>>>> chromium.org at r11.0.696.0
   bool auxiliary_profiles_enabled = profile_ ? profile_->GetPrefs()->GetBoolean(
       prefs::kAutoFillAuxiliaryProfilesEnabled) : false;
 #endif
@@ -627,23 +623,6 @@ const std::vector<CreditCard*>& PersonalDataManager::credit_cards() {
   return credit_cards_.get();
 }
 
-<<<<<<< HEAD
-AutoFillProfile* PersonalDataManager::CreateNewEmptyAutoFillProfileForDBThread(
-    const string16& label) {
-#ifdef ANDROID
-  NOTREACHED();
-  return 0;
-#else
-  // See comment in header for thread details.
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
-  AutoFillProfile* p = new AutoFillProfile;
-  p->set_label(label);
-  return p;
-#endif
-}
-
-=======
->>>>>>> chromium.org at r11.0.696.0
 void PersonalDataManager::Refresh() {
   LoadProfiles();
   LoadCreditCards();
