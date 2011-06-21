@@ -16,9 +16,7 @@
 #include "chrome/browser/autofill/autofill_dialog.h"
 #include "chrome/browser/autofill/autofill_download.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
-#ifndef ANDROID
 #include "content/browser/tab_contents/tab_contents_observer.h"
-#endif
 
 #ifndef ANDROID
 class AutoFillCCInfoBarDelegate;
@@ -42,10 +40,7 @@ class FormField;
 
 // Manages saving and restoring the user's personal information entered into web
 // forms.
-class AutofillManager :
-#ifndef ANDROID
-                        public TabContentsObserver,
-#endif
+class AutofillManager : public TabContentsObserver,
                         public AutofillDownloadManager::Observer {
  public:
   explicit AutofillManager(TabContents* tab_contents);

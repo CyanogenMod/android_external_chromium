@@ -24,13 +24,19 @@
 #include "chrome/browser/autofill/select_control_handler.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile.h"
+#ifndef ANDROID
 #include "chrome/browser/ui/browser_list.h"
+#endif
+#ifndef ANDROID
 #include "chrome/common/autofill_messages.h"
 #include "chrome/common/chrome_switches.h"
+#endif
 #include "chrome/common/guid.h"
+#ifndef ANDROID
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
+#endif
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #ifndef ANDROID
