@@ -14,6 +14,11 @@
 #include "base/file_path.h"
 #include "base/ref_counted.h"
 #include "base/synchronization/lock.h"
+#ifdef ANDROID
+// TODO(kristianm): Quick upstream
+#include "base/task.h"
+#include "base/time.h"
+#endif
 #include "chrome/browser/search_engines/template_url_id.h"
 #ifndef ANDROID
 #include "content/browser/browser_thread.h"
