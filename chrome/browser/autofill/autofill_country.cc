@@ -11,9 +11,13 @@
 #include "base/singleton.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
+#ifndef ANDROID
 #include "chrome/browser/browser_process.h"
+#endif
 #include "grit/generated_resources.h"
+#ifndef ANDROID
 #include "ui/base/l10n/l10n_util_collator.h"
+#endif
 #include "ui/base/l10n/l10n_util.h"
 #include "unicode/coll.h"
 #include "unicode/locid.h"
@@ -431,10 +435,14 @@ const std::string AutofillCountry::GetCountryCode(
         icu::Locale(NULL, country_code.c_str()).getISO3Country();
 
     string16 name = GetDisplayName(country_code, icu_locale);
-    if (country == UTF8ToUTF16(iso3_country_code) ||
-        l10n_util::CompareString16WithCollator(collator.get(),
-                                               country,
-                                               name) == UCOL_EQUAL) {
+    if (country == UTF8ToUTF16(iso3_country_code)
+#ifndef ANDROID
+        // TODO(kristianm): Fix this in Android: http://b/issue?id=4959752
+        || l10n_util::CompareString16WithCollator(collator.get(),
+                                                  country,
+                                                  name) == UCOL_EQUAL
+#endif
+      ) {
       return country_code;
     }
   }
@@ -448,7 +456,12 @@ const std::string AutofillCountry::GetCountryCode(
 
 // static
 const std::string AutofillCountry::ApplicationLocale() {
+#ifdef ANDROID
+  // TODO(kristianm): Fix this in Android: http://b/issue?id=4959752
+  return "";
+#else
   return g_browser_process->GetApplicationLocale();
+#endif
 }
 
 AutofillCountry::AutofillCountry(const std::string& country_code,
