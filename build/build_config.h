@@ -58,7 +58,11 @@
 #if !defined(USE_OPENSSL)
 #define USE_NSS 1  // Default to use NSS for crypto, unless OpenSSL is chosen.
 #endif
+#if !defined(ANDROID)
 #define USE_X11 1  // Use X for graphics.
+#else
+#undef USE_X11
+#endif
 #endif
 
 #if defined(USE_OPENSSL) && defined(USE_NSS)
