@@ -10,7 +10,9 @@
 
 #include "base/metrics/stats_counters.h"
 #include "base/scoped_ptr.h"
+#ifndef ANDROID
 #include "base/third_party/valgrind/memcheck.h"
+#endif
 #include "net/spdy/spdy_frame_builder.h"
 #include "net/spdy/spdy_bitmasks.h"
 
@@ -956,10 +958,12 @@ SpdyFrame* SpdyFramer::CompressFrameWithZStream(const SpdyFrame& frame,
     data_frame->set_flags(data_frame->flags() | DATA_FLAG_COMPRESSED);
   }
 
+#ifndef ANDROID
   // Make sure that all the data we pass to zlib is defined.
   // This way, all Valgrind reports on the compressed data are zlib's fault.
   (void)VALGRIND_CHECK_MEM_IS_DEFINED(compressor->next_in,
                                       compressor->avail_in);
+#endif
 
   int rv = deflate(compressor, Z_SYNC_FLUSH);
   if (rv != Z_OK) {  // How can we know that it compressed everything?
@@ -970,10 +974,12 @@ SpdyFrame* SpdyFramer::CompressFrameWithZStream(const SpdyFrame& frame,
 
   int compressed_size = compressed_max_size - compressor->avail_out;
 
+#ifndef ANDROID
   // We trust zlib. Also, we can't do anything about it.
   // See http://www.zlib.net/zlib_faq.html#faq36
   (void)VALGRIND_MAKE_MEM_DEFINED(new_frame->data() + header_length,
                                   compressed_size);
+#endif
 
   new_frame->set_length(header_length + compressed_size - SpdyFrame::size());
 
